@@ -76,7 +76,9 @@ class Aborted:
     pass
 
 
-Event = Started | StageFinished | StageFailed | GateAnswered | SentBack | Paused | Resumed | Aborted
+RunEvent = (
+    Started | StageFinished | StageFailed | GateAnswered | SentBack | Paused | Resumed | Aborted
+)
 
 
 # Commands: what the shell must do next.
@@ -102,7 +104,7 @@ class Illegal(ValueError):
 
 
 def transition(
-    kinds: tuple[str, ...], state: RunState, event: Event
+    kinds: tuple[str, ...], state: RunState, event: RunEvent
 ) -> tuple[RunState, list[Command]]:
     """`kinds` are the stage types in order (swarm, gate, connector, workflow)."""
     if len(kinds) != len(state.stages):

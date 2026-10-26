@@ -30,15 +30,13 @@ from swarmify_runs.machine import (
     OpenGate,
     Paused,
     Resumed,
+    RunEvent,
     RunState,
     SentBack,
     StageFailed,
     StageFinished,
     Started,
     transition,
-)
-from swarmify_runs.machine import (
-    Event as MachineEvent,
 )
 from swarmify_runs.model import Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
@@ -183,9 +181,11 @@ def _current() -> Runner:
 def execute_run(run_id: str) -> str:
     kinds, status, stages, send_backs = _load(run_id)
     state = RunState(status, tuple(stages), send_backs)  # type: ignore[arg-type]  # CHECKed rows
-    events: list[MachineEvent] = [*_drain(run_id), Started()]
+    events: list[RunEvent] = [*_drain(run_id), Started()]
     error: str | None = None
     while True:
+        if not events:  # at a gate, paused, or after a stale message: wait for the next one
+            events = [_as_event(_wait(run_id))]
         event, events = events[0], events[1:]
         try:
             state, commands = transition(tuple(kinds), state, event)
@@ -194,15 +194,12 @@ def execute_run(run_id: str) -> str:
         _save(run_id, state, error, bool(commands and isinstance(commands[0], OpenGate)))
         if state.status in TERMINAL:
             return state.status
-        if events:
-            continue
-        if not commands or isinstance(commands[0], OpenGate):
-            events = [_as_event(_wait(run_id))]
+        if events or not commands or isinstance(commands[0], OpenGate):
             continue
         index, error = commands[0].index, None
         try:
             _execute(run_id, index)
-            outcome: MachineEvent = StageFinished(index)
+            outcome: RunEvent = StageFinished(index)
         except Exception as exc:  # a failed stage fails the run; the error lands on the stage
             outcome, error = StageFailed(index), f"{type(exc).__name__}: {exc}"
         # ponytail: a pause or abort sent mid-stage lands once the stage finishes. Cancelling a
@@ -210,7 +207,7 @@ def execute_run(run_id: str) -> str:
         events = [*_drain(run_id), outcome]
 
 
-def _as_event(message: dict[str, Any]) -> MachineEvent:
+def _as_event(message: dict[str, Any]) -> RunEvent:
     match message["action"]:
         case "decide" if "to" in message:
             return SentBack(message["index"], message["to"])
@@ -224,9 +221,9 @@ def _as_event(message: dict[str, Any]) -> MachineEvent:
             return Aborted()
 
 
-def _drain(run_id: str) -> list[MachineEvent]:
+def _drain(run_id: str) -> list[RunEvent]:
     """Every control message that arrived while the workflow was busy, in order."""
-    events: list[MachineEvent] = []
+    events: list[RunEvent] = []
     while (message := DBOS.recv(CONTROL_TOPIC, timeout_seconds=0)) is not None:
         if message != WAKE:
             events.append(_as_event(message))
@@ -259,6 +256,9 @@ def _load(run_id: str) -> tuple[list[str], str, list[str], int]:
 @DBOS.step(name="swarmify.save")
 def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) -> None:
     """Save the state; when a gate opened or the run ended, record the event and notify."""
+    # ponytail: one step, so a crash between save, record and notify replays all three and the
+    # world stream gets the run.updated and gate.opened or run.ended events twice. Split into
+    # steps, or key events by (run, state), if duplicates start to matter.
     runner = _current()
     run = runner.storage.save_state(run_id, state, error)
     if run is None:

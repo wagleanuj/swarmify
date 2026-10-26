@@ -21,7 +21,10 @@ class Storage(Protocol):
         """
         ...
 
-    def add_decision(self, run_id: str, decision: Decision) -> None: ...
+    def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
+        """`visit` is the run's send-back count, which tells visits to one gate apart. Raises
+        Illegal when this visit already has a decision."""
+        ...
 
     def record(self, event: Event) -> None:
         """Append one event to the world's stream."""

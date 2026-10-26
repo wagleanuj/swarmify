@@ -10,12 +10,12 @@ from swarmify_runs.machine import (
     TERMINAL,
     Aborted,
     Command,
-    Event,
     GateAnswered,
     Illegal,
     OpenGate,
     Paused,
     Resumed,
+    RunEvent,
     RunStage,
     RunState,
     SentBack,
@@ -52,7 +52,7 @@ class AnyEvents(RuleBasedStateMachine):
         self.commands: list[Command] = []
 
     @rule(event=EVENTS)
-    def send(self, event: Event) -> None:
+    def send(self, event: RunEvent) -> None:
         before = self.state
         try:
             self.state, self.commands = transition(self.kinds, self.state, event)
@@ -117,7 +117,7 @@ class Shell(RuleBasedStateMachine):
         self.state, self.pending = transition(self.kinds, RunState.new(len(kinds)), Started())
         self.started = [c.index for c in self.pending]
 
-    def _apply(self, event: Event) -> None:
+    def _apply(self, event: RunEvent) -> None:
         self.state, commands = transition(self.kinds, self.state, event)
         self.pending += commands
         self.started += [c.index for c in commands]

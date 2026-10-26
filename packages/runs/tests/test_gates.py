@@ -259,6 +259,35 @@ def test_unknown_runs_and_wrong_moments_are_refused(runner: Runner) -> None:
         runner.resume(run.id)
 
 
+def test_a_stale_message_at_a_gate_is_ignored_and_the_run_still_finishes(runner: Runner) -> None:
+    run = runner.start("world_1", "wf_1", 1, "Stale", [RESEARCH, PICK, SCRIPT, REVIEW, PUBLISH])
+    at(runner, run.id, "waiting_gate", "pick")
+    runner.decide(run.id, choice="idea 1")
+    at(runner, run.id, "waiting_gate", "review")
+    runner.client.send(run.id, {"action": "resume"}, topic="control")
+    runner.client.send(run.id, {"action": "decide", "index": 1}, topic="control")  # the old gate
+    runner.decide(run.id)
+    at(runner, run.id, "done")
+
+
+def test_a_second_answer_to_the_same_gate_is_refused(
+    runner: Runner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two people answering at once both see the gate open; only the first answer counts."""
+    run = runner.start("world_1", "wf_1", 1, "Double", [RESEARCH, PICK, PUBLISH])
+    at(runner, run.id, "waiting_gate", "pick")
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(runner, "_send", lambda _run_id, message: sent.append(message))
+    runner.decide(run.id, choice="idea 1")  # the message is in flight: storage still says waiting
+    with pytest.raises(Illegal, match="already decided"):
+        runner.decide(run.id, choice="idea 2")
+    (decision,) = fetch(runner, run.id).decisions
+    assert decision.choice == "idea 1" and "idea 1" in Path(decision.path).read_text()
+    monkeypatch.undo()
+    runner._send(run.id, sent[0])  # pyright: ignore[reportPrivateUsage]
+    at(runner, run.id, "done")
+
+
 def test_control_works_from_another_process_without_launching_dbos(
     runner: Runner, storage: SqliteStorage, tmp_path: Path, notifier: FakeNotifier
 ) -> None:

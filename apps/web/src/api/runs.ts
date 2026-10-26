@@ -70,9 +70,7 @@ export async function actOn(
   const { error, response } = await api.POST(`/api/runs/{run_id}/${action}`, {
     params: { path: { run_id: runId } },
   });
-  if (!error) return null;
-  const detail = (error as { detail?: unknown }).detail;
-  return typeof detail === "string" ? detail : `Could not ${action} the run (${response.status}).`;
+  return refusal(error, response, `Could not ${action} the run`);
 }
 
 export async function decide(runId: string, body: Decide): Promise<string | null> {
@@ -80,7 +78,12 @@ export async function decide(runId: string, body: Decide): Promise<string | null
     params: { path: { run_id: runId } },
     body,
   });
+  return refusal(error, response, "The decision was refused");
+}
+
+/** The API's refusal detail, or `fallback (status).`; null when there was no error. */
+function refusal(error: unknown, response: Response, fallback: string): string | null {
   if (!error) return null;
   const detail = (error as { detail?: unknown }).detail;
-  return typeof detail === "string" ? detail : `The decision was refused (${response.status}).`;
+  return typeof detail === "string" ? detail : `${fallback} (${response.status}).`;
 }

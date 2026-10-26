@@ -14,6 +14,10 @@ CREATE TABLE gate_decisions (
   note         TEXT NOT NULL DEFAULT '',
   send_back_to TEXT,
   path         TEXT NOT NULL,
+  visit        INTEGER NOT NULL DEFAULT 0, -- the run's send-back count when answered
   decided_at   TEXT NOT NULL
 );
 CREATE INDEX gate_decisions_run ON gate_decisions (run_id, decided_at);
+-- Revisiting a gate takes a send-back, so (stage, visit) names one visit. Two answers to one
+-- visit (a double click, web plus MCP) collide here and the second is refused.
+CREATE UNIQUE INDEX gate_decisions_visit ON gate_decisions (run_id, stage_index, visit);

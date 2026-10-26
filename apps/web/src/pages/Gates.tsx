@@ -32,6 +32,8 @@ export function Gates() {
 
   // Gates live across worlds and each world has its own stream, so listen to every one and
   // refetch the inbox whenever a run moves (ADR 0002: skins render events, never tables).
+  // ponytail: one EventSource per world, fine for a handful; a cross-world gate stream when
+  // worlds pile up (browsers cap HTTP/1.1 connections per host at six).
   useEffect(() => {
     const sources = worlds.map((w) => new EventSource(`/api/worlds/${w.id}/events`));
     for (const s of sources) s.addEventListener("run.updated", load);

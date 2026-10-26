@@ -9,7 +9,7 @@ is sent, so the record exists even if the run has moved on by the time the messa
 
 import json
 import re
-from dataclasses import asdict
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,12 +24,10 @@ from swarmify_runs.machine import (
     Illegal,
     Paused,
     Resumed,
+    RunEvent,
     RunState,
     SentBack,
     transition,
-)
-from swarmify_runs.machine import (
-    Event as MachineEvent,
 )
 from swarmify_runs.model import Decision, Gate, Run
 from swarmify_runs.ports import Notifier, Storage
@@ -90,7 +88,8 @@ class RunControl:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
-        send-back target is not an earlier stage, or on the third send-back, and ValueError when
+        send-back target is not an earlier stage, on the third send-back, or when someone
+        else already answered this gate, and ValueError when
         a pick gate gets no choice.
         """
         run = self._run(run_id)
@@ -108,7 +107,7 @@ class RunControl:
             targets = [s.index for s in run.stages if s.name == send_back_to and s.index < index]
             if not targets:
                 raise Illegal(f"no earlier stage named {send_back_to!r}")
-            event: MachineEvent = SentBack(index, targets[0])
+            event: RunEvent = SentBack(index, targets[0])
         else:
             event = GateAnswered(index)
         transition(kinds_of(run), state_of(run), event)  # raises Illegal before anything is written
@@ -116,7 +115,6 @@ class RunControl:
             new_id("dec"), index, stage.name, kind, choice, note, send_back_to, "", _now()
         )
         decision = self._write_decision(run, decision)
-        self.storage.add_decision(run_id, decision)
         message: dict[str, Any] = {"action": "decide", "index": index}
         if isinstance(event, SentBack):
             message["to"] = event.to
@@ -162,7 +160,7 @@ class RunControl:
             self._client.destroy()
             self._client = None
 
-    def _control(self, run_id: str, event: MachineEvent, action: str) -> Run:
+    def _control(self, run_id: str, event: RunEvent, action: str) -> Run:
         run = self._run(run_id)
         transition(kinds_of(run), state_of(run), event)  # raises Illegal when it cannot apply
         self._send(run_id, {"action": action})
@@ -180,12 +178,15 @@ class RunControl:
         self.client.send(run_id, message, topic=CONTROL_TOPIC)
 
     def _write_decision(self, run: Run, decision: Decision) -> Decision:
+        """Record the decision row, then its markdown file."""
         folder = stage_folder(self.data_dir, run, decision.stage_index)
         folder.mkdir(parents=True, exist_ok=True)
         attempt = sum(d.stage_index == decision.stage_index for d in run.decisions) + 1
         path = folder / ("decision.md" if attempt == 1 else f"decision-{attempt}.md")
+        decision = replace(decision, path=str(path))
+        self.storage.add_decision(run.id, decision, run.send_backs)  # Illegal: already answered
         path.write_text(decision_markdown(run, decision))
-        return Decision(**{**asdict(decision), "path": str(path)})
+        return decision
 
 
 def decision_markdown(run: Run, decision: Decision) -> str:

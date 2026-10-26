@@ -23,7 +23,7 @@ test("renders each gate kind with its own control and posts the decision", async
     bodies[id] = await req.json();
     return Response.json(run("running", [stage(0, "x", "connector", "running")], { id }));
   };
-  fakeFetch({
+  const calls = fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
     "GET /api/gates": () => Response.json(inbox),
     "POST /api/runs/run_1/decision": decision("run_1"),
@@ -58,10 +58,12 @@ test("renders each gate kind with its own control and posts the decision", async
   await expect.element(confirm).toMatchTextContent(/Nothing goes out until you confirm\./);
   await confirm.getByRole("button", { name: "Confirm" }).click();
   await vi.waitFor(() => expect(bodies.run_3).toEqual({ note: "" }));
+  // Each answer refetches the inbox; wait for the last one so it never outlives the fake fetch.
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(4));
 });
 
 test("approve without send-backs left says so, and a refused decision is an alert", async () => {
-  fakeFetch({
+  const calls = fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
     "GET /api/gates": () => Response.json([gate("approve", { send_backs_left: 0 })]),
     "POST /api/runs/run_1/decision": () =>
@@ -73,6 +75,7 @@ test("approve without send-backs left says so, and a refused decision is an aler
   await expect.element(card.getByRole("button", { name: "Send back..." })).not.toBeInTheDocument();
   await card.getByRole("button", { name: "Approve" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("already sent back 2 times; approve or abort");
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
 });
 
 test("the inbox refetches when a run moves, and says what it is for when empty", async () => {

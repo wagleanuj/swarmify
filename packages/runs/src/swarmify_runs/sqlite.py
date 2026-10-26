@@ -10,7 +10,7 @@ from pathlib import Path
 from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
-from swarmify_runs.machine import MAX_SEND_BACKS, RunState
+from swarmify_runs.machine import MAX_SEND_BACKS, Illegal, RunState
 from swarmify_runs.model import Decision, Gate, Run, RunStageView, StageDef
 
 MIGRATIONS = Path(__file__).parent / "migrations"
@@ -89,24 +89,29 @@ class SqliteStorage:
             conn.execute("COMMIT")
             return saved
 
-    def add_decision(self, run_id: str, decision: Decision) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
-                " note, send_back_to, path, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    decision.id,
-                    run_id,
-                    decision.stage_index,
-                    decision.stage_name,
-                    decision.kind,
-                    decision.choice,
-                    decision.note,
-                    decision.send_back_to,
-                    decision.path,
-                    decision.decided_at,
-                ),
-            )
+    def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
+                    " note, send_back_to, path, decided_at, visit)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        decision.id,
+                        run_id,
+                        decision.stage_index,
+                        decision.stage_name,
+                        decision.kind,
+                        decision.choice,
+                        decision.note,
+                        decision.send_back_to,
+                        decision.path,
+                        decision.decided_at,
+                        visit,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise Illegal("the gate was already decided") from exc
 
     def record(self, event: Event) -> None:
         with self._conn() as conn:
