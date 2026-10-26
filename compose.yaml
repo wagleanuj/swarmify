@@ -7,13 +7,20 @@ services:
       - data:/data
     environment:
       SWARMIFY_DATA_DIR: /data
+      SWARMIFY_GRAPH_WRITER: external
 
-  # ponytail: stub until the Memory context ships its GraphWriter (ADR 0003); same image, idle loop.
+  # The single writer of every world's graph (ADR 0003). Needs CLAUDE_CODE_OAUTH_TOKEN for
+  # graphify's Claude CLI backend.
   graph-writer:
     build: .
     volumes:
       - data:/data
-    command: ["python", "-c", "import time; print('graph writer stub'); time.sleep(10**9)"]
+    environment:
+      SWARMIFY_DATA_DIR: /data
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    command: ["swarmify-graph-writer"]
+    healthcheck:
+      disable: true
 
 volumes:
   data:

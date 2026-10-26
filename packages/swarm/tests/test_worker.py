@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from swarm_db import DiskFiles
+from swarm_db import DiskFiles, DiskGraphs
 from swarmify_swarm import OPERATOR, WORKER, SdkRuntime, SqliteStorage, StageError, Swarm, tool_id
 from swarmify_swarm.fake import Call, Die, Say, Script
 
@@ -55,17 +55,15 @@ def test_graph_query_then_claim_then_write_then_finish(
         ],
         cost=0.0123,
     )
-    graph_questions: list[str] = []
-    swarm = _swarm(
-        board, tmp_path, script, graph=lambda w, q: graph_questions.append(q) or "Hooks work."
-    )
-    _run(swarm, tmp_path)
+    graphs = DiskGraphs(tmp_path)
+    _run(_swarm(board, tmp_path, script, graphs=graphs), tmp_path)
 
     order = _tools(board)
     assert order.index(tool_id("query_graph")) < order.index(tool_id("claim_task"))
     assert order.index(tool_id("claim_task")) < order.index(tool_id("write_note"))
     assert not any(o.is_error for o in script.outcomes), script.outcomes
-    assert graph_questions == ["What ideas did we reject?"]
+    assert graphs.calls == [(W, "query_graph", {"question": "What ideas did we reject?"})]
+    assert script.outcomes[0].text == f"[world {W}]\nHooks work."
 
     task = board.get_task(task_id)
     assert task and task.status == "done" and task.owner == WORKER
@@ -257,3 +255,37 @@ def test_the_sdk_builds_the_cli_flags_the_contract_relies_on(
     assert cmd[cmd.index("--plugin-dir") + 1] == str(tmp_path / W)
     assert cmd[cmd.index("--permission-mode") + 1] == "dontAsk"
     assert f"--resume={script.sessions[1].resume}" in cmd
+
+
+def test_graph_tools_read_only_the_worlds_the_stage_allows(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    market = tmp_path / "market"
+    market.mkdir()
+    script = Script(
+        [
+            GRAPH,
+            Call(tool_id("god_nodes"), {"world": "market", "top_n": 3}),
+            Call(tool_id("get_node"), {"label": "Hooks", "project_path": str(market)}),
+            Call(tool_id("graph_stats"), {"world": "secret"}),
+            Call(tool_id("query_graph"), {"question": "q", "project_path": str(tmp_path / "x")}),
+            Call(tool_id("shortest_path"), {"source": "a", "target": "b", "world": "video"}),
+        ]
+    )
+    graphs = DiskGraphs(tmp_path)
+    stage = {**STAGE, "graphs": ["market", "video"]}  # video names no world, so it is dropped
+    _run(_swarm(board, tmp_path, script, graphs=graphs), tmp_path, stage)
+
+    assert graphs.calls == [
+        (W, "query_graph", {"question": "What ideas did we reject?"}),
+        ("market", "god_nodes", {"top_n": 3}),
+        ("market", "get_node", {"label": "Hooks"}),
+    ]
+    outcomes = [(o.is_error, o.text.splitlines()[0]) for o in script.outcomes]
+    assert outcomes[:3] == [
+        (False, f"[world {W}]"),
+        (False, "[world market]"),
+        (False, "[world market]"),
+    ]
+    for o in script.outcomes[3:]:
+        assert o.is_error and f"Readable: {W}, market." in o.text

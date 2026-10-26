@@ -149,8 +149,9 @@ task, the stage goal, and the stage is done when the worker's session ends clean
   task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `write_note`,
   `write_artifact`. Notes land in `worlds/<w>/runs/<run>/<stage>/notes/`, artifacts in
   `.../artifacts/`, each as markdown with frontmatter (a non-markdown artifact gets a `.md`
-  sidecar), and each write appends an `artifact.created` event. `query_graph` answers that the
-  graph is empty until the graph writer ships (T09).
+  sidecar), and each write appends an `artifact.created` event. Graph tools (`query_graph`,
+  `get_node`, `get_neighbors`, `god_nodes`, `shortest_path`, `graph_stats`) are described under
+  Graph below.
 - Allowlist: the tools above, `Skill`, `Read` (inside the world folder only), plus per stage
   `web_search` (WebSearch, WebFetch) and any connector named in `tools` (`mcp__<name>__*`, its
   server and credentials passed to the session).
@@ -174,8 +175,33 @@ the SDK's Transport seam: it answers the initialize handshake, fires the registe
 and calls in-process tools over the control protocol, so hooks and tools run for real without a
 model. The e2e server (`tests/e2e/scripted_app.py`) runs the same script.
 
-`docker compose up --build` builds the api image (web skin baked in, served at `/`) and a
-graph writer stub.
+## Graph
+
+Each world's graph is `worlds/<w>/graphify-out/graph.json`, built by graphify (`graphifyy`, a
+dependency of `packages/memory`) from the world's files.
+
+- GraphWriter (Anton in the skin, ADR 0003) is the only writer. It polls the world folders every
+  2 s, waits until a world has been quiet for 30 s after its last change, then runs
+  `python -m graphify extract <world> --backend claude-cli --exclude graphify-out/`. One thread
+  does every rebuild in turn: serialized per world, queued across worlds. Each rebuild appends
+  `graph.rebuilt` (`nodes`, `edges`, `nodes_added`, `edges_added`, `seconds`) or `graph.failed`
+  (`error`) to the world's stream. It runs inside the API process; with
+  `SWARMIFY_GRAPH_WRITER=external` the API leaves it to a `swarmify-graph-writer` process instead
+  (the compose file does this). graphify's Claude CLI backend needs `claude` on PATH and logged in.
+- GraphIndex port: `McpGraphIndex` runs one `python -m graphify.serve` stdio process for every
+  world, picking the graph per call with `project_path`; `FakeGraphIndex` answers from the graph
+  file for tests.
+- Agents' graph tools take an optional `world`: their own world by default, or a world the stage
+  lists under `graphs` (by name or id). Any other world or path is refused, and answers are
+  labelled `[world <name>]` (ADR 0009).
+- `GET /api/worlds/<id>/graph` returns size, god nodes, the last rebuild and the last failure;
+  `POST /api/worlds/<id>/graph/query` (`{"question": ...}`) asks the graph. The page is
+  `/worlds/<id>/graph` (Middle-out) and reloads on `graph.rebuilt` and `graph.failed`.
+- Real graphify runs only in the opt-in test, which spends Claude subscription tokens:
+  `SWARMIFY_GRAPHIFY=1 uv run pytest packages/memory/tests/test_graphify_live.py --no-cov`.
+
+`docker compose up --build` builds the api image (web skin baked in, served at `/`) and the
+graph writer.
 
 ## Layout
 
@@ -188,7 +214,8 @@ graph writer stub.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the
-  Agent SDK adapter `SdkRuntime`; `packages/memory` writes notes and artifacts as files. `tools/check_imports.py` fails CI if a context imports
+  Agent SDK adapter `SdkRuntime`; `packages/memory` writes notes and artifacts as files and declares GraphIndex, with
+  `McpGraphIndex` and `FakeGraphIndex`, plus the GraphWriter. `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);
   `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors` and `packages/swarm`
   each have a Storage port with a SQLite adapter.

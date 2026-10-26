@@ -28,9 +28,18 @@ from swarmify_swarm.ports import (
 )
 from swarmify_swarm.sdk import SdkRuntime
 from swarmify_swarm.sqlite import MIGRATIONS, SqliteStorage
-from swarmify_swarm.worker import WORKER, Files, StageError, Swarm, allowlist
+from swarmify_swarm.worker import (
+    GRAPH_TOOLS,
+    WORKER,
+    Files,
+    Graphs,
+    StageError,
+    Swarm,
+    allowlist,
+)
 
 __all__ = [
+    "GRAPH_TOOLS",
     "HEARTBEAT_TIMEOUT",
     "MIGRATIONS",
     "OPERATOR",
@@ -39,6 +48,7 @@ __all__ = [
     "AgentRuntime",
     "AgentTool",
     "Files",
+    "Graphs",
     "LogEntry",
     "Note",
     "Refused",

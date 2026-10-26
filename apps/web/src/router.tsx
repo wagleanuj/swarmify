@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 
 import { Connectors } from "./pages/Connectors";
+import { Graph } from "./pages/Graph";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
@@ -57,6 +58,12 @@ export const connectorsRoute = createRoute({
   component: Connectors,
 });
 
+export const graphRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/graph",
+  component: Graph,
+});
+
 const routeTree = rootRoute.addChildren([
   worldsRoute,
   worldRoute,
@@ -65,6 +72,7 @@ const routeTree = rootRoute.addChildren([
   runsRoute,
   runRoute,
   connectorsRoute,
+  graphRoute,
 ]);
 
 // `history` is injectable so tests can mount a page at a given URL with a memory history.

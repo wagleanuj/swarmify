@@ -1,6 +1,8 @@
 """FastAPI composition root. Serves the API under /api and the built web skin at /.
 
 Run with `uvicorn --factory swarmify_api.main:create_app`; importing this module touches no disk.
+The GraphWriter runs in the API process unless `SWARMIFY_GRAPH_WRITER=external` says a
+`swarmify-graph-writer` process does it instead; never both (ADR 0003).
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db`, the DBOS system database
 `dbos.sqlite` and `worlds/<id>/`. DBOS launches in the lifespan, so runs execute only while the
 app is served (or inside `with TestClient(app)`).
@@ -9,6 +11,7 @@ app is served (or inside `with TestClient(app)`).
 import asyncio
 import logging
 import os
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime
@@ -23,13 +26,20 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import agents, connectors, runs, tasks, workflows, worlds
+from swarmify_api import agents, connectors, graph, runs, tasks, workflows, worlds
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import Connectors, ConnectorTransport, Credentials, McpTransport
 from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_memory import Memory
+from swarmify_memory import (
+    DEBOUNCE,
+    GraphIndex,
+    GraphWriter,
+    McpGraphIndex,
+    Memory,
+    run_graphify,
+)
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import Connector, Run, Runner, StageDef
 from swarmify_runs import SqliteStorage as RunStorage
@@ -135,6 +145,10 @@ def create_app(
     clock: Callable[[], datetime] = utc_now,
     sweep_seconds: float = SWEEP_SECONDS,
     runtime: AgentRuntime | None = None,
+    graph_index: GraphIndex | None = None,
+    extract: Callable[[Path], None] = run_graphify,
+    graph_debounce: float = DEBOUNCE,
+    graph_poll: float = 2.0,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
     between long-job polls, and `connector` replaces the connector stage call altogether.
@@ -148,10 +162,15 @@ def create_app(
 
     whiteboard = task_board(root)
     world_svc = world_service(root)
+    worlds_dir = root / "worlds"
+    worlds_dir.mkdir(parents=True, exist_ok=True)
+    index = graph_index or McpGraphIndex(worlds_dir)
+    writer = GraphWriter(migrated_db(root), worlds_dir, extract, graph_debounce)
     swarm = Swarm(
         whiteboard,
         runtime or SdkRuntime(),
         Memory(migrated_db(root), root),
+        graphs=graph.WorldGraphs(world_svc, index),
         servers=registry.agent_servers,
         clock=clock,
     )
@@ -177,10 +196,21 @@ def create_app(
         # DBOS refuses its sync API on a running event loop, so launch and stop in a thread.
         await to_thread.run_sync(runner.launch)
         sweeper = asyncio.create_task(sweep())
+        stop = threading.Event()
+        # The GraphWriter's one thread: every world's rebuilds in turn (ADR 0003).
+        rebuilds = threading.Thread(
+            target=writer.run, args=(stop, graph_poll), name="graph-writer", daemon=True
+        )
+        if os.environ.get("SWARMIFY_GRAPH_WRITER") != "external":
+            rebuilds.start()
         yield
+        stop.set()
         sweeper.cancel()
         with suppress(asyncio.CancelledError):
             await sweeper
+        if rebuilds.is_alive():
+            await to_thread.run_sync(lambda: rebuilds.join(5))
+        await to_thread.run_sync(index.close)
         await to_thread.run_sync(runner.shutdown)
 
     app = FastAPI(title="Swarmify", version=VERSION, lifespan=lifespan)
@@ -203,6 +233,7 @@ def create_app(
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, runner.get))
+    app.include_router(graph.router(world_svc, index))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

@@ -152,7 +152,10 @@ export function WorldOverview() {
           )}
         </div>
         <div className="tile">
-          <b>Memory</b>Empty. The graph grows from the first run's notes.
+          <b>Memory</b>The graph grows from every run's notes.{" "}
+          <Link to="/worlds/$worldId/graph" params={{ worldId }}>
+            Open Middle-out
+          </Link>
         </div>
         <div className="tile">
           <b>Connectors</b>Web search and the graph are ready.{" "}

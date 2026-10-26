@@ -4,6 +4,9 @@ in the Context Map); a note is an artifact of type `note`.
 
 Layout: `<data_dir>/worlds/<world>/runs/<run>/<stage>/notes/<slug>.md` and
 `.../<stage>/artifacts/<name>`. An artifact that is not markdown gets a sidecar `<name>.md`.
+
+The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read through
+the GraphIndex port.
 """
 
 import json
@@ -15,8 +18,26 @@ from pathlib import Path
 from swarmify_kernel import Event
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
+from swarmify_memory.fake import FakeGraphIndex
+from swarmify_memory.graph import McpGraphIndex
+from swarmify_memory.ports import EMPTY, GRAPH_OUT, GRAPH_TOOLS, GodNode, GraphIndex, graph_size
+from swarmify_memory.writer import DEBOUNCE, GraphWriter, extract_command, run_graphify
 
-__all__ = ["Memory"]
+__all__ = [
+    "DEBOUNCE",
+    "EMPTY",
+    "GRAPH_OUT",
+    "GRAPH_TOOLS",
+    "FakeGraphIndex",
+    "GodNode",
+    "GraphIndex",
+    "GraphWriter",
+    "McpGraphIndex",
+    "Memory",
+    "extract_command",
+    "graph_size",
+    "run_graphify",
+]
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 

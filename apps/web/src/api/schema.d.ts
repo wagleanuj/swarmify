@@ -419,6 +419,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Graph */
+        get: operations["get_graph_api_worlds__world_id__graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/graph/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Graph */
+        post: operations["query_graph_api_worlds__world_id__graph_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -459,6 +493,11 @@ export interface components {
             updated_at: string;
             /** Skills */
             skills?: string[];
+        };
+        /** Answer */
+        Answer: {
+            /** Answer */
+            answer: string;
         };
         /**
          * Call
@@ -580,6 +619,13 @@ export interface components {
             /** Missing */
             missing: string[];
         };
+        /** Failure */
+        Failure: {
+            /** At */
+            at: string;
+            /** Error */
+            error: string;
+        };
         /**
          * GateStage
          * @description The run stops until a person answers `ask`: pick one, approve or send back, confirm.
@@ -600,6 +646,27 @@ export interface components {
              * @constant
              */
             type: "gate";
+        };
+        /**
+         * GodNode
+         * @description A node with unusually many connections.
+         */
+        GodNode: {
+            /** Label */
+            label: string;
+            /** Degree */
+            degree: number;
+        };
+        /** GraphView */
+        GraphView: {
+            /** Nodes */
+            nodes: number;
+            /** Edges */
+            edges: number;
+            /** God Nodes */
+            god_nodes: components["schemas"]["GodNode"][];
+            rebuilt: components["schemas"]["Rebuild"] | null;
+            failed: components["schemas"]["Failure"] | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -705,6 +772,26 @@ export interface components {
             agent: string;
             /** Note */
             note?: string | null;
+        };
+        /** Question */
+        Question: {
+            /** Question */
+            question: string;
+        };
+        /** Rebuild */
+        Rebuild: {
+            /** At */
+            at: string;
+            /** Nodes */
+            nodes: number;
+            /** Edges */
+            edges: number;
+            /** Nodes Added */
+            nodes_added: number;
+            /** Edges Added */
+            edges_added: number;
+            /** Seconds */
+            seconds: number;
         };
         /**
          * Report
@@ -1868,6 +1955,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LogEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_graph_api_worlds__world_id__graph_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_graph_api_worlds__world_id__graph_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Question"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Answer"];
                 };
             };
             /** @description Validation Error */
