@@ -52,7 +52,9 @@ class Die:
 
 @dataclass(frozen=True)
 class Answer:
-    """The session's structured output (the result's `structured_output`)."""
+    """The session's structured output (the result's `structured_output`). A callable is
+    called with the session's options when the step plays, for answers that depend on ids the
+    script cannot know before the run starts."""
 
     data: Any
 
@@ -202,7 +204,7 @@ class ScriptedTransport(Transport):
             if isinstance(step, Die):
                 raise RuntimeError("the claude process died")
             if isinstance(step, Answer):
-                answer = step.data
+                answer = step.data(self.options) if callable(step.data) else step.data
                 continue
             if isinstance(step, Say):
                 last = step.text

@@ -323,8 +323,6 @@ class Swarm:
         board = self.board
         if all(t.status == "done" for t in board.list_tasks(at.stage_id)):
             return
-        board.agent(at.world_id, at.run_id, at.stage_id, WORKER, "worker")
-        board.update_agent(at.stage_id, WORKER, status="working")
         stage_tools = [str(t) for t in at.config.get("tools") or []]
         allowed = allowlist(stage_tools)
 
@@ -355,6 +353,7 @@ class Swarm:
         loop = len(board.list_verdicts(at.stage_id)) + 1
         notes = files.notes(at.world_id, at.run_id, at.stage_id)
         tasks = board.list_tasks(at.stage_id)
+        prior = files.artifacts(at.world_id, at.run_id)
         if kind is None:
             output = "The stage declares no output type: return no items."
         else:
@@ -373,6 +372,7 @@ class Swarm:
                 " Give your reasons. On fail, name each missing piece as a gap task title; the"
                 " workers take them and you judge again.",
                 output,
+                f"Artifacts of the run: {', '.join(prior)}." if prior else "",
                 "# Whiteboard",
                 *[
                     f"- {t.title} ({t.status}): " + " / ".join(n.body for n in t.notes)
@@ -456,7 +456,7 @@ class Swarm:
                 output_schema=schema,
             )
 
-        return self._session(at, name, role, spec, allowed, parse)
+        return self._session(at, name, role, spec, allowed, parse, fresh=True)
 
     def _session(
         self,
@@ -466,15 +466,19 @@ class Swarm:
         spec: Callable[[str | None], SessionSpec],
         allowed: list[str],
         parse: Callable[[Any], T],
+        fresh: bool = False,
     ) -> T:
         """Run the agent's session to a usable answer. A session that dies, errors or answers
         what `parse` refuses is replaced once by one resuming it; when both fail the stage
-        fails. The first session continues the agent's stored session when it has one."""
+        fails. The first session continues the agent's stored session when it has one, unless
+        `fresh`: a planner or judge answer starts clean so verdicts do not carry each other."""
         board = self.board
-        board.agent(at.world_id, at.run_id, at.stage_id, name, role)
+        before = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
+        board.update_agent(at.stage_id, name, status="working")
         hooks = _Hooks(board, at.stage_id, name, allowed, at.world_folder)
         for attempt in range(SESSIONS):
-            resume = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
+            stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
+            resume = None if fresh and stored == before else stored
             if resume:
                 said = "A replacement resumes" if attempt else "Continuing"
                 board.log(at.stage_id, name, "session", f"{said} session {resume}.")

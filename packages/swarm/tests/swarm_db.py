@@ -30,7 +30,8 @@ class DiskFiles:
         return folder
 
     def artifacts(self, world_id: str, run_id: str) -> list[str]:
-        return []
+        run = self.root / world_id / "runs" / run_id
+        return sorted(str(p.relative_to(run)) for p in run.glob("*/artifacts/*") if p.is_file())
 
     def write_note(
         self,

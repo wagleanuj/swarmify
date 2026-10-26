@@ -14,7 +14,7 @@ from typing import Any
 MAX_LOOPS = 3
 """Gap loops a stage may take. The verdict after the third loop is final: fail fails the stage."""
 
-_TYPE = re.compile(r"^\s*(list\[\s*([a-z][a-z0-9_]*)\s*\]|([a-z][a-z0-9_]*))\s*$")
+_TYPE = re.compile(r"^\s*(list\[\s*([a-z][a-z0-9_]{0,39})\s*\]|([a-z][a-z0-9_]{0,39}))\s*$")
 
 PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -196,7 +196,6 @@ class Projected:
 
     name: str
     type: str
-    title: str
     fields: dict[str, Any]
     body: str
 
@@ -235,7 +234,7 @@ def project(kind: OutputType, items: list[Item], notes: list[tuple[str, str]]) -
                 f"- {s.note} paragraph {s.paragraph}: {_quote(paras[s.note][s.paragraph - 1])}"
                 for s in refs
             ]
-        out.append(Projected(name, kind.type, item.title, fields, "\n".join(lines).strip() + "\n"))
+        out.append(Projected(name, kind.type, fields, "\n".join(lines).strip() + "\n"))
     return out
 
 
@@ -252,9 +251,7 @@ def verdict_file(loop: int, j: Judgement) -> Projected:
         "reasons": j.reasons,
         "gaps": j.gaps,
     }
-    return Projected(
-        f"verdict-{loop}.md", "verdict", fields["title"], fields, "\n".join(lines) + "\n"
-    )
+    return Projected(f"verdict-{loop}.md", "verdict", fields, "\n".join(lines) + "\n")
 
 
 def _quote(text: str) -> str:

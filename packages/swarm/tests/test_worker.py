@@ -176,12 +176,13 @@ def test_a_fail_adds_gap_tasks_and_the_stage_loops_until_a_pass(
     assert (v2.loop, v2.passed, v2.gaps) == (2, True, [])
     gap = board.list_tasks(S)[-1]
     assert (gap.title, gap.added_by, gap.status) == ("Find 2 more ideas", "judge", "done")
-    # The worker's second round continues its session; so does the judge's second pass.
+    # The worker's second round continues its session; each verdict is a fresh judge session.
     assert script.sessions[2].resume == _worker(board).session_id
-    assert script.sessions[3].resume is not None
+    assert script.sessions[1].resume is None and script.sessions[3].resume is None
     assert (
         "loop 2 of at most 4" in script.prompts[3]
         and "Find 2 more ideas (done)" in script.prompts[3]
+        and "verdict-1.md" in script.prompts[3]
     )
 
     verdicts = sorted((tmp_path / W / "runs" / R / S / "artifacts").glob("verdict-*.md"))
@@ -206,8 +207,10 @@ def test_the_fourth_failed_verdict_fails_the_stage(board: SqliteStorage, tmp_pat
         (3, False),
         (4, False),
     ]
-    # A fail without gaps still leaves work: one gap task per reason.
-    assert [t.title for t in board.list_tasks(S)].count("Close the gap: Still thin.") == 4
+    # A fail without gaps still leaves work: one gap task per reason. The final verdict fails
+    # the stage, so it adds none.
+    assert [t.title for t in board.list_tasks(S)].count("Close the gap: Still thin.") == 3
+    assert verdicts[-1].gaps == ["Close the gap: Still thin."]
     assert len(script.sessions) == 8  # four rounds of work, four verdicts, no fifth
 
     with pytest.raises(StageError, match="4 times"):  # a retried stage fails the same way

@@ -27,7 +27,9 @@ def test_output_types_parse_as_one_or_a_list(name: str) -> None:
     assert output_type(f" list[ {name} ] ") == OutputType(name, True)
 
 
-@pytest.mark.parametrize("bad", ["list[idea", "Idea", "list[list[idea]]", "idea card", "[idea]"])
+@pytest.mark.parametrize(
+    "bad", ["list[idea", "Idea", "list[list[idea]]", "idea card", "[idea]", "i" * 41]
+)
 def test_a_malformed_output_type_is_refused(bad: str) -> None:
     with pytest.raises(ValueError, match="not an output type"):
         output_type(bad)

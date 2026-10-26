@@ -4,6 +4,7 @@ behind its transport, notes and artifacts on disk, and the live log on the world
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -160,11 +161,10 @@ def test_the_judge_loops_on_gaps_then_projects_idea_cards_with_sources(
     verdicts and the idea artifacts are served and stream on the world's events."""
     note = Call(tool_id("write_note"), {"title": "Trends", "body": "Chases trend.\n\nHooks win."})
     gap = {"passed": False, "reasons": ["Only one idea."], "gaps": ["Find a second idea"]}
-    script.scripts = [PLAN, [GRAPH, CLAIM, note, FINISH], [Answer(gap)], [CLAIM, FINISH]]
-    with httpx.Client(base_url=live_url, timeout=10) as client:
-        world, run = _start(client, tmp_path)
-        stage = run["stages"][0]["id"]
-        cite = {"note": f"runs/{run['id']}/{stage}/notes/trends.md", "paragraph": 3}
+
+    def passing(options: Any) -> dict:
+        folder = Path(options.cwd)  # the judge runs in the stage folder: runs/<run>/<stage>
+        cite = {"note": f"runs/{folder.parent.name}/{folder.name}/notes/trends.md", "paragraph": 3}
         ideas = [
             {
                 "title": "Hooks",
@@ -175,7 +175,19 @@ def test_the_judge_loops_on_gaps_then_projects_idea_cards_with_sources(
             },
             {"title": "Chase", "body": "A chase.", "rank": 2, "sources": []},
         ]
-        script.scripts.append([Answer({"passed": True, "reasons": ["Two ideas."], "items": ideas})])
+        return {"passed": True, "reasons": ["Two ideas."], "items": ideas}
+
+    script.scripts = [
+        PLAN,
+        [GRAPH, CLAIM, note, FINISH],
+        [Answer(gap)],
+        [CLAIM, FINISH],
+        [Answer(passing)],
+    ]
+    with httpx.Client(base_url=live_url, timeout=10) as client:
+        world, run = _start(client, tmp_path)
+        stage = run["stages"][0]["id"]
+        cite = {"note": f"runs/{run['id']}/{stage}/notes/trends.md"}
         seen: list[str] = []
         with client.stream("GET", f"/api/worlds/{world}/events") as response:
             for type_, _, data in sse_events(response):

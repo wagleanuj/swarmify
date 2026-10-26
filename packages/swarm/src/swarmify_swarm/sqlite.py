@@ -28,6 +28,7 @@ from swarmify_swarm.model import (
     Task,
     Verdict,
 )
+from swarmify_swarm.projection import MAX_LOOPS
 
 Seed = tuple[str, str, tuple[int, ...]]
 """A task to add with others: title, body, indexes of earlier tasks of the batch it needs."""
@@ -207,7 +208,8 @@ class SqliteStorage:
                     verdict.created_at,
                 ),
             )
-            for gap in gaps:
+            # The final allowed verdict fails the stage, so its gaps stay on the verdict only.
+            for gap in gaps if loop <= MAX_LOOPS else []:
                 task_id = _insert_task(conn, world_id, run_id, stage_id, gap, added_by, "", ())
                 self._changed(conn, task_id)
             event = Event.new(

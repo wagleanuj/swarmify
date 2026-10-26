@@ -62,7 +62,7 @@ export function RunTimeline() {
       .GET("/api/runs/{run_id}/stages/{stage_id}/log", {
         params: { path: { run_id: runId, stage_id: stageId } },
       })
-      .then(({ data }) => data && setLog((prev) => merge(data, prev)))
+      .then(({ data }) => data && setLog((prev) => dedupe(data, prev, "seq")))
       .catch(() => undefined);
   }, [runId, stageId]);
 
@@ -73,7 +73,7 @@ export function RunTimeline() {
       .GET("/api/runs/{run_id}/stages/{stage_id}/verdicts", {
         params: { path: { run_id: runId, stage_id: stageId } },
       })
-      .then(({ data }) => data && setVerdicts((prev) => byLoop(data, prev)))
+      .then(({ data }) => data && setVerdicts((prev) => dedupe(data, prev, "loop")))
       .catch(() => undefined);
   }, [runId, stageId]);
 
@@ -109,13 +109,13 @@ export function RunTimeline() {
       if (agent.run_id === runId) setAgents((prev) => ({ ...prev, [agent.id]: agent }));
     },
     "agent.logged": (entry) => {
-      if (entry.stage_id === stageId) setLog((prev) => merge(prev, [entry]));
+      if (entry.stage_id === stageId) setLog((prev) => dedupe(prev, [entry], "seq"));
     },
     "verdict.created": (verdict) => {
-      if (verdict.stage_id === stageId) setVerdicts((prev) => byLoop(prev, [verdict]));
+      if (verdict.stage_id === stageId) setVerdicts((prev) => dedupe(prev, [verdict], "loop"));
     },
     "artifact.created": (created) => {
-      if (created.stage_id === stageId) setArtifactsSeen((n) => n + 1);
+      if (created.stage_id === stageId && created.type !== "note") setArtifactsSeen((n) => n + 1);
     },
     "connector_call.updated": (call) => {
       if (call.run_id === runId) setCalls((prev) => ({ ...prev, [call.idempotency_key]: call }));
@@ -300,16 +300,10 @@ export function RunTimeline() {
   );
 }
 
-/** Verdicts by loop, each once, oldest first. */
-function byLoop(a: Verdict[], b: Verdict[]): Verdict[] {
-  const byId = new Map([...a, ...b].map((v) => [v.loop, v]));
-  return [...byId.values()].sort((x, y) => x.loop - y.loop);
-}
-
-/** Log entries by seq, each once, oldest first. */
-function merge(a: LogEntry[], b: LogEntry[]): LogEntry[] {
-  const bySeq = new Map([...a, ...b].map((e) => [e.seq, e]));
-  return [...bySeq.values()].sort((x, y) => x.seq - y.seq);
+/** Items of both lists by a numeric key, each once (the later wins), oldest first. */
+function dedupe<T, K extends keyof T>(a: T[], b: T[], key: K): T[] {
+  const byKey = new Map([...a, ...b].map((x) => [x[key], x]));
+  return [...byKey.values()].sort((x, y) => Number(x[key]) - Number(y[key]));
 }
 
 /** A connector stage opened: what went in, what came out, and the raw call and response. */

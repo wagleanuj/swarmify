@@ -200,13 +200,15 @@ class Memory:
         body: str,
     ) -> str:
         """A typed artifact (idea, verdict, ...) as markdown: `type` and `fields` go in the
-        frontmatter. Writing a name again replaces the file."""
+        frontmatter, `fields` never overriding the reserved keys (type, author, run, ...) since
+        they may come from model output. Writing a name again replaces the file."""
         if not _NAME.match(name) or not name.endswith(".md"):
             raise ValueError(f"{name!r} is not a plain markdown file name like idea-hooks.md")
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         path = folder / name
-        meta = {**self._meta(type, author, run_id, stage_id, None), **fields}
+        meta: dict[str, Any] = self._meta(type, author, run_id, stage_id, None)
+        meta |= {k: v for k, v in fields.items() if k not in meta}
         path.write_text(_frontmatter(meta) + body)
         return self._created(world_id, run_id, stage_id, author, type, path)
 
