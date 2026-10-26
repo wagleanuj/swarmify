@@ -1,0 +1,63 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+import { FakeEventSource, fakeFetch } from "../test/fakes";
+import { mountAt } from "../test/mount";
+
+const video = {
+  id: "world_1",
+  name: "Video",
+  purpose: "Weekly shorts.",
+  created_at: "2026-10-26T10:00:00+00:00",
+};
+const health = () => Response.json({ version: "0.1.0" });
+
+beforeEach(() => FakeEventSource.install());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+test("shows the world, its tiles and live activity from the world's event stream", async () => {
+  fakeFetch({ "GET /api/worlds/world_1": () => Response.json(video) });
+  const { screen } = await mountAt("/worlds/world_1");
+  await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
+  await expect.element(screen.getByText("Weekly shorts.")).toBeVisible();
+  await expect.element(screen.getByText("Needs you")).toBeVisible();
+  await expect.element(screen.getByRole("link", { name: "worlds" })).toHaveAttribute("href", "/");
+
+  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
+  FakeEventSource.emit("world.created", { seq: 1, type: "world.created", ts: video.created_at });
+  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/world\.created/);
+});
+
+test("deleting asks for confirmation, names the loss, then returns to the worlds list", async () => {
+  const calls = fakeFetch({
+    "GET /api/health": health,
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "DELETE /api/worlds/world_1": () => new Response(null, { status: 204 }),
+    "GET /api/worlds": () => Response.json([]),
+  });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const { screen, router } = await mountAt("/worlds/world_1");
+  await screen.getByRole("button", { name: "Delete world" }).click();
+  await expect.element(screen.getByRole("heading", { name: "Your worlds" })).toBeVisible();
+  expect(confirm.mock.calls[0]?.[0]).toContain("Delete Video?");
+  expect(calls).toContain("DELETE /api/worlds/world_1");
+  expect(router.state.location.pathname).toBe("/");
+});
+
+test("a cancelled confirmation deletes nothing", async () => {
+  const calls = fakeFetch({ "GET /api/worlds/world_1": () => Response.json(video) });
+  vi.spyOn(window, "confirm").mockReturnValue(false);
+  const { screen } = await mountAt("/worlds/world_1");
+  await screen.getByRole("button", { name: "Delete world" }).click();
+  await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
+  expect(calls.filter((c) => c.startsWith("DELETE"))).toEqual([]);
+});
+
+test("an unknown world explains itself and links back", async () => {
+  fakeFetch({});
+  const { screen } = await mountAt("/worlds/world_nope");
+  await expect.element(screen.getByRole("heading", { name: "No such world" })).toBeVisible();
+  await expect.element(screen.getByRole("link", { name: "Back to your worlds." })).toBeVisible();
+});

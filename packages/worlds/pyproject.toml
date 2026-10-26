@@ -1,0 +1,10 @@
+[project]
+name = "swarmify-worlds"
+version = "0.1.0"
+description = "Worlds context: a world is one long-lived memory plus its connectors and cast"
+requires-python = ">=3.12"
+dependencies = ["swarmify-kernel"]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
