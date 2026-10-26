@@ -6,6 +6,8 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 
+import { Runs } from "./pages/Runs";
+import { RunTimeline } from "./pages/RunTimeline";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
@@ -36,11 +38,25 @@ export const workflowRoute = createRoute({
   component: WorkflowEditor,
 });
 
+export const runsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/runs",
+  component: Runs,
+});
+
+export const runRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/runs/$runId",
+  component: RunTimeline,
+});
+
 const routeTree = rootRoute.addChildren([
   worldsRoute,
   worldRoute,
   newWorkflowRoute,
   workflowRoute,
+  runsRoute,
+  runRoute,
 ]);
 
 // `history` is injectable so tests can mount a page at a given URL with a memory history.

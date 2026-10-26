@@ -95,3 +95,24 @@ test("a server error is an alert, not 'No such world'", async () => {
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load this world/);
   await expect.element(screen.getByText("No such world")).not.toBeInTheDocument();
 });
+
+test("starting a run of a workflow opens its timeline", async () => {
+  const weekly = { id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: video.created_at };
+  const started = {
+    id: "run_1", world_id: "world_1", workflow_id: "wf_1", workflow_version: 1, name: "Weekly short",
+    status: "queued", created_at: video.created_at, updated_at: video.created_at, stages: [],
+  };
+  const calls = fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([weekly]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "POST /api/workflows/wf_1/runs": () => Response.json(started, { status: 201 }),
+    "GET /api/runs/run_1": () => Response.json(started),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1");
+  await expect.element(screen.getByText(/None yet. Start one/)).toBeVisible();
+  await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
+  await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/Queued/);
+  expect(calls).toContain("POST /api/workflows/wf_1/runs");
+  expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_1");
+});

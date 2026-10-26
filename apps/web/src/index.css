@@ -59,3 +59,29 @@ textarea { font: 0.9rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; widt
 .versions li { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
 .versions button { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
 @media (max-width: 48rem) { .editor { grid-template-columns: 1fr; } }
+.empty { display: grid; gap: 0.8rem; justify-items: start; border: 1px dashed var(--line); border-radius: 12px; padding: 1rem; }
+.empty p { margin: 0; color: var(--muted); max-width: 40rem; }
+.run-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
+.run-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; gap: 1rem; align-items: center; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; }
+.run-list a { color: inherit; font-weight: 600; text-decoration: none; }
+.run-list a:hover { text-decoration: underline; }
+.status { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid var(--line); }
+.status-running, .status-queued { color: #2f6fb5; }
+.status-waiting_gate { color: #b7791f; border-color: currentColor; }
+.status-done { color: #1e8e4e; }
+.status-failed, .status-aborted { color: #c0392b; }
+.faint-title { color: var(--muted); font-weight: 400; }
+.timeline { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.6rem; }
+.stage { display: grid; gap: 0.25rem; border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.8rem; }
+.stage-head { font: 0.72rem ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.stage-done .stage-head { color: #1e8e4e; }
+.stage-running .stage-head { color: #2f6fb5; }
+.stage-waiting { border-color: #b7791f; }
+.stage-waiting .stage-head { color: #b7791f; }
+.stage-failed { border-color: #c0392b; }
+.stage-failed .stage-head, .stage-error { color: #c0392b; }
+.stage-error { font-size: 0.85rem; }
+.stage-pending b { color: var(--muted); }
+.workflow-list .actions { display: flex; align-items: center; gap: 0.8rem; }
+.workflow-list button { padding: 0.25rem 0.7rem; font-size: 0.85rem; }
+@media (max-width: 48rem) { .run-list li { grid-template-columns: 1fr auto; } }

@@ -23,8 +23,8 @@ workspace), one monorepo. Domain docs live in the Obsidian vault, see `CONTEXT.m
 | `mise run gen-client` | regenerates `apps/web/src/api/schema.d.ts` from the OpenAPI schema |
 | `uv run swarmify-mcp` | the swarmify MCP server over stdio (`claude mcp add swarmify -- uv run swarmify-mcp`) |
 
-Data lives in `SWARMIFY_DATA_DIR` (default `~/.swarmify`): `swarmify.db` and one folder per world
-under `worlds/<id>/`. The API streams every world's events at `GET /api/worlds/<id>/events` (SSE,
+Data lives in `SWARMIFY_DATA_DIR` (default `~/.swarmify`): `swarmify.db`, the DBOS system database
+`dbos.sqlite`, and one folder per world under `worlds/<id>/`. The API streams every world's events at `GET /api/worlds/<id>/events` (SSE,
 `Last-Event-ID` resumes); the MCP server writes to the same database, so its actions show up there.
 
 ## Workflows
@@ -63,6 +63,25 @@ allow the stage type; a connector's `input` must be produced by an earlier stage
 `POST /api/worlds/<id>/workflows/check` only reports. The MCP server exposes `save_workflow`,
 `check_workflow`, `list_workflows` and `get_workflow`.
 
+## Runs
+
+`POST /api/workflows/<id>/runs` (body `{"version": n}` optional, the current version otherwise)
+starts a run pinned to that version. Each run is one DBOS workflow (ADR 0014) with the run id as
+its workflow id and one DBOS step per side effect: load the run, save each new state, execute a
+stage. A crash or restart resumes at the last completed step, so a finished stage never runs again.
+Runs wait on a queue partitioned by world, at most two running per world.
+
+Run status is one of queued, running, waiting_gate, paused, done, failed, aborted; stage status one
+of pending, running, waiting, done, failed, skipped. The rules live in `swarmify_runs.machine`, a
+pure function from (stage kinds, state, event) to (next state, commands); the DBOS workflow only
+executes the commands. Every state change appends a `run.updated` event carrying the whole run to
+the world's stream, which the runs page and the run timeline render live.
+
+For now connector stages are no-ops (T10 wires connectors), a gate waits for a decision that only
+`Runner.answer_gate` can send (T05 adds the inbox and the HTTP and MCP actions), and swarm and
+workflow stages fail the run with a clear error until the swarm (T07) and child runs (T14) ship.
+`GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its stages.
+
 `docker compose up --build` builds the api image (web skin baked in, served at `/`) and a
 graph writer stub.
 
@@ -72,12 +91,13 @@ graph writer stub.
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, ...) and the composition root passes them all to `migrate` once.
+  (kernel 0001, worlds 0002, workflows 0003, runs 0004, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);
-  `packages/worlds` and `packages/workflows` each have a Storage port with a SQLite adapter.
+  `packages/worlds`, `packages/workflows` and `packages/runs` each have a Storage port with a
+  SQLite adapter.
   Workflows learns which connectors a world allows through a function the composition root passes
   in; until the connector registry ships, `apps/api` supplies the built-in connectors.
 - `apps/api` FastAPI composition root; serves `apps/web/dist` at `/` when it exists. Also home of
