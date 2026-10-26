@@ -1,10 +1,10 @@
 """Runs over HTTP, with real DBOS on SQLite behind the app and the fake ConnectorTransport."""
 
-import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
 import httpx
 import pytest
+from api_fakes import until
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -43,13 +43,6 @@ def _setup(client: TestClient) -> tuple[str, str]:
     return world, created.json()["workflow_id"]
 
 
-def _until(check: Callable[[], bool]) -> None:
-    deadline = time.monotonic() + 10
-    while not check():
-        assert time.monotonic() < deadline, "timed out"
-        time.sleep(0.05)
-
-
 def test_start_a_run_and_watch_it_reach_its_gate(
     running: TestClient, transport: FakeTransport
 ) -> None:
@@ -65,7 +58,7 @@ def test_start_a_run_and_watch_it_reach_its_gate(
     ]
 
     url = f"/api/runs/{run['id']}"
-    _until(lambda: running.get(url).json()["status"] == "waiting_gate")
+    until(lambda: running.get(url).json()["status"] == "waiting_gate")
     stages = running.get(url).json()["stages"]
     assert [s["status"] for s in stages] == ["done", "waiting"]
     assert [(c[1], c[2]["idempotency_key"]) for c in transport.calls] == [
@@ -97,7 +90,7 @@ def test_unknown_things_are_404s(running: TestClient) -> None:
 def test_deleting_the_world_takes_its_runs(running: TestClient) -> None:
     world, workflow = _setup(running)
     run = running.post(f"/api/workflows/{workflow}/runs", json={}).json()
-    _until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
     assert running.delete(f"/api/worlds/{world}").status_code == 204
     assert running.get(f"/api/runs/{run['id']}").status_code == 404
 

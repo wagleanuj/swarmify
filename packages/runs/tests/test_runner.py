@@ -31,14 +31,15 @@ def test_a_run_executes_its_connector_waits_at_its_gate_and_finishes(
     assert connector.calls == [(waiting.stages[0].id, "render")]
     assert waiting.stages[0].started_at and waiting.stages[0].ended_at
 
-    runner.answer_gate(run.id, {"choice": "idea 2"})
+    runner.decide(run.id, choice="idea 2")
     wait_for(lambda: status(runner, run.id) == "done")
     assert connector.calls == [(waiting.stages[0].id, "render")]
 
     with closing(connect(storage.path)) as conn:
         events = read_after(conn, "world_1", 0)
-    assert {e.type for e in events} == {"run.updated"}
     assert all(e.run_id == run.id for e in events)
+    assert [e.type for e in events if e.type != "run.updated"] == ["gate.opened", "run.ended"]
+    events = [e for e in events if e.type == "run.updated"]
     seen = [(e.payload["status"], [s["status"] for s in e.payload["stages"]]) for e in events]
     assert seen == [
         ("queued", ["pending", "pending"]),
@@ -86,7 +87,7 @@ def test_each_world_runs_at_most_two_at_once(runner: Runner) -> None:
     assert statuses == ["queued", "waiting_gate", "waiting_gate"]
 
     first = next(r for r in a if status(runner, r.id) == "waiting_gate")
-    runner.answer_gate(first.id, {"ok": True})
+    runner.decide(first.id, choice="A")
     wait_for(lambda: all(status(runner, r.id) != "queued" for r in a))
     assert status(runner, first.id) == "done"
 

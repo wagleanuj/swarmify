@@ -54,7 +54,12 @@ export function Worlds() {
             remembers.
           </p>
         </div>
-        <Health />
+        <div className="row">
+          <Link to="/gates" className="button">
+            Needs you
+          </Link>
+          <Health />
+        </div>
       </header>
       {error && <p role="alert">{error}</p>}
       {worlds?.length === 0 && (

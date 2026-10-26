@@ -218,6 +218,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/gates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Gates
+         * @description Every open gate across all worlds and runs, newest first: the inbox.
+         */
+        get: operations["list_gates_api_gates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide */
+        post: operations["decide_api_runs__run_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause
+         * @description At a gate the pause is immediate; mid-stage it lands when the stage finishes.
+         */
+        post: operations["pause_api_runs__run_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume */
+        post: operations["resume_api_runs__run_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abort
+         * @description Aborts the run and every child run it started.
+         */
+        post: operations["abort_api_runs__run_id__abort_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/connectors": {
         parameters: {
             query?: never;
@@ -619,12 +713,82 @@ export interface components {
             /** Missing */
             missing: string[];
         };
+        /**
+         * Decide
+         * @description A gate answer. Pick gates need `choice`; approve gates may name `send_back_to`, an earlier
+         *     stage that then runs again with `note` in its context; confirm gates take neither.
+         */
+        Decide: {
+            /** Choice */
+            choice?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Send Back To */
+            send_back_to?: string | null;
+        };
+        /**
+         * Decision
+         * @description What a person decided at a gate. `path` is the decision artifact on disk (ADR 0001).
+         */
+        Decision: {
+            /** Id */
+            id: string;
+            /** Stage Index */
+            stage_index: number;
+            /** Stage Name */
+            stage_name: string;
+            /** Kind */
+            kind: string;
+            /** Choice */
+            choice: string | null;
+            /** Note */
+            note: string;
+            /** Send Back To */
+            send_back_to: string | null;
+            /** Path */
+            path: string;
+            /** Decided At */
+            decided_at: string;
+        };
         /** Failure */
         Failure: {
             /** At */
             at: string;
             /** Error */
             error: string;
+        };
+        /**
+         * Gate
+         * @description An open gate as the inbox lists it: which run waits, what it asks, how to answer.
+         */
+        Gate: {
+            /** Run Id */
+            run_id: string;
+            /** World Id */
+            world_id: string;
+            /** Run Name */
+            run_name: string;
+            /** Stage Id */
+            stage_id: string;
+            /** Stage Index */
+            stage_index: number;
+            /** Stage Name */
+            stage_name: string;
+            /** Kind */
+            kind: string;
+            /** Ask */
+            ask: string;
+            /** Opened At */
+            opened_at: string;
+            /** Send Backs Left */
+            send_backs_left: number;
+            /** Earlier Stages */
+            earlier_stages: string[];
+            /** Parent Run Id */
+            parent_run_id?: string | null;
         };
         /**
          * GateStage
@@ -825,10 +989,21 @@ export interface components {
             updated_at: string;
             /** Stages */
             stages: components["schemas"]["RunStageView"][];
+            /**
+             * Send Backs
+             * @default 0
+             */
+            send_backs: number;
+            /** Parent Run Id */
+            parent_run_id?: string | null;
+            /** Decisions */
+            decisions?: components["schemas"]["Decision"][];
         };
         /**
          * RunStageView
          * @description A stage of a run as the timeline shows it. `id` is the connector idempotency key.
+         *
+         *     `notes` are the send-back notes addressed to this stage: its context when it runs again.
          */
         RunStageView: {
             /** Id */
@@ -850,6 +1025,8 @@ export interface components {
             ended_at?: string | null;
             /** Error */
             error?: string | null;
+            /** Notes */
+            notes?: string[];
         };
         /** StartRun */
         StartRun: {
@@ -1528,6 +1705,210 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Run"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_gates_api_gates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gate"][];
+                };
+            };
+        };
+    };
+    decide_api_runs__run_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Decide"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_api_runs__run_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_api_runs__run_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abort_api_runs__run_id__abort_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -1,0 +1,217 @@
+"""Acting on a run from outside its workflow: decide at a gate, pause, resume, abort.
+
+Any process may act. Messages reach the run's DBOS workflow, the single writer of run state,
+through a DBOSClient on the shared system database, so the MCP server works without launching
+DBOS. A queued run has no workflow thread yet, so abort cancels its enqueued workflow and
+writes the terminal state here. The decision artifact is written here too, before the message
+is sent, so the record exists even if the run has moved on by the time the message lands.
+"""
+
+import json
+import re
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from dbos import DBOSClient
+
+from swarmify_kernel import Event, new_id
+from swarmify_runs.machine import (
+    TERMINAL,
+    Aborted,
+    GateAnswered,
+    Illegal,
+    Paused,
+    Resumed,
+    RunState,
+    SentBack,
+    transition,
+)
+from swarmify_runs.machine import (
+    Event as MachineEvent,
+)
+from swarmify_runs.model import Decision, Gate, Run
+from swarmify_runs.ports import Notifier, Storage
+
+CONTROL_TOPIC = "control"
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def stage_folder(data_dir: Path, run: Run, index: int) -> Path:
+    """`<data>/worlds/<world>/runs/<run>/<nn>-<stage>`, readable in Obsidian (ADR 0001)."""
+    name = re.sub(r"[^a-z0-9]+", "-", run.stages[index].name.lower()).strip("-") or "stage"
+    return data_dir / "worlds" / run.world_id / "runs" / run.id / f"{index + 1:02d}-{name}"
+
+
+def state_of(run: Run) -> RunState:
+    return RunState(run.status, tuple(s.status for s in run.stages), run.send_backs)
+
+
+def kinds_of(run: Run) -> tuple[str, ...]:
+    return tuple(s.type for s in run.stages)
+
+
+def ended_event(run: Run) -> Event:
+    return Event.new(
+        "run.ended",
+        world_id=run.world_id,
+        run_id=run.id,
+        payload={"run_id": run.id, "name": run.name, "status": run.status},
+    )
+
+
+class RunControl:
+    def __init__(
+        self, storage: Storage, system_db: Path, data_dir: Path, notifier: Notifier
+    ) -> None:
+        self.storage = storage
+        self.system_db = system_db
+        self.data_dir = data_dir
+        self.notifier = notifier
+        self._client: DBOSClient | None = None
+
+    def get(self, run_id: str) -> Run | None:
+        return self.storage.get_run(run_id)
+
+    def gates(self) -> list[Gate]:
+        return self.storage.open_gates()
+
+    def decide(
+        self,
+        run_id: str,
+        choice: str | None = None,
+        note: str = "",
+        send_back_to: str | None = None,
+    ) -> Run:
+        """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
+
+        Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
+        send-back target is not an earlier stage, or on the third send-back, and ValueError when
+        a pick gate gets no choice.
+        """
+        run = self._run(run_id)
+        index = next((s.index for s in run.stages if s.status == "waiting"), None)
+        if index is None:
+            raise Illegal("the run is not waiting at a gate")
+        _, stage = self.storage.stage_def(run_id, index)
+        kind = stage.config.get("kind") or "approve"
+        note = note.strip()
+        if kind == "pick" and not (choice or "").strip():
+            raise ValueError("a pick gate needs a choice")
+        if send_back_to is not None:
+            if kind != "approve":
+                raise Illegal(f"a {kind} gate cannot send back")
+            targets = [s.index for s in run.stages if s.name == send_back_to and s.index < index]
+            if not targets:
+                raise Illegal(f"no earlier stage named {send_back_to!r}")
+            event: MachineEvent = SentBack(index, targets[0])
+        else:
+            event = GateAnswered(index)
+        transition(kinds_of(run), state_of(run), event)  # raises Illegal before anything is written
+        decision = Decision(
+            new_id("dec"), index, stage.name, kind, choice, note, send_back_to, "", _now()
+        )
+        decision = self._write_decision(run, decision)
+        self.storage.add_decision(run_id, decision)
+        message: dict[str, Any] = {"action": "decide", "index": index}
+        if isinstance(event, SentBack):
+            message["to"] = event.to
+        self._send(run_id, message)
+        return self._run(run_id)
+
+    def pause(self, run_id: str) -> Run:
+        """Pause takes effect at once at a gate, otherwise when the current stage finishes."""
+        return self._control(run_id, Paused(), "pause")
+
+    def resume(self, run_id: str) -> Run:
+        return self._control(run_id, Resumed(), "resume")
+
+    def abort(self, run_id: str) -> Run:
+        """Abort the run and every child run it started (ADR 0013)."""
+        run = self._run(run_id)
+        for child in self.storage.child_run_ids(run_id):
+            try:
+                self.abort(child)
+            except Illegal:
+                pass  # the child already ended
+        state, _ = transition(kinds_of(run), state_of(run), Aborted())
+        if run.status == "queued":
+            self.client.cancel_workflow(run_id)
+            ended = self.storage.save_state(run_id, state)
+            if ended is None:
+                raise KeyError(f"run not found: {run_id}")
+            event = ended_event(ended)
+            self.storage.record(event)
+            self.notifier.notify(event)
+            return ended
+        self._send(run_id, {"action": "abort"})
+        return run
+
+    @property
+    def client(self) -> DBOSClient:
+        if self._client is None:
+            self._client = DBOSClient(system_database_url=f"sqlite:///{self.system_db}", lazy=True)
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.destroy()
+            self._client = None
+
+    def _control(self, run_id: str, event: MachineEvent, action: str) -> Run:
+        run = self._run(run_id)
+        transition(kinds_of(run), state_of(run), event)  # raises Illegal when it cannot apply
+        self._send(run_id, {"action": action})
+        return run
+
+    def _run(self, run_id: str) -> Run:
+        run = self.storage.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        if run.status in TERMINAL:
+            raise Illegal(f"run is {run.status}")
+        return run
+
+    def _send(self, run_id: str, message: dict[str, Any]) -> None:
+        self.client.send(run_id, message, topic=CONTROL_TOPIC)
+
+    def _write_decision(self, run: Run, decision: Decision) -> Decision:
+        folder = stage_folder(self.data_dir, run, decision.stage_index)
+        folder.mkdir(parents=True, exist_ok=True)
+        attempt = sum(d.stage_index == decision.stage_index for d in run.decisions) + 1
+        path = folder / ("decision.md" if attempt == 1 else f"decision-{attempt}.md")
+        path.write_text(decision_markdown(run, decision))
+        return Decision(**{**asdict(decision), "path": str(path)})
+
+
+def decision_markdown(run: Run, decision: Decision) -> str:
+    """Frontmatter is the artifact schema; the outcome is repeated in the body because the graph
+    hashes bodies only (V1 spec, Memory context)."""
+    front = {
+        "type": "decision",
+        "world": run.world_id,
+        "run": run.id,
+        "stage": decision.stage_name,
+        "stage_index": decision.stage_index,
+        "kind": decision.kind,
+        "choice": decision.choice,
+        "send_back_to": decision.send_back_to,
+        "created": decision.decided_at,
+    }
+    lines = [f"{k}: {json.dumps(v)}" for k, v in front.items() if v is not None]
+    if decision.send_back_to:
+        outcome = f"Sent back to {decision.send_back_to}."
+    elif decision.kind == "pick":
+        outcome = f"Picked {decision.choice}."
+    elif decision.kind == "confirm":
+        outcome = "Confirmed."
+    else:
+        outcome = "Approved."
+    body = [f"# Decision at {decision.stage_name}", "", outcome]
+    if decision.note:
+        body += ["", f"Note: {decision.note}"]
+    return "---\n" + "\n".join(lines) + "\n---\n\n" + "\n".join(body) + "\n"

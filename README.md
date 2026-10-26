@@ -78,10 +78,33 @@ executes the commands. Every state change appends a `run.updated` event carrying
 the world's stream, which the runs page and the run timeline render live.
 
 A connector stage calls its connector (see Connectors below), a swarm stage runs its worker (see
-Agents below); a gate waits for a decision that only `Runner.answer_gate` can send (T05 adds the
-inbox and the HTTP and MCP actions), and workflow stages fail the run with a clear error until
-child runs (T14) ship.
-`GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its stages.
+Agents below), a gate waits for a person (see Gates below), and workflow stages fail the run with
+a clear error until child runs (T14) ship.
+`GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its
+stages and decisions.
+
+## Gates
+
+A gate stage pauses the run until a person answers. `GET /api/gates` is the inbox: every open
+gate across all worlds and runs, newest first, each with its `ask`, `kind` and the earlier stages
+it may send the run back to. The web skin shows it at `/gates` and renders each kind:
+
+- `pick` takes a `choice` (idea cards arrive with the swarm; until then the pick is typed).
+- `approve` approves, or names `send_back_to`, an earlier stage that runs again with the note in
+  its context (`notes` on that stage). A run may be sent back twice; the third is refused (409).
+- `confirm` takes a plain yes before anything goes out.
+
+`POST /api/runs/<id>/decision` with `{"choice", "note", "send_back_to"}` answers the gate. Every
+decision is a markdown artifact with frontmatter in the stage folder,
+`worlds/<world>/runs/<run>/<nn>-<stage>/decision.md`, and appears in the run's `decisions`.
+`POST /api/runs/<id>/pause`, `/resume` and `/abort` act on the run; a pause lands at once at a gate
+and otherwise when the current stage finishes; abort cascades to child runs. The MCP server
+exposes `list_gates`, `decide_gate`, `pause_run`, `resume_run`, `abort_run` and `get_run`; it acts
+on the API process's runs through DBOS's system database, so it needs the API running.
+
+The Runs context has a `Notifier` port (ADR 0012). `gate.opened` and `run.ended` are appended to
+the world's event stream and handed to the notifier; the adapter logs a line until Slack ships
+(T16), and tests use a recording fake.
 
 ## Connectors
 
@@ -209,7 +232,7 @@ graph writer.
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007,
+  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008,
   ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,

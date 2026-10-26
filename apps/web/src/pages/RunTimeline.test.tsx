@@ -105,3 +105,61 @@ test("a connector stage that has not started yet says so", async () => {
   await screen.getByRole("button", { name: "Show the call" }).click();
   await expect.element(screen.getByTestId("call")).toMatchTextContent(/No call yet/);
 });
+
+test("a run at a gate links to the inbox, pauses, resumes and aborts, showing decisions", async () => {
+  const waiting = run("waiting_gate", [
+    stage(0, "render", "connector", "done"),
+    stage(1, "review", "gate", "waiting"),
+  ]);
+  const posted: string[] = [];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "POST /api/runs/run_1/pause": () => {
+      posted.push("pause");
+      return Response.json(waiting);
+    },
+    "POST /api/runs/run_1/resume": () => {
+      posted.push("resume");
+      return Response.json(waiting);
+    },
+    "POST /api/runs/run_1/abort": () => Response.json({ detail: "run is done" }, { status: 409 }),
+  });
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect
+    .element(screen.getByRole("link", { name: "Answer the gate" }))
+    .toHaveAttribute("href", "/gates");
+  await screen.getByRole("button", { name: "Pause" }).click();
+  await vi.waitFor(() => expect(posted).toEqual(["pause"]));
+
+  const paused = run("paused", waiting.stages, {
+    send_backs: 1,
+    decisions: [
+      {
+        id: "dec_1",
+        stage_index: 1,
+        stage_name: "review",
+        kind: "approve",
+        choice: null,
+        note: "Darker.",
+        send_back_to: "render",
+        path: "/x/decision.md",
+        decided_at: "2026-10-26T10:00:00+00:00",
+      },
+    ],
+  });
+  paused.stages[0]!.notes = ["Darker."];
+  FakeEventSource.emit("run.updated", { payload: paused });
+  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Paused. Nothing moves until it is resumed. Sent back 1 of 2 times.");
+  await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/Sent back with: Darker\./);
+  await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/You sent it back to render\. Note: Darker\./);
+  await screen.getByRole("button", { name: "Resume" }).click();
+  await vi.waitFor(() => expect(posted).toEqual(["pause", "resume"]));
+
+  await screen.getByRole("button", { name: "Abort" }).click();
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Abort Render then pick?"));
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("run is done");
+
+  FakeEventSource.emit("run.updated", { payload: run("aborted", waiting.stages) });
+  await expect.element(screen.getByTestId("run-actions")).not.toBeInTheDocument();
+});

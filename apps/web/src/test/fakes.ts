@@ -1,7 +1,7 @@
 /** Test doubles for the browser APIs the pages use: fetch routing and EventSource. */
 import { vi } from "vitest";
 
-import type { Run } from "../api/runs";
+import type { Gate, Run } from "../api/runs";
 import type { Task } from "../api/tasks";
 
 type Handler = (req: Request) => Response | Promise<Response>;
@@ -52,10 +52,11 @@ export const stage = (index: number, name: string, type: string, status: string)
   started_at: null,
   ended_at: null,
   error: null as string | null,
+  notes: [] as string[],
 });
 
 /** A run snapshot as the API and `run.updated` carry it. */
-export function run(status: Run["status"], stages: ReturnType<typeof stage>[], over = {}): Run {
+export function run(status: Run["status"], stages: object[], over = {}): Run {
   return {
     id: "run_1",
     world_id: "world_1",
@@ -66,6 +67,9 @@ export function run(status: Run["status"], stages: ReturnType<typeof stage>[], o
     created_at: ts,
     updated_at: ts,
     stages,
+    send_backs: 0,
+    parent_run_id: null,
+    decisions: [],
     ...over,
   } as Run;
 }
@@ -87,6 +91,25 @@ export function task(id: string, status: Task["status"], over: Partial<Task> = {
     updated_at: ts,
     depends_on: [],
     notes: [],
+    ...over,
+  };
+}
+
+/** An open gate as `GET /api/gates` lists it. */
+export function gate(kind: "pick" | "approve" | "confirm", over: Partial<Gate> = {}): Gate {
+  return {
+    run_id: "run_1",
+    world_id: "world_1",
+    run_name: "Weekly short",
+    stage_id: "stage_1",
+    stage_index: 1,
+    stage_name: kind,
+    kind,
+    ask: { pick: "Pick one idea.", approve: "Watch it. Approve or send back.", confirm: "Publish Tuesday 9am?" }[kind],
+    opened_at: ts,
+    send_backs_left: 2,
+    earlier_stages: ["research"],
+    parent_run_id: null,
     ...over,
   };
 }

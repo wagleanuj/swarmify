@@ -52,7 +52,9 @@ def test_killed_mid_stage_the_run_resumes_without_repeating_finished_stages(
     assert done is not None and done.status == "done"
     with closing(connect(storage.path)) as conn:
         snapshots = [
-            [s["status"] for s in e.payload["stages"]] for e in read_after(conn, "world_1", 0)
+            [s["status"] for s in e.payload["stages"]]
+            for e in read_after(conn, "world_1", 0)
+            if e.type == "run.updated"
         ]
     assert snapshots.count(["done", "running", "pending"]) == 1
 
@@ -70,7 +72,7 @@ def test_a_run_waiting_at_its_gate_survives_a_restart(
     second = Runner(storage, tmp_path / "dbos.sqlite", connector, poll_seconds=0.05)
     second.launch()
     try:
-        second.answer_gate(run.id, {"ok": True})
+        second.decide(run.id)
         wait_for(lambda: getattr(storage.get_run(run.id), "status", None) == "done")
     finally:
         second.shutdown()

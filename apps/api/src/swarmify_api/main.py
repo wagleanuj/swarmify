@@ -41,7 +41,7 @@ from swarmify_memory import (
     run_graphify,
 )
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
-from swarmify_runs import Connector, Run, Runner, StageDef
+from swarmify_runs import Connector, LogNotifier, Notifier, Run, RunControl, Runner, StageDef
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
 from swarmify_swarm import AgentRuntime, SdkRuntime, Swarm
@@ -121,6 +121,11 @@ SWEEP_SECONDS = 15.0
 """How often silent claims are returned to open. Well under the two-minute heartbeat timeout."""
 
 
+def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
+    """Act on runs from a process that does not host DBOS, such as the MCP server."""
+    return RunControl(run_storage(root), root / "dbos.sqlite", root, notifier or LogNotifier())
+
+
 class SpaFiles(StaticFiles):
     """The built skin, answering unknown non-API paths with index.html so deep links load."""
 
@@ -149,11 +154,13 @@ def create_app(
     extract: Callable[[Path], None] = run_graphify,
     graph_debounce: float = DEBOUNCE,
     graph_poll: float = 2.0,
+    notifier: Notifier | None = None,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
     between long-job polls, and `connector` replaces the connector stage call altogether.
     `clock` stamps claims and heartbeats and decides when a claim has gone silent. `runtime`
-    runs agent sessions: the Agent SDK by default, a scripted transport in tests."""
+    runs agent sessions: the Agent SDK by default, a scripted transport in tests.
+    `notifier` receives `gate.opened` and `run.ended`; a log line until Slack ships (T16)."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
 
@@ -180,7 +187,12 @@ def create_app(
         swarm.run_stage(run.world_id, run.id, stage_id, stage.name, stage.config, folder)
 
     runner = Runner(
-        run_storage(root), root / "dbos.sqlite", connector or call_connector, swarm=run_swarm
+        run_storage(root),
+        root / "dbos.sqlite",
+        connector or call_connector,
+        root,
+        notifier,
+        swarm=run_swarm,
     )
 
     async def sweep() -> None:

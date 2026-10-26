@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from mcp import Client, StdioServerParameters
 
-from swarmify_api.main import run_storage, task_board, workflow_service, world_service
+from swarmify_api.main import create_app, run_control, task_board, workflow_service, world_service
 from swarmify_api.mcp import server
 from swarmify_runs import Run, StageDef
 
@@ -16,9 +16,7 @@ from swarmify_runs import Run, StageDef
 async def test_world_tools_create_list_get_delete(tmp_path: Path) -> None:
     worlds = world_service(tmp_path)
     async with Client(
-        server(
-            worlds, workflow_service(tmp_path), task_board(tmp_path), run_storage(tmp_path).get_run
-        )
+        server(worlds, workflow_service(tmp_path), task_board(tmp_path), run_control(tmp_path))
     ) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert {"create_world", "list_worlds", "get_world", "delete_world"} <= names
@@ -69,9 +67,7 @@ WEEKLY = (
 async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
     worlds = world_service(tmp_path)
     async with Client(
-        server(
-            worlds, workflow_service(tmp_path), task_board(tmp_path), run_storage(tmp_path).get_run
-        )
+        server(worlds, workflow_service(tmp_path), task_board(tmp_path), run_control(tmp_path))
     ) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert {"save_workflow", "check_workflow", "list_workflows", "get_workflow"} <= names
@@ -143,14 +139,14 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_task_tools_add_and_list_on_a_swarm_stage(tmp_path: Path) -> None:
-    worlds, runs, board = world_service(tmp_path), run_storage(tmp_path), task_board(tmp_path)
+    worlds, control, board = world_service(tmp_path), run_control(tmp_path), task_board(tmp_path)
     world = worlds.create("Video")
-    run = runs.add_run(
+    run = control.storage.add_run(
         Run("run_1", world.id, "wf_1", 1, "Research", "queued", "t", "t", []),
         [StageDef("brief", "gate", {"ask": "Go?"}), StageDef("research", "swarm", {})],
     )
     gate, swarm = run.stages
-    async with Client(server(worlds, workflow_service(tmp_path), board, runs.get_run)) as client:
+    async with Client(server(worlds, workflow_service(tmp_path), board, control)) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert {"add_task", "list_tasks"} <= names
         added = await client.call_tool(
@@ -174,3 +170,72 @@ async def test_task_tools_add_and_list_on_a_swarm_stage(tmp_path: Path) -> None:
         assert (
             await client.call_tool("list_tasks", {"run_id": "run_nope", "stage_id": swarm.id})
         ).is_error
+
+
+REVIEW = (
+    "name: Review loop\nstages:\n  - connector: render\n    calls: remotion_render\n"
+    "  - gate: review\n    ask: Watch it.\n    kind: approve\n  - gate: publish_ok\n"
+    "    ask: Publish?\n    kind: confirm\n  - connector: youtube\n    calls: youtube\n"
+)
+
+
+@pytest.mark.anyio
+async def test_gate_tools_act_on_runs_the_api_process_hosts(tmp_path: Path) -> None:
+    """The MCP server runs in its own process; its control reaches runs through the shared
+    DBOS system database. Here the API app in a TestClient plays the hosting process."""
+    from api_fakes import until
+    from fastapi.testclient import TestClient
+
+    worlds = world_service(tmp_path)
+    control = run_control(tmp_path)
+    with TestClient(create_app(tmp_path, connector=lambda *_: None)) as http:
+        world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": REVIEW}).json()
+        run = http.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+        until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+
+        async with Client(
+            server(worlds, workflow_service(tmp_path), task_board(tmp_path), control)
+        ) as client:
+            names = {t.name for t in (await client.list_tools()).tools}
+            tools = {"list_gates", "decide_gate", "pause_run", "resume_run", "abort_run", "get_run"}
+            assert tools <= names
+
+            gates = await client.call_tool("list_gates")
+            assert gates.structured_content
+            (gate,) = gates.structured_content["result"]
+            assert (gate["run_id"], gate["stage_name"]) == (run["id"], "review")
+            assert gate["kind"] == "approve"
+            assert gate["earlier_stages"] == ["render"] and gate["send_backs_left"] == 2
+
+            back = await client.call_tool(
+                "decide_gate", {"run_id": run["id"], "note": "Darker.", "send_back_to": "render"}
+            )
+            assert not back.is_error and back.structured_content
+            assert back.structured_content["decisions"][0]["send_back_to"] == "render"
+            until(lambda: http.get(f"/api/runs/{run['id']}").json()["send_backs"] == 1)
+            until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+            got = await client.call_tool("get_run", {"run_id": run["id"]})
+            assert got.structured_content
+            assert got.structured_content["stages"][0]["notes"] == ["Darker."]
+
+            paused = await client.call_tool("pause_run", {"run_id": run["id"]})
+            assert not paused.is_error
+            until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "paused")
+            assert (await client.call_tool("pause_run", {"run_id": run["id"]})).is_error
+            resumed = await client.call_tool("resume_run", {"run_id": run["id"]})
+            assert not resumed.is_error
+            until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+
+            approved = await client.call_tool("decide_gate", {"run_id": run["id"]})
+            assert not approved.is_error
+            stage = lambda i: http.get(f"/api/runs/{run['id']}").json()["stages"][i]  # noqa: E731
+            until(lambda: stage(2)["status"] == "waiting")
+            aborted = await client.call_tool("abort_run", {"run_id": run["id"]})
+            assert not aborted.is_error
+            until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "aborted")
+            assert (await client.call_tool("abort_run", {"run_id": run["id"]})).is_error
+            assert (await client.call_tool("decide_gate", {"run_id": "run_nope"})).is_error
+            assert (await client.call_tool("get_run", {"run_id": "run_nope"})).is_error
+            assert (await client.call_tool("list_gates")).structured_content == {"result": []}
+    control.close()

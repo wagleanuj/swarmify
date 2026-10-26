@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { type Agent, type LogEntry, useWorldEvents } from "../api/events";
-import { type Call, type Run, statusLine } from "../api/runs";
+import { actOn, type Call, decisionLine, type Run, statusLine } from "../api/runs";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
@@ -99,6 +99,21 @@ export function RunTimeline() {
       .catch(() => undefined);
   }
 
+  async function act(action: "pause" | "resume" | "abort") {
+    if (!run) return;
+    if (
+      action === "abort" &&
+      !window.confirm(
+        `Abort ${run.name}? Any child runs it started stop too. Finished stages keep their artifacts.`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    const refused = await actOn(run.id, action);
+    if (refused) setError(refused);
+  }
+
   const crumb = (
     <div className="crumb">
       <Link to="/">worlds</Link> /{" "}
@@ -125,6 +140,9 @@ export function RunTimeline() {
       </main>
     );
   }
+  const ended = ["done", "failed", "aborted"].includes(run.status);
+  const decisionAt = (index: number) =>
+    (run.decisions ?? []).filter((d) => d.stage_index === index).at(-1);
   return (
     <main>
       <header className="page">
@@ -135,6 +153,7 @@ export function RunTimeline() {
           </h1>
           <p className="sub" role="status" data-testid="status-line">
             {statusLine(run)}
+            {run.send_backs > 0 && ` Sent back ${run.send_backs} of 2 times.`}
           </p>
           {cost > 0 && (
             <p className="faint" data-testid="run-cost">
@@ -142,7 +161,29 @@ export function RunTimeline() {
             </p>
           )}
         </div>
+        {!ended && (
+          <div className="row" data-testid="run-actions">
+            {run.status === "waiting_gate" && (
+              <Link to="/gates" className="button">
+                Answer the gate
+              </Link>
+            )}
+            {run.status === "paused" ? (
+              <button type="button" onClick={() => act("resume")}>
+                Resume
+              </button>
+            ) : (
+              <button type="button" onClick={() => act("pause")} disabled={run.status === "queued"}>
+                Pause
+              </button>
+            )}
+            <button type="button" className="danger" onClick={() => act("abort")}>
+              Abort
+            </button>
+          </div>
+        )}
       </header>
+      {error && <p role="alert">{error}</p>}
       <ol className="timeline" aria-label="Timeline" data-testid="timeline">
         {run.stages.map((s) => {
           const call = calls[s.id];
@@ -158,6 +199,14 @@ export function RunTimeline() {
                 </span>
               )}
               {s.error && <span className="stage-error">{s.error}</span>}
+              {decisionAt(s.index) && (
+                <span className="stage-note">{decisionLine(decisionAt(s.index)!)}</span>
+              )}
+              {(s.notes ?? []).map((note, i) => (
+                <span className="stage-note" key={i}>
+                  Sent back with: {note}
+                </span>
+              ))}
               {s.type === "swarm" && (
                 <button
                   type="button"
@@ -184,7 +233,6 @@ export function RunTimeline() {
         })}
       </ol>
       {open && <CallPanel call={calls[open]} />}
-      {error && <p role="alert">{error}</p>}
       {stage && stageId && (
         <AgentLog agents={Object.values(agents).filter((a) => a.stage_id === stageId)} log={log} />
       )}

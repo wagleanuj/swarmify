@@ -15,12 +15,15 @@ STAGE_STATUSES: tuple[StageStatus, ...] = (
     "pending", "running", "waiting", "done", "failed", "skipped"
 )  # fmt: skip
 TERMINAL: frozenset[RunStatus] = frozenset({"done", "failed", "aborted"})
+MAX_SEND_BACKS = 2
+"""A run may be sent back twice; the third send-back is refused (V1 spec, story 55)."""
 
 
 @dataclass(frozen=True)
 class RunState:
     status: RunStatus
     stages: tuple[StageStatus, ...]
+    send_backs: int = 0
 
     @staticmethod
     def new(stage_count: int) -> "RunState":
@@ -45,7 +48,17 @@ class StageFailed:
 
 @dataclass(frozen=True)
 class GateAnswered:
+    """The gate at `index` was answered with pick, approve or confirm; the run moves on."""
+
     index: int
+
+
+@dataclass(frozen=True)
+class SentBack:
+    """The gate at `index` sent the run back to the earlier stage `to`, which runs again."""
+
+    index: int
+    to: int
 
 
 @dataclass(frozen=True)
@@ -63,7 +76,7 @@ class Aborted:
     pass
 
 
-Event = Started | StageFinished | StageFailed | GateAnswered | Paused | Resumed | Aborted
+Event = Started | StageFinished | StageFailed | GateAnswered | SentBack | Paused | Resumed | Aborted
 
 
 # Commands: what the shell must do next.
@@ -100,31 +113,49 @@ def transition(
     match event:
         case Started():
             _require(state.status == "queued", "only a queued run starts")
-            return _advance(kinds, RunState("running", state.stages))
+            return _advance(kinds, replace(state, status="running"))
         case StageFinished(i) | GateAnswered(i):
             expected = "waiting" if isinstance(event, GateAnswered) else "running"
             _require(_at(stages, i) == expected, f"stage {i} is not {expected}")
             stages[i] = "done"
-            if state.status == "paused":
-                return RunState("paused", tuple(stages)), []
-            return _advance(kinds, RunState("running", tuple(stages)))
+            return _settle(kinds, state, stages)
+        case SentBack(i, to):
+            _require(_at(stages, i) == "waiting", f"stage {i} is not waiting")
+            _require(0 <= to < i, f"send back must name a stage before {i}")
+            _require(
+                state.send_backs < MAX_SEND_BACKS,
+                f"already sent back {MAX_SEND_BACKS} times; approve or abort",
+            )
+            pending: list[StageStatus] = ["pending"] * (len(stages) - to)
+            stages = stages[:to] + pending
+            return _settle(kinds, replace(state, send_backs=state.send_backs + 1), stages)
         case StageFailed(i):
             _require(_at(stages, i) == "running", f"stage {i} is not running")
             stages[i] = "failed"
-            return RunState("failed", tuple(stages)), []
+            return replace(state, status="failed", stages=tuple(stages)), []
         case Paused():
             _require(state.status in ("running", "waiting_gate"), "nothing to pause")
-            return RunState("paused", state.stages), []
+            return replace(state, status="paused"), []
         case Resumed():
             _require(state.status == "paused", "run is not paused")
             if "running" in stages:
-                return RunState("running", state.stages), []
+                return replace(state, status="running"), []
             if "waiting" in stages:
-                return RunState("waiting_gate", state.stages), []
-            return _advance(kinds, RunState("running", state.stages))
+                return replace(state, status="waiting_gate"), []
+            return _advance(kinds, replace(state, status="running"))
         case Aborted():
             active = ("running", "waiting")
-            return RunState("aborted", tuple("failed" if s in active else s for s in stages)), []
+            ended = tuple("failed" if s in active else s for s in stages)
+            return replace(state, status="aborted", stages=ended), []
+
+
+def _settle(
+    kinds: tuple[str, ...], state: RunState, stages: list[StageStatus]
+) -> tuple[RunState, list[Command]]:
+    """After a stage settled: a paused run holds, a running one moves to the next stage."""
+    if state.status == "paused":
+        return replace(state, stages=tuple(stages)), []
+    return _advance(kinds, replace(state, status="running", stages=tuple(stages)))
 
 
 def _advance(kinds: tuple[str, ...], state: RunState) -> tuple[RunState, list[Command]]:
@@ -135,9 +166,9 @@ def _advance(kinds: tuple[str, ...], state: RunState) -> tuple[RunState, list[Co
     stages = list(state.stages)
     if kinds[i] == "gate":
         stages[i] = "waiting"
-        return RunState("waiting_gate", tuple(stages)), [OpenGate(i)]
+        return replace(state, status="waiting_gate", stages=tuple(stages)), [OpenGate(i)]
     stages[i] = "running"
-    return RunState("running", tuple(stages)), [RunStage(i)]
+    return replace(state, status="running", stages=tuple(stages)), [RunStage(i)]
 
 
 def _at(stages: list[StageStatus], i: int) -> StageStatus | None:

@@ -4,12 +4,13 @@ of its swarm stage, and an injectable clock so a silent claim can time out witho
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
+from api_fakes import until
 from fastapi.testclient import TestClient
 
 from sse import sse_events
@@ -47,19 +48,12 @@ def running(tmp_path: Path, clock: Clock) -> Iterator[TestClient]:
         yield client
 
 
-def _until(check: Callable[[], bool]) -> None:
-    deadline = time.monotonic() + 10
-    while not check():
-        assert time.monotonic() < deadline, "timed out"
-        time.sleep(0.05)
-
-
 def _swarm_stage(client: httpx.Client | TestClient) -> tuple[str, dict, str]:
     """(world id, the run once it waits at its gate, the tasks url of its swarm stage)."""
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
     wf = client.post(f"/api/worlds/{world}/workflows", json={"yaml": GATE_THEN_SWARM}).json()
     run = client.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
-    _until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
     run = client.get(f"/api/runs/{run['id']}").json()
     return world, run, f"/api/runs/{run['id']}/stages/{run['stages'][1]['id']}/tasks"
 
@@ -137,7 +131,7 @@ def test_a_silent_claim_returns_to_open_with_its_partial_notes(
     time.sleep(0.2)
     assert running.get(act).json()["status"] == "claimed"
     clock.now = T0 + timedelta(minutes=2, seconds=1)
-    _until(lambda: running.get(act).json()["status"] == "open")
+    until(lambda: running.get(act).json()["status"] == "open")
     reopened = running.get(act).json()
     assert reopened["owner"] is None
     assert [n["author"] for n in reopened["notes"]] == ["gilfoyle", "swarmify"]
@@ -158,13 +152,13 @@ def test_one_failed_sweep_does_not_stop_the_sweeper(
 
     monkeypatch.setattr(SqliteStorage, "expire", flaky)
     with TestClient(create_app(tmp_path, clock=clock, sweep_seconds=0.05)) as client:
-        _until(lambda: len(calls) >= 1)
+        until(lambda: len(calls) >= 1)
         _, _, url = _swarm_stage(client)
         task = client.post(url, json={"title": "Pull top shorts"}).json()
         act = f"/api/tasks/{task['id']}"
         client.post(f"{act}/claim", json={"agent": "gilfoyle"})
         clock.now = T0 + timedelta(minutes=2, seconds=1)
-        _until(lambda: client.get(act).json()["status"] == "open")
+        until(lambda: client.get(act).json()["status"] == "open")
 
 
 def test_deleting_the_world_takes_its_tasks(running: TestClient) -> None:
