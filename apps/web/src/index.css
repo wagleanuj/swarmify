@@ -81,6 +81,7 @@ textarea { font: 0.9rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; widt
 .stage-failed { border-color: #c0392b; }
 .stage-failed .stage-head, .stage-error { color: #c0392b; }
 .stage-error { font-size: 0.85rem; }
+.stage-log { max-height: 20rem; overflow-y: auto; color: #c0392b; }
 .stage-pending b { color: var(--muted); }
 .workflow-list .actions { display: flex; align-items: center; gap: 0.8rem; }
 .workflow-list button { padding: 0.25rem 0.7rem; font-size: 0.85rem; }

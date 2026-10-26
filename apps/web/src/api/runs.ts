@@ -48,7 +48,7 @@ export function statusLine(run: Run): string {
       return `Done. All ${total} stages finished.`;
     case "failed":
       return failed
-        ? `Failed at stage ${failed.index + 1}, ${failed.name}: ${failed.error ?? "no error recorded"}.`
+        ? `Failed at stage ${failed.index + 1}, ${failed.name}: ${failed.error?.split("\n")[0] ?? "no error recorded"}.`
         : "Failed.";
     case "aborted":
       return "Aborted. Finished stages keep their artifacts.";

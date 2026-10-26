@@ -249,7 +249,7 @@ export function RunTimeline() {
                   </Link>
                 </span>
               )}
-              {s.error && <span className="stage-error">{s.error}</span>}
+              {s.error && <span className="stage-error">{s.error.split("\n")[0]}</span>}
               {decisionAt(s.index) && (
                 <span className="stage-note">{decisionLine(decisionAt(s.index)!)}</span>
               )}
@@ -283,6 +283,7 @@ export function RunTimeline() {
           );
         })}
       </ol>
+      {failedLog(run)}
       {open && <CallPanel call={calls[open]} />}
       {stage && stageId && (
         <AgentLog agents={Object.values(agents).filter((a) => a.stage_id === stageId)} log={log} />
@@ -306,6 +307,22 @@ function dedupe<T, K extends keyof T>(a: T[], b: T[], key: K): T[] {
   return [...byKey.values()].sort((x, y) => Number(x[key]) - Number(y[key]));
 }
 
+/** A failed stage's error past its first line: what the connector printed, a CLI log say. */
+function failedLog(run: Run) {
+  const failed = run.stages.find((s) => s.status === "failed" && s.error?.includes("\n"));
+  if (!failed?.error) return null;
+  return (
+    <section className="call" aria-label="Stage output">
+      <h2>
+        Stage {failed.index + 1}, {failed.name}: what it printed
+      </h2>
+      <pre className="stage-log" data-testid="stage-log">
+        {failed.error.split("\n").slice(1).join("\n")}
+      </pre>
+    </section>
+  );
+}
+
 /** A connector stage opened: what went in, what came out, and the raw call and response. */
 function CallPanel({ call }: { call: Call | null | undefined }) {
   if (call === undefined) return <p role="status">Loading the call...</p>;
@@ -327,7 +344,11 @@ function CallPanel({ call }: { call: Call | null | undefined }) {
         In: {input ?? "nothing"} · Out: {output ?? "nothing"} · attempt {call.attempts}
         {call.polls ? ` · polled ${call.polls} times` : ""} · key <code>{call.idempotency_key}</code>
       </p>
-      {call.error && <p role="alert">{call.error}</p>}
+      {call.error && (
+        <pre role="alert" className="stage-log">
+          {call.error}
+        </pre>
+      )}
       <div className="call-json">
         <div>
           <h3>Request</h3>

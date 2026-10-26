@@ -104,7 +104,7 @@ class Memory:
 
     def artifacts(self, world_id: str, run_id: str) -> list[str]:
         run = self.world_folder(world_id) / "runs" / run_id
-        files = [p for p in run.glob("*/artifacts/*") if p.is_file()]
+        files = [p for p in run.glob("*/artifacts/[!.]*") if p.is_file()]
         sidecars = {p.with_name(f"{p.name}.md") for p in files}
         return sorted(str(p.relative_to(run)) for p in files if p not in sidecars)
 
@@ -155,6 +155,12 @@ class Memory:
             path.write_text(content)
             (folder / f"{name}.md").write_text(f"{meta}Sidecar of {name}.\n")
         return self._created(world_id, run_id, stage_id, author, type, path)
+
+    def record(self, world_id: str, run_id: str, stage_id: str, author: str, path: Path) -> str:
+        """Announce an artifact a connector wrote itself, typed by its sidecar when it has one."""
+        sidecar = path.with_name(f"{path.name}.md")
+        fields = _split(sidecar.read_text())[0] if sidecar.is_file() else {}
+        return self._created(world_id, run_id, stage_id, author, fields.get("type", "file"), path)
 
     def copy_artifacts(
         self,
@@ -225,7 +231,7 @@ class Memory:
         """The stage's artifacts by name, sidecars standing in for their files."""
         folder = self.world_folder(world_id) / "runs" / run_id / stage_id / "artifacts"
         world = self.world_folder(world_id)
-        files = sorted(p for p in folder.glob("*") if p.is_file())
+        files = sorted(p for p in folder.glob("[!.]*") if p.is_file())  # dotfiles: connector state
         names = {p.name for p in files}
         out = []
         for p in files:

@@ -144,7 +144,7 @@ def start(client: TestClient) -> dict[str, Any]:
 
 
 def test_a_connector_stage_records_its_raw_call_keyed_by_the_stage_id(
-    running: TestClient, transport: FakeTransport
+    running: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
     transport.outputs["fal_video"] = [{"job_id": "j1", "poll": "fal_status"}]
     transport.outputs["fal_status"] = [
@@ -157,7 +157,14 @@ def test_a_connector_stage_records_its_raw_call_keyed_by_the_stage_id(
     stage_id = running.get(url).json()["stages"][0]["id"]
 
     call = running.get(f"/api/stages/{stage_id}/call").json()
-    assert call["request"] == {"seconds": 5, "idempotency_key": stage_id, "output": "clip.mp4"}
+    files = f"worlds/{run['world_id']}/runs/{run['id']}/{stage_id}/artifacts"
+    assert call["request"] == {
+        "seconds": 5,
+        "idempotency_key": stage_id,
+        "output": "clip.mp4",
+        "output_path": str(tmp_path / files / "clip.mp4"),
+        "frontmatter": {"world": run["world_id"], "run": run["id"], "stage": stage_id},
+    }
     assert call["response"] == {"status": "done", "url": "https://cdn/clip.mp4"}
     assert (call["status"], call["polls"], call["tool"]) == ("done", 2, "fal_video")
     assert (call["run_id"], call["world_id"]) == (run["id"], run["world_id"])
