@@ -113,6 +113,10 @@ class SqliteStorage:
         except sqlite3.IntegrityError as exc:
             raise Illegal("the gate was already decided") from exc
 
+    def remove_decision(self, decision_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM gate_decisions WHERE id = ?", (decision_id,))
+
     def record(self, event: Event) -> None:
         with self._conn() as conn:
             append(conn, event)

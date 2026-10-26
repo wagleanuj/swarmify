@@ -26,6 +26,10 @@ class Storage(Protocol):
         Illegal when this visit already has a decision."""
         ...
 
+    def remove_decision(self, decision_id: str) -> None:
+        """Undo `add_decision` when the decision could not reach the run."""
+        ...
+
     def record(self, event: Event) -> None:
         """Append one event to the world's stream."""
         ...

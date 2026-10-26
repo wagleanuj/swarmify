@@ -301,3 +301,40 @@ def test_control_works_from_another_process_without_launching_dbos(
         at(remote, run.id, "done")
     finally:
         remote.close()
+
+
+def test_a_notifier_that_raises_does_not_fail_the_run(runner: Runner) -> None:
+    class Boom:
+        def notify(self, event: object) -> None:
+            raise RuntimeError("slack is down")
+
+    runner.notifier = Boom()
+    run = runner.start("world_1", "wf_1", 1, "Loud", [CONFIRM])
+    at(runner, run.id, "waiting_gate", "confirm")
+    runner.decide(run.id)
+    at(runner, run.id, "done")
+
+
+def test_a_decision_that_cannot_reach_the_run_is_undone_and_can_be_retried(
+    runner: Runner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = runner.start("world_1", "wf_1", 1, "Retry", [CONFIRM])
+    at(runner, run.id, "waiting_gate", "confirm")
+    with monkeypatch.context() as m:
+        m.setattr(runner, "_send", lambda *_: (_ for _ in ()).throw(OSError("db locked")))
+        with pytest.raises(OSError):
+            runner.decide(run.id)
+    assert fetch(runner, run.id).decisions == []
+    assert not list(Path(runner.data_dir).rglob("decision*.md"))
+    assert len(runner.decide(run.id).decisions) == 1
+    at(runner, run.id, "done")
+
+
+def test_a_run_already_ended_when_its_workflow_loads_returns_at_once(
+    runner: Runner, storage: SqliteStorage
+) -> None:
+    from dbos import DBOS
+
+    ended = Run("run_gone", "world_1", "wf_1", 1, "Gone", "aborted", "t", "t", [])
+    runner._enqueue(storage.add_run(ended, [PICK]))  # pyright: ignore[reportPrivateUsage]
+    wait_for(lambda: getattr(DBOS.get_workflow_status("run_gone"), "status", None) == "SUCCESS")

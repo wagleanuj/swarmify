@@ -118,7 +118,13 @@ class RunControl:
         message: dict[str, Any] = {"action": "decide", "index": index}
         if isinstance(event, SentBack):
             message["to"] = event.to
-        self._send(run_id, message)
+        try:
+            self._send(run_id, message)
+        except Exception:
+            # Undo the answer so the gate can be answered again once DBOS is reachable.
+            self.storage.remove_decision(decision.id)
+            Path(decision.path).unlink(missing_ok=True)
+            raise
         return self._run(run_id)
 
     def pause(self, run_id: str) -> Run:

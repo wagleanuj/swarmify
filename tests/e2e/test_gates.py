@@ -1,10 +1,21 @@
+import shlex
+import sys
+from pathlib import Path
+
 import httpx
 from playwright.sync_api import Page, expect
 
+ECHO = Path(__file__).parents[2] / "packages/connectors/tests/echo_server.py"
+ECHO_CONNECTOR = {
+    "name": "echo",
+    "kind": "stage",
+    "server": shlex.join([sys.executable, str(ECHO)]),
+    "stage_types": ["connector"],
+}
 REVIEW = """name: Review loop
 stages:
   - connector: render
-    calls: remotion_render
+    calls: echo
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve
@@ -14,6 +25,8 @@ stages:
 def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_url: str) -> None:
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Video"}).json()
     try:
+        connectors = f"{base_url}/api/worlds/{world['id']}/connectors"
+        httpx.post(connectors, json=ECHO_CONNECTOR).raise_for_status()
         wf = httpx.post(f"{base_url}/api/worlds/{world['id']}/workflows", json={"yaml": REVIEW})
         run = httpx.post(f"{base_url}/api/workflows/{wf.json()['workflow_id']}/runs", json={})
         page.goto(f"{base_url}/gates")

@@ -60,6 +60,7 @@ _waiting: set[str] = set()
 _waiting_lock = threading.Lock()
 _stopping = threading.Event()
 WAKE = {"swarmify": "wake"}
+log = logging.getLogger(__name__)
 
 
 class LogNotifier:
@@ -180,6 +181,8 @@ def _current() -> Runner:
 @DBOS.workflow(name="swarmify.run")
 def execute_run(run_id: str) -> str:
     kinds, status, stages, send_backs = _load(run_id)
+    if status in TERMINAL:  # aborted between dequeue and load: nothing to run or wait for
+        return status
     state = RunState(status, tuple(stages), send_backs)  # type: ignore[arg-type]  # CHECKed rows
     events: list[RunEvent] = [*_drain(run_id), Started()]
     error: str | None = None
@@ -284,7 +287,10 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     else:
         return
     runner.storage.record(event)
-    runner.notifier.notify(event)
+    try:
+        runner.notifier.notify(event)
+    except Exception:  # a notifier outage (Slack, T16) must not fail the run; the event is recorded
+        log.exception("notifier failed on %s for run %s", event.type, run_id)
 
 
 @DBOS.step(name="swarmify.execute")
