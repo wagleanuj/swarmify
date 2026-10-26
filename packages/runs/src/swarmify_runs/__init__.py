@@ -26,7 +26,7 @@ from swarmify_runs.model import (
     StageDef,
 )
 from swarmify_runs.ports import Notifier, Storage
-from swarmify_runs.runner import DEFAULT_CAP, Connector, LogNotifier, Pin, Runner, Swarm, Take
+from swarmify_runs.runner import DEFAULT_CAP, Connector, LogNotifier, Pin, Runner, SwarmStage, Take
 from swarmify_runs.sqlite import MIGRATIONS, SqliteStorage
 
 __all__ = [
@@ -56,7 +56,7 @@ __all__ = [
     "StageDef",
     "StageStatus",
     "Storage",
-    "Swarm",
+    "SwarmStage",
     "Take",
     "stage_folder",
 ]

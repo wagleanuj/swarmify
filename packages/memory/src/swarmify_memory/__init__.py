@@ -127,7 +127,7 @@ class Memory:
         while path.exists():
             n += 1
             path = folder / f"{_slug(title)}-{n}.md"
-        meta = self._meta("note", author, run_id, stage_id, task_id)
+        meta = self._meta("note", world_id, author, run_id, stage_id, task_id)
         path.write_text(f"{_frontmatter(meta)}# {title}\n\n{body.strip()}\n")
         return self._created(world_id, run_id, stage_id, author, "note", path)
 
@@ -148,7 +148,9 @@ class Memory:
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         path = folder / name
-        meta = _frontmatter({**self._meta(type, author, run_id, stage_id, None), **(fields or {})})
+        meta = _frontmatter(
+            {**self._meta(type, world_id, author, run_id, stage_id, None), **(fields or {})}
+        )
         if path.suffix == ".md":
             path.write_text(meta + content)
         else:
@@ -200,14 +202,14 @@ class Memory:
         body: str,
     ) -> str:
         """A typed artifact (idea, verdict, ...) as markdown: `type` and `fields` go in the
-        frontmatter, `fields` never overriding the reserved keys (type, author, run, ...) since
+        frontmatter, `fields` never overriding the reserved keys (type, world, agent, ...) since
         they may come from model output. Writing a name again replaces the file."""
         if not _NAME.match(name) or not name.endswith(".md"):
             raise ValueError(f"{name!r} is not a plain markdown file name like idea-hooks.md")
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         path = folder / name
-        meta: dict[str, Any] = self._meta(type, author, run_id, stage_id, None)
+        meta: dict[str, Any] = self._meta(type, world_id, author, run_id, stage_id, None)
         meta |= {k: v for k, v in fields.items() if k not in meta}
         path.write_text(_frontmatter(meta) + body)
         return self._created(world_id, run_id, stage_id, author, type, path)
@@ -237,7 +239,7 @@ class Memory:
                     p.name.removesuffix(".md") if p.name[:-3] in names else p.name,
                     str(p.relative_to(world)),
                     str(fields.get("type", "file")),
-                    str(fields.get("author", "")),
+                    str(fields.get("agent", "")),
                     str(fields.get("title") or p.name),
                     fields,
                     body,
@@ -247,11 +249,12 @@ class Memory:
 
     @staticmethod
     def _meta(
-        type: str, author: str, run_id: str, stage_id: str, task_id: str | None
+        type: str, world_id: str, agent: str, run_id: str, stage_id: str, task_id: str | None
     ) -> dict[str, str | None]:
         return {
             "type": type,
-            "author": author,
+            "world": world_id,
+            "agent": agent,
             "run": run_id,
             "stage": stage_id,
             "task": task_id,

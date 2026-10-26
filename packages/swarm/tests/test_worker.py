@@ -520,3 +520,22 @@ def test_graph_tools_read_only_the_worlds_the_stage_allows(
     ]
     for o in script.outcomes[3:6]:
         assert o.is_error and f"Readable: {W}, market." in o.text
+
+
+def test_connector_secrets_reach_the_cli_through_its_environment_not_argv(tmp_path: Path) -> None:
+    from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
+
+    from swarmify_swarm.ports import SessionSpec
+    from swarmify_swarm.sdk import options
+
+    servers = {
+        "fal": {"type": "stdio", "command": "fal-mcp", "args": [], "env": {"FAL_KEY": "s3cret"}},
+        "notes": {"type": "http", "url": "https://n.example", "headers": {"NOTES_TOKEN": "t0ken"}},
+    }
+    spec = SessionSpec("sys", "go", tmp_path, tmp_path, [], ["mcp__fal__*"], servers=servers)
+    opts = replace(options(spec, None), cli_path="claude")  # type: ignore[arg-type]
+    argv = " ".join(SubprocessCLITransport("go", opts)._build_command())
+    assert "s3cret" not in argv and "t0ken" not in argv
+    assert '"FAL_KEY": "${FAL_KEY}"' in argv and '"NOTES_TOKEN": "${NOTES_TOKEN}"' in argv
+    assert opts.env == {"FAL_KEY": "s3cret", "NOTES_TOKEN": "t0ken"}
+    assert servers["fal"]["env"] == {"FAL_KEY": "s3cret"}  # the caller's config is untouched

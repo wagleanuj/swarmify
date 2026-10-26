@@ -61,7 +61,7 @@ APP_VERSION = "3"
 Connector = Callable[[Run, str, StageDef], None]
 """Calls one connector stage. Arguments: the run, the stage id (the idempotency key) and the
 stage's definition."""
-Swarm = Callable[[Run, str, StageDef], None]
+SwarmStage = Callable[[Run, str, StageDef], None]
 """Runs one swarm stage to its end, with the same arguments. Raises to fail the stage."""
 Pin = Callable[[str], Pinned]
 """The current version of a workflow, by id. Raises KeyError for an unknown workflow."""
@@ -112,7 +112,7 @@ class Runner(RunControl):
         data_dir: Path | None = None,
         notifier: Notifier | None = None,
         cap: int = DEFAULT_CAP,
-        swarm: Swarm | None = None,
+        swarm: SwarmStage | None = None,
         poll_seconds: float = 1.0,
         pin: Pin | None = None,
         take: Take | None = None,

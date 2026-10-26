@@ -44,6 +44,24 @@ def _sdk_tool(spec: AgentTool) -> Any:
     return tool(spec.name, spec.description, spec.schema)(handler)
 
 
+def _secrets_to_env(
+    servers: dict[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    """Moves each server's `env` and `headers` values into the session environment and leaves
+    `${NAME}` placeholders, which the CLI expands. The SDK passes `mcp_servers` on the command
+    line, where any local user can read it with `ps`; the environment stays private."""
+    env: dict[str, str] = {}
+    out: dict[str, dict[str, Any]] = {}
+    for name, config in servers.items():
+        config = dict(config)
+        for key in ("env", "headers"):
+            if config.get(key):
+                env.update(config[key])
+                config[key] = {k: f"${{{k}}}" for k in config[key]}
+        out[name] = config
+    return out, env
+
+
 def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) -> ClaudeAgentOptions:
     async def pre_tool(data: Any, _tool_use_id: str | None, _context: Any) -> Any:
         reason = hooks.before_tool(data["tool_name"], data.get("tool_input") or {})
@@ -57,14 +75,16 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
             }
         }
 
+    external, env = _secrets_to_env(spec.servers)
     servers: dict[str, McpServerConfig] = {
         TOOL_SERVER: create_sdk_mcp_server(TOOL_SERVER, tools=[_sdk_tool(t) for t in spec.tools]),
-        **spec.servers,  # type: ignore[dict-item]  # standard MCP config dicts
+        **external,  # type: ignore[dict-item]  # standard MCP config dicts
     }
     return ClaudeAgentOptions(
         system_prompt=spec.system_prompt,
         cwd=spec.cwd,
         mcp_servers=servers,
+        env=env,
         allowed_tools=list(spec.allowed),
         permission_mode="dontAsk",
         setting_sources=[],

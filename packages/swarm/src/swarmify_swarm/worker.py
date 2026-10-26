@@ -659,6 +659,11 @@ class _Hooks:
         self.agent = agent
         self.allowed = allowed
         self.world_folder = world_folder.resolve()
+        # Seeded from the log once so a resumed session keeps its earlier graph query.
+        self.queried_graph = any(
+            e.agent == agent and e.kind == "tool" and e.tool == GRAPH
+            for e in board.list_log(stage_id)
+        )
 
     def started(self, init: SessionInit) -> None:
         self.board.update_agent(
@@ -676,6 +681,7 @@ class _Hooks:
     def before_tool(self, tool: str, input: dict[str, Any]) -> str | None:
         reason = self._refusal(tool, input)
         kind = "denied" if reason else "tool"
+        self.queried_graph |= kind == "tool" and tool == GRAPH
         self.board.log(self.stage_id, self.agent, kind, reason or "", tool=tool, input=input)
         return reason
 
@@ -691,9 +697,6 @@ class _Hooks:
             path = Path(str(input.get("file_path", "")))
             if not path.is_absolute() or not path.resolve().is_relative_to(self.world_folder):
                 return "Read is limited to this world's folder."
-        if tool == CLAIM and not any(
-            e.agent == self.agent and e.kind == "tool" and e.tool == GRAPH
-            for e in self.board.list_log(self.stage_id)
-        ):
+        if tool == CLAIM and not self.queried_graph:
             return "Query the graph first: call query_graph about the work before your first claim."
         return None

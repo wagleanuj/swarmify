@@ -28,7 +28,9 @@ def test_a_note_is_markdown_with_frontmatter_in_the_stage_folder(memory: Memory)
     rel = memory.write_note("w1", "r1", "s1", "worker-1", "Hooks: what wins?", "Short ones.", "t1")
     assert rel == "runs/r1/s1/notes/hooks-what-wins.md"
     text = (memory.world_folder("w1") / rel).read_text()
-    assert text.startswith('---\ntype: "note"\nauthor: "worker-1"\nrun: "r1"\nstage: "s1"\n')
+    assert text.startswith(
+        '---\ntype: "note"\nworld: "w1"\nagent: "worker-1"\nrun: "r1"\nstage: "s1"\n'
+    )
     assert 'task: "t1"' in text and text.endswith("---\n\n# Hooks: what wins?\n\nShort ones.\n")
     again = memory.write_note("w1", "r1", "s1", "worker-1", "Hooks: what wins?", "More.")
     assert again == "runs/r1/s1/notes/hooks-what-wins-2.md"
@@ -91,7 +93,7 @@ def test_an_artifact_may_carry_its_own_type_and_frontmatter(memory: Memory) -> N
         "w1", "r1", "s1", "publish", "publish.md", "# Hooks\n", "publish", fields
     )
     text = (memory.world_folder("w1") / rel).read_text()
-    assert text.startswith('---\ntype: "publish"\nauthor: "publish"\n')
+    assert text.startswith('---\ntype: "publish"\nworld: "w1"\nagent: "publish"\n')
     assert 'links: {"youtube": "https://youtu.be/v"}\n' in text and "schedule" not in text
     assert _events(memory)[-1]["type"] == "publish"
 
@@ -103,7 +105,7 @@ def test_a_typed_artifact_carries_its_type_and_fields_in_frontmatter(memory: Mem
     )
     assert rel == "runs/r1/s1/artifacts/idea-chase.md"
     text = (memory.world_folder("w1") / rel).read_text()
-    assert text.startswith('---\ntype: "idea"\nauthor: "judge"\n')
+    assert text.startswith('---\ntype: "idea"\nworld: "w1"\nagent: "judge"\n')
     assert 'rank: 1\nsources: ["runs/r1/s1/notes/a.md#p2"]\n---\n\n# Chase\n' in text
     assert _events(memory)[-1]["type"] == "idea"
     for bad in ("idea.txt", "../x.md"):

@@ -93,7 +93,7 @@ def test_a_worker_works_the_stage_and_leaves_notes_artifacts_and_a_log(
 
     folder = tmp_path / "worlds" / world / "runs" / run["id"] / stage
     note = (folder / "notes" / "trends.md").read_text()
-    assert 'author: "worker-1"' in note and "Hooks in the first second." in note
+    assert 'agent: "worker-1"' in note and "Hooks in the first second." in note
     assert (folder / "artifacts" / "ideas.md").read_text().endswith("1. Hooks")
     (task,) = running.get(f"/api/runs/{run['id']}/stages/{stage}/tasks").json()
     assert task["title"] == "Find 5 ideas trending this week." and task["owner"] == "worker-1"
@@ -217,7 +217,8 @@ def test_the_judge_loops_on_gaps_then_projects_idea_cards_with_sources(
         assert 'paragraph 3: "Hooks win."' in hooks["body"]
         assert arts["verdict-1.md"]["fields"]["reasons"] == ["Only one idea."]
         file = tmp_path / "worlds" / world / hooks["path"]
-        assert file.read_text().startswith('---\ntype: "idea"\nauthor: "judge"\n')
+        assert file.read_text().startswith('---\ntype: "idea"\nworld: ')
+        assert 'agent: "judge"' in file.read_text()
         assert client.get(f"/api/runs/{run['id']}/stages/nope/verdicts").status_code == 404
         assert client.get(f"/api/runs/{run['id']}/stages/nope/artifacts").status_code == 404
 
