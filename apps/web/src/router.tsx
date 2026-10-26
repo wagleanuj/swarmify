@@ -11,6 +11,7 @@ import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
+import { Settings } from "./pages/Settings";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
@@ -71,6 +72,12 @@ export const graphRoute = createRoute({
   component: Graph,
 });
 
+export const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/settings",
+  component: Settings,
+});
+
 const routeTree = rootRoute.addChildren([
   worldsRoute,
   gatesRoute,
@@ -81,6 +88,7 @@ const routeTree = rootRoute.addChildren([
   runRoute,
   connectorsRoute,
   graphRoute,
+  settingsRoute,
 ]);
 
 // `history` is injectable so tests can mount a page at a given URL with a memory history.

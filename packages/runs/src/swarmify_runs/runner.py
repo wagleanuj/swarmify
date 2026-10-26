@@ -80,7 +80,8 @@ log = logging.getLogger(__name__)
 
 
 class LogNotifier:
-    """The adapter until Slack ships (T16): one log line per notification."""
+    """The adapter when no other is given: one log line per notification. The API passes the
+    Slack adapter of the Notifications context."""
 
     log = logging.getLogger("swarmify.notify")
 
@@ -410,7 +411,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     runner.storage.record(event)
     try:
         runner.notifier.notify(event)
-    except Exception:  # a notifier outage (Slack, T16) must not fail the run; the event is recorded
+    except Exception:  # a notifier outage (Slack) must not fail the run; the event is recorded
         log.exception("notifier failed on %s for run %s", event.type, run_id)
 
 

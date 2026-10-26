@@ -185,6 +185,12 @@ export function WorldOverview() {
             Manage connectors
           </Link>
         </div>
+        <div className="tile">
+          <b>Settings</b>Slack tells you when a gate opens or a run ends.{" "}
+          <Link to="/worlds/$worldId/settings" params={{ worldId }}>
+            Set up Slack
+          </Link>
+        </div>
       </section>
       <section aria-label="Workflows" className="workflows">
         <div className="row">

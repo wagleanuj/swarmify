@@ -338,6 +338,25 @@ the run page shows both under the timeline, live.
 Scripts can answer for a session with `Answer(data)` (the structured output) and refer to the task
 just claimed with `LAST`; `Script(..., cycle=True)` repeats the step lists per run.
 
+## Notifications
+
+Each world has at most one Channel: a Slack incoming webhook, set on the world's settings page
+(`/worlds/<id>/settings`). A Notification goes out when a gate opens (a budget pause is a gate of
+kind `budget`), on `budget.warning` at 80 percent, and when a run is done, failed or aborted. Each
+message carries a deep link: gates to `/gates`, everything else to the run timeline.
+
+- `SWARMIFY_BASE_URL` (default `http://localhost:8000`) is where the links point; set it to the
+  address you open the app at, such as `http://mac-mini.local:8000`.
+- `GET` and `PUT /api/worlds/<id>/notifications` (`{"slack_webhook": "https://hooks.slack.com/..."}`,
+  blank removes it) read and set the webhook. The URL is a credential: it is returned only as
+  scheme, host and its last four characters. `POST /api/worlds/<id>/notifications/test` posts a
+  test message (409 with no webhook, 502 when Slack refuses).
+- `packages/notifications` holds `Notifications`, the Slack adapter of the Runs Notifier port, and
+  `FakeSlack`, a real HTTP server on localhost that tests point the webhook at. A Slack outage is
+  logged and never fails a run; the event is still on the world's stream.
+- To get a webhook: create a Slack app at api.slack.com/apps, turn on Incoming Webhooks, add one
+  to your channel and paste its URL into the settings page.
+
 ## Layout
 
 - `packages/kernel` shared kernel: ids, the event envelope and its append-only log, SQLite
@@ -345,15 +364,15 @@ just claimed with `LAST`; `Script(..., cycle=True)` repeats the step lists per r
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008
-  and 0010, swarm 0009, ...) and the composition root passes them all to `migrate` once.
+  and 0010, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the
   Agent SDK adapter `SdkRuntime`; `packages/memory` writes notes and artifacts as files and declares GraphIndex, with
   `McpGraphIndex` and `FakeGraphIndex`, plus the GraphWriter. `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);
-  `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors` and `packages/swarm`
-  each have a Storage port with a SQLite adapter.
+  `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors`, `packages/swarm` and
+  `packages/notifications` each have a Storage port with a SQLite adapter.
   Workflows learns which connectors a world allows through a function the composition root passes
   in, backed by the connector registry. `packages/connectors` also declares ConnectorTransport, with
   the MCP adapter and `FakeTransport` for tests.

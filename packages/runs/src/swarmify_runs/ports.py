@@ -1,5 +1,5 @@
 """Ports of the Runs context (ADR 0012): Storage (SQLite now, Postgres is the seam) and
-Notifier (a log line now, Slack in T16, a recording fake in tests)."""
+Notifier (Slack in the Notifications context, a log line standalone, a recording fake in tests)."""
 
 from typing import Protocol
 
@@ -65,5 +65,6 @@ class Storage(Protocol):
 
 class Notifier(Protocol):
     def notify(self, event: Event) -> None:
-        """Tell a person: `gate.opened` or `run.ended`. Payloads carry run id, name and stage."""
+        """Tell a person: `gate.opened` or `run.ended`. Payloads carry run id, name and stage.
+        May raise (Slack is down); callers log it and go on."""
         ...

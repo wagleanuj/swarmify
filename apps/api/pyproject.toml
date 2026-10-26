@@ -9,6 +9,7 @@ dependencies = [
   "swarmify-connectors",
   "swarmify-kernel",
   "swarmify-memory",
+  "swarmify-notifications",
   "swarmify-worlds",
   "swarmify-runs",
   "swarmify-swarm",
