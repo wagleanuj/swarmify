@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import agents, connectors, graph, runs, tasks, workflows, worlds
+from swarmify_api import agents, connectors, graph, notifications, runs, tasks, workflows, worlds
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import (
     ConnectorError,
@@ -47,10 +47,12 @@ from swarmify_memory import (
     Memory,
     run_graphify,
 )
+from swarmify_notifications import MIGRATIONS as NOTIFICATIONS_MIGRATIONS
+from swarmify_notifications import Notifications
+from swarmify_notifications import SqliteStorage as ChannelStorage
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import (
     Connector,
-    LogNotifier,
     Notifier,
     Previews,
     PublishPreview,
@@ -89,6 +91,7 @@ def migrated_db(root: Path) -> Path:
             RUNS_MIGRATIONS,
             CONNECTORS_MIGRATIONS,
             SWARM_MIGRATIONS,
+            NOTIFICATIONS_MIGRATIONS,
         )
     return db
 
@@ -120,6 +123,16 @@ def workflow_service(root: Path, registry: Connectors | None = None) -> Workflow
         }
 
     return Workflows(WorkflowStorage(migrated_db(root)), refs)
+
+
+def base_url() -> str:
+    """Where deep links in Notifications point: the web skin as the operator reaches it."""
+    return os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000")
+
+
+def notification_service(root: Path) -> Notifications:
+    """The Notifier: each world's Slack Channel, set on its settings page."""
+    return Notifications(ChannelStorage(migrated_db(root)), base_url())
 
 
 def run_storage(root: Path) -> RunStorage:
@@ -154,7 +167,7 @@ def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
         run_storage(root),
         root / "dbos.sqlite",
         root,
-        notifier or LogNotifier(),
+        notifier or notification_service(root),
         previews(connector_service(root)),
     )
 
@@ -203,12 +216,14 @@ def create_app(
     between long-job polls, and `connector` replaces the connector stage call altogether.
     `clock` stamps claims and heartbeats and decides when a claim has gone silent. `runtime`
     runs agent sessions: the Agent SDK by default, a scripted transport in tests.
-    `notifier` receives `gate.opened` and `run.ended`; a log line until Slack ships (T16)."""
+    `notifier` receives `gate.opened`, `budget.warning` and `run.ended`; each world's Slack
+    Channel by default."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
     whiteboard = task_board(root)
     world_svc = world_service(root)
     memory = Memory(migrated_db(root), root)
+    channels = notification_service(root)
 
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
         shown = registry.publish_preview(run.world_id, stage.config)
@@ -264,7 +279,7 @@ def create_app(
         root / "dbos.sqlite",
         connector or call_connector,
         root,
-        notifier,
+        notifier or channels,
         swarm=run_swarm,
         pin=runs.pinner(workflow_svc),
         take=take,
@@ -312,6 +327,7 @@ def create_app(
         runner.delete_world(world_id)
         registry.delete_world(world_id)
         whiteboard.delete_world(world_id)
+        channels.delete_world(world_id)
 
     app.include_router(worlds.router(world_svc, on_delete))
     app.include_router(workflows.router(workflow_svc, world_svc))
@@ -320,6 +336,7 @@ def create_app(
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index))
+    app.include_router(notifications.router(channels, world_svc))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app
