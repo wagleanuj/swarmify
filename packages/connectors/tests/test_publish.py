@@ -78,7 +78,6 @@ def test_youtube_uploads_with_the_previewed_values(
         "description": "",
         "visibility": "public",
         "schedule": "2099-01-01T09:00:00Z",
-        "made_for_kids": False,
     }
     assert call.status == "done"
     assert connectors.publish_result(call) == {
@@ -147,6 +146,19 @@ def test_a_post_that_reached_no_platform_fails_the_stage(
     with pytest.raises(ConnectorError, match="nothing was posted. youtube: quota"):
         connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
     assert connectors.call_for("stage_1").status == "failed"  # type: ignore[union-attr]
+
+
+def test_an_upload_post_moved_to_the_background_fails_with_its_request_id(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
+    background = {"success": True, "message": "processing", "request_id": "req_9"}
+    transport.outputs["upload_video"] = [{"result": {**background, "total_platforms": 1}}]
+    with pytest.raises(ConnectorError, match="status for request req_9"):
+        connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
+    call = connectors.call_for("stage_1")
+    assert call is not None and call.status == "failed"
+    assert connectors.publish_result(call)["id"] == "req_9"
 
 
 def test_a_publish_stage_with_a_problem_never_calls(

@@ -88,7 +88,6 @@ def request(
             "description": shown["description"],
             "visibility": shown["visibility"],
             "schedule": shown["schedule"] or "",
-            "made_for_kids": bool(params.get("made_for_kids", False)),
         }
     if connector == "upload_post":
         args: dict[str, Any] = {
@@ -111,14 +110,18 @@ def request(
 
 
 def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
-    """What came back, normalized: `status` (published or scheduled), `links` (platform to URL),
-    `id` (the video or scheduler job) and `failed` (platform to error)."""
+    """What came back, normalized: `status` (published, scheduled or pending), `links` (platform
+    to URL), `id` (the video, scheduler job or background request) and `failed` (platform to
+    error). Upload-Post moves an upload over 59 seconds to the background even when asked to
+    wait, answering a `request_id` and no results: that is `pending`, nothing is known yet."""
     if connector == "upload_post":
         body = response.get("result", response)
         body = body if isinstance(body, dict) else {}
         if body.get("job_id"):
             return {"status": "scheduled", "links": {}, "id": str(body["job_id"]), "failed": {}}
         raw = body.get("results")
+        if body.get("request_id") and not raw:
+            return {"status": "pending", "links": {}, "id": str(body["request_id"]), "failed": {}}
         results: dict[str, Any] = raw if isinstance(raw, dict) else {}
         links = {p: r["url"] for p, r in results.items() if r.get("success") and r.get("url")}
         failed = {

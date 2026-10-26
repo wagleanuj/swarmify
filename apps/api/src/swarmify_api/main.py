@@ -285,7 +285,7 @@ def create_app(
             "publish",
             "publish.md",
             publish.markdown(shown, out),
-            type="publish",
+            kind="publish",
             fields={**fields, "status": out["status"], "links": out["links"], "id": out["id"]},
         )
 
