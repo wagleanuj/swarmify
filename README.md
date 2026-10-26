@@ -345,7 +345,7 @@ just claimed with `LAST`; `Script(..., cycle=True)` repeats the step lists per r
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008
-  and 0010, swarm 0011, ...) and the composition root passes them all to `migrate` once.
+  and 0010, swarm 0009, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the

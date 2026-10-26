@@ -96,7 +96,7 @@ def test_a_seed_lands_whole_with_its_dependencies(board: SqliteStorage) -> None:
     assert len(board.list_tasks("stage_1")) == 2
 
 
-def test_migration_11_keeps_agents_and_their_log(tmp_path: Path) -> None:
+def test_migration_9_keeps_agents_and_their_log(tmp_path: Path) -> None:
     from swarmify_kernel import MIGRATIONS as KERNEL
     from swarmify_kernel.sqlite import migrate
     from swarmify_swarm import MIGRATIONS
@@ -104,7 +104,7 @@ def test_migration_11_keeps_agents_and_their_log(tmp_path: Path) -> None:
     old = tmp_path / "old"
     old.mkdir()
     for f in MIGRATIONS.glob("*.sql"):
-        if not f.name.startswith("0011"):
+        if not f.name.startswith("0009"):
             (old / f.name).write_text(f.read_text())
     db = tmp_path / "swarmify.db"
     with closing(connect(db)) as conn:
@@ -113,7 +113,7 @@ def test_migration_11_keeps_agents_and_their_log(tmp_path: Path) -> None:
     board.agent("world_1", "run_1", "stage_1", "worker-1", "worker")
     board.log("stage_1", "worker-1", "tool", tool="Read")
     with closing(connect(db)) as conn:
-        assert migrate(conn, KERNEL, MIGRATIONS) == [11]
+        assert migrate(conn, KERNEL, MIGRATIONS) == [9]
     assert [a.name for a in board.list_agents("run_1")] == ["worker-1"]
     assert [e.tool for e in board.list_log("stage_1")] == ["Read"]
     board.agent("world_1", "run_1", "stage_1", "judge", "judge")
