@@ -11,6 +11,7 @@ the GraphIndex port.
 
 import json
 import re
+import shutil
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -110,6 +111,38 @@ class Memory:
             path.write_text(content)
             (folder / f"{name}.md").write_text(f"{meta}Sidecar of {name}.\n")
         return self._created(world_id, run_id, stage_id, author, "file", path)
+
+    def copy_artifacts(
+        self,
+        source: tuple[str, str],
+        names: list[str],
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        author: str,
+    ) -> list[str]:
+        """Copy the named artifacts of run `source` (world id, run id) into a stage, sidecars
+        included: how a workflow stage takes its child run's artifacts. Each file keeps its
+        frontmatter, which names the run that made it. When several stages of the source made
+        one name, the latest wins. Raises ValueError, copying nothing, when a name is missing.
+        """
+        run = self.world_folder(source[0]) / "runs" / source[1]
+        found: dict[str, Path] = {}
+        for name in names:
+            matches = list(run.glob(f"*/artifacts/{name}")) if _NAME.match(name) else []
+            if not matches:
+                raise ValueError(f"the child run made no artifact named {name}")
+            found[name] = max(matches, key=lambda p: p.stat().st_mtime)
+        folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
+        folder.mkdir(exist_ok=True)
+        out = []
+        for name, path in found.items():
+            shutil.copyfile(path, folder / name)
+            sidecar = path.with_name(f"{name}.md")
+            if path.suffix != ".md" and sidecar.exists():
+                shutil.copyfile(sidecar, folder / sidecar.name)
+            out.append(self._created(world_id, run_id, stage_id, author, "file", folder / name))
+        return out
 
     @staticmethod
     def _meta(

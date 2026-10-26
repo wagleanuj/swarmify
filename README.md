@@ -78,10 +78,37 @@ executes the commands. Every state change appends a `run.updated` event carrying
 the world's stream, which the runs page and the run timeline render live.
 
 A connector stage calls its connector (see Connectors below), a swarm stage runs its worker (see
-Agents below), a gate waits for a person (see Gates below), and workflow stages fail the run with
-a clear error until child runs (T14) ship.
+Agents below), a gate waits for a person (see Gates below), and a workflow stage runs a child run
+(see Child runs below).
 `GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its
 stages and decisions.
+
+## Child runs
+
+A workflow stage (`- workflow: <name>`, `runs: <workflow id>`, optional `take: [names]`) starts a
+child run of that workflow's current version, in whatever world the workflow lives (ADR 0013).
+The child is linked both ways: the stage carries `child` (id, world, name) and the child carries
+`parent`. The parent's stage stays running and the parent waits on its control topic, as at a
+gate, until the child's workflow sends its end. Then each name in `take` is copied from the
+child's artifacts (the latest stage that made it wins, sidecars included, frontmatter kept as
+provenance) into the parent stage's `artifacts/` folder, with an `artifact.created` event each,
+and the parent moves on. A child that fails or is aborted, or a name it never made, fails the
+stage with a plain error.
+
+- A child spends its parent's budget: `GET /api/runs/<id>/agents` lists the agents of the run
+  and of every run below it, so the run's estimated cost includes its children, and
+  `RunControl.family` names the runs a Budget (T15) adds up.
+- Aborting a run aborts every run below it; the parent ends aborted, not failed. Aborting only
+  a child fails the parent's stage.
+- Children wait on their own unpartitioned queue (`child-runs`), so a parent holding one of its
+  world's two slots never starves its own child.
+- Cycles and nesting deeper than two are refused when a workflow is saved; a run whose pinned
+  workflows were edited since also stops a third level with an error.
+- A send-back to a workflow stage starts a fresh child; a restart resumes the wait on the same
+  one.
+- The runs page shows `child of <parent>` on each child, the run timeline links a workflow stage
+  to its child and a child to its parent, and the gates inbox labels a child's gate with its
+  parent.
 
 ## Gates
 
@@ -232,8 +259,8 @@ graph writer.
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008,
-  ...) and the composition root passes them all to `migrate` once.
+  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008
+  and 0010, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { progress, type Run, STATUS_LABEL, useRunUpdates } from "../api/runs";
+import { progress, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
 
@@ -73,6 +73,7 @@ export function Runs() {
                 {r.name}
               </Link>
               <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
+              {r.parent && <ChildOf parent={r.parent} />}
               <span className="faint">{progress(r)}</span>
               <span className="faint">v{r.workflow_version}</span>
               <time className="faint" dateTime={r.created_at}>
@@ -83,5 +84,17 @@ export function Runs() {
         </ul>
       )}
     </main>
+  );
+}
+
+/** "child of <parent>", linking to the parent run, which may live in another world. */
+export function ChildOf({ parent }: { parent: RunLink }) {
+  return (
+    <span className="faint" data-testid="child-of">
+      child of{" "}
+      <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: parent.world_id, runId: parent.id }}>
+        {parent.name}
+      </Link>
+    </span>
   );
 }

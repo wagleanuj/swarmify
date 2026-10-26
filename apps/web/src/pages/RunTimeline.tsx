@@ -7,6 +7,7 @@ import { actOn, type Call, decisionLine, type Run, statusLine } from "../api/run
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
+import { ChildOf } from "./Runs";
 import { Whiteboard } from "./Whiteboard";
 
 /** The swarm stage whose whiteboard opens first: the live one, else the next, else the first. */
@@ -151,13 +152,21 @@ export function RunTimeline() {
           <h1>
             {run.name} <span className="faint-title">v{run.workflow_version}</span>
           </h1>
+          {run.parent && (
+            <p className="sub">
+              <ChildOf parent={run.parent} />. It spends that run's budget, and aborting that run
+              aborts this one.
+            </p>
+          )}
           <p className="sub" role="status" data-testid="status-line">
             {statusLine(run)}
             {run.send_backs > 0 && ` Sent back ${run.send_backs} of 2 times.`}
           </p>
           {cost > 0 && (
             <p className="faint" data-testid="run-cost">
-              Estimated agent cost so far: {usd(cost)}. An estimate from the Agent SDK, not your bill.
+              Estimated agent cost so far: {usd(cost)}
+              {Object.values(agents).some((a) => a.run_id !== run.id) && ", child runs included"}. An
+              estimate from the Agent SDK, not your bill.
             </p>
           )}
         </div>
@@ -196,6 +205,17 @@ export function RunTimeline() {
               {call?.status === "polling" && (
                 <span className="stage-progress">
                   {Math.round((call.progress ?? 0) * 100)}%{call.message ? ` · ${call.message}` : ""}
+                </span>
+              )}
+              {s.child && (
+                <span className="stage-note" data-testid="child-run">
+                  Child run:{" "}
+                  <Link
+                    to="/worlds/$worldId/runs/$runId"
+                    params={{ worldId: s.child.world_id, runId: s.child.id }}
+                  >
+                    {s.child.name}
+                  </Link>
                 </span>
               )}
               {s.error && <span className="stage-error">{s.error}</span>}

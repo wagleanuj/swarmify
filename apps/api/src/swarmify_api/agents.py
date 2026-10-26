@@ -10,15 +10,21 @@ from swarmify_runs import Run
 from swarmify_swarm import Agent, LogEntry, Storage
 
 
-def router(board: Storage, get_run: Callable[[str], Run | None]) -> APIRouter:
+def router(
+    board: Storage,
+    get_run: Callable[[str], Run | None],
+    family: Callable[[str], list[str]],
+) -> APIRouter:
+    """`family` is the run and its child runs, which spend its budget (ADR 0013)."""
     api = APIRouter(prefix="/api", tags=["agents"])
 
     @api.get("/runs/{run_id}/agents")
     def get_agents(run_id: str) -> list[Agent]:
-        """Every agent of the run; the run's estimated cost is the sum of theirs."""
+        """Every agent of the run and of its child runs, whose spend is the run's (ADR 0013);
+        the run's estimated cost is the sum of theirs. Each agent names its own run."""
         if get_run(run_id) is None:
             raise HTTPException(404, "run not found")
-        return board.list_agents(run_id)
+        return [a for r in family(run_id) for a in board.list_agents(r)]
 
     @api.get("/runs/{run_id}/stages/{stage_id}/log")
     def get_log(run_id: str, stage_id: str) -> list[LogEntry]:

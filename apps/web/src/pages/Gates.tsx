@@ -4,6 +4,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { decide, type Gate } from "../api/runs";
 import type { components } from "../api/schema";
+import { ChildOf } from "./Runs";
 
 type World = components["schemas"]["World"];
 
@@ -124,8 +125,8 @@ function GateCard({
         </Link>
         <span className="faint">
           {world} · stage {gate.stage_index + 1} · {gate.stage_name} · waiting since {since}
-          {gate.parent_run_id && " · child run"}
         </span>
+        {gate.parent && <ChildOf parent={gate.parent} />}
       </div>
       <p className="ask">{gate.ask}</p>
       <form onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>

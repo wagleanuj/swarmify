@@ -485,7 +485,8 @@ export interface paths {
         };
         /**
          * Get Agents
-         * @description Every agent of the run; the run's estimated cost is the sum of theirs.
+         * @description Every agent of the run and of its child runs, whose spend is the run's (ADR 0013);
+         *     the run's estimated cost is the sum of theirs. Each agent names its own run.
          */
         get: operations["get_agents_api_runs__run_id__agents_get"];
         put?: never;
@@ -789,6 +790,7 @@ export interface components {
             earlier_stages: string[];
             /** Parent Run Id */
             parent_run_id?: string | null;
+            parent?: components["schemas"]["RunLink"] | null;
         };
         /**
          * GateStage
@@ -998,6 +1000,19 @@ export interface components {
             parent_run_id?: string | null;
             /** Decisions */
             decisions?: components["schemas"]["Decision"][];
+            parent?: components["schemas"]["RunLink"] | null;
+        };
+        /**
+         * RunLink
+         * @description Another run, as a link to it: runs may cross worlds, so the world comes along.
+         */
+        RunLink: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Name */
+            name: string;
         };
         /**
          * RunStageView
@@ -1027,6 +1042,7 @@ export interface components {
             error?: string | null;
             /** Notes */
             notes?: string[];
+            child?: components["schemas"]["RunLink"] | null;
         };
         /** StartRun */
         StartRun: {

@@ -17,6 +17,26 @@ class StageDef:
 
 
 @dataclass(frozen=True)
+class RunLink:
+    """Another run, as a link to it: runs may cross worlds, so the world comes along."""
+
+    id: str
+    world_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class Pinned:
+    """A workflow version as Runs needs it to start a run of it."""
+
+    world_id: str
+    workflow_id: str
+    version: int
+    name: str
+    stages: list[StageDef]
+
+
+@dataclass(frozen=True)
 class Decision:
     """What a person decided at a gate. `path` is the decision artifact on disk (ADR 0001)."""
 
@@ -47,6 +67,8 @@ class RunStageView:
     ended_at: str | None = None
     error: str | None = None
     notes: list[str] = field(default_factory=list)
+    child: RunLink | None = None
+    """The child run a workflow stage started, while that visit to the stage lasts."""
 
 
 @dataclass(frozen=True)
@@ -63,6 +85,7 @@ class Run:
     send_backs: int = 0
     parent_run_id: str | None = None
     decisions: list[Decision] = field(default_factory=list)
+    parent: RunLink | None = None
 
 
 @dataclass(frozen=True)
@@ -81,3 +104,4 @@ class Gate:
     send_backs_left: int
     earlier_stages: list[str]
     parent_run_id: str | None = None
+    parent: RunLink | None = None
