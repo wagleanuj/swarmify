@@ -2,6 +2,7 @@
 import { vi } from "vitest";
 
 import type { Run } from "../api/runs";
+import type { Task } from "../api/tasks";
 
 type Handler = (req: Request) => Response | Promise<Response>;
 
@@ -67,4 +68,25 @@ export function run(status: Run["status"], stages: ReturnType<typeof stage>[], o
     stages,
     ...over,
   } as Run;
+}
+
+/** A task snapshot as the API and `task.updated` carry it. */
+export function task(id: string, status: Task["status"], over: Partial<Task> = {}): Task {
+  return {
+    id,
+    world_id: "world_1",
+    run_id: "run_1",
+    stage_id: "stage_0",
+    title: `Task ${id}`,
+    body: "",
+    status,
+    owner: status === "open" ? null : "gilfoyle",
+    added_by: "richard",
+    heartbeat_at: status === "claimed" ? ts : null,
+    created_at: ts,
+    updated_at: ts,
+    depends_on: [],
+    notes: [],
+    ...over,
+  };
 }

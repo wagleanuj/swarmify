@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -13,6 +13,7 @@ members = [
     "swarmify-connectors",
     "swarmify-kernel",
     "swarmify-runs",
+    "swarmify-swarm",
     "swarmify-workflows",
     "swarmify-worlds",
 ]
@@ -1453,6 +1454,7 @@ dependencies = [
     { name = "swarmify-connectors" },
     { name = "swarmify-kernel" },
     { name = "swarmify-runs" },
+    { name = "swarmify-swarm" },
     { name = "swarmify-workflows" },
     { name = "swarmify-worlds" },
     { name = "uvicorn" },
@@ -1465,6 +1467,7 @@ requires-dist = [
     { name = "swarmify-connectors", editable = "packages/connectors" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
     { name = "swarmify-runs", editable = "packages/runs" },
+    { name = "swarmify-swarm", editable = "packages/swarm" },
     { name = "swarmify-workflows", editable = "packages/workflows" },
     { name = "swarmify-worlds", editable = "packages/worlds" },
     { name = "uvicorn", specifier = ">=0.54" },
@@ -1504,6 +1507,17 @@ requires-dist = [
     { name = "dbos", specifier = ">=3.3" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
+
+[[package]]
+name = "swarmify-swarm"
+version = "0.1.0"
+source = { editable = "packages/swarm" }
+dependencies = [
+    { name = "swarmify-kernel" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "swarmify-kernel", editable = "packages/kernel" }]
 
 [[package]]
 name = "swarmify-workflows"

@@ -8,9 +8,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from sse import sse_events
 from swarmify_connectors import FakeTransport
 from swarmify_runs import StageDef
-from test_world_events import _events
 
 RENDER = {
     "name": "render_video",
@@ -107,7 +107,7 @@ def test_run_updates_stream_on_the_world_events(live_url: str) -> None:
     httpx.post(f"{live_url}/api/worlds/{world}/connectors", json=RENDER).raise_for_status()
     workflow = httpx.post(f"{live_url}/api/worlds/{world}/workflows", json={"yaml": SHORT})
     with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events", timeout=10) as r:
-        events = _events(r)
+        events = sse_events(r)
         run = httpx.post(f"{live_url}/api/workflows/{workflow.json()['workflow_id']}/runs", json={})
         seen: list[str] = []
         for kind, _, data in events:

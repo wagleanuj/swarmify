@@ -7,14 +7,19 @@ from pathlib import Path
 import pytest
 from mcp import Client, StdioServerParameters
 
-from swarmify_api.main import workflow_service, world_service
+from swarmify_api.main import run_storage, task_board, workflow_service, world_service
 from swarmify_api.mcp import server
+from swarmify_runs import Run, StageDef
 
 
 @pytest.mark.anyio
 async def test_world_tools_create_list_get_delete(tmp_path: Path) -> None:
     worlds = world_service(tmp_path)
-    async with Client(server(worlds, workflow_service(tmp_path))) as client:
+    async with Client(
+        server(
+            worlds, workflow_service(tmp_path), task_board(tmp_path), run_storage(tmp_path).get_run
+        )
+    ) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert {"create_world", "list_worlds", "get_world", "delete_world"} <= names
 
@@ -63,7 +68,11 @@ WEEKLY = (
 @pytest.mark.anyio
 async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
     worlds = world_service(tmp_path)
-    async with Client(server(worlds, workflow_service(tmp_path))) as client:
+    async with Client(
+        server(
+            worlds, workflow_service(tmp_path), task_board(tmp_path), run_storage(tmp_path).get_run
+        )
+    ) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert {"save_workflow", "check_workflow", "list_workflows", "get_workflow"} <= names
         world = worlds.create("Video")
@@ -130,3 +139,38 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
 
         await client.call_tool("delete_world", {"world_id": world.id})
         assert (await client.call_tool("get_workflow", {"workflow_id": v1["workflow_id"]})).is_error
+
+
+@pytest.mark.anyio
+async def test_task_tools_add_and_list_on_a_swarm_stage(tmp_path: Path) -> None:
+    worlds, runs, board = world_service(tmp_path), run_storage(tmp_path), task_board(tmp_path)
+    world = worlds.create("Video")
+    run = runs.add_run(
+        Run("run_1", world.id, "wf_1", 1, "Research", "queued", "t", "t", []),
+        [StageDef("brief", "gate", {"ask": "Go?"}), StageDef("research", "swarm", {})],
+    )
+    gate, swarm = run.stages
+    async with Client(server(worlds, workflow_service(tmp_path), board, runs.get_run)) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+        assert {"add_task", "list_tasks"} <= names
+        added = await client.call_tool(
+            "add_task", {"run_id": run.id, "stage_id": swarm.id, "title": "Check the niche"}
+        )
+        task = added.structured_content
+        assert not added.is_error and task
+        assert (task["status"], task["added_by"], task["stage_id"]) == (
+            "open",
+            "operator",
+            swarm.id,
+        )
+        listed = await client.call_tool("list_tasks", {"run_id": run.id, "stage_id": swarm.id})
+        assert listed.structured_content == {"result": [task]}
+        assert board.list_tasks(swarm.id)[0].id == task["id"]
+
+        on_gate = {"run_id": run.id, "stage_id": gate.id, "title": "x"}
+        assert (await client.call_tool("add_task", on_gate)).is_error
+        unknown = {"run_id": run.id, "stage_id": "stage_nope", "title": "x"}
+        assert (await client.call_tool("add_task", unknown)).is_error
+        assert (
+            await client.call_tool("list_tasks", {"run_id": "run_nope", "stage_id": swarm.id})
+        ).is_error

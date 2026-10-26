@@ -6,9 +6,12 @@ Run with `uvicorn --factory swarmify_api.main:create_app`; importing this module
 app is served (or inside `with TestClient(app)`).
 """
 
+import asyncio
+import logging
 import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, closing
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager, closing, suppress
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -20,7 +23,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import connectors, runs, workflows, worlds
+from swarmify_api import connectors, runs, tasks, workflows, worlds
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import Connectors, ConnectorTransport, Credentials, McpTransport
 from swarmify_connectors import SqliteStorage as ConnectorStorage
@@ -29,12 +32,15 @@ from swarmify_kernel.sqlite import connect, migrate
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import Connector, Run, Runner, StageDef
 from swarmify_runs import SqliteStorage as RunStorage
+from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
+from swarmify_swarm import SqliteStorage as TaskStorage
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows
 from swarmify_workflows import SqliteStorage as WorkflowStorage
 from swarmify_worlds import MIGRATIONS as WORLDS_MIGRATIONS
 from swarmify_worlds import SqliteStorage, Worlds
 
+log = logging.getLogger(__name__)
 VERSION = version("swarmify-api")
 WEB_DIST = Path(os.environ.get("SWARMIFY_WEB_DIST", Path(__file__).parents[4] / "apps/web/dist"))
 
@@ -53,6 +59,7 @@ def migrated_db(root: Path) -> Path:
             WORKFLOWS_MIGRATIONS,
             RUNS_MIGRATIONS,
             CONNECTORS_MIGRATIONS,
+            SWARM_MIGRATIONS,
         )
     return db
 
@@ -90,6 +97,18 @@ def run_storage(root: Path) -> RunStorage:
     return RunStorage(migrated_db(root))
 
 
+def task_board(root: Path) -> TaskStorage:
+    return TaskStorage(migrated_db(root))
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+SWEEP_SECONDS = 15.0
+"""How often silent claims are returned to open. Well under the two-minute heartbeat timeout."""
+
+
 class SpaFiles(StaticFiles):
     """The built skin, answering unknown non-API paths with index.html so deep links load."""
 
@@ -111,9 +130,12 @@ def create_app(
     connector: Connector | None = None,
     transport: ConnectorTransport | None = None,
     poll_seconds: float = 2.0,
+    clock: Callable[[], datetime] = utc_now,
+    sweep_seconds: float = SWEEP_SECONDS,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
-    between long-job polls, and `connector` replaces the connector stage call altogether."""
+    between long-job polls, and `connector` replaces the connector stage call altogether.
+    `clock` stamps claims and heartbeats and decides when a claim has gone silent."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
 
@@ -121,12 +143,25 @@ def create_app(
         registry.run_stage(run.world_id, run.id, stage_id, stage.config)
 
     runner = Runner(run_storage(root), root / "dbos.sqlite", connector or call_connector)
+    whiteboard = task_board(root)
+
+    async def sweep() -> None:
+        while True:
+            try:
+                await to_thread.run_sync(lambda: whiteboard.expire(clock()))
+            except Exception:
+                log.exception("whiteboard sweep failed, retrying next tick")
+            await asyncio.sleep(sweep_seconds)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # DBOS refuses its sync API on a running event loop, so launch and stop in a thread.
         await to_thread.run_sync(runner.launch)
+        sweeper = asyncio.create_task(sweep())
         yield
+        sweeper.cancel()
+        with suppress(asyncio.CancelledError):
+            await sweeper
         await to_thread.run_sync(runner.shutdown)
 
     app = FastAPI(title="Swarmify", version=VERSION, lifespan=lifespan)
@@ -141,11 +176,13 @@ def create_app(
         workflow_svc.delete_world(world_id)
         runner.delete_world(world_id)
         registry.delete_world(world_id)
+        whiteboard.delete_world(world_id)
 
     app.include_router(worlds.router(world_svc, on_delete))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(runs.router(runner, workflow_svc, world_svc))
     app.include_router(connectors.router(registry, world_svc))
+    app.include_router(tasks.router(whiteboard, runner.get, clock))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

@@ -10,6 +10,7 @@ dependencies = [
   "swarmify-kernel",
   "swarmify-worlds",
   "swarmify-runs",
+  "swarmify-swarm",
   "swarmify-workflows",
   "uvicorn>=0.54",
 ]

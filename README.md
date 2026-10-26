@@ -115,6 +115,26 @@ URL connector gets them as request headers of the same name.
   included; `GET /api/stages/<stage id>/call` returns the raw request and response, which the run
   timeline shows when a connector stage is opened.
 
+## Whiteboard
+
+Each swarm stage has a whiteboard of tasks after the beads model (ADR 0017): a task has a status
+(open, claimed, done), an owner, dependencies on other tasks of the stage, a heartbeat, notes and
+who added it. A task is claimable once every task it depends on is done. A claim is one
+`BEGIN IMMEDIATE` transaction updating the row only while it has no owner, so of any number of
+concurrent claims exactly one wins and the rest get a 409. The owner heartbeats, optionally with
+partial notes; a claim whose last heartbeat is older than two minutes returns to open with its
+notes kept and a note saying why (the API sweeps every 15 seconds). Every change appends a
+`task.updated` event carrying the whole task, which the run page's whiteboard renders live.
+
+| Action | HTTP | MCP |
+|---|---|---|
+| Add a task (`title`, optional `body`, `depends_on`, `added_by`) | `POST /api/runs/<run>/stages/<stage>/tasks` | `add_task` |
+| List a stage's tasks | `GET /api/runs/<run>/stages/<stage>/tasks` | `list_tasks` |
+| Claim, heartbeat, finish (`agent`, optional `note`) | `POST /api/tasks/<id>/claim`, `/heartbeat`, `/finish` | in-process agent tools (T07) |
+
+Tasks can be added to a swarm stage that has not ended; the run page's whiteboard has an add form
+for this. Agents running the stage arrive with T07.
+
 `docker compose up --build` builds the api image (web skin baked in, served at `/`) and a
 graph writer stub.
 
@@ -124,13 +144,13 @@ graph writer stub.
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, ...) and the composition root passes them all to `migrate` once.
+  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);
-  `packages/worlds`, `packages/workflows`, `packages/runs` and `packages/connectors` each have a Storage port with a
-  SQLite adapter.
+  `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors` and `packages/swarm`
+  each have a Storage port with a SQLite adapter.
   Workflows learns which connectors a world allows through a function the composition root passes
   in, backed by the connector registry. `packages/connectors` also declares ConnectorTransport, with
   the MCP adapter and `FakeTransport` for tests.

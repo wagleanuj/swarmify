@@ -12,8 +12,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from sse import sse_events
 from swarmify_connectors import ConnectorError, FakeTransport, Tool
-from test_world_events import _events
 
 FAL = {
     "name": "fal_video",
@@ -190,7 +190,7 @@ def test_progress_streams_on_the_world_events(live_url: str, transport: FakeTran
     seen: list[tuple[str, float | None]] = []
     with httpx.stream("GET", f"{live_url}/api/worlds/{w}/events", timeout=10) as r:
         httpx.post(f"{live_url}/api/workflows/{workflow['workflow_id']}/runs", json={})
-        for kind, _, data in _events(r):
+        for kind, _, data in sse_events(r):
             if kind == "connector_call.updated":
                 seen.append((data["payload"]["status"], data["payload"]["progress"]))
                 if seen[-1][0] == "done":

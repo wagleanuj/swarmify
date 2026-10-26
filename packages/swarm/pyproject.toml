@@ -1,0 +1,10 @@
+[project]
+name = "swarmify-swarm"
+version = "0.1.0"
+description = "Swarm context: the whiteboard of a swarm stage, its tasks and their claims"
+requires-python = ">=3.12"
+dependencies = ["swarmify-kernel"]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"

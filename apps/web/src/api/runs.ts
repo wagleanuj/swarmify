@@ -1,26 +1,11 @@
-import { useEffect, useRef } from "react";
+import { type Call, type Run, useWorldEvents } from "./events";
 
-import type { components } from "./schema";
-
-export type Run = components["schemas"]["Run"];
-export type Call = components["schemas"]["Call"];
+export type { Call, Run };
 
 /** Call `onRun` with every run snapshot the world's event stream carries (ADR 0002), and
- * `onCall` with every connector call snapshot, progress included. One stream per page. */
-export function useRunUpdates(
-  worldId: string,
-  onRun: (run: Run) => void,
-  onCall?: (call: Call) => void,
-) {
-  const latest = useRef({ onRun, onCall });
-  latest.current = { onRun, onCall };
-  useEffect(() => {
-    const source = new EventSource(`/api/worlds/${worldId}/events`);
-    const payload = (e: Event) => (JSON.parse((e as MessageEvent<string>).data) as { payload: never }).payload;
-    source.addEventListener("run.updated", (e) => latest.current.onRun(payload(e)));
-    source.addEventListener("connector_call.updated", (e) => latest.current.onCall?.(payload(e)));
-    return () => source.close();
-  }, [worldId]);
+ * `onCall` with every connector call snapshot, progress included. */
+export function useRunUpdates(worldId: string, onRun: (run: Run) => void, onCall?: (call: Call) => void) {
+  useWorldEvents(worldId, { "run.updated": onRun, "connector_call.updated": onCall });
 }
 
 export const STATUS_LABEL: Record<Run["status"], string> = {
