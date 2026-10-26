@@ -79,12 +79,16 @@ def _builtin(
     )
 
 
-# ponytail: remotion_render is declared so workflows can name it; its wrapper ships with the
-# render connector (T11). Until then a call fails clearly.
 BUILTINS = [
     _builtin("web_search", "tool", "swarm", "Built into Claude. No key."),
     _builtin("graph", "tool", "swarm", "This world's graph, read only."),
-    _builtin("remotion_render", "stage", "connector", "Renders a script. Server not installed."),
+    _builtin(
+        "remotion_render",
+        "stage",
+        "connector",
+        "Renders a script with the Remotion CLI. Needs Node and a Remotion project.",
+        [sys.executable, "-m", "swarmify_connectors.remotion"],
+    ),
     _builtin(
         "youtube",
         "publish",

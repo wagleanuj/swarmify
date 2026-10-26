@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 from anyio import to_thread
 from fastapi import FastAPI
@@ -182,6 +183,28 @@ def run_file(world_folder: Path, run: Run, name: str) -> Path:
     return max(found, key=lambda p: p.stat().st_mtime)
 
 
+def with_files(world_folder: Path, run: Run, stage_id: str, config: dict[str, Any]) -> dict:
+    """A connector stage exchanges files through the run folder. `output` lands in this stage's
+    `artifacts/` (created for it), `input` is the newest run file of that name (`run_file`), and
+    the frontmatter a sidecar needs rides along. All join the call's params. Workflow YAML is
+    Planner-authored, so a path in `output` or a run-owned key in `params` is refused."""
+    params = dict(config.get("params") or {})
+    for key in ("input_path", "output_path", "frontmatter"):
+        if key in params:
+            raise ConnectorError(f"params.{key} is set by the run, not the workflow")
+    output = str(config.get("output") or "")
+    if output and (Path(output).name != output or output in (".", "..")):
+        raise ConnectorError(f"output must be a bare file name, got '{output}'")
+    if config.get("input"):
+        params["input_path"] = str(run_file(world_folder, run, str(config["input"])))
+    if output:
+        out = world_folder / "runs" / run.id / stage_id / "artifacts" / output
+        out.parent.mkdir(parents=True, exist_ok=True)
+        params["output_path"] = str(out)
+    params["frontmatter"] = {"world": run.world_id, "run": run.id, "stage": stage_id}
+    return {**config, "params": params}
+
+
 class SpaFiles(StaticFiles):
     """The built skin, answering unknown non-API paths with index.html so deep links load."""
 
@@ -228,7 +251,12 @@ def create_app(
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
         shown = registry.publish_preview(run.world_id, stage.config)
         if shown is None:
-            registry.run_stage(run.world_id, run.id, stage_id, stage.config)
+            folder = world_svc.folder(run.world_id)
+            config = with_files(folder, run, stage_id, stage.config)
+            registry.run_stage(run.world_id, run.id, stage_id, config)
+            output = Path(config["params"].get("output_path") or "")
+            if output.is_file():  # announce what the connector left as an artifact
+                memory.record(run.world_id, run.id, stage_id, str(stage.config["calls"]), output)
             return
         # A publish stage posts the input file, then records what went out as an artifact.
         params = dict(stage.config.get("params") or {})

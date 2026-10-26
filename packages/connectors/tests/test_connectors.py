@@ -251,7 +251,6 @@ def test_a_poll_that_errors_fails_the_stage(
     [
         ("nope", "no connector named 'nope'"),
         ("web_search", "not allowed in connector stages"),
-        ("remotion_render", "no MCP server installed"),
         ("fal_video", "needs FAL_KEY"),
     ],
 )

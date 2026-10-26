@@ -1,0 +1,179 @@
+"""A script stage then the Remotion render stage, end to end through the API: real DBOS on
+SQLite, the real MCP transport and render wrapper, and a fake Remotion CLI on PATH."""
+
+import json
+import os
+import shlex
+import sys
+import time
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from swarmify_api.main import create_app, with_files
+from swarmify_connectors import ConnectorError
+from swarmify_runs import Run, RunStageView
+
+HERE = Path(__file__).parent
+FAKE_NPX = HERE.parents[2] / "packages/connectors/tests/fake_npx.py"
+
+
+@pytest.fixture
+def app(tmp_path: Path) -> FastAPI:
+    return create_app(tmp_path / "data", poll_seconds=0.05)
+
+
+@pytest.fixture
+def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    npx = bin_dir / "npx"
+    npx.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
+    npx.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    (tmp_path / "video").mkdir()
+    return tmp_path / "video"
+
+
+@pytest.fixture
+def running(app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(app) as client:
+        yield client
+
+
+def render_run(client: TestClient, project: Path, composition: str) -> dict:
+    w = client.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
+    server = shlex.join([sys.executable, str(HERE / "script_server.py")])
+    added = client.post(
+        f"/api/worlds/{w}/connectors",
+        json={
+            "name": "script_writer",
+            "kind": "stage",
+            "server": server,
+            "stage_types": ["connector"],
+        },
+    )
+    assert added.status_code == 201, added.text
+    yaml = f"""name: Script then render
+stages:
+  - connector: script
+    calls: script_writer
+    output: script.md
+  - connector: render
+    calls: remotion_render
+    input: script.md
+    output: short.mp4
+    params: {{project: "{project}", composition: {composition}}}
+"""
+    workflow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
+    assert workflow.status_code == 201, workflow.text
+    run = client.post(f"/api/workflows/{workflow.json()['workflow_id']}/runs", json={}).json()
+    deadline = time.monotonic() + 30
+    while (run := client.get(f"/api/runs/{run['id']}").json())["status"] not in ("done", "failed"):
+        assert time.monotonic() < deadline, run
+        time.sleep(0.05)
+    return run
+
+
+def test_a_script_artifact_renders_into_a_video_with_a_sidecar(
+    running: TestClient, project: Path, tmp_path: Path
+) -> None:
+    run = render_run(running, project, "Short")
+    assert run["status"] == "done", run
+    script_id, render_id = run["stages"][0]["id"], run["stages"][1]["id"]
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    video = folder / render_id / "artifacts/short.mp4"
+    rendered = json.loads(video.read_text())
+    assert rendered["script"].startswith("# Why the chase works")
+    assert rendered["scriptPath"] == str(folder / script_id / "artifacts/script.md")
+    sidecar = (folder / render_id / "artifacts/short.mp4.md").read_text()
+    assert f'run: "{run["id"]}"' in sidecar and f'stage: "{render_id}"' in sidecar
+
+    call = running.get(f"/api/stages/{render_id}/call").json()
+    assert call["status"] == "done" and call["progress"] == 1.0
+    assert call["response"]["output"] == str(video)
+
+    url = f"/api/runs/{run['id']}/stages/{render_id}/artifacts"
+    [artifact] = running.get(url).json()
+    assert (artifact["name"], artifact["type"], artifact["author"]) == (
+        "short.mp4",
+        "video",
+        "remotion_render",
+    )
+
+
+def test_a_failed_render_puts_the_cli_output_on_the_timeline(
+    running: TestClient, project: Path
+) -> None:
+    run = render_run(running, project, "Broken")
+    assert run["status"] == "failed"
+    render = run["stages"][1]
+    assert render["status"] == "failed"
+    assert render["error"].startswith("ConnectorError: remotion_render: remotion render exited")
+    assert "No composition with the ID Broken found." in render["error"]
+    call = running.get(f"/api/stages/{render['id']}/call").json()
+    assert call["status"] == "failed" and "Bundling" in call["error"]
+
+
+def test_a_render_without_an_input_is_refused(running: TestClient, project: Path) -> None:
+    w = running.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
+    yaml = """name: Render only
+stages:
+  - connector: render
+    calls: remotion_render
+    output: short.mp4
+    params: {project: /x, composition: Short}
+"""
+    workflow = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml}).json()
+    run = running.post(f"/api/workflows/{workflow['workflow_id']}/runs", json={}).json()
+    deadline = time.monotonic() + 30
+    while (run := running.get(f"/api/runs/{run['id']}").json())["status"] != "failed":
+        assert time.monotonic() < deadline, run
+        time.sleep(0.05)
+    assert "the render stage needs an `input`" in run["stages"][0]["error"]
+
+
+def _run(*names: str) -> Run:
+    stages = [RunStageView(f"stage_{i}", i, n, "connector", "pending") for i, n in enumerate(names)]
+    return Run("run_1", "world_1", "wf_1", 1, "r", "running", "t", "t", stages)
+
+
+def test_input_is_the_newest_run_file_of_that_name(tmp_path: Path) -> None:
+    run = _run("draft", "rewrite", "render")
+    for n, stage in enumerate(("stage_0", "stage_1")):
+        (tmp_path / "runs/run_1" / stage / "artifacts").mkdir(parents=True)
+        script = tmp_path / "runs/run_1" / stage / "artifacts/script.md"
+        script.write_text(stage)
+        os.utime(script, (n, n))
+    config = with_files(tmp_path, run, "stage_2", {"input": "script.md", "output": "a.mp4"})
+    assert Path(config["params"]["input_path"]).read_text() == "stage_1"
+    assert config["params"]["output_path"] == str(tmp_path / "runs/run_1/stage_2/artifacts/a.mp4")
+    assert Path(config["params"]["output_path"]).parent.is_dir()
+    assert config["params"]["frontmatter"] == {
+        "world": "world_1",
+        "run": "run_1",
+        "stage": "stage_2",
+    }
+
+
+def test_an_input_no_earlier_stage_left_fails_clearly(tmp_path: Path) -> None:
+    with pytest.raises(ConnectorError, match="no earlier stage of this run left a file named"):
+        with_files(tmp_path, _run("draft", "render"), "stage_1", {"input": "script.md"})
+
+
+@pytest.mark.parametrize("key", ["input", "output"])
+@pytest.mark.parametrize("name", ["../../../../../escaped.mp4", "a/b.mp4", "..", "/etc/x"])
+def test_a_file_name_that_is_a_path_is_refused(tmp_path: Path, key: str, name: str) -> None:
+    with pytest.raises(ConnectorError, match="must be a bare file name"):
+        with_files(tmp_path, _run("draft", "render"), "stage_1", {key: name})
+    assert not (tmp_path / "runs").exists()
+
+
+@pytest.mark.parametrize("key", ["input_path", "output_path", "frontmatter"])
+def test_params_may_not_set_the_run_paths(tmp_path: Path, key: str) -> None:
+    config = {"output": "clip.mp4", "params": {key: "/etc/passwd"}}
+    with pytest.raises(ConnectorError, match=f"params.{key} is set by the run"):
+        with_files(tmp_path, _run("draft", "render"), "stage_1", config)

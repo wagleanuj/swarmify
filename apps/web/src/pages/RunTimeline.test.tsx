@@ -43,6 +43,7 @@ test("a failed stage shows its error", async () => {
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Failed at stage 1, render: RuntimeError: no.");
   await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/RuntimeError: no/);
+  expect(screen.getByTestId("stage-log").elements()).toHaveLength(0);
 });
 
 test("an unknown run explains itself and links back to runs", async () => {
@@ -162,4 +163,20 @@ test("a run at a gate links to the inbox, pauses, resumes and aborts, showing de
 
   FakeEventSource.emit("run.updated", { payload: run("aborted", waiting.stages) });
   await expect.element(screen.getByTestId("run-actions")).not.toBeInTheDocument();
+});
+
+test("a failed render shows the Remotion CLI output under the timeline", async () => {
+  const error = "ConnectorError: remotion_render: remotion render exited with 1\nBundling 100%\nError: No composition with the ID Shortt found.";
+  const failed = run("failed", [
+    { ...stage(0, "render", "connector", "failed"), error },
+    stage(1, "pick", "gate", "pending"),
+  ]);
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(failed) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect
+    .element(screen.getByTestId("status-line"))
+    .toHaveTextContent("Failed at stage 1, render: ConnectorError: remotion_render: remotion render exited with 1.");
+  await expect.element(screen.getByRole("region", { name: "Stage output" })).toMatchTextContent(/Stage 1, render: what it printed/);
+  await expect.element(screen.getByTestId("stage-log")).toMatchTextContent(/Bundling 100%\s*Error: No composition with the ID Shortt found\./);
+  await expect.element(screen.getByTestId("timeline")).not.toMatchTextContent(/Bundling/);
 });

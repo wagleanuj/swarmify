@@ -139,8 +139,8 @@ A connector is an MCP server (a command line or an http(s) URL), the credential 
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
 Every world starts with the built-ins: `web_search` and `graph` (swarm tools, no setup),
-`remotion_render` (declared so workflows can name it; its server ships with T11), and the two
-publish connectors `youtube` and `upload_post` (see Publishing below).
+the stage connector `remotion_render` (see Remotion render below), and the two publish
+connectors `youtube` and `upload_post` (see Publishing below).
 
 Credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with mode 600; the
 app refuses to read it when group or others can. Values never enter the database, a run, a
@@ -167,6 +167,38 @@ URL connector gets them as request headers of the same name.
 - Every change to a call appends a `connector_call.updated` event carrying the whole call, progress
   included; `GET /api/stages/<stage id>/call` returns the raw request and response, which the run
   timeline shows when a connector stage is opened.
+
+A connector stage's call also carries `output_path` (`worlds/<w>/runs/<run>/<stage>/artifacts/<output>`,
+folder created; `output` must be a bare file name), `input_path` (the newest file named like
+`input` any stage of the run left; the stage fails if there is none) and `frontmatter` (world,
+run, stage) for a sidecar. Workflow params may not set these three. When the call is done and the
+output file exists, an `artifact.created` event announces it, typed by its sidecar.
+
+## Remotion render
+
+`remotion_render` is our stdio MCP wrapper over `npx remotion render`
+(`python -m swarmify_connectors.remotion`). It needs Node on `PATH` and a Remotion project with
+its dependencies installed; no credentials.
+
+```yaml
+  - connector: render
+    calls: remotion_render
+    input: script.md          # the script artifact an earlier stage produced
+    output: short.mp4
+    params:
+      project: ~/videos/shorts  # the Remotion project folder
+      composition: Short        # the composition ID
+      # optional: entry (src/index.ts), codec (h264), frames (0-29), props
+```
+
+The composition gets the script as input props, `{"script": <text>, "scriptPath": <path>, ...props}`
+(read them with `getInputProps()`). The render runs detached from the MCP session, so a restart of
+swarmify resumes polling it; progress comes from the CLI's `Rendered n/N` and `Encoded n/N` lines
+and shows on the timeline. On success the video gets a sidecar, `short.mp4.md`, with frontmatter
+(type video, author remotion_render, world, run, stage, created, source script, composition,
+bytes). On failure the stage fails with the last 40 lines of CLI output, shown under the timeline.
+Tests use a fake `npx`; one real render runs when you opt in:
+`SWARMIFY_REMOTION_PROJECT=<project> SWARMIFY_REMOTION_COMPOSITION=<id> uv run pytest -k real_render`.
 
 ## Publishing
 

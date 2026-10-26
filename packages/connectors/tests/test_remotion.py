@@ -1,0 +1,166 @@
+"""The Remotion render connector: the built-in wrapper started over stdio MCP, rendering with a
+fake Remotion CLI on PATH. `SWARMIFY_REMOTION_PROJECT` opts in to one real render."""
+
+import json
+import os
+import time
+from contextlib import closing
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from swarmify_connectors import BUILTINS, ConnectorError, Connectors, McpTransport, SqliteStorage
+from swarmify_connectors.credentials import Credentials
+from swarmify_connectors.remotion import alive, progress
+from swarmify_kernel.events import read_after
+from swarmify_kernel.sqlite import connect
+
+W = "world_1"
+
+
+@pytest.fixture
+def real(tmp_path: Path, db: Path) -> Connectors:
+    """The service with the real MCP transport, polling fast."""
+    return Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
+
+
+def stage(tmp_path: Path, project: Path, composition: str = "Short", **params: Any) -> dict:
+    script = tmp_path / "stages/1-script/artifacts/files/script.md"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("# Why the chase works\n\nHook, then the reveal.\n")
+    return {
+        "calls": "remotion_render",
+        "input": "script.md",
+        "output": "short.mp4",
+        "params": {
+            "project": str(project),
+            "composition": composition,
+            "input_path": str(script),
+            "output_path": str(tmp_path / "stages/2-render/artifacts/files/short.mp4"),
+            "frontmatter": {"world": W, "run": "run_1", "stage": "render"},
+            **params,
+        },
+    }
+
+
+def test_progress_reads_the_cli_lines() -> None:
+    assert progress("") == (0.0, "starting the render")
+    assert progress("Bundling 40%\nRendered 15/30, time remaining: 1s\n") == (
+        0.45,
+        "rendered 15/30 frames",
+    )
+    assert progress("Rendered 30/30\nEncoded 24/30\n") == (0.98, "encoded 24/30 frames")
+
+
+def test_renders_the_script_into_a_video_with_a_sidecar(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    config = stage(tmp_path, fake_npx, frames=10)  # YAML hands an int for a single frame
+    call = real.run_stage(W, "run_1", "stage_2", config)
+    assert call.status == "done" and call.progress == 1.0 and call.polls >= 1
+    video = Path(config["params"]["output_path"])
+    assert call.response is not None and call.response["output"] == str(video)
+    rendered = json.loads(video.read_text())
+    assert rendered["composition"] == "Short" and rendered["entry"] == "src/index.ts"
+    assert rendered["script"].startswith("# Why the chase works")
+    assert rendered["scriptPath"] == config["params"]["input_path"]
+
+    sidecar = video.with_name("short.mp4.md")
+    assert call.response["sidecar"] == str(sidecar)
+    text = sidecar.read_text()
+    head = text.split("---\n")[1]
+    assert 'type: "video"' in head and 'world: "world_1"' in head and 'run: "run_1"' in head
+    assert 'stage: "render"' in head and "created: " in head
+    assert "from the script `script.md` with composition `Short`" in text
+
+
+def test_progress_reaches_the_call_while_it_renders(
+    tmp_path: Path, db: Path, real: Connectors, fake_npx: Path
+) -> None:
+    real.run_stage(W, "run_1", "stage_2", stage(tmp_path, fake_npx, "Slow"))
+    with closing(connect(db)) as conn:
+        seen = [e.payload for e in read_after(conn, W, 0) if e.type == "connector_call.updated"]
+    messages = [p["message"] for p in seen if p["status"] == "polling"]
+    assert any(m and m.startswith("rendered ") for m in messages), messages
+    values = [p["progress"] for p in seen if p["progress"] is not None]
+    assert values == sorted(values) and values[-1] == 1.0
+
+
+def test_a_failed_render_fails_the_stage_with_the_cli_output(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    with pytest.raises(ConnectorError) as raised:
+        real.run_stage(W, "run_1", "stage_2", stage(tmp_path, fake_npx, "Broken"))
+    assert "remotion render exited with 1" in str(raised.value)
+    assert "No composition with the ID Broken found." in str(raised.value)
+    call = real.call_for("stage_2")
+    assert call is not None and call.status == "failed"
+    assert "No composition with the ID Broken" in (call.error or "")
+
+
+def test_a_render_that_writes_nothing_fails(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    with pytest.raises(ConnectorError, match="wrote no video"):
+        real.run_stage(W, "run_1", "stage_2", stage(tmp_path, fake_npx, "Empty"))
+
+
+@pytest.mark.parametrize(
+    ("over", "problem"),
+    [
+        ({"input_path": "/nope/script.md"}, "the script /nope/script.md does not exist"),
+        ({"project": "/nope"}, "the Remotion project /nope does not exist"),
+        ({"input_path": ""}, "the render stage needs an `input`"),
+        ({"composition": "--browser-executable=/bin/sh"}, "composition must be a plain value"),
+    ],
+)
+def test_a_bad_request_is_refused_before_rendering(
+    tmp_path: Path, real: Connectors, fake_npx: Path, over: dict, problem: str
+) -> None:
+    config = stage(tmp_path, fake_npx)
+    config["params"].update(over)
+    with pytest.raises(ConnectorError, match=problem):
+        real.run_stage(W, "run_1", "stage_2", config)
+
+
+def test_a_repeated_call_attaches_to_the_render_instead_of_starting_another(
+    tmp_path: Path, fake_npx: Path
+) -> None:
+    config = stage(tmp_path, fake_npx, "Slow")
+    request = {**config["params"], "idempotency_key": "stage_2"}
+    connector = next(c for c in BUILTINS if c.name == "remotion_render")
+    transport = McpTransport()
+    first = transport.call(connector, "remotion_render", request, {})
+    again = transport.call(connector, "remotion_render", request, {})
+    assert first["job_id"] == again["job_id"]
+    assert (first["message"], again["message"]) == ("render started", "render already started")
+    job = Path(first["job_id"])
+    deadline = time.monotonic() + 10
+    while json.loads(job.read_text())["status"] == "running":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    done = transport.call(connector, "remotion_render_status", {"job_id": str(job)}, {})
+    assert done["status"] == "done"
+    assert transport.call(connector, "remotion_render", request, {})["message"] == (
+        "render already started"
+    )
+
+
+@pytest.mark.skipif(
+    not os.environ.get("SWARMIFY_REMOTION_PROJECT"),
+    reason="set SWARMIFY_REMOTION_PROJECT (and SWARMIFY_REMOTION_COMPOSITION) for a real render",
+)
+def test_a_real_render(tmp_path: Path, real: Connectors) -> None:
+    project = Path(os.environ["SWARMIFY_REMOTION_PROJECT"])
+    composition = os.environ.get("SWARMIFY_REMOTION_COMPOSITION", "Main")
+    config = stage(tmp_path, project, composition, frames="0-9")
+    call = real.run_stage(W, "run_1", "stage_2", config)
+    video = Path(config["params"]["output_path"])
+    assert call.status == "done" and video.stat().st_size > 1000
+    assert video.read_bytes()[4:8] == b"ftyp"
+    assert video.with_name("short.mp4.md").exists()
+
+
+def test_pid_zero_is_never_a_live_render() -> None:
+    assert not alive(0) and alive(os.getpid())
