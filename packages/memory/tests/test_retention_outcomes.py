@@ -46,7 +46,7 @@ def test_prune_deletes_old_binaries_and_keeps_markdown_and_sidecars(memory: Memo
         if path.is_file() and "r2" not in path.parts:
             _age(path, 100)
 
-    gone = memory.prune("w1", NOW - timedelta(days=90))
+    gone = memory.prune("w1", NOW - timedelta(days=90), NOW)
 
     assert gone == ["runs/r1/s1/artifacts/short.mp4", "runs/r1/s1/frame.png"]
     assert not (run / "r1/s1/artifacts/short.mp4").exists() and not loose.exists()
@@ -61,7 +61,7 @@ def test_prune_deletes_old_binaries_and_keeps_markdown_and_sidecars(memory: Memo
         "r2/s1/artifacts/fresh.mp4.md",
     ]
     sidecar = (run / "r1/s1/artifacts/short.mp4.md").read_text()
-    assert 'author: "render"' in sidecar and "deleted: " in sidecar
+    assert 'author: "render"' in sidecar and f'deleted: "{NOW.isoformat()}"' in sidecar
     assert "short.mp4 was deleted by retention" in sidecar and "This record stays." in sidecar
     [card] = [a for a in memory.stage_artifacts("w1", "r1", "s1") if a.name == "short.mp4"]
     assert card.fields["deleted"] and card.type == "file"
@@ -69,8 +69,8 @@ def test_prune_deletes_old_binaries_and_keeps_markdown_and_sidecars(memory: Memo
     pruned = [p for t, p in _events(memory) if t == "artifact.pruned"]
     assert pruned == [{"path": "runs/r1/s1/artifacts/short.mp4"}, {"path": "runs/r1/s1/frame.png"}]
 
-    assert memory.prune("w1", NOW - timedelta(days=90)) == []  # nothing left to delete
-    assert memory.prune("w2", NOW) == []  # a world without runs
+    assert memory.prune("w1", NOW - timedelta(days=90), NOW) == []  # nothing left to delete
+    assert memory.prune("w2", NOW, NOW) == []  # a world without runs
 
 
 def test_an_outcome_lands_in_frontmatter_and_body_replacing_the_last_one(memory: Memory) -> None:

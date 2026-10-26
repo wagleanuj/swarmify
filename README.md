@@ -510,8 +510,9 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
 
 - `packages/kernel` shared kernel: ids, the event envelope and its append-only log, SQLite
   access and the migration runner. The only package other packages may import.
-- Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
-  `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
+- Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and each recorded in the
+  `migrations` table, so a lower number merged after a higher one still runs. Numbers are unique
+  across the repo (take the next free one, renumber on rebase if another ticket took it): each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, 0019, 0020 and 0021, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007,
   runs 0008, 0010, 0013 and 0017, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.

@@ -378,12 +378,13 @@ def create_app(
     async def upkeep_loop() -> None:
         # ponytail: an in-process interval, restarted with the app; both jobs are idempotent, so
         # a missed tick only delays them. Move to DBOS cron if they must run at fixed times.
+        # Runs once at launch too, so an app restarted more often than the interval still does it.
         while True:
-            await asyncio.sleep(upkeep_seconds)
             try:
                 await to_thread.run_sync(upkeep_once)
             except Exception:
                 log.exception("upkeep failed, retrying next tick")
+            await asyncio.sleep(upkeep_seconds)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

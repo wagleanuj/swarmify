@@ -343,9 +343,9 @@ class Memory:
         )
         self._event(world_id, fields.get("run"), "outcome.recorded", path=path, views=views)
 
-    def prune(self, world_id: str, before: datetime) -> list[str]:
+    def prune(self, world_id: str, before: datetime, now: datetime) -> list[str]:
         """Delete every run file of the world that is not markdown and was last changed before
-        `before`, keeping its sidecar (written when there was none) with `deleted` in the
+        `before`, keeping its sidecar (written when there was none) with `deleted` (`now`) in the
         frontmatter and a line in the body. Returns the deleted paths."""
         world = self.world_folder(world_id)
         cutoff, gone = before.timestamp(), []
@@ -360,7 +360,7 @@ class Memory:
                 "type": "file",
                 "run": run,
                 **fields,
-                "deleted": datetime.now(UTC).isoformat(),
+                "deleted": now.astimezone(UTC).isoformat(),
             }
             body = body.rstrip("\n") or f"Sidecar of {file.name}."
             sidecar.write_text(

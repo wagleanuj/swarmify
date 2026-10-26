@@ -3,7 +3,6 @@ binaries pruned past the world's retention, markdown kept. The fake ConnectorTra
 for YouTube; DBOS runs for real on SQLite; the upkeep interval is shortened."""
 
 import os
-import time
 from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -78,14 +77,14 @@ def test_view_counts_are_written_into_the_publish_artifact_body(
 
 
 def test_a_world_without_youtube_keys_is_skipped(
-    running: TestClient, transport: FakeTransport, tmp_path: Path
+    running: TestClient, transport: FakeTransport, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
     folder = tmp_path / "worlds" / world / "runs/run_1/03-publish/artifacts"
     folder.mkdir(parents=True)
     body = '---\ntype: "publish"\nconnector: "youtube"\nid: "vid1"\n---\n\n# Five\n'
     (folder / "publish.md").write_text(body)
-    time.sleep(0.3)
+    until(lambda: f"view counts for world {world} skipped" in caplog.text)  # a tick saw it
     assert not any(c[1] == "views" for c in transport.calls)
     assert (folder / "publish.md").read_text() == body
 

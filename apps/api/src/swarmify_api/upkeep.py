@@ -48,5 +48,5 @@ def prune(worlds: Worlds, memory: Memory, now: datetime) -> list[str]:
     gone = []
     for world in worlds.list_all():
         if world.retention_days > 0:
-            gone += memory.prune(world.id, now - timedelta(days=world.retention_days))
+            gone += memory.prune(world.id, now - timedelta(days=world.retention_days), now)
     return gone
