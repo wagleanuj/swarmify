@@ -159,3 +159,9 @@ button.link { border: 0; padding: 0; text-align: left; text-decoration: underlin
 select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
 .gate-actions { justify-content: flex-start; }
 .stage-note { font-size: 0.85rem; color: var(--muted); }
+.publish-preview dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
+.publish-preview dt { color: var(--muted); }
+.publish-preview dd { margin: 0; }
+.publish-problems { border-left: 3px solid #c53030; padding-left: 0.8rem; }
+.publish-problems p, .publish-problems ul { margin: 0.2rem 0; }
+.set-keys { display: grid; gap: 0.4rem; flex-basis: 100%; }

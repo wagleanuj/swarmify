@@ -89,6 +89,21 @@ class Run:
 
 
 @dataclass(frozen=True)
+class PublishPreview:
+    """What the publish stage right after a gate will post, as the gate shows it (ADR 0007).
+    `schedule` is a UTC ISO time, or None for now; `problems` would stop the post."""
+
+    connector: str
+    title: str
+    visibility: str
+    schedule: str | None = None
+    description: str = ""
+    video: str | None = None
+    platforms: list[str] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Gate:
     """An open gate as the inbox lists it: which run waits, what it asks, how to answer."""
 
@@ -105,3 +120,5 @@ class Gate:
     earlier_stages: list[str]
     parent_run_id: str | None = None
     parent: RunLink | None = None
+    publish: PublishPreview | None = None
+    """Set when the next stage publishes: exactly what confirming sends out."""

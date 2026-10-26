@@ -83,3 +83,14 @@ def test_a_stage_takes_another_runs_artifacts_across_worlds_latest_first(memory:
         with pytest.raises(ValueError, match="no artifact named"):
             memory.copy_artifacts(("w2", "child"), ["brief.md", bad], "w1", "r2", "s9", "c")
     assert not (memory.world_folder("w1") / "runs/r2/s9/artifacts/brief.md").exists()
+
+
+def test_an_artifact_may_carry_its_own_type_and_frontmatter(memory: Memory) -> None:
+    fields = {"links": {"youtube": "https://youtu.be/v"}, "schedule": None}
+    rel = memory.write_artifact(
+        "w1", "r1", "s1", "publish", "publish.md", "# Hooks\n", "publish", fields
+    )
+    text = (memory.world_folder("w1") / rel).read_text()
+    assert text.startswith('---\ntype: "publish"\nauthor: "publish"\n')
+    assert 'links: {"youtube": "https://youtu.be/v"}\n' in text and "schedule" not in text
+    assert _events(memory)[-1]["type"] == "publish"

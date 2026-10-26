@@ -9,6 +9,7 @@ is sent, so the record exists even if the run has moved on by the time the messa
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,10 +30,18 @@ from swarmify_runs.machine import (
     SentBack,
     transition,
 )
-from swarmify_runs.model import Decision, Gate, Run
+from swarmify_runs.model import Decision, Gate, PublishPreview, Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
 
 CONTROL_TOPIC = "control"
+
+Previews = Callable[[str, StageDef], PublishPreview | None]
+"""What a stage of a world will publish, or None when it does not publish. Runs cannot tell a
+publish connector from another; the Connectors registry can, through the composition root."""
+
+
+def no_previews(_world_id: str, _stage: StageDef) -> PublishPreview | None:
+    return None
 
 
 def _now() -> str:
@@ -64,19 +73,36 @@ def ended_event(run: Run) -> Event:
 
 class RunControl:
     def __init__(
-        self, storage: Storage, system_db: Path, data_dir: Path, notifier: Notifier
+        self,
+        storage: Storage,
+        system_db: Path,
+        data_dir: Path,
+        notifier: Notifier,
+        previews: Previews = no_previews,
     ) -> None:
         self.storage = storage
         self.system_db = system_db
         self.data_dir = data_dir
         self.notifier = notifier
+        self.previews = previews
         self._client: DBOSClient | None = None
 
     def get(self, run_id: str) -> Run | None:
         return self.storage.get_run(run_id)
 
     def gates(self) -> list[Gate]:
-        return self.storage.open_gates()
+        """Each with the publish preview of the stage after it, when that stage publishes."""
+        return [
+            replace(g, publish=self.preview_after(g.run_id, g.stage_index, g.world_id))
+            for g in self.storage.open_gates()
+        ]
+
+    def preview_after(self, run_id: str, index: int, world_id: str) -> PublishPreview | None:
+        try:
+            _, after = self.storage.stage_def(run_id, index + 1)
+        except KeyError:
+            return None
+        return self.previews(world_id, after) if after.type == "connector" else None
 
     def decide(
         self,

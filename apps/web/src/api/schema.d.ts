@@ -367,6 +367,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connectors/{connector_id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Credentials
+         * @description Store a connector's keys in the credentials file; how built-ins get theirs.
+         */
+        put: operations["set_credentials_api_connectors__connector_id__credentials_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stage_id}/call": {
         parameters: {
             query?: never;
@@ -791,6 +811,7 @@ export interface components {
             /** Parent Run Id */
             parent_run_id?: string | null;
             parent?: components["schemas"]["RunLink"] | null;
+            publish?: components["schemas"]["PublishPreview"] | null;
         };
         /**
          * GateStage
@@ -843,6 +864,13 @@ export interface components {
         Health: {
             /** Version */
             version: string;
+        };
+        /** Keys */
+        Keys: {
+            /** Credentials */
+            credentials: {
+                [key: string]: string;
+            };
         };
         /**
          * LogEntry
@@ -938,6 +966,32 @@ export interface components {
             agent: string;
             /** Note */
             note?: string | null;
+        };
+        /**
+         * PublishPreview
+         * @description What the publish stage right after a gate will post, as the gate shows it (ADR 0007).
+         *     `schedule` is a UTC ISO time, or None for now; `problems` would stop the post.
+         */
+        PublishPreview: {
+            /** Connector */
+            connector: string;
+            /** Title */
+            title: string;
+            /** Visibility */
+            visibility: string;
+            /** Schedule */
+            schedule?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Video */
+            video?: string | null;
+            /** Platforms */
+            platforms?: string[];
+            /** Problems */
+            problems?: string[];
         };
         /** Question */
         Question: {
@@ -2055,6 +2109,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_credentials_api_connectors__connector_id__credentials_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Keys"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorView"];
+                };
             };
             /** @description Validation Error */
             422: {

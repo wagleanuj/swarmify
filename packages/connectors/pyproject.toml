@@ -3,7 +3,7 @@ name = "swarmify-connectors"
 version = "0.1.0"
 description = "Connectors context: MCP servers, their tools and credentials, and connector stage calls"
 requires-python = ">=3.12"
-dependencies = ["mcp>=2.3", "swarmify-kernel"]
+dependencies = ["httpx>=0.28", "mcp>=2.3", "swarmify-kernel"]
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]

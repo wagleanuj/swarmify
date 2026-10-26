@@ -28,7 +28,14 @@ from starlette.types import Scope
 
 from swarmify_api import agents, connectors, graph, runs, tasks, workflows, worlds
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
-from swarmify_connectors import Connectors, ConnectorTransport, Credentials, McpTransport
+from swarmify_connectors import (
+    ConnectorError,
+    Connectors,
+    ConnectorTransport,
+    Credentials,
+    McpTransport,
+    publish,
+)
 from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
@@ -41,7 +48,17 @@ from swarmify_memory import (
     run_graphify,
 )
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
-from swarmify_runs import Connector, LogNotifier, Notifier, Run, RunControl, Runner, StageDef
+from swarmify_runs import (
+    Connector,
+    LogNotifier,
+    Notifier,
+    Previews,
+    PublishPreview,
+    Run,
+    RunControl,
+    Runner,
+    StageDef,
+)
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
 from swarmify_swarm import AgentRuntime, SdkRuntime, Swarm
@@ -121,9 +138,35 @@ SWEEP_SECONDS = 15.0
 """How often silent claims are returned to open. Well under the two-minute heartbeat timeout."""
 
 
+def previews(registry: Connectors) -> Previews:
+    """Runs learns what a stage will publish from the registry, which knows connector kinds."""
+
+    def preview(world_id: str, stage: StageDef) -> PublishPreview | None:
+        shown = registry.publish_preview(world_id, stage.config)
+        return PublishPreview(**shown) if shown else None
+
+    return preview
+
+
 def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
     """Act on runs from a process that does not host DBOS, such as the MCP server."""
-    return RunControl(run_storage(root), root / "dbos.sqlite", root, notifier or LogNotifier())
+    return RunControl(
+        run_storage(root),
+        root / "dbos.sqlite",
+        root,
+        notifier or LogNotifier(),
+        previews(connector_service(root)),
+    )
+
+
+def run_file(world_folder: Path, run: Run, name: str) -> Path:
+    """The newest file called `name` any stage of the run left, for a stage's `input`."""
+    if Path(name).name != name or name in ("", ".", ".."):
+        raise ConnectorError(f"input must be a bare file name, got '{name}'")
+    found = [p for p in (world_folder / "runs" / run.id).rglob(name) if p.is_file()]
+    if not found:
+        raise ConnectorError(f"no earlier stage of this run left a file named '{name}'")
+    return max(found, key=lambda p: p.stat().st_mtime)
 
 
 class SpaFiles(StaticFiles):
@@ -163,12 +206,35 @@ def create_app(
     `notifier` receives `gate.opened` and `run.ended`; a log line until Slack ships (T16)."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
-
-    def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
-        registry.run_stage(run.world_id, run.id, stage_id, stage.config)
-
     whiteboard = task_board(root)
     world_svc = world_service(root)
+    memory = Memory(migrated_db(root), root)
+
+    def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
+        shown = registry.publish_preview(run.world_id, stage.config)
+        if shown is None:
+            registry.run_stage(run.world_id, run.id, stage_id, stage.config)
+            return
+        # A publish stage posts the input file, then records what went out as an artifact.
+        params = dict(stage.config.get("params") or {})
+        if not shown["problems"]:  # else run_stage refuses, naming them
+            name = str(stage.config.get("input") or "")
+            params["input_path"] = str(run_file(world_svc.folder(run.world_id), run, name))
+        config = {**stage.config, "params": params}
+        call = registry.run_stage(run.world_id, run.id, stage_id, config)
+        out = registry.publish_result(call)
+        fields = {k: shown[k] for k in ("connector", "title", "visibility", "schedule")}
+        memory.write_artifact(
+            run.world_id,
+            run.id,
+            stage_id,
+            "publish",
+            "publish.md",
+            publish.markdown(shown, out),
+            type="publish",
+            fields={**fields, "status": out["status"], "links": out["links"], "id": out["id"]},
+        )
+
     worlds_dir = root / "worlds"
     worlds_dir.mkdir(parents=True, exist_ok=True)
     index = graph_index or McpGraphIndex(worlds_dir)
@@ -202,6 +268,7 @@ def create_app(
         swarm=run_swarm,
         pin=runs.pinner(workflow_svc),
         take=take,
+        previews=previews(registry),
     )
 
     async def sweep() -> None:

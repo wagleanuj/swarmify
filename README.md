@@ -138,9 +138,9 @@ the world's event stream and handed to the notifier; the adapter logs a line unt
 A connector is an MCP server (a command line or an http(s) URL), the credential names it needs,
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
-Every world starts with the built-ins: `web_search` and `graph` (swarm tools, no setup) plus
-`remotion_render`, `youtube` and `upload_post`, declared so workflows can name them; their servers
-ship with T11 and T12, and until then calling one fails the stage with a clear error.
+Every world starts with the built-ins: `web_search` and `graph` (swarm tools, no setup),
+`remotion_render` (declared so workflows can name it; its server ships with T11), and the two
+publish connectors `youtube` and `upload_post` (see Publishing below).
 
 Credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with mode 600; the
 app refuses to read it when group or others can. Values never enter the database, a run, a
@@ -149,7 +149,9 @@ environment, merged over the MCP SDK's safe defaults (HOME, PATH, USER, SHELL, T
 URL connector gets them as request headers of the same name.
 
 - `GET /api/worlds/<id>/connectors` lists built-ins first, each with the credential names still
-  `missing` from the file.
+  `missing` from the file. `PUT /api/connectors/<id>/credentials` (`{"credentials": {NAME:
+  value}}`) stores keys for a connector's own names, which is how built-ins get theirs; the
+  connectors page has an "Add keys" form per connector.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors` saves it and merges the given credential
   values into the file (an empty value means the file already has it). `DELETE
@@ -165,6 +167,56 @@ URL connector gets them as request headers of the same name.
 - Every change to a call appends a `connector_call.updated` event carrying the whole call, progress
   included; `GET /api/stages/<stage id>/call` returns the raw request and response, which the run
   timeline shows when a connector stage is opened.
+
+## Publishing
+
+A publish connector posts to the outside world, so a publish stage runs only right after a gate
+(ADR 0007, no override). The editor refuses to save a workflow that breaks this, and the runner
+refuses to execute such a stage too (it fails the stage), which catches a connector that became
+publish after the workflow was saved. Every publish stage declares the same params:
+
+```yaml
+  - gate: post it
+    kind: confirm
+    ask: Post this short?
+  - connector: publish
+    calls: youtube          # or upload_post
+    input: short.mp4        # the newest file of this name any earlier stage left in the run
+    params:
+      title: Five hooks that work      # required, at most 100 characters
+      description: optional
+      visibility: public               # public, unlisted or private (default private)
+      schedule: "2026-11-03T09:00:00Z" # optional, ISO 8601 with a timezone; needs public
+      user: my-profile                 # upload_post only: the Upload-Post profile
+      platforms: [youtube, tiktok]     # upload_post only, default [youtube]
+```
+
+The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
+and the `gate.opened` event): connector, title, visibility, schedule, video, platforms and any
+`problems` that would stop the post. The gates inbox shows it under the ask and disables
+"Confirm and post" while there are problems. The values sent are exactly the previewed ones,
+pinned in the workflow version. A publish call is attempted at most once per stage: a call
+interrupted by a crash is never repeated, it fails the stage asking you to check the platform.
+After the call, `publish.md` (type `publish`, with `links`, `status` and the video or job `id` in
+its frontmatter and the links again in its body) lands in the stage's `artifacts/` folder.
+
+- `youtube` is our wrapper over the YouTube Data API (`swarmify_connectors.youtube`, stdio MCP).
+  It uploads with `videos.insert`; with a schedule the video goes up private with `publishAt` and
+  YouTube makes it public at that time. Setup, once: create a Google Cloud project, enable the
+  YouTube Data API v3, create an OAuth client of type Desktop app, then run
+  `YOUTUBE_CLIENT_ID=... YOUTUBE_CLIENT_SECRET=... uv run python -m swarmify_connectors.youtube authorize`,
+  allow the upload scope in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
+  `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. The
+  default quota allows 100 uploads a day.
+- `upload_post` is Upload-Post's official MCP (`npx -y @upload-post/mcp@0.11.4`, needs Node),
+  adopted as is (ADR 0015) with `UPLOAD_POST_API_KEY` from app.upload-post.com. Swarmify calls its
+  `upload_video` tool with the stage id as Upload-Post's idempotency key. Posting now records
+  each platform's link (a platform that failed is listed in the artifact; when none succeeded the
+  stage fails). A scheduled post records the Upload-Post job id; its links appear only once it
+  goes out, which the view-count connector will write back later.
+
+Tests never reach either service: the fake ConnectorTransport stands in for both MCP servers,
+and the YouTube wrapper's own tests answer its HTTP requests with httpx's MockTransport.
 
 ## Whiteboard
 

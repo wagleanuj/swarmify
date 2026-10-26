@@ -94,3 +94,52 @@ test("the inbox refetches when a run moves, and says what it is for when empty",
     .element(screen.getByRole("link", { name: "See your worlds" }))
     .toHaveAttribute("href", "/");
 });
+
+test("a gate before a publish stage shows exactly what goes out, and refuses when it cannot", async () => {
+  const preview = {
+    connector: "youtube",
+    title: "Five hooks that work",
+    description: "",
+    visibility: "public",
+    schedule: "2099-01-01T09:00:00Z",
+    video: "short.mp4",
+    platforms: [],
+    problems: [],
+  };
+  const bodies: unknown[] = [];
+  const calls = fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () =>
+      Response.json([
+        gate("confirm", { publish: preview }),
+        gate("confirm", {
+          run_id: "run_2",
+          stage_id: "s2",
+          publish: { ...preview, connector: "upload_post", schedule: null, platforms: ["tiktok"], problems: ["upload_post needs params.user, the Upload-Post profile to post as"] },
+        }),
+      ]),
+    "POST /api/runs/run_1/decision": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(run("running", []));
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_1");
+  const out = card.getByRole("region", { name: "What goes out" });
+  await expect.element(out).toMatchTextContent(/Title\s*Five hooks that work/);
+  await expect.element(out).toMatchTextContent(/Where\s*YouTube/);
+  await expect.element(out).toMatchTextContent(/Visibility\s*public/);
+  await expect.element(out).toMatchTextContent(/2099-01-01 09:00 UTC\)\. Private until then, then public\./);
+  await expect.element(out).toMatchTextContent(/Video\s*short\.mp4/);
+  await expect.element(out.getByRole("time")).toHaveAttribute("datetime", "2099-01-01T09:00:00Z");
+  await expect.element(card).toMatchTextContent(/Posts exactly what is above\./);
+  await card.getByRole("button", { name: "Confirm and post" }).click();
+  await vi.waitFor(() => expect(bodies).toEqual([{ note: "" }]));
+
+  const broken = screen.getByTestId("gate-run_2");
+  await expect.element(broken).toMatchTextContent(/Upload-Post to tiktok/);
+  await expect.element(broken).toMatchTextContent(/Now, as soon as you confirm/);
+  await expect.element(broken.getByRole("alert")).toMatchTextContent(/This will not post:.*needs params\.user/);
+  await expect.element(broken.getByRole("button", { name: "Confirm and post" })).toBeDisabled();
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
+});

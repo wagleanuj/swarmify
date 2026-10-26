@@ -5,7 +5,7 @@ People act on a run (decide at a gate, pause, resume, abort) through RunControl,
 from any process; Runner is the RunControl that also hosts the DBOS workflows.
 """
 
-from swarmify_runs.control import RunControl, stage_folder
+from swarmify_runs.control import Previews, RunControl, stage_folder
 from swarmify_runs.machine import (
     MAX_SEND_BACKS,
     RUN_STATUSES,
@@ -15,7 +15,16 @@ from swarmify_runs.machine import (
     RunStatus,
     StageStatus,
 )
-from swarmify_runs.model import Decision, Gate, Pinned, Run, RunLink, RunStageView, StageDef
+from swarmify_runs.model import (
+    Decision,
+    Gate,
+    Pinned,
+    PublishPreview,
+    Run,
+    RunLink,
+    RunStageView,
+    StageDef,
+)
 from swarmify_runs.ports import Notifier, Storage
 from swarmify_runs.runner import DEFAULT_CAP, Connector, LogNotifier, Pin, Runner, Swarm, Take
 from swarmify_runs.sqlite import MIGRATIONS, SqliteStorage
@@ -34,6 +43,8 @@ __all__ = [
     "Notifier",
     "Pin",
     "Pinned",
+    "Previews",
+    "PublishPreview",
     "Run",
     "RunControl",
     "RunLink",
