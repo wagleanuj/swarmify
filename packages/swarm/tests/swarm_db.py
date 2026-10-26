@@ -97,6 +97,9 @@ class DiskGraphs:
         folder = self.root / world
         return folder if folder.is_dir() else None
 
+    def name(self, folder: Path) -> str:
+        return folder.name.title() if folder.name == "market" else folder.name
+
     def call(self, folder: Path, tool: str, args: dict[str, object]) -> str:
         self.calls.append((folder.name, tool, args))
         return "Hooks work."

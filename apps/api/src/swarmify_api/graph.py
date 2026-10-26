@@ -25,6 +25,10 @@ class WorldGraphs:
         )
         return self.worlds.folder(found.id) if found else None
 
+    def name(self, folder: Path) -> str:
+        world = self.worlds.get(folder.name)
+        return world.name if world else folder.name
+
     def call(self, folder: Path, tool: str, args: dict[str, Any]) -> str:
         return self.index.call(folder, tool, args)
 

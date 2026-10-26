@@ -275,7 +275,7 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
   YouTube makes it public at that time. Setup, once: create a Google Cloud project, enable the
   YouTube Data API v3, create an OAuth client of type Desktop app, then run
   `YOUTUBE_CLIENT_ID=... YOUTUBE_CLIENT_SECRET=... uv run python -m swarmify_connectors.youtube authorize`,
-  allow the upload scope in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
+  allow the upload and read-only scopes in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
   `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. The
   default quota allows 100 uploads a day.
 - `upload_post` is Upload-Post's official MCP (`npx -y @upload-post/mcp@0.11.4`, needs Node),
@@ -283,7 +283,29 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
   `upload_video` tool with the stage id as Upload-Post's idempotency key. Posting now records
   each platform's link (a platform that failed is listed in the artifact; when none succeeded the
   stage fails). A scheduled post records the Upload-Post job id; its links appear only once it
-  goes out, which the view-count connector will write back later.
+  goes out; reading those links back is not built yet.
+
+### Outcomes
+
+Every six hours the API asks the `youtube` connector's `views` tool (`videos.list`, part
+statistics, 50 ids per call) for the view count of every video a publish artifact names: a
+`youtube` post's video id, and any YouTube link, whichever connector posted it. A changed count
+is written into that `publish.md`, as `views` and `views_at` in the frontmatter and as an
+`## Outcome` section in the body (replaced each time), because graphify reads bodies only; each
+write appends `outcome.recorded`. The run timeline shows the count on the publish card. A world
+whose `youtube` keys are missing is skipped. The read needs the `youtube.readonly` scope, so a
+refresh token made before view counts existed must be authorized again (the `authorize` step
+above now asks for both scopes).
+
+## Retention
+
+Each world keeps its run binaries (videos, images, anything under `runs/` that is not markdown)
+for `retention_days`, 90 by default, 0 for forever: `PATCH /api/worlds/<id>` with
+`{"retention_days": n}`, or the world's Settings page. Every six hours, alongside the outcome
+write-back, files unchanged for longer are deleted. Markdown is never deleted: each deleted
+file's sidecar (written if it had none) gains `deleted` in its frontmatter and a line in its
+body, so the graph and the run timeline keep the record, and each deletion appends
+`artifact.pruned`. `create_app(upkeep_seconds=...)` sets the interval.
 
 Tests never reach either service: the fake ConnectorTransport stands in for both MCP servers,
 and the YouTube wrapper's own tests answer its HTTP requests with httpx's MockTransport.
@@ -369,8 +391,11 @@ dependency of `packages/memory`) from the world's files.
   world, picking the graph per call with `project_path`; `FakeGraphIndex` answers from the graph
   file for tests.
 - Agents' graph tools take an optional `world`: their own world by default, or a world the stage
-  lists under `graphs` (by name or id). Any other world or path is refused, and answers are
-  labelled `[world <name>]` (ADR 0009).
+  lists under `graphs` (by name or id). Any other world or path is refused, and every answer is
+  labelled with the name of the world it came from, `[world Market]` (ADR 0009).
+- Cross-world access is read-only by construction: the write tools (`write_note`,
+  `write_artifact`, `add_task`) take no world and always land in the stage's own world, and
+  Write, Edit and Bash are outside every allowlist.
 - `GET /api/worlds/<id>/graph` returns size, god nodes, the last rebuild and the last failure;
   `POST /api/worlds/<id>/graph/query` (`{"question": ...}`) asks the graph. The page is
   `/worlds/<id>/graph` (Middle-out) and reloads on `graph.rebuilt` and `graph.failed`.
@@ -487,8 +512,8 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008,
-  0010, 0013 and 0015, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
+  (kernel 0001, worlds 0002, 0019, 0020 and 0021, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007,
+  runs 0008, 0010, 0013 and 0017, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the

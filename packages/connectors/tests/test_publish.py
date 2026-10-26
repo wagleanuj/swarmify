@@ -200,3 +200,53 @@ def test_builtin_publish_connectors_name_their_keys_and_take_only_those(
     with pytest.raises(ValueError, match="does not use FAL_KEY"):
         connectors.set_credentials(youtube, {"FAL_KEY": "k"})
     assert "FAL_KEY" not in (tmp_path / ".env").read_text()
+
+
+@pytest.mark.parametrize(
+    ("fields", "ids"),
+    [
+        (
+            {
+                "connector": "youtube",
+                "id": "abc123",
+                "links": {"youtube": "https://youtu.be/abc123"},
+            },
+            ["abc123"],
+        ),
+        ({"connector": "youtube", "id": "sched1", "links": {}}, ["sched1"]),
+        (
+            {
+                "connector": "upload_post",
+                "id": None,
+                "links": {
+                    "youtube": "https://www.youtube.com/shorts/short_1",
+                    "tiktok": "https://www.tiktok.com/@me/video/1",
+                    "other": "https://youtube.com/watch?v=watch-2&t=3",
+                },
+            },
+            ["short_1", "watch-2"],
+        ),
+        ({"connector": "upload_post", "id": "job_9", "links": {}}, []),
+        ({"links": "not a map"}, []),
+    ],
+)
+def test_youtube_ids_are_read_from_links_and_youtube_posts(
+    fields: dict[str, Any], ids: list[str]
+) -> None:
+    assert publish.youtube_ids(fields) == ids
+
+
+def test_view_counts_come_from_the_youtube_connector_with_its_keys(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    with pytest.raises(ConnectorError, match="youtube needs YOUTUBE_CLIENT_ID"):
+        connectors.youtube_views(W, ["v1"])
+    youtube = connectors.find(W, "youtube")
+    assert youtube is not None
+    connectors.set_credentials(youtube, YOUTUBE_KEYS)
+    transport.outputs["views"] = [{"views": {"v1": 41000}}, {"nothing": True}]
+    assert connectors.youtube_views(W, ["v1", "v2"]) == {"v1": 41000}
+    assert transport.calls[-1] == ("youtube", "views", {"video_ids": ["v1", "v2"]}, YOUTUBE_KEYS)
+    with pytest.raises(ConnectorError, match="without counts"):
+        connectors.youtube_views(W, ["v1"])
+    assert connectors.youtube_views(W, []) == {}

@@ -11,6 +11,7 @@ MCP, adopted as is (ADR 0015), whose `upload_video` takes its own argument names
 `user` (the Upload-Post profile) and `platforms`.
 """
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -155,3 +156,19 @@ def markdown(shown: dict[str, Any], out: dict[str, Any]) -> str:
         f"# {shown['title']}\n\n"
         f"{shown['video']} went to {shown['connector']}: {how}.\n\n" + "\n".join(lines) + "\n"
     )
+
+
+_YOUTUBE = re.compile(
+    r"^https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/))([\w-]{6,20})"
+)
+
+
+def youtube_ids(fields: dict[str, Any]) -> list[str]:
+    """The YouTube video ids a publish artifact names: every YouTube link, whichever connector
+    posted it, plus the video id of a `youtube` post that has no link yet."""
+    links = fields.get("links")
+    links = links if isinstance(links, dict) else {}
+    ids = [m[1] for url in links.values() if (m := _YOUTUBE.match(str(url)))]
+    if fields.get("connector") == "youtube" and fields.get("id"):
+        ids.append(str(fields["id"]))
+    return list(dict.fromkeys(ids))
