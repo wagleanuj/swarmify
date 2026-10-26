@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.162",
   "mcp>=2.3",
+  "swarmify-connectors",
   "swarmify-kernel",
   "swarmify-worlds",
   "swarmify-runs",

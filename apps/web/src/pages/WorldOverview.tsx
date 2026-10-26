@@ -154,6 +154,12 @@ export function WorldOverview() {
         <div className="tile">
           <b>Memory</b>Empty. The graph grows from the first run's notes.
         </div>
+        <div className="tile">
+          <b>Connectors</b>Web search and the graph are ready.{" "}
+          <Link to="/worlds/$worldId/connectors" params={{ worldId }}>
+            Manage connectors
+          </Link>
+        </div>
       </section>
       <section aria-label="Workflows" className="workflows">
         <div className="row">

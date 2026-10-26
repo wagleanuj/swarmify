@@ -85,3 +85,30 @@ textarea { font: 0.9rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; widt
 .workflow-list .actions { display: flex; align-items: center; gap: 0.8rem; }
 .workflow-list button { padding: 0.25rem 0.7rem; font-size: 0.85rem; }
 @media (max-width: 48rem) { .run-list li { grid-template-columns: 1fr auto; } }
+.stage-progress { font-size: 0.85rem; color: #2f6fb5; font-variant-numeric: tabular-nums; }
+button.link { padding: 0; border: 0; text-align: left; text-decoration: underline; font-size: 0.85rem; color: var(--muted); }
+.call { margin-top: 1.2rem; border: 1px solid var(--line); border-radius: 12px; padding: 1rem; display: grid; gap: 0.6rem; }
+.call h2 { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.call h3 { margin: 0 0 0.3rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.call-json { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+pre { margin: 0; font: 0.8rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0.7rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.connector-list { list-style: none; padding: 0; margin: 0 0 1.5rem; display: grid; gap: 0.5rem; }
+.connector-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; padding: 0.8rem 1rem; border: 1px solid var(--line); border-radius: 10px; }
+.mono-badge { font: 0.8rem ui-monospace, SFMono-Regular, Menlo, monospace; width: 2.2rem; height: 2.2rem; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; }
+.connector-main { display: grid; gap: 0.1rem; flex: 1 1 14rem; min-width: 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.chip { font: 0.75rem ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0.1rem 0.5rem; border: 1px solid var(--line); border-radius: 999px; }
+.chip.ok { color: #1e8e4e; border-color: currentColor; }
+.chip.warn { color: #b7791f; border-color: currentColor; }
+.chip.off { color: var(--muted); }
+.chips button { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
+.add-connector { max-width: 44rem; gap: 0.8rem; }
+.add-connector h2 { margin: 0; }
+fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+legend { font-size: 0.9rem; margin-bottom: 0.3rem; padding: 0; }
+.kind { flex: 1 1 11rem; display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.5rem; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.7rem; cursor: pointer; }
+.kind .faint { grid-column: 2; }
+.kind.picked { border-color: CanvasText; }
+.check { display: flex; gap: 0.4rem; align-items: center; }
+.tool-list { margin: 0.4rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.2rem; }

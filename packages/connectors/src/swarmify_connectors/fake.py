@@ -1,0 +1,39 @@
+"""The fake ConnectorTransport: records every start and call, answers with declared outputs."""
+
+from typing import Any
+
+from swarmify_connectors.model import Connector, ConnectorError, Tool
+
+
+class FakeTransport:
+    """`tools` maps a connector name to what it lists; a connector missing there fails to start.
+    `outputs` maps a tool name to its answers in order (the last repeats). An exception answer
+    is raised; a BaseException stands in for a crash. Undeclared tools answer `{"ok": True}`."""
+
+    def __init__(
+        self,
+        tools: dict[str, list[Tool]] | None = None,
+        outputs: dict[str, list[dict[str, Any] | BaseException]] | None = None,
+    ) -> None:
+        self.tools = tools or {}
+        self.outputs = outputs or {}
+        self.starts: list[tuple[str, dict[str, str]]] = []
+        self.calls: list[tuple[str, str, dict[str, Any], dict[str, str]]] = []
+
+    def list_tools(self, connector: Connector, env: dict[str, str]) -> list[Tool]:
+        self.starts.append((connector.name, env))
+        if connector.name not in self.tools:
+            raise ConnectorError(f"{connector.name}: could not start")
+        return self.tools[connector.name]
+
+    def call(
+        self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
+    ) -> dict[str, Any]:
+        self.calls.append((connector.name, tool, arguments, env))
+        answers = self.outputs.get(tool)
+        if not answers:
+            return {"ok": True}
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
