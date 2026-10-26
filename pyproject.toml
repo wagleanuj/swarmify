@@ -8,11 +8,13 @@ dependencies = []
 [dependency-groups]
 dev = [
   "httpx>=0.28",
+  "hypothesis>=6.150",
   "pyright>=1.1.414",
   "pytest>=9.1",
   "pytest-cov>=7.1",
   "pytest-playwright>=0.10",
   "ruff>=0.17",
+  "types-pyyaml>=6.0",
 ]
 
 [tool.uv.workspace]
@@ -22,6 +24,7 @@ members = ["packages/*", "apps/api"]
 swarmify-kernel = { workspace = true }
 swarmify-api = { workspace = true }
 swarmify-worlds = { workspace = true }
+swarmify-workflows = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -32,7 +35,7 @@ extend-exclude = ["node_modules", ".venv"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["swarmify_*", "check_imports"]
+known-first-party = ["swarmify_*", "check_imports", "samples"]
 
 [tool.pyright]
 venvPath = "."
@@ -44,7 +47,7 @@ typeCheckingMode = "standard"
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps/api", "tools"]
 pythonpath = ["tools"]
-addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
 
 [tool.coverage.run]
 omit = ["*/tests/*"]

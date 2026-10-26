@@ -80,10 +80,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Workflows */
+        get: operations["list_workflows_api_worlds__world_id__workflows_get"];
+        put?: never;
+        /** Create Workflow */
+        post: operations["create_workflow_api_worlds__world_id__workflows_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/workflows/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Workflow */
+        post: operations["check_workflow_api_worlds__world_id__workflows_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workflow */
+        get: operations["get_workflow_api_workflows__workflow_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Versions */
+        get: operations["list_versions_api_workflows__workflow_id__versions_get"];
+        put?: never;
+        /** Add Version */
+        post: operations["add_version_api_workflows__workflow_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/versions/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Version */
+        get: operations["get_version_api_workflows__workflow_id__versions__number__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CheckBody */
+        CheckBody: {
+            /** Yaml */
+            yaml: string;
+            /** Workflow Id */
+            workflow_id?: string | null;
+        };
+        /**
+         * ConnectorStage
+         * @description One idempotent call to connector `calls`, from `input` artifact to `output` artifact.
+         */
+        ConnectorStage: {
+            /** Name */
+            name: string;
+            /** Calls */
+            calls: string;
+            /** Input */
+            input?: string | null;
+            /** Output */
+            output?: string | null;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Type
+             * @default connector
+             * @constant
+             */
+            type: "connector";
+        };
+        /**
+         * GateStage
+         * @description The run stops until a person answers `ask`: pick one, approve or send back, confirm.
+         */
+        GateStage: {
+            /** Name */
+            name: string;
+            /** Ask */
+            ask: string;
+            /**
+             * Kind
+             * @default approve
+             */
+            kind: string;
+            /**
+             * Type
+             * @default gate
+             * @constant
+             */
+            type: "gate";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -104,6 +243,41 @@ export interface components {
              */
             purpose: string;
         };
+        /**
+         * Report
+         * @description What the editor shows inline: every violation, plus the model when the shape parsed.
+         */
+        Report: {
+            /** Violations */
+            violations: components["schemas"]["Violation"][];
+            model?: components["schemas"]["WorkflowModel"] | null;
+        };
+        /**
+         * SwarmStage
+         * @description Agents pursue `goal` through a whiteboard until the judge passes `done_when`.
+         */
+        SwarmStage: {
+            /** Name */
+            name: string;
+            /** Goal */
+            goal: string;
+            /** Done When */
+            done_when: string;
+            /** Tools */
+            tools?: string[];
+            /** Graphs */
+            graphs?: string[];
+            /** Output Type */
+            output_type?: string | null;
+            /** Produces */
+            produces?: string[];
+            /**
+             * Type
+             * @default swarm
+             * @constant
+             */
+            type: "swarm";
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -117,6 +291,79 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * Violation
+         * @description One named rule the workflow breaks. `stage` names the offending stage when there is one.
+         */
+        Violation: {
+            /** Rule */
+            rule: string;
+            /** Message */
+            message: string;
+            /** Stage */
+            stage?: string | null;
+        };
+        /** Workflow */
+        Workflow: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Name */
+            name: string;
+            /** Current Version */
+            current_version: number;
+            /** Created At */
+            created_at: string;
+        };
+        /** WorkflowModel */
+        WorkflowModel: {
+            /** Name */
+            name: string;
+            /** Stages */
+            stages: (components["schemas"]["SwarmStage"] | components["schemas"]["GateStage"] | components["schemas"]["ConnectorStage"] | components["schemas"]["WorkflowStage"])[];
+            /** Schedule */
+            schedule?: string | null;
+            /** Budget Usd */
+            budget_usd?: number | null;
+            /** Agents */
+            agents?: number | null;
+        };
+        /**
+         * WorkflowStage
+         * @description Runs workflow `runs` as a child run and takes the named artifacts from it.
+         */
+        WorkflowStage: {
+            /** Name */
+            name: string;
+            /** Runs */
+            runs: string;
+            /** Take */
+            take?: string[];
+            /**
+             * Type
+             * @default workflow
+             * @constant
+             */
+            type: "workflow";
+        };
+        /**
+         * WorkflowVersion
+         * @description An immutable snapshot. Runs pin the version they started with.
+         */
+        WorkflowVersion: {
+            /** Id */
+            id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Number */
+            number: number;
+            /** Yaml */
+            yaml: string;
+            /** Created At */
+            created_at: string;
+            model: components["schemas"]["WorkflowModel"];
+        };
         /** World */
         World: {
             /** Id */
@@ -127,6 +374,11 @@ export interface components {
             purpose: string;
             /** Created At */
             created_at: string;
+        };
+        /** YamlBody */
+        YamlBody: {
+            /** Yaml */
+            yaml: string;
         };
     };
     responses: never;
@@ -289,6 +541,236 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflows_api_worlds__world_id__workflows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_workflow_api_worlds__world_id__workflows_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["YamlBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersion"];
+                };
+            };
+            /** @description The workflow breaks one or more rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+        };
+    };
+    check_workflow_api_worlds__world_id__workflows_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_api_workflows__workflow_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_api_workflows__workflow_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersion"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_version_api_workflows__workflow_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["YamlBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersion"];
+                };
+            };
+            /** @description The workflow breaks one or more rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+        };
+    };
+    get_version_api_workflows__workflow_id__versions__number__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersion"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import asdict
 from typing import Annotated
 
@@ -21,7 +21,8 @@ class NewWorld(BaseModel):
     purpose: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
 
 
-def router(worlds: Worlds) -> APIRouter:
+def router(worlds: Worlds, on_delete: Callable[[str], None]) -> APIRouter:
+    """`on_delete` lets the composition root clear other contexts' rows for a deleted world."""
     api = APIRouter(prefix="/api/worlds", tags=["worlds"])
 
     @api.post("", status_code=201)
@@ -43,6 +44,7 @@ def router(worlds: Worlds) -> APIRouter:
     def delete_world(world_id: str) -> Response:
         if not worlds.delete(world_id):
             raise HTTPException(404, "world not found")
+        on_delete(world_id)
         return Response(status_code=204)
 
     @api.get("/{world_id}/events", response_class=StreamingResponse)

@@ -18,16 +18,43 @@ afterEach(() => {
 });
 
 test("shows the world, its tiles and live activity from the world's event stream", async () => {
-  fakeFetch({ "GET /api/worlds/world_1": () => Response.json(video) });
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+  });
   const { screen } = await mountAt("/worlds/world_1");
   await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
   await expect.element(screen.getByText("Weekly shorts.")).toBeVisible();
   await expect.element(screen.getByText("Needs you")).toBeVisible();
   await expect.element(screen.getByRole("link", { name: "worlds" })).toHaveAttribute("href", "/");
+  await expect.element(screen.getByTestId("no-workflows")).toMatchTextContent(/recipe a run follows/);
+  await expect
+    .element(screen.getByRole("link", { name: "New workflow" }))
+    .toHaveAttribute("href", "/worlds/world_1/workflows/new");
 
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
   FakeEventSource.emit("world.created", { seq: 1, type: "world.created", ts: video.created_at });
   await expect.element(screen.getByTestId("activity")).toMatchTextContent(/world\.created/);
+});
+
+test("lists the world's workflows and refreshes the list when one is saved", async () => {
+  const weekly = { id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: video.created_at };
+  let listed = [weekly];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json(listed),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  await expect.element(screen.getByTestId("workflow-list")).toMatchTextContent(/Weekly short.*v1/);
+  await expect
+    .element(screen.getByRole("link", { name: "Weekly short" }))
+    .toHaveAttribute("href", "/worlds/world_1/workflows/wf_1");
+  await expect.element(screen.getByText(/1 saved, each versioned/)).toBeVisible();
+
+  listed = [{ ...weekly, name: "Daily short", current_version: 2 }];
+  FakeEventSource.emit("workflow.saved", { seq: 2, type: "workflow.saved", ts: video.created_at });
+  await expect.element(screen.getByTestId("workflow-list")).toMatchTextContent(/Daily short.*v2/);
+  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/workflow\.saved/);
 });
 
 test("deleting asks for confirmation, names the loss, then returns to the worlds list", async () => {

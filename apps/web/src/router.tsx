@@ -6,6 +6,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 
+import { WorkflowEditor } from "./pages/WorkflowEditor";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 
@@ -23,7 +24,24 @@ export const worldRoute = createRoute({
   component: WorldOverview,
 });
 
-const routeTree = rootRoute.addChildren([worldsRoute, worldRoute]);
+export const newWorkflowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/workflows/new",
+  component: WorkflowEditor,
+});
+
+export const workflowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/workflows/$workflowId",
+  component: WorkflowEditor,
+});
+
+const routeTree = rootRoute.addChildren([
+  worldsRoute,
+  worldRoute,
+  newWorkflowRoute,
+  workflowRoute,
+]);
 
 // `history` is injectable so tests can mount a page at a given URL with a memory history.
 export function createAppRouter(history?: RouterHistory) {

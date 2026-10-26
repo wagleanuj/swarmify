@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { worldRoute } from "../router";
 
 type World = components["schemas"]["World"];
+type Workflow = components["schemas"]["Workflow"];
 type Activity = { seq: number; type: string; ts: string };
 
 export function WorldOverview() {
@@ -13,6 +14,7 @@ export function WorldOverview() {
   const router = useRouter();
   const [world, setWorld] = useState<World | null | undefined>(undefined);
   const [activity, setActivity] = useState<Activity[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,16 +28,30 @@ export function WorldOverview() {
       .catch(() => setError("Could not load this world. Is the API running?"));
   }, [worldId]);
 
+  useEffect(() => {
+    api
+      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
+      .then(({ data }) => setWorkflows(data ?? []))
+      .catch(() => undefined);
+  }, [worldId]);
+
   // Skins render events, they never poll tables (ADR 0002). Native EventSource, no library.
   useEffect(() => {
     const source = new EventSource(`/api/worlds/${worldId}/events`);
     const onEvent = (e: Event) => {
       const data = JSON.parse((e as MessageEvent<string>).data) as Activity;
       setActivity((prev) => (prev.some((a) => a.seq === data.seq) ? prev : [...prev, data]));
+      if (data.type === "workflow.saved") {
+        void api
+          .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
+          .then(({ data }) => data && setWorkflows(data));
+      }
     };
     // ponytail: EventSource only delivers named events to matching listeners, so each new event
     // type must be added here. Switch to one generic listener when the API emits unnamed events.
-    for (const type of ["world.created", "world.deleted"]) source.addEventListener(type, onEvent);
+    for (const type of ["world.created", "world.deleted", "workflow.saved"]) {
+      source.addEventListener(type, onEvent);
+    }
     return () => source.close();
   }, [worldId]);
 
@@ -93,7 +109,8 @@ export function WorldOverview() {
           <b>Needs you</b>Nothing right now. Open gates land here.
         </div>
         <div className="tile">
-          <b>Workflows</b>None yet. The editor arrives with the next release.
+          <b>Workflows</b>
+          {workflows.length === 0 ? "None yet." : `${workflows.length} saved, each versioned.`}
         </div>
         <div className="tile">
           <b>Runs</b>None yet.
@@ -101,6 +118,34 @@ export function WorldOverview() {
         <div className="tile">
           <b>Memory</b>Empty. The graph grows from the first run's notes.
         </div>
+      </section>
+      <section aria-label="Workflows" className="workflows">
+        <div className="row">
+          <h2>Workflows</h2>
+          <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button">
+            New workflow
+          </Link>
+        </div>
+        {workflows.length === 0 ? (
+          <p className="faint" data-testid="no-workflows">
+            A workflow is the recipe a run follows: research, pick, script, render, review,
+            publish. Write the first one in YAML and the editor checks every rule as you type.
+          </p>
+        ) : (
+          <ul className="workflow-list" data-testid="workflow-list">
+            {workflows.map((w) => (
+              <li key={w.id}>
+                <Link
+                  to="/worlds/$worldId/workflows/$workflowId"
+                  params={{ worldId, workflowId: w.id }}
+                >
+                  {w.name}
+                </Link>
+                <span className="faint">v{w.current_version}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
       <section aria-label="Activity">
         <h2>Activity</h2>
