@@ -181,6 +181,28 @@ class Connectors:
     def delete_world(self, world_id: str) -> None:
         self.storage.delete_world(world_id)
 
+    def agent_servers(self, world_id: str, names: list[str]) -> dict[str, dict[str, Any]]:
+        """The standard MCP server config of each named connector that has a server, with its
+        credentials: what a swarm stage's agents connect to. Raises ConnectorError when one is
+        missing a credential."""
+        servers: dict[str, dict[str, Any]] = {}
+        for name in names:
+            connector = self.find(world_id, name)
+            if connector is None or not connector.has_server:
+                continue
+            env = self._env(connector)
+            servers[name] = (
+                {"type": "http", "url": connector.url, "headers": env}
+                if connector.url
+                else {
+                    "type": "stdio",
+                    "command": connector.command[0],
+                    "args": connector.command[1:],
+                    "env": env,
+                }
+            )
+        return servers
+
     def _env(self, connector: Connector, extra: dict[str, str] | None = None) -> dict[str, str]:
         values = {**self.credentials.read(), **{k: v for k, v in (extra or {}).items() if v}}
         missing = [n for n in connector.credentials if not values.get(n)]

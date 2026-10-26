@@ -5,15 +5,25 @@ import type { components } from "./schema";
 export type Run = components["schemas"]["Run"];
 export type Task = components["schemas"]["Task"];
 export type Call = components["schemas"]["Call"];
+export type Agent = components["schemas"]["Agent"];
+export type LogEntry = components["schemas"]["LogEntry"];
 
 /** The world stream's event types a page can follow, each with the snapshot it carries. */
 export type WorldEvents = {
   "run.updated": Run;
   "task.updated": Task;
   "connector_call.updated": Call;
+  "agent.updated": Agent;
+  "agent.logged": LogEntry;
 };
 type Handlers = { [K in keyof WorldEvents]?: (payload: WorldEvents[K]) => void };
-const TYPES: (keyof WorldEvents)[] = ["run.updated", "task.updated", "connector_call.updated"];
+const TYPES: (keyof WorldEvents)[] = [
+  "run.updated",
+  "task.updated",
+  "connector_call.updated",
+  "agent.updated",
+  "agent.logged",
+];
 
 /** Follow one world's event stream with a single EventSource (ADR 0002). */
 export function useWorldEvents(worldId: string, handlers: Handlers) {

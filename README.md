@@ -77,9 +77,10 @@ pure function from (stage kinds, state, event) to (next state, commands); the DB
 executes the commands. Every state change appends a `run.updated` event carrying the whole run to
 the world's stream, which the runs page and the run timeline render live.
 
-A connector stage calls its connector (see Connectors below); a gate waits for a decision that only
-`Runner.answer_gate` can send (T05 adds the inbox and the HTTP and MCP actions), and swarm and
-workflow stages fail the run with a clear error until the swarm (T07) and child runs (T14) ship.
+A connector stage calls its connector (see Connectors below), a swarm stage runs its worker (see
+Agents below); a gate waits for a decision that only `Runner.answer_gate` can send (T05 adds the
+inbox and the HTTP and MCP actions), and workflow stages fail the run with a clear error until
+child runs (T14) ship.
 `GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its stages.
 
 ## Connectors
@@ -133,7 +134,45 @@ notes kept and a note saying why (the API sweeps every 15 seconds). Every change
 | Claim, heartbeat, finish (`agent`, optional `note`) | `POST /api/tasks/<id>/claim`, `/heartbeat`, `/finish` | in-process agent tools (T07) |
 
 Tasks can be added to a swarm stage that has not ended; the run page's whiteboard has an add form
-for this. Agents running the stage arrive with T07.
+for this. The HTTP claim, heartbeat and finish stay alongside the agents' in-process tools, for
+operators and for agents outside swarmify (a Claude Code session driving a stage by hand).
+
+## Agents
+
+A swarm stage runs one worker (`worker-1`, Gilfoyle in the skin) through the AgentRuntime port.
+The adapter is the Claude Agent SDK, whose wheel bundles the `claude` CLI; sessions run on your
+Claude subscription (ADR 0010), so for a headless host run `claude setup-token` once and export
+`CLAUDE_CODE_OAUTH_TOKEN`. Until the planner ships (T08) an empty whiteboard is seeded with one
+task, the stage goal, and the stage is done when the worker's session ends cleanly.
+
+- In-process tools (`mcp__swarmify__<name>`): `query_graph`, `list_tasks`, `claim_task` (the named
+  task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `write_note`,
+  `write_artifact`. Notes land in `worlds/<w>/runs/<run>/<stage>/notes/`, artifacts in
+  `.../artifacts/`, each as markdown with frontmatter (a non-markdown artifact gets a `.md`
+  sidecar), and each write appends an `artifact.created` event. `query_graph` answers that the
+  graph is empty until the graph writer ships (T09).
+- Allowlist: the tools above, `Skill`, `Read` (inside the world folder only), plus per stage
+  `web_search` (WebSearch, WebFetch) and any connector named in `tools` (`mcp__<name>__*`, its
+  server and credentials passed to the session).
+- Hooks: a PreToolUse hook writes every tool call to the stage's live log, denies anything outside
+  the allowlist and denies a claim until the agent has queried the graph. Each result's estimated
+  cost (the SDK's estimate, not billing) is kept on the agent; the run's cost is the sum.
+- Skills: the world folder is passed as a local plugin with host settings off
+  (`setting_sources=[]`, ADR 0016), so `worlds/<w>/skills/<name>/SKILL.md` loads as
+  `<world id>:<name>` and nothing from `~/.claude` does. The init message's skill list is stored on
+  the agent and logged; plugin errors are logged as errors.
+- Sessions: the session id is stored on the agent the moment the session starts. A session that
+  dies is replaced once by a session resuming that id; when both die the stage fails. A retried
+  stage whose worker finished does not run it again.
+
+`GET /api/runs/<id>/agents` lists a run's agents (status, session, skills, cost) and `GET
+/api/runs/<run>/stages/<stage>/log` a stage's live log; `agent.updated` and `agent.logged` events
+stream both, and the run page shows them under the timeline.
+
+Tests drive the real SDK client with `swarmify_swarm.fake.Script`, a scripted `claude` CLI behind
+the SDK's Transport seam: it answers the initialize handshake, fires the registered hook callbacks
+and calls in-process tools over the control protocol, so hooks and tools run for real without a
+model. The e2e server (`tests/e2e/scripted_app.py`) runs the same script.
 
 `docker compose up --build` builds the api image (web skin baked in, served at `/`) and a
 graph writer stub.
@@ -144,10 +183,12 @@ graph writer stub.
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006, ...) and the composition root passes them all to `migrate` once.
+  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007,
+  ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
-  connectors, learning, notifications). `tools/check_imports.py` fails CI if a context imports
+  connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the
+  Agent SDK adapter `SdkRuntime`; `packages/memory` writes notes and artifacts as files. `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);
   `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors` and `packages/swarm`
   each have a Storage port with a SQLite adapter.

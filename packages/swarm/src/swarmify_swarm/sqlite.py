@@ -4,17 +4,29 @@ Every write is one `BEGIN IMMEDIATE` transaction: it takes SQLite's single write
 so a claim's check and update cannot interleave with another connection's (ADR 0017).
 """
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
-from swarmify_swarm.model import HEARTBEAT_TIMEOUT, Note, Refused, Task
+from swarmify_swarm.model import (
+    HEARTBEAT_TIMEOUT,
+    Agent,
+    AgentRole,
+    AgentStatus,
+    LogEntry,
+    LogKind,
+    Note,
+    Refused,
+    Task,
+)
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 SYSTEM = "swarmify"
@@ -143,6 +155,129 @@ class SqliteStorage:
     def delete_world(self, world_id: str) -> None:
         with self._write() as conn:
             conn.execute("DELETE FROM tasks WHERE world_id = ?", (world_id,))
+            conn.execute("DELETE FROM agents WHERE world_id = ?", (world_id,))
+
+    # Agents and the live log
+
+    def agent(self, world_id: str, run_id: str, stage_id: str, name: str, role: AgentRole) -> Agent:
+        now = _iso(None)
+        with self._write() as conn:
+            conn.execute(
+                "INSERT INTO agents (id, world_id, run_id, stage_id, name, role, status,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'working', ?, ?)"
+                " ON CONFLICT (stage_id, name) DO NOTHING",
+                (new_id("agent"), world_id, run_id, stage_id, name, role, now, now),
+            )
+            return self._agent_changed(conn, stage_id, name)
+
+    def update_agent(
+        self,
+        stage_id: str,
+        name: str,
+        *,
+        status: AgentStatus | None = None,
+        session_id: str | None = None,
+        cost_usd: float | None = None,
+        skills: list[str] | None = None,
+    ) -> Agent:
+        with self._write() as conn:
+            found = conn.execute(
+                "UPDATE agents SET status = coalesce(?, status),"
+                " session_id = coalesce(?, session_id), cost_usd = cost_usd + coalesce(?, 0),"
+                " skills = coalesce(?, skills), updated_at = ? WHERE stage_id = ? AND name = ?",
+                (
+                    status,
+                    session_id,
+                    cost_usd,
+                    None if skills is None else json.dumps(skills),
+                    _iso(None),
+                    stage_id,
+                    name,
+                ),
+            ).rowcount
+            if not found:
+                raise KeyError(name)
+            return self._agent_changed(conn, stage_id, name)
+
+    def list_agents(self, run_id: str) -> list[Agent]:
+        with closing(connect(self.path)) as conn:
+            rows = conn.execute(
+                "SELECT * FROM agents WHERE run_id = ? ORDER BY created_at, name", (run_id,)
+            ).fetchall()
+            return [_agent(r) for r in rows]
+
+    def log(
+        self,
+        stage_id: str,
+        agent: str,
+        kind: LogKind,
+        detail: str = "",
+        tool: str | None = None,
+        input: dict[str, Any] | None = None,
+    ) -> LogEntry:
+        with self._write() as conn:
+            row = conn.execute(
+                "SELECT id, world_id, run_id FROM agents WHERE stage_id = ? AND name = ?",
+                (stage_id, agent),
+            ).fetchone()
+            if row is None:
+                raise KeyError(agent)
+            ts = _iso(None)
+            seq = conn.execute(
+                "INSERT INTO agent_log (agent_id, stage_id, agent, kind, tool, input, detail, ts)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    row["id"],
+                    stage_id,
+                    agent,
+                    kind,
+                    tool,
+                    None if input is None else json.dumps(input),
+                    detail,
+                    ts,
+                ),
+            ).lastrowid
+            assert seq is not None
+            entry = LogEntry(seq, agent, stage_id, kind, ts, tool, input, detail)
+            event = Event.new(
+                "agent.logged",
+                world_id=row["world_id"],
+                run_id=row["run_id"],
+                payload=asdict(entry),
+            )
+            append(conn, event)
+            return entry
+
+    def list_log(self, stage_id: str) -> list[LogEntry]:
+        with closing(connect(self.path)) as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_log WHERE stage_id = ? ORDER BY seq", (stage_id,)
+            ).fetchall()
+        return [
+            LogEntry(
+                r["seq"],
+                r["agent"],
+                r["stage_id"],
+                r["kind"],
+                r["ts"],
+                r["tool"],
+                None if r["input"] is None else json.loads(r["input"]),
+                r["detail"],
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    def _agent_changed(conn: sqlite3.Connection, stage_id: str, name: str) -> Agent:
+        row = conn.execute(
+            "SELECT * FROM agents WHERE stage_id = ? AND name = ?", (stage_id, name)
+        ).fetchone()
+        agent = _agent(row)
+        event = Event.new(
+            "agent.updated", world_id=agent.world_id, run_id=agent.run_id, payload=asdict(agent)
+        )
+        append(conn, event)
+        return agent
 
     def _held(
         self, task_id: str, agent: str, note: str | None, now: datetime | None, *, done: bool
@@ -175,6 +310,23 @@ class SqliteStorage:
         )
         append(conn, event)
         return task
+
+
+def _agent(row: sqlite3.Row) -> Agent:
+    return Agent(
+        row["id"],
+        row["world_id"],
+        row["run_id"],
+        row["stage_id"],
+        row["name"],
+        row["role"],
+        row["status"],
+        row["session_id"],
+        row["cost_usd"],
+        row["created_at"],
+        row["updated_at"],
+        json.loads(row["skills"]),
+    )
 
 
 def _note(conn: sqlite3.Connection, task_id: str, author: str, body: str, ts: str) -> None:

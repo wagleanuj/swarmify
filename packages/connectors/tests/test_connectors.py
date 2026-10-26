@@ -105,6 +105,27 @@ def test_add_saves_the_record_and_its_secret_lands_only_in_the_file(
     assert connectors.find(W, "fal_video") is None
 
 
+def test_agent_servers_hand_a_swarm_stage_its_connectors_with_credentials(
+    connectors: Connectors,
+) -> None:
+    connectors.add(fal(connectors, kind="tool", stage_types=["swarm"]), {"FAL_KEY": "s3cret"})
+    remote = connectors.draft(W, "notes_api", "tool", "https://x.test/mcp", [], ["swarm"])
+    connectors.add(remote, {})
+    servers = connectors.agent_servers(W, ["fal_video", "notes_api", "web_search", "nope"])
+    assert servers == {
+        "fal_video": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": ["fal-mcp", "--model", "kling 2"],
+            "env": {"FAL_KEY": "s3cret"},
+        },
+        "notes_api": {"type": "http", "url": "https://x.test/mcp", "headers": {}},
+    }
+    connectors.credentials.path.write_text("")
+    with pytest.raises(ConnectorError, match="needs FAL_KEY"):
+        connectors.agent_servers(W, ["fal_video"])
+
+
 def test_missing_lists_what_the_file_lacks(connectors: Connectors) -> None:
     saved = connectors.add(fal(connectors, credentials=["FAL_KEY", "FAL_ORG"]), {"FAL_KEY": "k"})
     assert connectors.missing(saved) == ["FAL_ORG"]

@@ -23,16 +23,18 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import connectors, runs, tasks, workflows, worlds
+from swarmify_api import agents, connectors, runs, tasks, workflows, worlds
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import Connectors, ConnectorTransport, Credentials, McpTransport
 from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
+from swarmify_memory import Memory
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import Connector, Run, Runner, StageDef
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
+from swarmify_swarm import AgentRuntime, SdkRuntime, Swarm
 from swarmify_swarm import SqliteStorage as TaskStorage
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows
@@ -132,18 +134,35 @@ def create_app(
     poll_seconds: float = 2.0,
     clock: Callable[[], datetime] = utc_now,
     sweep_seconds: float = SWEEP_SECONDS,
+    runtime: AgentRuntime | None = None,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
     between long-job polls, and `connector` replaces the connector stage call altogether.
-    `clock` stamps claims and heartbeats and decides when a claim has gone silent."""
+    `clock` stamps claims and heartbeats and decides when a claim has gone silent. `runtime`
+    runs agent sessions: the Agent SDK by default, a scripted transport in tests."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
 
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
         registry.run_stage(run.world_id, run.id, stage_id, stage.config)
 
-    runner = Runner(run_storage(root), root / "dbos.sqlite", connector or call_connector)
     whiteboard = task_board(root)
+    world_svc = world_service(root)
+    swarm = Swarm(
+        whiteboard,
+        runtime or SdkRuntime(),
+        Memory(migrated_db(root), root),
+        servers=registry.agent_servers,
+        clock=clock,
+    )
+
+    def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
+        folder = world_svc.folder(run.world_id)
+        swarm.run_stage(run.world_id, run.id, stage_id, stage.name, stage.config, folder)
+
+    runner = Runner(
+        run_storage(root), root / "dbos.sqlite", connector or call_connector, swarm=run_swarm
+    )
 
     async def sweep() -> None:
         while True:
@@ -170,7 +189,7 @@ def create_app(
     def health() -> Health:
         return Health(version=VERSION)
 
-    world_svc, workflow_svc = world_service(root), workflow_service(root, registry)
+    workflow_svc = workflow_service(root, registry)
 
     def on_delete(world_id: str) -> None:
         workflow_svc.delete_world(world_id)
@@ -183,6 +202,7 @@ def create_app(
     app.include_router(runs.router(runner, workflow_svc, world_svc))
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
+    app.include_router(agents.router(whiteboard, runner.get))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

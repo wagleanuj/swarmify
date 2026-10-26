@@ -6,7 +6,7 @@ Workflows is another context, so the composition root hands the pinned stages in
 from swarmify_runs.machine import RUN_STATUSES, STAGE_STATUSES, RunState, RunStatus, StageStatus
 from swarmify_runs.model import Run, RunStageView, StageDef
 from swarmify_runs.ports import Storage
-from swarmify_runs.runner import DEFAULT_CAP, Connector, Runner
+from swarmify_runs.runner import DEFAULT_CAP, Connector, Runner, Swarm
 from swarmify_runs.sqlite import MIGRATIONS, SqliteStorage
 
 __all__ = [
@@ -24,4 +24,5 @@ __all__ = [
     "StageDef",
     "StageStatus",
     "Storage",
+    "Swarm",
 ]

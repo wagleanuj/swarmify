@@ -382,10 +382,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agents
+         * @description Every agent of the run; the run's estimated cost is the sum of theirs.
+         */
+        get: operations["get_agents_api_runs__run_id__agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/stages/{stage_id}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Log */
+        get: operations["get_log_api_runs__run_id__stages__stage_id__log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Agent
+         * @description One agent of a swarm stage. `session_id` is its Agent SDK session, so a replacement agent
+         *     resumes it instead of starting over. `cost_usd` is the runtime's estimate, not billing.
+         */
+        Agent: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Stage Id */
+            stage_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @constant
+             */
+            role: "worker";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "working" | "done" | "failed";
+            /** Session Id */
+            session_id: string | null;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Skills */
+            skills?: string[];
+        };
         /**
          * Call
          * @description One connector stage call, keyed by the stage id. `response` is the latest raw response:
@@ -536,6 +610,37 @@ export interface components {
         Health: {
             /** Version */
             version: string;
+        };
+        /**
+         * LogEntry
+         * @description One line of a stage's live log: a session starting or ending, or one tool call the hooks
+         *     saw, allowed (`tool`) or refused (`denied`, with the reason in `detail`).
+         */
+        LogEntry: {
+            /** Seq */
+            seq: number;
+            /** Agent */
+            agent: string;
+            /** Stage Id */
+            stage_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "session" | "tool" | "denied" | "result" | "error";
+            /** Ts */
+            ts: string;
+            /** Tool */
+            tool?: string | null;
+            /** Input */
+            input?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
         };
         /** NewConnector */
         NewConnector: {
@@ -1700,6 +1805,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agents_api_runs__run_id__agents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_log_api_runs__run_id__stages__stage_id__log_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                stage_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogEntry"][];
                 };
             };
             /** @description Validation Error */

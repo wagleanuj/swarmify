@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from swarmify_api.main import create_app
 from swarmify_connectors import FakeTransport
+from swarmify_swarm import SdkRuntime
+from swarmify_swarm.fake import Script
 
 
 @pytest.fixture
@@ -18,9 +20,16 @@ def transport() -> FakeTransport:
 
 
 @pytest.fixture
-def app(tmp_path: Path, transport: FakeTransport) -> FastAPI:
-    """The API with the fake ConnectorTransport behind it."""
-    return create_app(tmp_path, transport=transport, poll_seconds=0.01)
+def script() -> Script:
+    """What the scripted CLI does in each agent session; a test replaces `scripts`."""
+    return Script()
+
+
+@pytest.fixture
+def app(tmp_path: Path, transport: FakeTransport, script: Script) -> FastAPI:
+    """The API with the fake ConnectorTransport and a scripted agent CLI behind it."""
+    runtime = SdkRuntime(transport=script.transport)
+    return create_app(tmp_path, transport=transport, poll_seconds=0.01, runtime=runtime)
 
 
 @pytest.fixture
