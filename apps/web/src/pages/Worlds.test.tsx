@@ -69,3 +69,10 @@ test("shows an alert when the API refuses the new world", async () => {
   await screen.getByRole("button", { name: "Create world" }).click();
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not create the world/);
 });
+
+test("a failing list shows the error, not the empty state", async () => {
+  fakeFetch({ "GET /api/health": health, "GET /api/worlds": () => new Response("boom", { status: 500 }) });
+  const { screen } = await mountAt("/");
+  await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load worlds/);
+  await expect.element(screen.getByTestId("empty")).not.toBeInTheDocument();
+});

@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Health } from "../Health";
 
-type World = components["schemas"]["WorldOut"];
+type World = components["schemas"]["World"];
 
 export function Worlds() {
   const router = useRouter();
@@ -16,7 +16,10 @@ export function Worlds() {
   useEffect(() => {
     api
       .GET("/api/worlds")
-      .then(({ data }) => setWorlds(data ?? []))
+      .then(({ data, error }) => {
+        if (error || !data) throw new Error("load failed");
+        setWorlds(data);
+      })
       .catch(() => setError("Could not load worlds. Is the API running?"));
   }, []);
 

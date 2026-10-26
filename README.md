@@ -36,7 +36,8 @@ graph writer stub.
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, ...) and the SQLite adapter passes them all to `migrate`.
+  (kernel 0001, worlds 0002, ...) and the composition root passes them all to `migrate` once.
+  Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);

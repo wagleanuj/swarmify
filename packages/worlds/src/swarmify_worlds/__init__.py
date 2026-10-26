@@ -11,9 +11,9 @@ from pathlib import Path
 from swarmify_kernel import Event, new_id
 from swarmify_worlds.model import World
 from swarmify_worlds.ports import Storage
-from swarmify_worlds.sqlite import SqliteStorage
+from swarmify_worlds.sqlite import MIGRATIONS, SqliteStorage
 
-__all__ = ["SqliteStorage", "Storage", "World", "Worlds"]
+__all__ = ["MIGRATIONS", "SqliteStorage", "Storage", "World", "Worlds"]
 
 
 class Worlds:

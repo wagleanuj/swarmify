@@ -61,3 +61,10 @@ test("an unknown world explains itself and links back", async () => {
   await expect.element(screen.getByRole("heading", { name: "No such world" })).toBeVisible();
   await expect.element(screen.getByRole("link", { name: "Back to your worlds." })).toBeVisible();
 });
+
+test("a server error is an alert, not 'No such world'", async () => {
+  fakeFetch({ "GET /api/worlds/world_1": () => new Response("boom", { status: 500 }) });
+  const { screen } = await mountAt("/worlds/world_1");
+  await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load this world/);
+  await expect.element(screen.getByText("No such world")).not.toBeInTheDocument();
+});

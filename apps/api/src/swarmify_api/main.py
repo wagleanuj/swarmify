@@ -1,9 +1,11 @@
 """FastAPI composition root. Serves the API under /api and the built web skin at /.
 
+Run with `uvicorn --factory swarmify_api.main:create_app`; importing this module touches no disk.
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db` and `worlds/<id>/`.
 """
 
 import os
+from contextlib import closing
 from importlib.metadata import version
 from pathlib import Path
 
@@ -12,6 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from swarmify_api import worlds
+from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
+from swarmify_kernel.sqlite import connect, migrate
+from swarmify_worlds import MIGRATIONS as WORLDS_MIGRATIONS
 from swarmify_worlds import SqliteStorage, Worlds
 
 VERSION = version("swarmify-api")
@@ -23,7 +28,10 @@ def data_dir() -> Path:
 
 
 def world_service(root: Path) -> Worlds:
-    return Worlds(SqliteStorage(root / "swarmify.db"), root)
+    db = root / "swarmify.db"
+    with closing(connect(db)) as conn:
+        migrate(conn, KERNEL_MIGRATIONS, WORLDS_MIGRATIONS)
+    return Worlds(SqliteStorage(db), root)
 
 
 class Health(BaseModel):
@@ -41,6 +49,3 @@ def create_app(root: Path | None = None) -> FastAPI:
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")
     return app
-
-
-app = create_app()

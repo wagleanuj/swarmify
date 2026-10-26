@@ -29,7 +29,15 @@ def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     url = f"http://127.0.0.1:{port}"
     data_dir = tmp_path_factory.mktemp("swarmify")
     env = {**os.environ, "SWARMIFY_WEB_DIST": str(WEB_DIST), "SWARMIFY_DATA_DIR": str(data_dir)}
-    cmd = [sys.executable, "-m", "uvicorn", "swarmify_api.main:app", "--port", str(port)]
+    cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "--factory",
+        "swarmify_api.main:create_app",
+        "--port",
+        str(port),
+    ]
     with subprocess.Popen(cmd, env=env) as server:
         try:
             for _ in range(100):

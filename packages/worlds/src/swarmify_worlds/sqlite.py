@@ -1,12 +1,16 @@
-"""SQLite adapter of the Worlds Storage port. One short connection per call."""
+"""SQLite adapter of the Worlds Storage port. One short connection per call.
+
+The schema is not this adapter's job: the composition root runs `migrate` once with every
+package's `MIGRATIONS` folder before constructing it.
+"""
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
-from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel import Event
 from swarmify_kernel.events import append, read_after
-from swarmify_kernel.sqlite import connect, migrate
+from swarmify_kernel.sqlite import connect
 from swarmify_worlds.model import World
 
 MIGRATIONS = Path(__file__).parent / "migrations"
@@ -19,11 +23,9 @@ def _world(row: sqlite3.Row) -> World:
 class SqliteStorage:
     def __init__(self, path: Path) -> None:
         self.path = path
-        with self._conn() as conn:
-            migrate(conn, KERNEL_MIGRATIONS, MIGRATIONS)
 
-    def _conn(self) -> sqlite3.Connection:
-        return connect(self.path)
+    def _conn(self) -> closing[sqlite3.Connection]:
+        return closing(connect(self.path))
 
     def add_world(self, world: World, event: Event) -> Event:
         with self._conn() as conn:

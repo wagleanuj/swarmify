@@ -68,7 +68,8 @@ export interface paths {
          * World Events
          * @description Server-sent events for one world. `Last-Event-ID` resumes after a reconnect.
          *
-         *     The stream is not tied to the row, so a `world.deleted` event still reaches subscribers.
+         *     A world that never existed is a 404. A deleted one still streams, so `world.deleted`
+         *     reaches its subscribers.
          */
         get: operations["world_events_api_worlds__world_id__events_get"];
         put?: never;
@@ -116,8 +117,8 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
-        /** WorldOut */
-        WorldOut: {
+        /** World */
+        World: {
             /** Id */
             id: string;
             /** Name */
@@ -171,7 +172,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorldOut"][];
+                    "application/json": components["schemas"]["World"][];
                 };
             };
         };
@@ -195,7 +196,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorldOut"];
+                    "application/json": components["schemas"]["World"];
                 };
             };
             /** @description Validation Error */
@@ -226,7 +227,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorldOut"];
+                    "application/json": components["schemas"]["World"];
                 };
             };
             /** @description Validation Error */
@@ -272,7 +273,9 @@ export interface operations {
     world_events_api_worlds__world_id__events_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "last-event-id"?: number;
+            };
             path: {
                 world_id: string;
             };

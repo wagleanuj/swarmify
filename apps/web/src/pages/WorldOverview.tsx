@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
 
-type World = components["schemas"]["WorldOut"];
+type World = components["schemas"]["World"];
 type Activity = { seq: number; type: string; ts: string };
 
 export function WorldOverview() {
@@ -18,8 +18,12 @@ export function WorldOverview() {
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setWorld(data ?? null))
-      .catch(() => setWorld(null));
+      .then(({ data, response }) => {
+        if (response.status === 404) return setWorld(null);
+        if (!data) throw new Error("load failed");
+        setWorld(data);
+      })
+      .catch(() => setError("Could not load this world. Is the API running?"));
   }, [worldId]);
 
   // Skins render events, they never poll tables (ADR 0002). Native EventSource, no library.
@@ -52,7 +56,7 @@ export function WorldOverview() {
   if (world === undefined) {
     return (
       <main>
-        <p role="status">Loading...</p>
+        {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
       </main>
     );
   }

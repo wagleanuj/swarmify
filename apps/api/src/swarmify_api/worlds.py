@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
@@ -21,34 +21,23 @@ class NewWorld(BaseModel):
     purpose: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
 
 
-class WorldOut(BaseModel):
-    id: str
-    name: str
-    purpose: str
-    created_at: str
-
-    @staticmethod
-    def of(world: World) -> "WorldOut":
-        return WorldOut(**asdict(world))
-
-
 def router(worlds: Worlds) -> APIRouter:
     api = APIRouter(prefix="/api/worlds", tags=["worlds"])
 
     @api.post("", status_code=201)
-    def create_world(body: NewWorld) -> WorldOut:
-        return WorldOut.of(worlds.create(body.name, body.purpose))
+    def create_world(body: NewWorld) -> World:
+        return worlds.create(body.name, body.purpose)
 
     @api.get("")
-    def list_worlds() -> list[WorldOut]:
-        return [WorldOut.of(w) for w in worlds.list_all()]
+    def list_worlds() -> list[World]:
+        return worlds.list_all()
 
     @api.get("/{world_id}")
-    def get_world(world_id: str) -> WorldOut:
+    def get_world(world_id: str) -> World:
         world = worlds.get(world_id)
         if world is None:
             raise HTTPException(404, "world not found")
-        return WorldOut.of(world)
+        return world
 
     @api.delete("/{world_id}", status_code=204)
     def delete_world(world_id: str) -> Response:
@@ -57,14 +46,18 @@ def router(worlds: Worlds) -> APIRouter:
         return Response(status_code=204)
 
     @api.get("/{world_id}/events", response_class=StreamingResponse)
-    async def world_events(world_id: str, request: Request) -> StreamingResponse:
+    async def world_events(
+        world_id: str, last_event_id: Annotated[int, Header()] = 0
+    ) -> StreamingResponse:
         """Server-sent events for one world. `Last-Event-ID` resumes after a reconnect.
 
-        The stream is not tied to the row, so a `world.deleted` event still reaches subscribers.
+        A world that never existed is a 404. A deleted one still streams, so `world.deleted`
+        reaches its subscribers.
         """
-        after = int(request.headers.get("last-event-id", 0))
+        if worlds.get(world_id) is None and not worlds.events_after(world_id, 0):
+            raise HTTPException(404, "world not found")
         return StreamingResponse(
-            _stream(worlds, world_id, after),
+            _stream(worlds, world_id, last_event_id),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -73,7 +66,8 @@ def router(worlds: Worlds) -> APIRouter:
 
 
 async def _stream(worlds: Worlds, world_id: str, after: int) -> AsyncIterator[str]:
-    # ponytail: polls SQLite every 200 ms; swap for an in-process notify when latency matters.
+    # ponytail: each open stream polls SQLite every 200 ms with a synchronous query on the event
+    # loop. Fine for one operator; swap for an in-process notify when streams or latency grow.
     idle = 0.0
     while True:
         events = worlds.events_after(world_id, after)

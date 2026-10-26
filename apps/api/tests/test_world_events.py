@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 
 import httpx
+from fastapi.testclient import TestClient
 
 
 def _events(response: httpx.Response) -> Iterator[tuple[str, int, dict]]:
@@ -50,3 +51,11 @@ def test_last_event_id_resumes_after_the_given_sequence(live_url: str) -> None:
     with httpx.stream("GET", url, timeout=5) as r:
         kind, seq, _ = next(_events(r))
         assert (kind, seq) == ("world.created", 1)
+
+
+def test_a_bad_last_event_id_is_a_422_and_an_unknown_world_a_404(client: TestClient) -> None:
+    world = client.post("/api/worlds", json={"name": "Video"}).json()
+    url = f"/api/worlds/{world['id']}/events"
+    for bad in ["abc", "", "1.5"]:
+        assert client.get(url, headers={"Last-Event-ID": bad}).status_code == 422, bad
+    assert client.get("/api/worlds/world_nope/events").status_code == 404
