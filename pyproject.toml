@@ -21,6 +21,7 @@ members = ["packages/*", "apps/api"]
 [tool.uv.sources]
 swarmify-kernel = { workspace = true }
 swarmify-api = { workspace = true }
+swarmify-worlds = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -43,7 +44,7 @@ typeCheckingMode = "standard"
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps/api", "tools"]
 pythonpath = ["tools"]
-addopts = "--cov=swarmify_kernel --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
 
 [tool.coverage.run]
 omit = ["*/tests/*"]

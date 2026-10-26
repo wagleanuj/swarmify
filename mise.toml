@@ -17,7 +17,7 @@ run = [
 
 [tasks."dev:api"]
 description = "Run the API with reload on :8000"
-run = "uv run uvicorn swarmify_api.main:app --reload --port 8000"
+run = "uv run uvicorn --factory swarmify_api.main:create_app --reload --port 8000"
 
 [tasks."dev:web"]
 description = "Run the Vite dev server on :5173, proxying /api to :8000"
@@ -30,7 +30,7 @@ depends = ["dev:api", "dev:web"]
 [tasks.gen-client]
 description = "Regenerate the typed web client from the API's OpenAPI schema"
 run = [
-  "uv run python -c 'import json; from swarmify_api.main import app; print(json.dumps(app.openapi(), indent=2))' > apps/web/openapi.json",
+  "uv run python -c 'import json; import tempfile; from pathlib import Path; from swarmify_api.main import create_app; print(json.dumps(create_app(Path(tempfile.mkdtemp())).openapi(), indent=2))' > apps/web/openapi.json",
   "pnpm --filter web gen",
 ]
 
