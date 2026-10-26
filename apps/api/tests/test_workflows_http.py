@@ -1,0 +1,169 @@
+from fastapi.testclient import TestClient
+
+WEEKLY = """name: Weekly short
+budget_usd: 5
+stages:
+  - swarm: research
+    goal: Find 5 ideas.
+    done_when: 5 ideas ranked
+    tools: [web_search, graph]
+  - gate: pick
+    ask: Pick one.
+    kind: pick
+  - swarm: script
+    goal: Write it.
+    done_when: script.md written
+    produces: [script.md]
+  - connector: render
+    calls: remotion_render
+    input: script.md
+    output: short.mp4
+  - gate: review
+    ask: Approve?
+  - connector: youtube
+    input: short.mp4
+"""
+
+
+def _world(client: TestClient) -> str:
+    return client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+
+
+def _workflow(client: TestClient, world_id: str, yaml: str = WEEKLY) -> str:
+    created = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": yaml})
+    assert created.status_code == 201, created.text
+    return created.json()["workflow_id"]
+
+
+def test_save_creates_versions_that_can_be_listed_and_fetched(client: TestClient) -> None:
+    world_id = _world(client)
+    assert client.get(f"/api/worlds/{world_id}/workflows").json() == []
+
+    created = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": WEEKLY})
+    assert created.status_code == 201, created.text
+    v1 = created.json()
+    assert v1["number"] == 1 and v1["yaml"] == WEEKLY and v1["id"].startswith("wfv_")
+    assert v1["model"]["name"] == "Weekly short" and v1["model"]["budget_usd"] == 5
+    assert [s["type"] for s in v1["model"]["stages"]] == [
+        "swarm",
+        "gate",
+        "swarm",
+        "connector",
+        "gate",
+        "connector",
+    ]
+    assert v1["model"]["stages"][3] == {
+        "type": "connector",
+        "name": "render",
+        "calls": "remotion_render",
+        "input": "script.md",
+        "output": "short.mp4",
+        "params": {},
+    }
+
+    wf = v1["workflow_id"]
+    [listed] = client.get(f"/api/worlds/{world_id}/workflows").json()
+    assert (
+        listed["id"] == wf and listed["name"] == "Weekly short" and listed["current_version"] == 1
+    )
+    assert client.get(f"/api/workflows/{wf}").json() == listed
+
+    renamed = WEEKLY.replace("Weekly short", "Weekly short v2")
+    v2 = client.post(f"/api/workflows/{wf}/versions", json={"yaml": renamed})
+    assert v2.status_code == 201 and v2.json()["number"] == 2
+    assert [v["number"] for v in client.get(f"/api/workflows/{wf}/versions").json()] == [1, 2]
+    assert client.get(f"/api/workflows/{wf}/versions/1").json() == v1
+    assert client.get(f"/api/workflows/{wf}/versions/2").json() == v2.json()
+    assert client.get(f"/api/workflows/{wf}").json()["name"] == "Weekly short v2"
+    assert client.get(f"/api/workflows/{wf}/versions/3").status_code == 404
+    assert client.get(f"/api/workflows/{wf}/versions/abc").status_code == 422
+
+
+def test_an_invalid_workflow_is_a_422_naming_every_violation_and_saves_nothing(
+    client: TestClient,
+) -> None:
+    world_id = _world(client)
+    bad = "name: Bad\nstages:\n  - connector: youtube\n    input: short.mp4\n"
+    refused = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": bad})
+    assert refused.status_code == 422
+    assert refused.json() == {
+        "violations": [
+            {
+                "rule": "publish_without_gate",
+                "message": "publish connector 'youtube' must come right after a gate",
+                "stage": "youtube",
+            },
+            {
+                "rule": "input_not_produced",
+                "message": "input 'short.mp4' is not produced by an earlier stage",
+                "stage": "youtube",
+            },
+        ],
+        "model": None,
+    }
+    assert client.get(f"/api/worlds/{world_id}/workflows").json() == []
+
+    wf = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": WEEKLY}).json()[
+        "workflow_id"
+    ]
+    assert client.post(f"/api/workflows/{wf}/versions", json={"yaml": bad}).status_code == 422
+    assert len(client.get(f"/api/workflows/{wf}/versions").json()) == 1
+
+
+def test_check_reports_inline_without_saving(client: TestClient) -> None:
+    world_id = _world(client)
+    url = f"/api/worlds/{world_id}/workflows/check"
+    clean = client.post(url, json={"yaml": WEEKLY}).json()
+    assert clean["violations"] == [] and clean["model"]["name"] == "Weekly short"
+
+    broken = client.post(url, json={"yaml": "name: x\nstages:\n  - swarm: ["}).json()
+    assert broken["model"] is None and broken["violations"][0]["rule"] == "yaml"
+
+    typo = client.post(url, json={"yaml": "name: x\nstages:\n  - gate: g\n    asks: ok\n"}).json()
+    assert [(v["rule"], v["stage"]) for v in typo["violations"]] == [
+        ("schema", "g"),
+        ("schema", "g"),
+    ]
+    assert client.get(f"/api/worlds/{world_id}/workflows").json() == []
+
+    # a check for an existing workflow counts that workflow as itself, so self-reference is a cycle
+    wf = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": WEEKLY}).json()[
+        "workflow_id"
+    ]
+    loop = f"name: Loop\nstages:\n  - workflow: me\n    runs: {wf}\n"
+    assert [
+        v["rule"]
+        for v in client.post(url, json={"yaml": loop, "workflow_id": wf}).json()["violations"]
+    ] == ["cycle"]
+    assert client.post(url, json={"yaml": loop}).json()["violations"] == []
+
+
+def test_unknown_worlds_and_workflows_are_404s(client: TestClient) -> None:
+    assert client.get("/api/worlds/world_nope/workflows").status_code == 404
+    assert client.post("/api/worlds/world_nope/workflows", json={"yaml": WEEKLY}).status_code == 404
+    assert (
+        client.post("/api/worlds/world_nope/workflows/check", json={"yaml": WEEKLY}).status_code
+        == 404
+    )
+    assert client.get("/api/workflows/wf_nope").status_code == 404
+    assert client.get("/api/workflows/wf_nope/versions").status_code == 404
+    assert client.get("/api/workflows/wf_nope/versions/1").status_code == 404
+    assert client.post("/api/workflows/wf_nope/versions", json={"yaml": WEEKLY}).status_code == 404
+
+
+def test_saving_appears_on_the_world_event_stream(client: TestClient) -> None:
+    world_id = _world(client)
+    wf = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": WEEKLY}).json()[
+        "workflow_id"
+    ]
+    client.post(f"/api/workflows/{wf}/versions", json={"yaml": WEEKLY})
+    with client.stream(
+        "GET", f"/api/worlds/{world_id}/events", headers={"Last-Event-ID": "1"}
+    ) as r:
+        lines = []
+        for line in r.iter_lines():
+            lines.append(line)
+            if len(lines) >= 8:
+                break
+    assert "event: workflow.saved" in lines
+    assert any(f'"workflow_id": "{wf}"' in line and '"version": 2' in line for line in lines)

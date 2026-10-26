@@ -16,9 +16,12 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import worlds
+from swarmify_api import workflows, worlds
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
+from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
+from swarmify_workflows import ConnectorRef, Workflows
+from swarmify_workflows import SqliteStorage as WorkflowStorage
 from swarmify_worlds import MIGRATIONS as WORLDS_MIGRATIONS
 from swarmify_worlds import SqliteStorage, Worlds
 
@@ -30,11 +33,37 @@ def data_dir() -> Path:
     return Path(os.environ.get("SWARMIFY_DATA_DIR", Path.home() / ".swarmify"))
 
 
-def world_service(root: Path) -> Worlds:
+# ponytail: the built-in connectors every world gets (V1 spec, Connectors context), as a constant
+# until T10 ships the connector registry, which replaces `builtin_connectors` with a lookup.
+BUILTIN_CONNECTORS = {
+    c.name: c
+    for c in [
+        ConnectorRef("web_search", "tool", frozenset({"swarm"})),
+        ConnectorRef("graph", "tool", frozenset({"swarm"})),
+        ConnectorRef("remotion_render", "stage", frozenset({"connector"})),
+        ConnectorRef("youtube", "publish", frozenset({"connector"})),
+        ConnectorRef("upload_post", "publish", frozenset({"connector"})),
+    ]
+}
+
+
+def builtin_connectors(world_id: str) -> dict[str, ConnectorRef]:
+    return BUILTIN_CONNECTORS
+
+
+def migrated_db(root: Path) -> Path:
     db = root / "swarmify.db"
     with closing(connect(db)) as conn:
-        migrate(conn, KERNEL_MIGRATIONS, WORLDS_MIGRATIONS)
-    return Worlds(SqliteStorage(db), root)
+        migrate(conn, KERNEL_MIGRATIONS, WORLDS_MIGRATIONS, WORKFLOWS_MIGRATIONS)
+    return db
+
+
+def world_service(root: Path) -> Worlds:
+    return Worlds(SqliteStorage(migrated_db(root)), root)
+
+
+def workflow_service(root: Path) -> Workflows:
+    return Workflows(WorkflowStorage(migrated_db(root)), builtin_connectors)
 
 
 class SpaFiles(StaticFiles):
@@ -60,7 +89,10 @@ def create_app(root: Path | None = None) -> FastAPI:
     def health() -> Health:
         return Health(version=VERSION)
 
-    app.include_router(worlds.router(world_service(root or data_dir())))
+    root = root or data_dir()
+    world_svc = world_service(root)
+    app.include_router(worlds.router(world_svc))
+    app.include_router(workflows.router(workflow_service(root), world_svc))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

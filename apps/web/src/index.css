@@ -35,3 +35,27 @@ button:disabled { opacity: 0.55; cursor: default; }
 .activity time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .danger-zone { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; }
 [role="alert"] { color: #c0392b; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+a.button { display: inline-block; padding: 0.5rem 0.9rem; border-radius: 8px; border: 1px solid var(--line); color: inherit; text-decoration: none; }
+a.button:hover { text-decoration: underline; }
+.workflows { margin-bottom: 1.5rem; }
+.workflow-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.4rem; }
+.workflow-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; }
+.workflow-list a { color: inherit; font-weight: 600; text-decoration: none; }
+.workflow-list a:hover { text-decoration: underline; }
+main.editor-page { max-width: 76rem; }
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 1.5rem; align-items: start; }
+.editor aside { display: grid; gap: 1.5rem; }
+.editor aside h2 { margin-bottom: 0.5rem; }
+label[for] { display: block; margin-bottom: 0.25rem; }
+textarea { font: 0.9rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; width: 100%; box-sizing: border-box; padding: 0.7rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; resize: vertical; tab-size: 2; }
+.editor-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 0.8rem 0; }
+.ok { margin: 0; color: #1e8e4e; }
+.problems { margin: 0.4rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.3rem; color: #c0392b; }
+.problems code { font-size: 0.8rem; color: var(--muted); }
+.stage-rail { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.3rem; }
+.stage-rail li { display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.35rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.9rem; }
+.versions { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
+.versions li { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
+.versions button { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+@media (max-width: 48rem) { .editor { grid-template-columns: 1fr; } }
