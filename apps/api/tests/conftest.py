@@ -8,8 +8,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from fake_graph import fake_extract
 from swarmify_api.main import create_app
 from swarmify_connectors import FakeTransport
+from swarmify_memory import FakeGraphIndex
 from swarmify_swarm import SdkRuntime
 from swarmify_swarm.fake import Script
 
@@ -26,10 +28,24 @@ def script() -> Script:
 
 
 @pytest.fixture
-def app(tmp_path: Path, transport: FakeTransport, script: Script) -> FastAPI:
-    """The API with the fake ConnectorTransport and a scripted agent CLI behind it."""
-    runtime = SdkRuntime(transport=script.transport)
-    return create_app(tmp_path, transport=transport, poll_seconds=0.01, runtime=runtime)
+def graph_index() -> FakeGraphIndex:
+    return FakeGraphIndex()
+
+
+@pytest.fixture
+def app(
+    tmp_path: Path, transport: FakeTransport, script: Script, graph_index: FakeGraphIndex
+) -> FastAPI:
+    """The API with the fake ConnectorTransport, a scripted agent CLI, the fake GraphIndex and
+    a GraphWriter whose extract writes a fixed graph."""
+    return create_app(
+        tmp_path,
+        transport=transport,
+        poll_seconds=0.01,
+        runtime=SdkRuntime(transport=script.transport),
+        graph_index=graph_index,
+        extract=fake_extract,
+    )
 
 
 @pytest.fixture

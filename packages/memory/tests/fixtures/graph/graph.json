@@ -1,0 +1,8 @@
+{"directed": false, "multigraph": false, "graph": {}, "nodes": [
+  {"id": "hooks", "label": "Short hooks", "file_type": "document", "source_file": "runs/run_1/research/notes/hooks.md"},
+  {"id": "retention", "label": "Retention cliff", "file_type": "document", "source_file": "runs/run_1/research/notes/retention-cliff.md"},
+  {"id": "density", "label": "Text density", "file_type": "document", "source_file": "runs/run_1/research/notes/retention-cliff.md"}
+], "links": [
+  {"source": "hooks", "target": "retention", "relation": "beats", "confidence": "EXTRACTED"},
+  {"source": "density", "target": "retention", "relation": "drives", "confidence": "INFERRED"}
+]}

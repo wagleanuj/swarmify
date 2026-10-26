@@ -53,3 +53,20 @@ class DiskFiles:
         path.parent.mkdir(exist_ok=True)
         path.write_text(content)
         return str(path.relative_to(self.root / world_id))
+
+
+class DiskGraphs:
+    """Graphs for the worker tests: a world is any folder under `root`; calls are recorded by
+    world folder name and answered with a fixed line."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.calls: list[tuple[str, str, dict[str, object]]] = []
+
+    def folder(self, world: str) -> Path | None:
+        folder = self.root / world
+        return folder if folder.is_dir() else None
+
+    def call(self, folder: Path, tool: str, args: dict[str, object]) -> str:
+        self.calls.append((folder.name, tool, args))
+        return "Hooks work."

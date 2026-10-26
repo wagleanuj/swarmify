@@ -5,7 +5,10 @@ skills. Its hooks write every tool call to the stage's live log, deny tools outs
 allowlist and a claim before the agent's first graph query, and keep the agent's session id and
 estimated cost. A session that dies is replaced by one that resumes the stored session id.
 
-Memory and the graph are other contexts, so the composition root hands in `Files` and `Graph`.
+Memory and the graph are other contexts, so the composition root hands in `Files` and `Graphs`.
+Graph tools are wrapped: an agent may name the graph of its own world or of a world the stage
+lists under `graphs`, by id, name or folder, and nothing else (ADR 0009). Every answer is labelled
+with the world it came from.
 """
 
 import asyncio
@@ -41,8 +44,6 @@ BUILTIN = ["Skill", "Read"]
 STAGE_TOOLS = {"web_search": ["WebSearch", "WebFetch"], "graph": []}
 """A stage's `tools` beyond the built-ins name connectors, allowed as `mcp__<name>__*`."""
 
-Graph = Callable[[str, str], str]
-"""(world id, question) to what the world graph knows."""
 Servers = Callable[[str, list[str]], dict[str, dict[str, Any]]]
 """(world id, connector names) to their MCP server configs, for the session."""
 
@@ -74,12 +75,26 @@ class Files(Protocol):
     ) -> str: ...
 
 
+class Graphs(Protocol):
+    """What the swarm needs from Memory's GraphIndex: read-only graph tools per world folder."""
+
+    def folder(self, world: str) -> Path | None:
+        """The folder of the world named by id or name; None when there is no such world."""
+        ...
+
+    def call(self, folder: Path, tool: str, args: dict[str, Any]) -> str: ...
+
+
+class NoGraphs:
+    def folder(self, world: str) -> Path | None:
+        return None
+
+    def call(self, folder: Path, tool: str, args: dict[str, Any]) -> str:
+        return "The world graph has nothing yet. Work from the task and the stage goal."
+
+
 class StageError(RuntimeError):
     """The swarm stage failed; the message lands on the stage."""
-
-
-def no_graph(_world_id: str, _question: str) -> str:
-    return "The world graph has nothing yet. Work from the task and the stage goal."
 
 
 def no_servers(_world_id: str, _names: list[str]) -> dict[str, dict[str, Any]]:
@@ -105,11 +120,32 @@ def _str(about: str) -> dict[str, Any]:
     return {"type": "string", "description": about}
 
 
-TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
+_WORLD = _str("Whose graph: omit for this world's, or a world the stage lists in `graphs`")
+GRAPH_TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
     "query_graph": (
         "Ask the world graph what is already known. Required before your first claim.",
-        _obj("question", question=_str("What you need to know")),
+        _obj("question", question=_str("What you need to know"), world=_WORLD),
     ),
+    "get_node": (
+        "Everything the graph holds on one node.",
+        _obj("label", label=_str("Node label or id"), world=_WORLD),
+    ),
+    "get_neighbors": (
+        "A node's direct neighbours and how they connect.",
+        _obj("label", label=_str("Node label or id"), world=_WORLD),
+    ),
+    "god_nodes": (
+        "The most connected nodes: what the world's knowledge revolves around.",
+        _obj(top_n={"type": "integer", "description": "How many, default 10"}, world=_WORLD),
+    ),
+    "shortest_path": (
+        "How two concepts connect in the graph.",
+        _obj("source", "target", source=_str("From"), target=_str("To"), world=_WORLD),
+    ),
+    "graph_stats": ("Size of the graph: nodes, edges, communities.", _obj(world=_WORLD)),
+}
+TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
+    **GRAPH_TOOLS,
     "list_tasks": ("The stage's whiteboard: every task with its status and notes.", _obj()),
     "claim_task": (
         "Claim a task: the one named, or else the oldest ready open task.",
@@ -155,14 +191,14 @@ class Swarm:
         board: Storage,
         runtime: AgentRuntime,
         files: Files,
-        graph: Graph = no_graph,
+        graphs: Graphs | None = None,
         servers: Servers = no_servers,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.board = board
         self.runtime = runtime
         self.files = files
-        self.graph = graph
+        self.graphs = graphs or NoGraphs()
         self.servers = servers
         self.clock = clock
 
@@ -196,7 +232,13 @@ class Swarm:
                 prompt=f"Work the whiteboard of stage {stage_name} until no task is ready.",
                 cwd=self.files.stage_folder(world_id, run_id, stage_id),
                 plugin=world_folder,
-                tools=self._tools(world_id, run_id, stage_id, WORKER),
+                tools=self._tools(
+                    world_id,
+                    run_id,
+                    stage_id,
+                    WORKER,
+                    self._readable(world_id, world_folder, config),
+                ),
                 allowed=allowed,
                 servers=self.servers(world_id, [t for t in stage_tools if t not in STAGE_TOOLS]),
                 resume=resume,
@@ -241,7 +283,39 @@ class Swarm:
             ]
         )
 
-    def _tools(self, world_id: str, run_id: str, stage_id: str, agent: str) -> list[AgentTool]:
+    def _readable(
+        self, world_id: str, world_folder: Path, config: dict[str, Any]
+    ) -> dict[str, Path]:
+        """The graphs the stage may read, by the names the agent may use for them."""
+        readable = {world_id: world_folder}
+        for ref in [str(g) for g in config.get("graphs") or []]:
+            folder = self.graphs.folder(ref)
+            if folder is not None:
+                readable[ref] = folder
+        return readable
+
+    def _graph(self, readable: dict[str, Path], tool: str, args: dict[str, Any]) -> str:
+        args = dict(args)
+        ref = args.pop("world", None) or args.pop("project_path", None)
+        args.pop("project_path", None)
+        name = next(iter(readable)) if not ref else str(ref)
+        if name not in readable:
+            target = Path(name).expanduser().resolve()
+            name = next((n for n, f in readable.items() if f.resolve() == target), "")
+        if not name:
+            raise ToolError(
+                f"The graph {ref} is not readable in this stage. Readable: {', '.join(readable)}."
+            )
+        return f"[world {name}]\n{self.graphs.call(readable[name], tool, args)}"
+
+    def _tools(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        agent: str,
+        readable: dict[str, Path],
+    ) -> list[AgentTool]:
         board, files, now = self.board, self.files, self.clock
 
         def task_text(task: Task) -> str:
@@ -265,8 +339,11 @@ class Swarm:
                         continue
             raise ToolError("No task is ready to claim. Add one with add_task, or stop.")
 
+        def graph_tool(tool: str) -> Callable[[dict[str, Any]], str]:
+            return lambda a: self._graph(readable, tool, a)
+
         handlers: dict[str, Callable[[dict[str, Any]], str]] = {
-            "query_graph": lambda a: self.graph(world_id, str(a.get("question", ""))),
+            **{tool: graph_tool(tool) for tool in GRAPH_TOOLS},
             "list_tasks": lambda a: json.dumps([asdict(t) for t in board.list_tasks(stage_id)]),
             "claim_task": claim,
             "heartbeat": lambda a: task_text(
