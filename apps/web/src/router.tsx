@@ -8,6 +8,7 @@ import {
 
 import { Connectors } from "./pages/Connectors";
 import { Graph } from "./pages/Graph";
+import { Gates } from "./pages/Gates";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
@@ -20,6 +21,12 @@ export const worldsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: Worlds,
+});
+
+export const gatesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/gates",
+  component: Gates,
 });
 
 export const worldRoute = createRoute({
@@ -66,6 +73,7 @@ export const graphRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   worldsRoute,
+  gatesRoute,
   worldRoute,
   newWorkflowRoute,
   workflowRoute,

@@ -2,7 +2,7 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import type { Run } from "../api/runs";
+import type { Gate, Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
 
@@ -17,6 +17,7 @@ export function WorldOverview() {
   const [activity, setActivity] = useState<Activity[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runIds, setRunIds] = useState<Set<string>>(new Set());
+  const [gates, setGates] = useState<Gate[]>([]);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,13 +46,25 @@ export function WorldOverview() {
       .catch(() => undefined);
   }, [worldId]);
 
+  const loadGates = () =>
+    api
+      .GET("/api/gates")
+      .then(({ data }) => data && setGates(data.filter((g) => g.world_id === worldId)))
+      .catch(() => undefined);
+  useEffect(() => {
+    void loadGates();
+  }, [worldId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Skins render events, they never poll tables (ADR 0002). Native EventSource, no library.
   useEffect(() => {
     const source = new EventSource(`/api/worlds/${worldId}/events`);
     const onEvent = (e: Event) => {
       const data = JSON.parse((e as MessageEvent<string>).data) as Activity & { payload?: Run };
       const run = data.payload;
-      if (data.type === "run.updated" && run) setRunIds((prev) => new Set(prev).add(run.id));
+      if (data.type === "run.updated" && run) {
+        setRunIds((prev) => new Set(prev).add(run.id));
+        void loadGates();
+      }
       setActivity((prev) => (prev.some((a) => a.seq === data.seq) ? prev : [...prev, data]));
       if (data.type === "workflow.saved") {
         void api
@@ -61,7 +74,8 @@ export function WorldOverview() {
     };
     // ponytail: EventSource only delivers named events to matching listeners, so each new event
     // type must be added here. Switch to one generic listener when the API emits unnamed events.
-    for (const type of ["world.created", "world.deleted", "workflow.saved", "run.updated"]) {
+    const types = ["world.created", "world.deleted", "workflow.saved", "run.updated", "gate.opened", "run.ended"];
+    for (const type of types) {
       source.addEventListener(type, onEvent);
     }
     return () => source.close();
@@ -135,8 +149,16 @@ export function WorldOverview() {
       </header>
       {error && <p role="alert">{error}</p>}
       <section className="tiles" aria-label="Overview">
-        <div className="tile">
-          <b>Needs you</b>Nothing right now. Open gates land here.
+        <div className="tile" data-testid="needs-you">
+          <b>Needs you</b>
+          {gates.length === 0 ? (
+            "Nothing right now. Open gates land here."
+          ) : (
+            <>
+              {gates.length === 1 ? "One run is waiting on you. " : `${gates.length} runs are waiting on you. `}
+              <Link to="/gates">Answer</Link>
+            </>
+          )}
         </div>
         <div className="tile">
           <b>Workflows</b>

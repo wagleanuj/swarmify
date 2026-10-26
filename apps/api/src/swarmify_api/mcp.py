@@ -11,7 +11,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from swarmify_api import tasks
-from swarmify_api.tasks import GetRun
+from swarmify_runs import Illegal, RunControl
 from swarmify_swarm import OPERATOR, Refused, Storage
 from swarmify_workflows import Invalid, Workflows
 from swarmify_worlds import Worlds
@@ -21,12 +21,15 @@ def server(
     worlds: Worlds,
     workflows: Workflows,
     whiteboard: Storage,
-    get_run: GetRun,
+    control: RunControl,
     on_delete: Callable[[str], None] = lambda _: None,
 ) -> MCPServer:
-    """`on_delete` clears other contexts' rows of a deleted world (runs and tasks, for now)."""
+    """`control` acts on runs hosted by the API process; `on_delete` clears other contexts' rows
+    of a deleted world (runs and tasks, for now)."""
     mcp = MCPServer(
-        "swarmify", instructions="Drive swarmify: worlds, workflows and swarm stage whiteboards."
+        "swarmify",
+        instructions="Drive swarmify: worlds, workflows, swarm stage whiteboards, and the gates"
+        " runs wait at.",
     )
 
     @mcp.tool(description="Create a world: one long-lived memory with its own folder and stream.")
@@ -103,7 +106,7 @@ def server(
         try:
             task = tasks.add_task(
                 whiteboard,
-                get_run,
+                control.get,
                 run_id,
                 stage_id,
                 title,
@@ -120,9 +123,48 @@ def server(
     @mcp.tool(description="List the tasks on a swarm stage's whiteboard, oldest first.")
     def list_tasks(run_id: str, stage_id: str) -> list[dict[str, Any]]:
         try:
-            return [asdict(t) for t in tasks.list_tasks(whiteboard, get_run, run_id, stage_id)]
+            return [asdict(t) for t in tasks.list_tasks(whiteboard, control.get, run_id, stage_id)]
         except KeyError as exc:
             raise ValueError(f"stage not found in run {run_id}: {stage_id}") from exc
+
+    def run_or_fail(action: Callable[[], Any]) -> dict[str, Any]:
+        try:
+            return asdict(action())
+        except (KeyError, Illegal) as exc:
+            raise ValueError(str(exc)) from exc
+
+    @mcp.tool(description="Get a run with its stages and gate decisions.")
+    def get_run(run_id: str) -> dict[str, Any]:
+        run = control.get(run_id)
+        if run is None:
+            raise ValueError(f"run not found: {run_id}")
+        return asdict(run)
+
+    @mcp.tool(description="List every open gate across all worlds and runs, newest first.")
+    def list_gates() -> list[dict[str, Any]]:
+        return [asdict(g) for g in control.gates()]
+
+    @mcp.tool(
+        description="Answer the gate a run waits at. A pick gate needs `choice`; an approve gate"
+        " may name `send_back_to`, an earlier stage that runs again with `note` in its context"
+        " (at most twice per run); a confirm gate takes neither. Writes a decision artifact."
+    )
+    def decide_gate(
+        run_id: str, choice: str | None = None, note: str = "", send_back_to: str | None = None
+    ) -> dict[str, Any]:
+        return run_or_fail(lambda: control.decide(run_id, choice, note, send_back_to))
+
+    @mcp.tool(description="Pause a run: at once at a gate, otherwise after the current stage.")
+    def pause_run(run_id: str) -> dict[str, Any]:
+        return run_or_fail(lambda: control.pause(run_id))
+
+    @mcp.tool(description="Resume a paused run.")
+    def resume_run(run_id: str) -> dict[str, Any]:
+        return run_or_fail(lambda: control.resume(run_id))
+
+    @mcp.tool(description="Abort a run and every child run it started.")
+    def abort_run(run_id: str) -> dict[str, Any]:
+        return run_or_fail(lambda: control.abort(run_id))
 
     return mcp
 
@@ -131,7 +173,7 @@ def main() -> None:
     from swarmify_api.main import (
         connector_service,
         data_dir,
-        run_storage,
+        run_control,
         task_board,
         workflow_service,
         world_service,
@@ -139,15 +181,15 @@ def main() -> None:
 
     root = data_dir()
     registry = connector_service(root)
-    runs, whiteboard = run_storage(root), task_board(root)
+    control, whiteboard = run_control(root), task_board(root)
 
     def on_delete(world_id: str) -> None:
         # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
-        # Cancel through DBOSClient when the MCP server starts runs too.
-        runs.delete_world(world_id)
+        # Cancel through the control's DBOSClient when the MCP server starts runs too.
+        control.storage.delete_world(world_id)
         whiteboard.delete_world(world_id)
         registry.delete_world(world_id)
 
     server(
-        world_service(root), workflow_service(root, registry), whiteboard, runs.get_run, on_delete
+        world_service(root), workflow_service(root, registry), whiteboard, control, on_delete
     ).run("stdio")

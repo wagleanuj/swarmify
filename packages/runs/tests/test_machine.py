@@ -6,17 +6,19 @@ from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
 from swarmify_runs.machine import (
+    MAX_SEND_BACKS,
     TERMINAL,
     Aborted,
     Command,
-    Event,
     GateAnswered,
     Illegal,
     OpenGate,
     Paused,
     Resumed,
+    RunEvent,
     RunStage,
     RunState,
+    SentBack,
     StageFailed,
     StageFinished,
     Started,
@@ -32,6 +34,7 @@ EVENTS = st.one_of(
     st.builds(StageFinished, INDEX),
     st.builds(StageFailed, INDEX),
     st.builds(GateAnswered, INDEX),
+    st.builds(SentBack, INDEX, INDEX),
     st.just(Paused()),
     st.just(Resumed()),
     st.just(Aborted()),
@@ -49,7 +52,7 @@ class AnyEvents(RuleBasedStateMachine):
         self.commands: list[Command] = []
 
     @rule(event=EVENTS)
-    def send(self, event: Event) -> None:
+    def send(self, event: RunEvent) -> None:
         before = self.state
         try:
             self.state, self.commands = transition(self.kinds, self.state, event)
@@ -89,6 +92,10 @@ class AnyEvents(RuleBasedStateMachine):
             assert status in ("waiting_gate", "paused")
 
     @invariant()
+    def send_backs_are_capped(self) -> None:
+        assert 0 <= self.state.send_backs <= MAX_SEND_BACKS
+
+    @invariant()
     def commands_point_at_the_active_stage(self) -> None:
         assert len(self.commands) <= 1
         for cmd in self.commands:
@@ -110,7 +117,7 @@ class Shell(RuleBasedStateMachine):
         self.state, self.pending = transition(self.kinds, RunState.new(len(kinds)), Started())
         self.started = [c.index for c in self.pending]
 
-    def _apply(self, event: Event) -> None:
+    def _apply(self, event: RunEvent) -> None:
         self.state, commands = transition(self.kinds, self.state, event)
         self.pending += commands
         self.started += [c.index for c in commands]
@@ -171,3 +178,45 @@ def test_abort_fails_the_active_stage() -> None:
 def test_kinds_must_match_stages() -> None:
     with pytest.raises(ValueError):
         transition(("gate",), RunState.new(2), Started())
+
+
+@given(KINDS)
+def test_send_back_reruns_from_the_named_stage_and_the_third_is_refused(kinds: list[str]) -> None:
+    """Drive the run to its first gate past stage 0; send it back there twice, refuse the third."""
+    kinds = ["connector", *kinds, "gate"]
+    gate = kinds.index("gate", 1)
+    k = tuple(kinds)
+    state, cmds = transition(k, RunState.new(len(k)), Started())
+    while not isinstance(cmds[0], OpenGate):
+        state, cmds = transition(k, state, StageFinished(cmds[0].index))
+    assert cmds == [OpenGate(gate)]
+
+    for n in (1, 2):
+        state, cmds = transition(k, state, SentBack(gate, 0))
+        assert state.send_backs == n and state.status == "running"
+        assert state.stages == ("running",) + ("pending",) * (len(k) - 1)
+        assert cmds == [RunStage(0)]
+        while not isinstance(cmds[0], OpenGate):
+            state, cmds = transition(k, state, StageFinished(cmds[0].index))
+    with pytest.raises(Illegal, match="already sent back"):
+        transition(k, state, SentBack(gate, 0))
+    assert transition(k, state, GateAnswered(gate))[0].send_backs == 2
+
+
+def test_send_back_must_name_an_earlier_stage() -> None:
+    kinds = ("gate", "connector")
+    state, _ = transition(kinds, RunState.new(2), Started())
+    for to in (0, 1, -1):
+        with pytest.raises(Illegal):
+            transition(kinds, state, SentBack(0, to))
+
+
+def test_a_decision_while_paused_holds_until_resumed() -> None:
+    kinds = ("connector", "gate")
+    state, _ = transition(kinds, RunState.new(2), Started())
+    state, _ = transition(kinds, state, StageFinished(0))
+    state, _ = transition(kinds, state, Paused())
+    held, cmds = transition(kinds, state, SentBack(1, 0))
+    assert held == RunState("paused", ("pending", "pending"), 1) and cmds == []
+    resumed, cmds = transition(kinds, held, Resumed())
+    assert resumed == RunState("running", ("running", "pending"), 1) and cmds == [RunStage(0)]

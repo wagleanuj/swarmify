@@ -6,6 +6,7 @@ from contextlib import closing
 from pathlib import Path
 
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
+from swarmify_kernel import Event
 from swarmify_kernel.sqlite import connect, migrate
 from swarmify_runs import MIGRATIONS, Run, StageDef
 
@@ -27,6 +28,16 @@ class FakeConnector:
         self.calls.append((stage_id, stage.name))
         if stage.name == "explode":
             raise RuntimeError("connector said no")
+
+
+class FakeNotifier:
+    """The Notifier port's fake: records every event it is told about."""
+
+    def __init__(self) -> None:
+        self.events: list[Event] = []
+
+    def notify(self, event: Event) -> None:
+        self.events.append(event)
 
 
 def wait_for(check: Callable[[], bool], seconds: float = 10.0) -> None:

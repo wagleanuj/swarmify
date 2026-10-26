@@ -1,9 +1,11 @@
-"""Storage port of the Runs context (ADR 0012). SQLite is the adapter; Postgres is the seam."""
+"""Ports of the Runs context (ADR 0012): Storage (SQLite now, Postgres is the seam) and
+Notifier (a log line now, Slack in T16, a recording fake in tests)."""
 
 from typing import Protocol
 
+from swarmify_kernel import Event
 from swarmify_runs.machine import RunState
-from swarmify_runs.model import Run, StageDef
+from swarmify_runs.model import Decision, Gate, Run, StageDef
 
 
 class Storage(Protocol):
@@ -19,6 +21,19 @@ class Storage(Protocol):
         """
         ...
 
+    def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
+        """`visit` is the run's send-back count, which tells visits to one gate apart. Raises
+        Illegal when this visit already has a decision."""
+        ...
+
+    def remove_decision(self, decision_id: str) -> None:
+        """Undo `add_decision` when the decision could not reach the run."""
+        ...
+
+    def record(self, event: Event) -> None:
+        """Append one event to the world's stream."""
+        ...
+
     def get_run(self, run_id: str) -> Run | None: ...
 
     def stage_def(self, run_id: str, index: int) -> tuple[str, StageDef]:
@@ -29,6 +44,12 @@ class Storage(Protocol):
         """Newest first."""
         ...
 
+    def open_gates(self) -> list[Gate]:
+        """Every gate waiting on a person, across all worlds, newest first."""
+        ...
+
+    def child_run_ids(self, run_id: str) -> list[str]: ...
+
     def queued_run_ids(self) -> list[str]: ...
 
     def active_run_ids(self, world_id: str) -> list[str]:
@@ -36,3 +57,9 @@ class Storage(Protocol):
         ...
 
     def delete_world(self, world_id: str) -> None: ...
+
+
+class Notifier(Protocol):
+    def notify(self, event: Event) -> None:
+        """Tell a person: `gate.opened` or `run.ended`. Payloads carry run id, name and stage."""
+        ...

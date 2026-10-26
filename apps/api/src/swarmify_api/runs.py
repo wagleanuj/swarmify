@@ -1,11 +1,14 @@
-"""HTTP face of the Runs context: start a run of a workflow version, list runs, read one."""
+"""HTTP face of the Runs context: start a run of a workflow version, list runs, read one, act
+on one (decide at its gate, pause, resume, abort) and list every open gate."""
 
+from collections.abc import Callable
 from dataclasses import asdict
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from swarmify_runs import Run, Runner, StageDef
+from swarmify_runs import Gate, Illegal, Run, Runner, StageDef
 from swarmify_workflows import Stage, Workflows
 from swarmify_worlds import Worlds
 
@@ -15,9 +18,36 @@ class StartRun(BaseModel):
     """The workflow version to pin. The current one when left out."""
 
 
+class Decide(BaseModel):
+    """A gate answer. Pick gates need `choice`; approve gates may name `send_back_to`, an earlier
+    stage that then runs again with `note` in its context; confirm gates take neither."""
+
+    choice: str | None = Field(default=None, max_length=2_000)
+    note: str = Field(default="", max_length=10_000)
+    send_back_to: str | None = None
+
+
+ACTION_ERRORS: dict[int | str, dict[str, Any]] = {
+    404: {"description": "No such run"},
+    409: {"description": "The run is not in a state where this action applies"},
+}
+
+
 def stage_def(stage: Stage) -> StageDef:
     fields = asdict(stage)
     return StageDef(fields.pop("name"), fields.pop("type"), fields)
+
+
+def act(action: Callable[[], Run]) -> Run:
+    """The control layer's refusals as HTTP: unknown run 404, wrong moment 409, bad input 422."""
+    try:
+        return action()
+    except KeyError as exc:
+        raise HTTPException(404, "run not found") from exc
+    except Illegal as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
@@ -46,5 +76,28 @@ def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
         if run is None:
             raise HTTPException(404, "run not found")
         return run
+
+    @api.get("/gates")
+    def list_gates() -> list[Gate]:
+        """Every open gate across all worlds and runs, newest first: the inbox."""
+        return runner.gates()
+
+    @api.post("/runs/{run_id}/decision", responses=ACTION_ERRORS)
+    def decide(run_id: str, body: Decide) -> Run:
+        return act(lambda: runner.decide(run_id, body.choice, body.note, body.send_back_to))
+
+    @api.post("/runs/{run_id}/pause", responses=ACTION_ERRORS)
+    def pause(run_id: str) -> Run:
+        """At a gate the pause is immediate; mid-stage it lands when the stage finishes."""
+        return act(lambda: runner.pause(run_id))
+
+    @api.post("/runs/{run_id}/resume", responses=ACTION_ERRORS)
+    def resume(run_id: str) -> Run:
+        return act(lambda: runner.resume(run_id))
+
+    @api.post("/runs/{run_id}/abort", responses=ACTION_ERRORS)
+    def abort(run_id: str) -> Run:
+        """Aborts the run and every child run it started."""
+        return act(lambda: runner.abort(run_id))
 
     return api

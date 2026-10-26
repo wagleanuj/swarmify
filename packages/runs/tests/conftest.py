@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from runs_fakes import FakeConnector, migrated
+from runs_fakes import FakeConnector, FakeNotifier, migrated
 from swarmify_runs import Runner, SqliteStorage
 
 
@@ -18,9 +18,18 @@ def connector() -> FakeConnector:
 
 
 @pytest.fixture
-def runner(tmp_path: Path, storage: SqliteStorage, connector: FakeConnector) -> Iterator[Runner]:
+def notifier() -> FakeNotifier:
+    return FakeNotifier()
+
+
+@pytest.fixture
+def runner(
+    tmp_path: Path, storage: SqliteStorage, connector: FakeConnector, notifier: FakeNotifier
+) -> Iterator[Runner]:
     """Real DBOS on SQLite in a temp folder."""
-    runner = Runner(storage, tmp_path / "dbos.sqlite", connector, poll_seconds=0.05)
+    runner = Runner(
+        storage, tmp_path / "dbos.sqlite", connector, tmp_path, notifier, poll_seconds=0.05
+    )
     runner.launch()
     yield runner
     runner.shutdown()

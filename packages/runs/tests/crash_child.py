@@ -37,7 +37,7 @@ else:
 
     (run_id,) = [r.id for r in storage.list_runs("world_1")]
     wait_for(lambda: storage.get_run(run_id).status == "waiting_gate")  # type: ignore[union-attr]
-    runner.answer_gate(run_id, {"ok": True})
+    runner.decide(run_id)
     wait_for(lambda: storage.get_run(run_id).status == "done")  # type: ignore[union-attr]
     print(json.dumps([s["function_name"] for s in DBOS.list_workflow_steps(run_id)]), flush=True)
     runner.shutdown()
