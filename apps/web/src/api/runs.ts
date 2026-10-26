@@ -6,6 +6,7 @@ export type { Call, Run };
 export type Gate = components["schemas"]["Gate"];
 export type Decision = components["schemas"]["Decision"];
 export type Decide = components["schemas"]["Decide"];
+export type RunLink = components["schemas"]["RunLink"];
 
 /** Call `onRun` with every run snapshot the world's event stream carries (ADR 0002), and
  * `onCall` with every connector call snapshot, progress included. */
@@ -37,6 +38,7 @@ export function statusLine(run: Run): string {
     case "queued":
       return "Queued. It starts as soon as one of this world's two run slots is free.";
     case "running":
+      if (at?.child) return `Stage ${at.index + 1} of ${total}, ${at.name}, waits on its child run ${at.child.name}.`;
       return at ? `Running stage ${at.index + 1} of ${total}: ${at.name}.` : "Running.";
     case "waiting_gate":
       return at ? `Waiting for you at stage ${at.index + 1}: ${at.name}.` : "Waiting for you.";

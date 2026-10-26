@@ -26,6 +26,10 @@ class Storage(Protocol):
         Illegal when this visit already has a decision."""
         ...
 
+    def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
+        """Link the workflow stage at `index` to the child run it started."""
+        ...
+
     def remove_decision(self, decision_id: str) -> None:
         """Undo `add_decision` when the decision could not reach the run."""
         ...

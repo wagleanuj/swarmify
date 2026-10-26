@@ -11,7 +11,7 @@ from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
 from swarmify_runs.machine import MAX_SEND_BACKS, Illegal, RunState
-from swarmify_runs.model import Decision, Gate, Run, RunStageView, StageDef
+from swarmify_runs.model import Decision, Gate, Run, RunLink, RunStageView, StageDef
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 ENDED = ("done", "failed", "aborted")
@@ -70,16 +70,20 @@ class SqliteStorage:
                 conn.execute("ROLLBACK")
                 return None
             for i, status in enumerate(state.stages):
-                # A stage sent back to pending forgets its timestamps, so it reads as fresh.
+                # A stage sent back forgets its timestamps and its child run, so it reads as
+                # fresh. A send-back usually reruns the stage at once, so it may never be saved
+                # as pending: an ended stage turning active again is a fresh visit too.
                 conn.execute(
                     "UPDATE run_stages SET status = :s,"
                     " started_at = CASE WHEN :s = 'pending' THEN NULL"
+                    "   WHEN :s IN ('running', 'waiting') AND ended_at IS NOT NULL THEN :now"
                     "   WHEN :s IN ('running', 'waiting') THEN coalesce(started_at, :now)"
                     "   ELSE started_at END,"
-                    " ended_at = CASE WHEN :s = 'pending' THEN NULL"
-                    "   WHEN :s IN ('done', 'failed', 'skipped') THEN coalesce(ended_at, :now)"
-                    "   ELSE ended_at END,"
-                    " error = CASE WHEN :s = 'failed' THEN coalesce(:error, error) ELSE error END"
+                    " ended_at = CASE WHEN :s IN ('pending', 'running', 'waiting') THEN NULL"
+                    "   ELSE coalesce(ended_at, :now) END,"
+                    " error = CASE WHEN :s = 'failed' THEN coalesce(:error, error) ELSE error END,"
+                    " child_run_id = CASE WHEN :s IN ('pending', 'running') THEN NULL"
+                    "   ELSE child_run_id END"
                     " WHERE run_id = :run AND idx = :i AND status != :s",
                     {"s": status, "now": now, "error": error, "run": run_id, "i": i},
                 )
@@ -112,6 +116,13 @@ class SqliteStorage:
                 )
         except sqlite3.IntegrityError as exc:
             raise Illegal("the gate was already decided") from exc
+
+    def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE run_stages SET child_run_id = ? WHERE run_id = ? AND idx = ?",
+                (child_run_id, run_id, index),
+            )
 
     def remove_decision(self, decision_id: str) -> None:
         with self._conn() as conn:
@@ -155,6 +166,7 @@ class SqliteStorage:
                         MAX_SEND_BACKS - g["send_backs"],
                         [e["name"] for e in earlier],
                         g["parent_run_id"],
+                        _link(conn, g["parent_run_id"]),
                     )
                 )
             return gates
@@ -243,13 +255,22 @@ class SqliteStorage:
                     s["ended_at"],
                     s["error"],
                     [d.note for d in decisions if d.send_back_to == s["name"] and d.note],
+                    _link(conn, s["child_run_id"]),
                 )
                 for s in stages
             ],
             row["send_backs"],
             row["parent_run_id"],
             decisions,
+            _link(conn, row["parent_run_id"]),
         )
+
+
+def _link(conn: sqlite3.Connection, run_id: str | None) -> RunLink | None:
+    if run_id is None:
+        return None
+    row = conn.execute("SELECT id, world_id, name FROM runs WHERE id = ?", (run_id,)).fetchone()
+    return RunLink(row["id"], row["world_id"], row["name"]) if row else None
 
 
 def _updated(run: Run) -> Event:

@@ -135,13 +135,11 @@ class RunControl:
         return self._control(run_id, Resumed(), "resume")
 
     def abort(self, run_id: str) -> Run:
-        """Abort the run and every child run it started (ADR 0013)."""
+        """Abort the run and every child run it started (ADR 0013).
+
+        The run hears its abort before its child's end, so it ends aborted rather than failed.
+        """
         run = self._run(run_id)
-        for child in self.storage.child_run_ids(run_id):
-            try:
-                self.abort(child)
-            except Illegal:
-                pass  # the child already ended
         state, _ = transition(kinds_of(run), state_of(run), Aborted())
         if run.status == "queued":
             self.client.cancel_workflow(run_id)
@@ -151,9 +149,23 @@ class RunControl:
             event = ended_event(ended)
             self.storage.record(event)
             self.notifier.notify(event)
-            return ended
-        self._send(run_id, {"action": "abort"})
+            if ended.parent_run_id is not None:  # no workflow ran to tell the parent
+                message = {"action": "child", "child": run_id, "status": "aborted"}
+                self._send(ended.parent_run_id, message)
+            run = ended
+        else:
+            self._send(run_id, {"action": "abort"})
+        for child in self.storage.child_run_ids(run_id):
+            try:
+                self.abort(child)
+            except Illegal:
+                pass  # the child already ended
         return run
+
+    def family(self, run_id: str) -> list[str]:
+        """The run and every run below it: the runs whose spend counts against its Budget, since
+        a child run spends its parent's (ADR 0013)."""
+        return [run_id, *(r for c in self.storage.child_run_ids(run_id) for r in self.family(c))]
 
     @property
     def client(self) -> DBOSClient:

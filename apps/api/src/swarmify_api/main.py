@@ -173,10 +173,11 @@ def create_app(
     worlds_dir.mkdir(parents=True, exist_ok=True)
     index = graph_index or McpGraphIndex(worlds_dir)
     writer = GraphWriter(migrated_db(root), worlds_dir, extract, graph_debounce)
+    memory = Memory(migrated_db(root), root)
     swarm = Swarm(
         whiteboard,
         runtime or SdkRuntime(),
-        Memory(migrated_db(root), root),
+        memory,
         graphs=graph.WorldGraphs(world_svc, index),
         servers=registry.agent_servers,
         clock=clock,
@@ -186,6 +187,12 @@ def create_app(
         folder = world_svc.folder(run.world_id)
         swarm.run_stage(run.world_id, run.id, stage_id, stage.name, stage.config, folder)
 
+    def take(child: Run, run: Run, stage_id: str, names: list[str]) -> None:
+        stage = next(s.name for s in run.stages if s.id == stage_id)
+        source = (child.world_id, child.id)
+        memory.copy_artifacts(source, names, run.world_id, run.id, stage_id, f"workflow:{stage}")
+
+    workflow_svc = workflow_service(root, registry)
     runner = Runner(
         run_storage(root),
         root / "dbos.sqlite",
@@ -193,6 +200,8 @@ def create_app(
         root,
         notifier,
         swarm=run_swarm,
+        pin=runs.pinner(workflow_svc),
+        take=take,
     )
 
     async def sweep() -> None:
@@ -231,8 +240,6 @@ def create_app(
     def health() -> Health:
         return Health(version=VERSION)
 
-    workflow_svc = workflow_service(root, registry)
-
     def on_delete(world_id: str) -> None:
         workflow_svc.delete_world(world_id)
         runner.delete_world(world_id)
@@ -244,7 +251,7 @@ def create_app(
     app.include_router(runs.router(runner, workflow_svc, world_svc))
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
-    app.include_router(agents.router(whiteboard, runner.get))
+    app.include_router(agents.router(whiteboard, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")

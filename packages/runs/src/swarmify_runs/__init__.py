@@ -15,9 +15,9 @@ from swarmify_runs.machine import (
     RunStatus,
     StageStatus,
 )
-from swarmify_runs.model import Decision, Gate, Run, RunStageView, StageDef
+from swarmify_runs.model import Decision, Gate, Pinned, Run, RunLink, RunStageView, StageDef
 from swarmify_runs.ports import Notifier, Storage
-from swarmify_runs.runner import DEFAULT_CAP, Connector, LogNotifier, Runner, Swarm
+from swarmify_runs.runner import DEFAULT_CAP, Connector, LogNotifier, Pin, Runner, Swarm, Take
 from swarmify_runs.sqlite import MIGRATIONS, SqliteStorage
 
 __all__ = [
@@ -32,8 +32,11 @@ __all__ = [
     "Illegal",
     "LogNotifier",
     "Notifier",
+    "Pin",
+    "Pinned",
     "Run",
     "RunControl",
+    "RunLink",
     "RunStageView",
     "RunState",
     "RunStatus",
@@ -43,5 +46,6 @@ __all__ = [
     "StageStatus",
     "Storage",
     "Swarm",
+    "Take",
     "stage_folder",
 ]

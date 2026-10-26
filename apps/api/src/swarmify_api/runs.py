@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from swarmify_runs import Gate, Illegal, Run, Runner, StageDef
+from swarmify_runs import Gate, Illegal, Pinned, Run, Runner, StageDef
 from swarmify_workflows import Stage, Workflows
 from swarmify_worlds import Worlds
 
@@ -38,6 +38,23 @@ def stage_def(stage: Stage) -> StageDef:
     return StageDef(fields.pop("name"), fields.pop("type"), fields)
 
 
+def pinner(workflows: Workflows) -> Callable[..., Pinned]:
+    """A workflow version as Runs starts it: the given version, the current one by default.
+    Raises KeyError for an unknown workflow or version."""
+
+    def pin(workflow_id: str, number: int | None = None) -> Pinned:
+        workflow = workflows.get(workflow_id)
+        if workflow is None:
+            raise KeyError(f"workflow not found: {workflow_id}")
+        version = workflows.version(workflow_id, number or workflow.current_version)
+        if version is None:
+            raise KeyError(f"version not found: {workflow_id} v{number}")
+        stages = [stage_def(s) for s in version.model.stages]
+        return Pinned(workflow.world_id, workflow_id, version.number, workflow.name, stages)
+
+    return pin
+
+
 def act(action: Callable[[], Run]) -> Run:
     """The control layer's refusals as HTTP: unknown run 404, wrong moment 409, bad input 422."""
     try:
@@ -52,17 +69,16 @@ def act(action: Callable[[], Run]) -> Run:
 
 def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["runs"])
+    pin = pinner(workflows)
 
     @api.post("/workflows/{workflow_id}/runs", status_code=201)
     def start_run(workflow_id: str, body: StartRun) -> Run:
-        workflow = workflows.get(workflow_id)
-        if workflow is None:
-            raise HTTPException(404, "workflow not found")
-        version = workflows.version(workflow_id, body.version or workflow.current_version)
-        if version is None:
-            raise HTTPException(404, "version not found")
-        stages = [stage_def(s) for s in version.model.stages]
-        return runner.start(workflow.world_id, workflow_id, version.number, workflow.name, stages)
+        try:
+            p = pin(workflow_id, body.version)
+        except KeyError as exc:
+            what = "version" if workflows.get(workflow_id) else "workflow"
+            raise HTTPException(404, f"{what} not found") from exc
+        return runner.start(p.world_id, p.workflow_id, p.version, p.name, p.stages)
 
     @api.get("/worlds/{world_id}/runs")
     def list_runs(world_id: str) -> list[Run]:
