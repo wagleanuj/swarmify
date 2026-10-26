@@ -7,7 +7,7 @@ from pathlib import Path
 
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_runs import MIGRATIONS, StageDef
+from swarmify_runs import MIGRATIONS, Run, StageDef
 
 
 def migrated(root: Path) -> Path:
@@ -23,7 +23,7 @@ class FakeConnector:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def __call__(self, stage_id: str, stage: StageDef) -> None:
+    def __call__(self, run: Run, stage_id: str, stage: StageDef) -> None:
         self.calls.append((stage_id, stage.name))
         if stage.name == "explode":
             raise RuntimeError("connector said no")

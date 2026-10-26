@@ -37,8 +37,9 @@ DEFAULT_CAP = 2
 # workflows of the current application version). Bump it when the workflow's step order changes.
 APP_VERSION = "1"
 
-Connector = Callable[[str, StageDef], None]
-"""Calls one connector stage. Arguments: the stage id (the idempotency key) and its definition."""
+Connector = Callable[[Run, str, StageDef], None]
+"""Calls one connector stage. Arguments: the run, the stage id (the idempotency key) and the
+stage's definition."""
 
 _runner: "Runner | None" = None
 # Runs whose workflow thread sits in recv at a gate. Shutdown wakes them, because DBOS cannot
@@ -208,7 +209,10 @@ def _execute(run_id: str, index: int) -> None:
     runner = _current()
     stage_id, stage = runner.storage.stage_def(run_id, index)
     if stage.type == "connector":
-        runner.connector(stage_id, stage)
+        run = runner.storage.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        runner.connector(run, stage_id, stage)
         return
     # ponytail: swarm stages arrive with the swarm (T07), workflow stages with child runs (T14).
     raise NotImplementedError(f"{stage.type} stages cannot run yet")

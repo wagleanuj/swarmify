@@ -9,11 +9,18 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_api.main import create_app
+from swarmify_connectors import FakeTransport
 
 
 @pytest.fixture
-def app(tmp_path: Path) -> FastAPI:
-    return create_app(tmp_path)
+def transport() -> FakeTransport:
+    return FakeTransport()
+
+
+@pytest.fixture
+def app(tmp_path: Path, transport: FakeTransport) -> FastAPI:
+    """The API with the fake ConnectorTransport behind it."""
+    return create_app(tmp_path, transport=transport, poll_seconds=0.01)
 
 
 @pytest.fixture

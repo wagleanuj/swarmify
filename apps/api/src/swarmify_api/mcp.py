@@ -83,9 +83,21 @@ def server(
 
 
 def main() -> None:
-    from swarmify_api.main import data_dir, run_storage, workflow_service, world_service
+    from swarmify_api.main import (
+        connector_service,
+        data_dir,
+        run_storage,
+        workflow_service,
+        world_service,
+    )
 
     root = data_dir()
-    # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
-    # Cancel through DBOSClient when the MCP server starts runs too.
-    server(world_service(root), workflow_service(root), run_storage(root).delete_world).run("stdio")
+    registry = connector_service(root)
+
+    def on_delete(world_id: str) -> None:
+        # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
+        # Cancel through DBOSClient when the MCP server starts runs too.
+        run_storage(root).delete_world(world_id)
+        registry.delete_world(world_id)
+
+    server(world_service(root), workflow_service(root, registry), on_delete).run("stdio")

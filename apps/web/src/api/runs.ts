@@ -3,18 +3,22 @@ import { useEffect, useRef } from "react";
 import type { components } from "./schema";
 
 export type Run = components["schemas"]["Run"];
+export type Call = components["schemas"]["Call"];
 
-/** Call `onRun` with every run snapshot the world's event stream carries (ADR 0002). */
-export function useRunUpdates(worldId: string, onRun: (run: Run) => void) {
-  const latest = useRef(onRun);
-  latest.current = onRun;
+/** Call `onRun` with every run snapshot the world's event stream carries (ADR 0002), and
+ * `onCall` with every connector call snapshot, progress included. One stream per page. */
+export function useRunUpdates(
+  worldId: string,
+  onRun: (run: Run) => void,
+  onCall?: (call: Call) => void,
+) {
+  const latest = useRef({ onRun, onCall });
+  latest.current = { onRun, onCall };
   useEffect(() => {
     const source = new EventSource(`/api/worlds/${worldId}/events`);
-    const listener = (e: Event) => {
-      const event = JSON.parse((e as MessageEvent<string>).data) as { payload: Run };
-      latest.current(event.payload);
-    };
-    source.addEventListener("run.updated", listener);
+    const payload = (e: Event) => (JSON.parse((e as MessageEvent<string>).data) as { payload: never }).payload;
+    source.addEventListener("run.updated", (e) => latest.current.onRun(payload(e)));
+    source.addEventListener("connector_call.updated", (e) => latest.current.onCall?.(payload(e)));
     return () => source.close();
   }, [worldId]);
 }

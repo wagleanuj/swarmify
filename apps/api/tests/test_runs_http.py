@@ -1,43 +1,44 @@
-"""Runs over HTTP, with real DBOS on SQLite behind the app and a recording fake connector."""
+"""Runs over HTTP, with real DBOS on SQLite behind the app and the fake ConnectorTransport."""
 
 import time
 from collections.abc import Callable, Iterator
-from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from swarmify_api.main import create_app
+from swarmify_connectors import FakeTransport
 from swarmify_runs import StageDef
 from test_world_events import _events
+
+RENDER = {
+    "name": "render_video",
+    "kind": "stage",
+    "server": "uvx render-mcp",
+    "stage_types": ["connector"],
+}
+"""A connector the test world adds; the fake transport answers for it."""
 
 SHORT = """name: Render then pick
 stages:
   - connector: render
-    calls: remotion_render
+    calls: render_video
   - gate: pick
     ask: Ship it?
 """
 
 
 @pytest.fixture
-def calls() -> list[tuple[str, str]]:
-    return []
-
-
-@pytest.fixture
-def running(tmp_path: Path, calls: list[tuple[str, str]]) -> Iterator[TestClient]:
+def running(app: FastAPI) -> Iterator[TestClient]:
     """A client whose lifespan ran, so DBOS is launched."""
-    app = create_app(
-        tmp_path, connector=lambda stage_id, stage: calls.append((stage_id, stage.name))
-    )
     with TestClient(app) as client:
         yield client
 
 
 def _setup(client: TestClient) -> tuple[str, str]:
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    assert client.post(f"/api/worlds/{world}/connectors", json=RENDER).status_code == 201
     created = client.post(f"/api/worlds/{world}/workflows", json={"yaml": SHORT})
     return world, created.json()["workflow_id"]
 
@@ -50,7 +51,7 @@ def _until(check: Callable[[], bool]) -> None:
 
 
 def test_start_a_run_and_watch_it_reach_its_gate(
-    running: TestClient, calls: list[tuple[str, str]]
+    running: TestClient, transport: FakeTransport
 ) -> None:
     world, workflow = _setup(running)
     started = running.post(f"/api/workflows/{workflow}/runs", json={})
@@ -67,7 +68,9 @@ def test_start_a_run_and_watch_it_reach_its_gate(
     _until(lambda: running.get(url).json()["status"] == "waiting_gate")
     stages = running.get(url).json()["stages"]
     assert [s["status"] for s in stages] == ["done", "waiting"]
-    assert calls == [(stages[0]["id"], "render")]
+    assert [(c[1], c[2]["idempotency_key"]) for c in transport.calls] == [
+        ("render_video", stages[0]["id"])
+    ]
     assert [r["id"] for r in running.get(f"/api/worlds/{world}/runs").json()] == [run["id"]]
 
 
@@ -101,6 +104,7 @@ def test_deleting_the_world_takes_its_runs(running: TestClient) -> None:
 
 def test_run_updates_stream_on_the_world_events(live_url: str) -> None:
     world = httpx.post(f"{live_url}/api/worlds", json={"name": "Video"}).json()["id"]
+    httpx.post(f"{live_url}/api/worlds/{world}/connectors", json=RENDER).raise_for_status()
     workflow = httpx.post(f"{live_url}/api/worlds/{world}/workflows", json={"yaml": SHORT})
     with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events", timeout=10) as r:
         events = _events(r)
@@ -108,7 +112,7 @@ def test_run_updates_stream_on_the_world_events(live_url: str) -> None:
         seen: list[str] = []
         for kind, _, data in events:
             if kind != "run.updated":
-                continue
+                continue  # connector_call.updated events interleave
             assert data["run_id"] == run.json()["id"]
             seen.append(data["payload"]["status"])
             if seen[-1] == "waiting_gate":

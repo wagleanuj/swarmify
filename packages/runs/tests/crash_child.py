@@ -11,13 +11,13 @@ import time
 from pathlib import Path
 
 from runs_fakes import migrated, wait_for
-from swarmify_runs import Runner, SqliteStorage, StageDef
+from swarmify_runs import Run, Runner, SqliteStorage, StageDef
 
 root, mode = Path(sys.argv[1]), sys.argv[2]
 log = root / "calls.log"
 
 
-def connector(stage_id: str, stage: StageDef) -> None:
+def connector(run: Run, stage_id: str, stage: StageDef) -> None:
     with log.open("a") as f:
         f.write(f"{stage.name}\n")
     if stage.name == "slow" and mode == "start":

@@ -31,6 +31,9 @@ test("shows the world, its tiles and live activity from the world's event stream
   await expect
     .element(screen.getByRole("link", { name: "New workflow" }))
     .toHaveAttribute("href", "/worlds/world_1/workflows/new");
+  await expect
+    .element(screen.getByRole("link", { name: "Manage connectors" }))
+    .toHaveAttribute("href", "/worlds/world_1/connectors");
 
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
   FakeEventSource.emit("world.created", { seq: 1, type: "world.created", ts: video.created_at });

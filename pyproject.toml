@@ -26,6 +26,7 @@ swarmify-api = { workspace = true }
 swarmify-worlds = { workspace = true }
 swarmify-workflows = { workspace = true }
 swarmify-runs = { workspace = true }
+swarmify-connectors = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -36,7 +37,7 @@ extend-exclude = ["node_modules", ".venv"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["swarmify_*", "check_imports", "samples", "runs_fakes", "test_world_events"]
+known-first-party = ["swarmify_*", "check_imports", "samples", "runs_fakes", "echo_server", "test_world_events"]
 
 [tool.pyright]
 venvPath = "."
@@ -48,7 +49,7 @@ typeCheckingMode = "standard"
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps/api", "tools"]
 pythonpath = ["tools"]
-addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
 
 [tool.coverage.run]
 omit = ["*/tests/*"]

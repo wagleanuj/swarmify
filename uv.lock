@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "swarmify",
     "swarmify-api",
+    "swarmify-connectors",
     "swarmify-kernel",
     "swarmify-runs",
     "swarmify-workflows",
@@ -1449,6 +1450,7 @@ source = { editable = "apps/api" }
 dependencies = [
     { name = "fastapi" },
     { name = "mcp" },
+    { name = "swarmify-connectors" },
     { name = "swarmify-kernel" },
     { name = "swarmify-runs" },
     { name = "swarmify-workflows" },
@@ -1460,11 +1462,27 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.162" },
     { name = "mcp", specifier = ">=2.3" },
+    { name = "swarmify-connectors", editable = "packages/connectors" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
     { name = "swarmify-runs", editable = "packages/runs" },
     { name = "swarmify-workflows", editable = "packages/workflows" },
     { name = "swarmify-worlds", editable = "packages/worlds" },
     { name = "uvicorn", specifier = ">=0.54" },
+]
+
+[[package]]
+name = "swarmify-connectors"
+version = "0.1.0"
+source = { editable = "packages/connectors" }
+dependencies = [
+    { name = "mcp" },
+    { name = "swarmify-kernel" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", specifier = ">=2.3" },
+    { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
 
 [[package]]

@@ -218,10 +218,139 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connectors */
+        get: operations["list_connectors_api_worlds__world_id__connectors_get"];
+        put?: never;
+        /** Add Connector */
+        post: operations["add_connector_api_worlds__world_id__connectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/connectors/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Connector
+         * @description Start the server once with its credentials and list its tools. Saves nothing.
+         */
+        post: operations["test_connector_api_worlds__world_id__connectors_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connectors/{connector_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Connector */
+        delete: operations["delete_connector_api_connectors__connector_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stage_id}/call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Call
+         * @description The raw call and response of a connector stage.
+         */
+        get: operations["get_call_api_stages__stage_id__call_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Call
+         * @description One connector stage call, keyed by the stage id. `response` is the latest raw response:
+         *     the tool's result, or for a long job the last poll.
+         */
+        Call: {
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** World Id */
+            world_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Connector */
+            connector: string;
+            /** Tool */
+            tool: string;
+            /** Request */
+            request: {
+                [key: string]: unknown;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "polling" | "done" | "failed";
+            /** Started At */
+            started_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Response */
+            response?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error?: string | null;
+            /** Job Id */
+            job_id?: string | null;
+            /** Poll Tool */
+            poll_tool?: string | null;
+            /** Progress */
+            progress?: number | null;
+            /** Message */
+            message?: string | null;
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+            /**
+             * Polls
+             * @default 0
+             */
+            polls: number;
+        };
         /** CheckBody */
         CheckBody: {
             /** Yaml */
@@ -253,6 +382,36 @@ export interface components {
              */
             type: "connector";
         };
+        /** ConnectorView */
+        ConnectorView: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "tool" | "stage" | "publish";
+            /** Command */
+            command: string[];
+            /** Url */
+            url: string | null;
+            /** Credentials */
+            credentials: string[];
+            /** Stage Types */
+            stage_types: string[];
+            /** Builtin */
+            builtin: boolean;
+            /** About */
+            about: string;
+            /** Created At */
+            created_at: string | null;
+            /** Missing */
+            missing: string[];
+        };
         /**
          * GateStage
          * @description The run stops until a person answers `ask`: pick one, approve or send back, confirm.
@@ -283,6 +442,24 @@ export interface components {
         Health: {
             /** Version */
             version: string;
+        };
+        /** NewConnector */
+        NewConnector: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "tool" | "stage" | "publish";
+            /** Server */
+            server: string;
+            /** Credentials */
+            credentials?: {
+                [key: string]: string;
+            };
+            /** Stage Types */
+            stage_types: ("swarm" | "connector")[];
         };
         /** NewWorld */
         NewWorld: {
@@ -382,6 +559,28 @@ export interface components {
              * @constant
              */
             type: "swarm";
+        };
+        /** Tested */
+        Tested: {
+            /** Tools */
+            tools: components["schemas"]["Tool"][];
+        };
+        /**
+         * Tool
+         * @description One callable capability a connector exposes.
+         */
+        Tool: {
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Input Schema */
+            input_schema?: {
+                [key: string]: unknown;
+            };
         };
         /** ValidationError */
         ValidationError: {
@@ -972,6 +1171,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_connectors_api_worlds__world_id__connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_connector_api_worlds__world_id__connectors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewConnector"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_connector_api_worlds__world_id__connectors_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewConnector"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tested"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connector_api_connectors__connector_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_call_api_stages__stage_id__call_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stage_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Call"];
                 };
             };
             /** @description Validation Error */

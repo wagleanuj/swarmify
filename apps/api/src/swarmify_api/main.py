@@ -20,11 +20,14 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import runs, workflows, worlds
+from swarmify_api import connectors, runs, workflows, worlds
+from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
+from swarmify_connectors import Connectors, ConnectorTransport, Credentials, McpTransport
+from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
-from swarmify_runs import Connector, Runner, StageDef
+from swarmify_runs import Connector, Run, Runner, StageDef
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows
@@ -40,24 +43,17 @@ def data_dir() -> Path:
     return Path(os.environ.get("SWARMIFY_DATA_DIR", Path.home() / ".swarmify"))
 
 
-# ponytail: the built-in connectors every world gets (V1 spec, Connectors context), as a constant
-# until T10 ships the connector registry, which replaces it with a per-world lookup.
-BUILTIN_CONNECTORS = {
-    c.name: c
-    for c in [
-        ConnectorRef("web_search", "tool", frozenset({"swarm"})),
-        ConnectorRef("graph", "tool", frozenset({"swarm"})),
-        ConnectorRef("remotion_render", "stage", frozenset({"connector"})),
-        ConnectorRef("youtube", "publish", frozenset({"connector"})),
-        ConnectorRef("upload_post", "publish", frozenset({"connector"})),
-    ]
-}
-
-
 def migrated_db(root: Path) -> Path:
     db = root / "swarmify.db"
     with closing(connect(db)) as conn:
-        migrate(conn, KERNEL_MIGRATIONS, WORLDS_MIGRATIONS, WORKFLOWS_MIGRATIONS, RUNS_MIGRATIONS)
+        migrate(
+            conn,
+            KERNEL_MIGRATIONS,
+            WORLDS_MIGRATIONS,
+            WORKFLOWS_MIGRATIONS,
+            RUNS_MIGRATIONS,
+            CONNECTORS_MIGRATIONS,
+        )
     return db
 
 
@@ -65,12 +61,29 @@ def world_service(root: Path) -> Worlds:
     return Worlds(SqliteStorage(migrated_db(root)), root)
 
 
-def workflow_service(root: Path) -> Workflows:
-    return Workflows(WorkflowStorage(migrated_db(root)), lambda _: BUILTIN_CONNECTORS)
+def connector_service(
+    root: Path, transport: ConnectorTransport | None = None, poll_seconds: float = 2.0
+) -> Connectors:
+    """Credentials live in `<data_dir>/.env`, mode 600 (`~/.swarmify/.env` by default)."""
+    return Connectors(
+        ConnectorStorage(migrated_db(root)),
+        transport or McpTransport(),
+        Credentials(root / ".env"),
+        poll_seconds,
+    )
 
 
-def noop_connector(stage_id: str, stage: StageDef) -> None:
-    """ponytail: every connector stage is a no-op until T10 ships ConnectorTransport."""
+def workflow_service(root: Path, registry: Connectors | None = None) -> Workflows:
+    """Workflows learns what a world's connectors allow from the registry, by name."""
+    registry = registry or connector_service(root)
+
+    def refs(world_id: str) -> dict[str, ConnectorRef]:
+        return {
+            c.name: ConnectorRef(c.name, c.kind, frozenset(c.stage_types))
+            for c in registry.list_all(world_id)
+        }
+
+    return Workflows(WorkflowStorage(migrated_db(root)), refs)
 
 
 def run_storage(root: Path) -> RunStorage:
@@ -93,9 +106,21 @@ class Health(BaseModel):
     version: str
 
 
-def create_app(root: Path | None = None, connector: Connector = noop_connector) -> FastAPI:
+def create_app(
+    root: Path | None = None,
+    connector: Connector | None = None,
+    transport: ConnectorTransport | None = None,
+    poll_seconds: float = 2.0,
+) -> FastAPI:
+    """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
+    between long-job polls, and `connector` replaces the connector stage call altogether."""
     root = root or data_dir()
-    runner = Runner(run_storage(root), root / "dbos.sqlite", connector)
+    registry = connector_service(root, transport, poll_seconds)
+
+    def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
+        registry.run_stage(run.world_id, run.id, stage_id, stage.config)
+
+    runner = Runner(run_storage(root), root / "dbos.sqlite", connector or call_connector)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -110,15 +135,17 @@ def create_app(root: Path | None = None, connector: Connector = noop_connector) 
     def health() -> Health:
         return Health(version=VERSION)
 
-    world_svc, workflow_svc = world_service(root), workflow_service(root)
+    world_svc, workflow_svc = world_service(root), workflow_service(root, registry)
 
     def on_delete(world_id: str) -> None:
         workflow_svc.delete_world(world_id)
         runner.delete_world(world_id)
+        registry.delete_world(world_id)
 
     app.include_router(worlds.router(world_svc, on_delete))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(runs.router(runner, workflow_svc, world_svc))
+    app.include_router(connectors.router(registry, world_svc))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app
