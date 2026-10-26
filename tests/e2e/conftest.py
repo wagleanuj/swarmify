@@ -22,19 +22,28 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+def data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("swarmify")
+
+
+@pytest.fixture(scope="session")
+def base_url(data_dir: Path) -> Iterator[str]:
     if not (WEB_DIST / "index.html").exists():
         pytest.fail(f"{WEB_DIST} is missing; run `pnpm --filter web build` first")
     port = _free_port()
     url = f"http://127.0.0.1:{port}"
-    data_dir = tmp_path_factory.mktemp("swarmify")
-    env = {**os.environ, "SWARMIFY_WEB_DIST": str(WEB_DIST), "SWARMIFY_DATA_DIR": str(data_dir)}
+    env = {
+        **os.environ,
+        "SWARMIFY_WEB_DIST": str(WEB_DIST),
+        "SWARMIFY_DATA_DIR": str(data_dir),
+        "PYTHONPATH": str(Path(__file__).parent),
+    }
     cmd = [
         sys.executable,
         "-m",
         "uvicorn",
         "--factory",
-        "swarmify_api.main:create_app",
+        "scripted_app:create_app",
         "--port",
         str(port),
     ]

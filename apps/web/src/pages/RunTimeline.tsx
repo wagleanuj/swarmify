@@ -2,10 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { useWorldEvents } from "../api/events";
+import { type Agent, type LogEntry, useWorldEvents } from "../api/events";
 import { type Call, type Run, statusLine } from "../api/runs";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
+import { AgentLog, usd } from "./AgentLog";
 import { Whiteboard } from "./Whiteboard";
 
 /** The swarm stage whose whiteboard opens first: the live one, else the next, else the first. */
@@ -26,6 +27,8 @@ export function RunTimeline() {
   const [open, setOpen] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [agents, setAgents] = useState<Record<string, Agent>>({});
+  const [log, setLog] = useState<LogEntry[]>([]);
   const stage = run ? (run.stages.find((s) => s.id === picked) ?? defaultSwarm(run)) : undefined;
   const stageId = stage?.type === "swarm" ? stage.id : undefined;
 
@@ -39,6 +42,24 @@ export function RunTimeline() {
       })
       .catch(() => setError("Could not load this run. Is the API running?"));
   }, [runId]);
+
+  useEffect(() => {
+    api
+      .GET("/api/runs/{run_id}/agents", { params: { path: { run_id: runId } } })
+      .then(({ data }) => data && setAgents((prev) => ({ ...Object.fromEntries(data.map((a) => [a.id, a])), ...prev })))
+      .catch(() => undefined);
+  }, [runId]);
+
+  useEffect(() => {
+    setLog([]);
+    if (!stageId) return;
+    api
+      .GET("/api/runs/{run_id}/stages/{stage_id}/log", {
+        params: { path: { run_id: runId, stage_id: stageId } },
+      })
+      .then(({ data }) => data && setLog((prev) => merge(data, prev)))
+      .catch(() => undefined);
+  }, [runId, stageId]);
 
   useEffect(() => {
     setTasks([]);
@@ -57,6 +78,12 @@ export function RunTimeline() {
     },
     "task.updated": (task) => {
       if (task.stage_id === stageId) setTasks((prev) => upsert(prev, task));
+    },
+    "agent.updated": (agent) => {
+      if (agent.run_id === runId) setAgents((prev) => ({ ...prev, [agent.id]: agent }));
+    },
+    "agent.logged": (entry) => {
+      if (entry.stage_id === stageId) setLog((prev) => merge(prev, [entry]));
     },
     "connector_call.updated": (call) => {
       if (call.run_id === runId) setCalls((prev) => ({ ...prev, [call.idempotency_key]: call }));
@@ -80,6 +107,7 @@ export function RunTimeline() {
       </Link>
     </div>
   );
+  const cost = Object.values(agents).reduce((sum, a) => sum + a.cost_usd, 0);
   if (run === undefined) {
     return <main>{error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}</main>;
   }
@@ -108,6 +136,11 @@ export function RunTimeline() {
           <p className="sub" role="status" data-testid="status-line">
             {statusLine(run)}
           </p>
+          {cost > 0 && (
+            <p className="faint" data-testid="run-cost">
+              Estimated agent cost so far: {usd(cost)}. An estimate from the Agent SDK, not your bill.
+            </p>
+          )}
         </div>
       </header>
       <ol className="timeline" aria-label="Timeline" data-testid="timeline">
@@ -153,6 +186,9 @@ export function RunTimeline() {
       {open && <CallPanel call={calls[open]} />}
       {error && <p role="alert">{error}</p>}
       {stage && stageId && (
+        <AgentLog agents={Object.values(agents).filter((a) => a.stage_id === stageId)} log={log} />
+      )}
+      {stage && stageId && (
         <Whiteboard
           runId={run.id}
           stage={stage}
@@ -162,6 +198,12 @@ export function RunTimeline() {
       )}
     </main>
   );
+}
+
+/** Log entries by seq, each once, oldest first. */
+function merge(a: LogEntry[], b: LogEntry[]): LogEntry[] {
+  const bySeq = new Map([...a, ...b].map((e) => [e.seq, e]));
+  return [...bySeq.values()].sort((x, y) => x.seq - y.seq);
 }
 
 /** A connector stage opened: what went in, what came out, and the raw call and response. */

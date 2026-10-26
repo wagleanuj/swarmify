@@ -65,6 +65,17 @@ def test_stage_types_without_an_executor_fail_honestly(runner: Runner) -> None:
     assert failed is not None and "swarm stages cannot run yet" in (failed.stages[0].error or "")
 
 
+def test_a_swarm_stage_runs_through_the_swarm_it_was_given(runner: Runner) -> None:
+    swarm = FakeConnector()
+    runner.swarm = swarm
+    stages = [StageDef("research", "swarm", {"goal": "g"}), StageDef("explode", "swarm")]
+    run = runner.start("world_1", "wf_1", 1, "Research", stages)
+    wait_for(lambda: status(runner, run.id) == "failed")
+    ended = runner.get(run.id)
+    assert ended is not None and [s.status for s in ended.stages] == ["done", "failed"]
+    assert swarm.calls == [(ended.stages[0].id, "research"), (ended.stages[1].id, "explode")]
+
+
 def test_each_world_runs_at_most_two_at_once(runner: Runner) -> None:
     a = [runner.start("world_a", "wf_a", 1, f"A{i}", [PICK]) for i in range(3)]
     b = runner.start("world_b", "wf_b", 1, "B", [PICK])

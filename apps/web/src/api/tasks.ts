@@ -10,5 +10,11 @@ export function upsert(tasks: Task[], task: Task): Task[] {
   return tasks.map((t) => (t.id === task.id ? task : t));
 }
 
-/** Pied Piper names belong to the cast; the person at the keyboard is "you". */
-export const who = (name: string | null) => (name === "operator" ? "you" : (name ?? "nobody"));
+/** Pied Piper names belong to the skin (ADR 0004): code says worker-1, the page says Gilfoyle. */
+const CAST: Record<string, string> = {
+  operator: "you",
+  swarmify: "the swarm",
+  "worker-1": "Gilfoyle",
+};
+
+export const who = (name: string | null) => (name ? (CAST[name] ?? name) : "nobody");
