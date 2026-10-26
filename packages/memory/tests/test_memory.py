@@ -94,3 +94,44 @@ def test_an_artifact_may_carry_its_own_type_and_frontmatter(memory: Memory) -> N
     assert text.startswith('---\ntype: "publish"\nauthor: "publish"\n')
     assert 'links: {"youtube": "https://youtu.be/v"}\n' in text and "schedule" not in text
     assert _events(memory)[-1]["type"] == "publish"
+
+
+def test_a_typed_artifact_carries_its_type_and_fields_in_frontmatter(memory: Memory) -> None:
+    fields = {"title": "The chase", "rank": 1, "sources": ["runs/r1/s1/notes/a.md#p2"]}
+    rel = memory.write_typed(
+        "w1", "r1", "s1", "judge", "idea-chase.md", "idea", fields, "# Chase\n"
+    )
+    assert rel == "runs/r1/s1/artifacts/idea-chase.md"
+    text = (memory.world_folder("w1") / rel).read_text()
+    assert text.startswith('---\ntype: "idea"\nauthor: "judge"\n')
+    assert 'rank: 1\nsources: ["runs/r1/s1/notes/a.md#p2"]\n---\n\n# Chase\n' in text
+    assert _events(memory)[-1]["type"] == "idea"
+    for bad in ("idea.txt", "../x.md"):
+        with pytest.raises(ValueError):
+            memory.write_typed("w1", "r1", "s1", "judge", bad, "idea", {}, "x")
+
+
+def test_notes_and_stage_artifacts_read_back_without_frontmatter(memory: Memory) -> None:
+    memory.write_note("w1", "r1", "s1", "worker-1", "Trends", "Hooks win.\n\nChases.")
+    memory.write_typed(
+        "w1", "r1", "s1", "judge", "idea-a.md", "idea", {"title": "A", "rank": 1}, "Body"
+    )
+    memory.write_artifact("w1", "r1", "s1", "worker-1", "ranks.csv", "a,1")
+    memory.write_artifact("w1", "r1", "s1", "worker-1", "brief.md", "Brief")
+    folder = memory.world_folder("w1") / "runs/r1/s1/artifacts"
+    (folder / "hand.md").write_text("---\nodd: not json\n---\n\nHand")
+    assert memory.notes("w1", "r1", "s1") == [
+        ("runs/r1/s1/notes/trends.md", "# Trends\n\nHooks win.\n\nChases.\n")
+    ]
+    assert memory.notes("w1", "r1", "s_none") == []
+    arts = {a.name: a for a in memory.stage_artifacts("w1", "r1", "s1")}
+    assert sorted(arts) == ["brief.md", "hand.md", "idea-a.md", "ranks.csv"]
+    idea = arts["idea-a.md"]
+    assert (idea.type, idea.author, idea.title, idea.body) == ("idea", "judge", "A", "Body")
+    assert idea.fields["rank"] == 1 and idea.path == "runs/r1/s1/artifacts/idea-a.md"
+    assert (arts["ranks.csv"].type, arts["ranks.csv"].path) == (
+        "file",
+        "runs/r1/s1/artifacts/ranks.csv.md",
+    )
+    assert arts["brief.md"].body == "Brief" and arts["brief.md"].title == "brief.md"
+    assert arts["hand.md"].fields == {"odd": "not json"} and arts["hand.md"].type == "file"

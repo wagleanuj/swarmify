@@ -41,7 +41,7 @@ class Refused(ValueError):
     """The whiteboard refused the action, for example a claim on a task someone else holds."""
 
 
-AgentRole = Literal["worker"]
+AgentRole = Literal["planner", "worker", "judge"]
 AgentStatus = Literal["working", "done", "failed"]
 LogKind = Literal["session", "tool", "denied", "result", "error"]
 
@@ -79,3 +79,24 @@ class LogEntry:
     tool: str | None = None
     input: dict[str, Any] | None = None
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """The Judge's pass or fail on one loop of a swarm stage, with reasons. A fail names the
+    gap tasks it added to the whiteboard; a pass keeps the typed items it projected, so a retried
+    stage projects the same artifacts again without asking the judge twice."""
+
+    id: str
+    world_id: str
+    run_id: str
+    stage_id: str
+    loop: int
+    """1 for the first verdict of the stage, one more for every gap loop after it."""
+    passed: bool
+    reasons: list[str]
+    gaps: list[str]
+    items: list[dict[str, Any]]
+    path: str
+    """The verdict artifact, relative to the world folder."""
+    created_at: str

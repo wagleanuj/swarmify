@@ -2,12 +2,13 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { type Agent, type LogEntry, useWorldEvents } from "../api/events";
+import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
 import { actOn, type Call, decisionLine, type Run, statusLine } from "../api/runs";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
 import { ChildOf } from "./Runs";
+import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
 /** The swarm stage whose whiteboard opens first: the live one, else the next, else the first. */
@@ -30,6 +31,9 @@ export function RunTimeline() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agents, setAgents] = useState<Record<string, Agent>>({});
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [verdicts, setVerdicts] = useState<Verdict[]>([]);
+  const [artifacts, setArtifacts] = useState<ArtifactFile[]>([]);
+  const [artifactsSeen, setArtifactsSeen] = useState(0);
   const stage = run ? (run.stages.find((s) => s.id === picked) ?? defaultSwarm(run)) : undefined;
   const stageId = stage?.type === "swarm" ? stage.id : undefined;
 
@@ -63,6 +67,27 @@ export function RunTimeline() {
   }, [runId, stageId]);
 
   useEffect(() => {
+    setVerdicts([]);
+    if (!stageId) return;
+    api
+      .GET("/api/runs/{run_id}/stages/{stage_id}/verdicts", {
+        params: { path: { run_id: runId, stage_id: stageId } },
+      })
+      .then(({ data }) => data && setVerdicts((prev) => byLoop(data, prev)))
+      .catch(() => undefined);
+  }, [runId, stageId]);
+
+  useEffect(() => {
+    if (!stageId) return setArtifacts([]);
+    api
+      .GET("/api/runs/{run_id}/stages/{stage_id}/artifacts", {
+        params: { path: { run_id: runId, stage_id: stageId } },
+      })
+      .then(({ data }) => data && setArtifacts(data))
+      .catch(() => undefined);
+  }, [runId, stageId, artifactsSeen]);
+
+  useEffect(() => {
     setTasks([]);
     if (!stageId) return;
     api
@@ -85,6 +110,12 @@ export function RunTimeline() {
     },
     "agent.logged": (entry) => {
       if (entry.stage_id === stageId) setLog((prev) => merge(prev, [entry]));
+    },
+    "verdict.created": (verdict) => {
+      if (verdict.stage_id === stageId) setVerdicts((prev) => byLoop(prev, [verdict]));
+    },
+    "artifact.created": (created) => {
+      if (created.stage_id === stageId) setArtifactsSeen((n) => n + 1);
     },
     "connector_call.updated": (call) => {
       if (call.run_id === runId) setCalls((prev) => ({ ...prev, [call.idempotency_key]: call }));
@@ -256,6 +287,7 @@ export function RunTimeline() {
       {stage && stageId && (
         <AgentLog agents={Object.values(agents).filter((a) => a.stage_id === stageId)} log={log} />
       )}
+      {stage && stageId && <StageOutput verdicts={verdicts} artifacts={artifacts} />}
       {stage && stageId && (
         <Whiteboard
           runId={run.id}
@@ -266,6 +298,12 @@ export function RunTimeline() {
       )}
     </main>
   );
+}
+
+/** Verdicts by loop, each once, oldest first. */
+function byLoop(a: Verdict[], b: Verdict[]): Verdict[] {
+  const byId = new Map([...a, ...b].map((v) => [v.loop, v]));
+  return [...byId.values()].sort((x, y) => x.loop - y.loop);
 }
 
 /** Log entries by seq, each once, oldest first. */

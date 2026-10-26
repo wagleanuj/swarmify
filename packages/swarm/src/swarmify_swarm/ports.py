@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from swarmify_swarm.model import Agent, AgentRole, AgentStatus, LogEntry, LogKind, Task
+from swarmify_swarm.model import Agent, AgentRole, AgentStatus, LogEntry, LogKind, Task, Verdict
 
 
 class Storage(Protocol):
@@ -30,6 +30,19 @@ class Storage(Protocol):
         depends_on: tuple[str, ...] = (),
     ) -> Task:
         """`depends_on` must name tasks of the same stage."""
+        ...
+
+    def add_tasks(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        tasks: list[tuple[str, str, tuple[int, ...]]],
+        *,
+        added_by: str,
+    ) -> list[Task]:
+        """Add (title, body, indexes of earlier tasks of the list it depends on) in one
+        transaction, so a planner's seed lands whole or not at all."""
         ...
 
     def get_task(self, task_id: str) -> Task | None: ...
@@ -61,6 +74,27 @@ class Storage(Protocol):
         ...
 
     def delete_world(self, world_id: str) -> None: ...
+
+    def record_verdict(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        *,
+        passed: bool,
+        reasons: list[str],
+        gaps: list[str],
+        items: list[dict[str, Any]],
+        path: str,
+        added_by: str,
+    ) -> Verdict:
+        """The stage's next verdict (loop 1, 2, ...) and its gap tasks, added as open tasks by
+        `added_by`, in one transaction. Appends `verdict.created` carrying the verdict."""
+        ...
+
+    def list_verdicts(self, stage_id: str) -> list[Verdict]:
+        """Oldest loop first."""
+        ...
 
     def agent(self, world_id: str, run_id: str, stage_id: str, name: str, role: AgentRole) -> Agent:
         """The stage's agent of that name, added the first time it is asked for."""
@@ -140,6 +174,8 @@ class SessionSpec:
     """External MCP servers by name, in the standard MCP config shape (the stage's connectors)."""
     resume: str | None = None
     max_turns: int | None = None
+    output_schema: dict[str, Any] | None = None
+    """A JSON schema the session's final answer must follow (structured output)."""
 
 
 @dataclass(frozen=True)
@@ -158,6 +194,8 @@ class SessionEnd:
     """The runtime's whole-session estimate, not billing."""
     is_error: bool
     result: str = ""
+    output: Any = None
+    """The structured answer when the spec asked for one."""
 
 
 class SessionHooks(Protocol):
