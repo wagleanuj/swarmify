@@ -1,0 +1,17 @@
+import react from "@vitejs/plugin-react";
+import { playwright } from "@vitest/browser-playwright";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [react()],
+  server: { proxy: { "/api": "http://localhost:8000" } },
+  test: {
+    include: ["src/**/*.test.tsx"],
+    browser: {
+      enabled: true,
+      headless: true,
+      provider: playwright(),
+      instances: [{ browser: "chromium" }],
+    },
+  },
+});
