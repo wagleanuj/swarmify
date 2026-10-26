@@ -5,8 +5,10 @@ import { api } from "../api/client";
 import { decide, type Gate } from "../api/runs";
 import type { components } from "../api/schema";
 import { ChildOf } from "./Runs";
+import { LABEL } from "./Connectors";
 
 type World = components["schemas"]["World"];
+type PublishPreview = components["schemas"]["PublishPreview"];
 
 export function Gates() {
   const [gates, setGates] = useState<Gate[] | null>(null);
@@ -113,6 +115,8 @@ function GateCard({
     setSendBack(false);
   }
 
+  // A post that cannot go out would fail the run; say why instead of letting it.
+  const blocked = (gate.publish?.problems ?? []).length > 0;
   const since = new Date(gate.opened_at).toLocaleTimeString([], { timeStyle: "short" });
   return (
     <li className="gate" data-kind={gate.kind} data-testid={`gate-${gate.run_id}`}>
@@ -129,6 +133,7 @@ function GateCard({
         {gate.parent && <ChildOf parent={gate.parent} />}
       </div>
       <p className="ask">{gate.ask}</p>
+      {gate.publish && <WhatGoesOut preview={gate.publish} />}
       <form onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
         {gate.kind === "pick" && (
           <>
@@ -165,10 +170,14 @@ function GateCard({
           )}
           {gate.kind === "confirm" && (
             <>
-              <button type="submit" className="primary" disabled={busy}>
-                Confirm
+              <button type="submit" className="primary" disabled={busy || blocked}>
+                {gate.publish ? "Confirm and post" : "Confirm"}
               </button>
-              <span className="faint">Nothing goes out until you confirm.</span>
+              <span className="faint">
+                {gate.publish
+                  ? "Posts exactly what is above. Nothing goes out until you confirm."
+                  : "Nothing goes out until you confirm."}
+              </span>
             </>
           )}
           {gate.kind === "approve" && !sendBack && (
@@ -204,5 +213,62 @@ function GateCard({
         </div>
       </form>
     </li>
+  );
+}
+
+/** What the publish stage after this gate sends out: exactly these values (ADR 0007). */
+function WhatGoesOut({ preview }: { preview: PublishPreview }) {
+  const where = LABEL[preview.connector] ?? preview.connector;
+  const platforms = preview.platforms?.length ? ` to ${preview.platforms.join(", ")}` : "";
+  const problems = preview.problems ?? [];
+  return (
+    <section className="publish-preview" aria-label="What goes out">
+      <dl>
+        <dt>Title</dt>
+        <dd>{preview.title || "none"}</dd>
+        <dt>Where</dt>
+        <dd>
+          {where}
+          {platforms}
+        </dd>
+        <dt>Visibility</dt>
+        <dd>{preview.visibility}</dd>
+        <dt>When</dt>
+        <dd>
+          {preview.schedule ? (
+            <>
+              <time dateTime={preview.schedule}>
+                {new Date(preview.schedule).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+              </time>{" "}
+              <span className="faint">
+                ({preview.schedule.replace("T", " ").replace(":00Z", " UTC")}).{" "}
+                {preview.connector === "youtube"
+                  ? `Private until then, then ${preview.visibility}.`
+                  : "Nothing posts before then."}
+              </span>
+            </>
+          ) : (
+            "Now, as soon as you confirm"
+          )}
+        </dd>
+        {preview.video && (
+          <>
+            <dt>Video</dt>
+            <dd className="mono">{preview.video}</dd>
+          </>
+        )}
+      </dl>
+      {problems.length > 0 && (
+        <div className="publish-problems" role="alert">
+          <p>This will not post:</p>
+          <ul>
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+          <p>Abort the run from its timeline, fix the publish stage, and start a new run.</p>
+        </div>
+      )}
+    </section>
   );
 }

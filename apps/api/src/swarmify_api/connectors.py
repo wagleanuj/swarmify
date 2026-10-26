@@ -43,6 +43,13 @@ class Tested(BaseModel):
     tools: list[Tool]
 
 
+class Keys(BaseModel):
+    credentials: dict[str, Annotated[str, StringConstraints(max_length=4000)]] = Field(
+        min_length=1, max_length=20
+    )
+    """Credential name to value, for the connector's own names only. Never returned."""
+
+
 def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["connectors"])
 
@@ -97,6 +104,18 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
             raise HTTPException(409, "built-in connectors cannot be removed")
         connectors.delete(connector_id)
         return Response(status_code=204)
+
+    @api.put("/connectors/{connector_id}/credentials")
+    def set_credentials(connector_id: str, body: Keys) -> ConnectorView:
+        """Store a connector's keys in the credentials file; how built-ins get theirs."""
+        found = connectors.get(connector_id)
+        if found is None:
+            raise HTTPException(404, "connector not found")
+        try:
+            connectors.set_credentials(found, body.credentials)
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return view(found)
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

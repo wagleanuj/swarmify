@@ -13,7 +13,7 @@ type Kind = NewConnector["kind"];
 type StageType = NewConnector["stage_types"][number];
 
 /** Skin labels for the built-ins (ADR 0004); code keeps the plain names. */
-const LABEL: Record<string, string> = {
+export const LABEL: Record<string, string> = {
   web_search: "Web search",
   graph: "Middle-out",
   remotion_render: "Remotion render",
@@ -187,6 +187,7 @@ export function Connectors() {
                 ))}
                 {c.kind === "publish" && <span className="chip warn">gate first, always</span>}
                 <span className={`chip ${s.tone}`}>{s.text}</span>
+                {c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />}
                 {!c.builtin && (
                   <button type="button" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}>
                     Remove
@@ -305,4 +306,63 @@ export function Connectors() {
 function detail(error: unknown): string | null {
   const d = (error as { detail?: unknown } | undefined)?.detail;
   return typeof d === "string" ? d : null;
+}
+
+/** One password field per credential the connector names; empty fields leave the file alone. */
+function SetKeys({
+  connector,
+  onSaved,
+  onError,
+}: {
+  connector: Connector;
+  onSaved: () => Promise<unknown>;
+  onError: (message: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = LABEL[connector.name] ?? connector.name;
+
+  async function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fields = new FormData(e.currentTarget);
+    const credentials = Object.fromEntries(connector.credentials.map((n) => [n, String(fields.get(n) ?? "").trim()]));
+    onError(null);
+    const { error } = await api.PUT("/api/connectors/{connector_id}/credentials", {
+      params: { path: { connector_id: connector.id } },
+      body: { credentials },
+    });
+    if (error) {
+      onError(detail(error) ?? `Could not save the keys for ${label}. Try again.`);
+      return;
+    }
+    setOpen(false);
+    await onSaved();
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} aria-label={`Set keys for ${connector.name}`}>
+        {connector.missing.length > 0 ? "Add keys" : "Change keys"}
+      </button>
+    );
+  }
+  return (
+    <form className="set-keys" onSubmit={save} aria-label={`Keys for ${connector.name}`}>
+      {connector.credentials.map((n) => (
+        <label key={n}>
+          {n}
+          {connector.missing.includes(n) ? "" : " (saved; leave empty to keep it)"}
+          <input name={n} type="password" autoComplete="off" spellCheck={false} />
+        </label>
+      ))}
+      <div className="row">
+        <button type="submit" className="primary">
+          Save keys
+        </button>
+        <button type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <span className="faint">Stored in ~/.swarmify/.env, mode 600. Never shown again.</span>
+      </div>
+    </form>
+  );
 }

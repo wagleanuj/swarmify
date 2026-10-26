@@ -20,7 +20,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,7 +28,7 @@ from typing import Any
 from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID
 
 from swarmify_kernel import Event, new_id
-from swarmify_runs.control import CONTROL_TOPIC, RunControl, ended_event
+from swarmify_runs.control import CONTROL_TOPIC, Previews, RunControl, ended_event, no_previews
 from swarmify_runs.machine import (
     TERMINAL,
     Aborted,
@@ -115,10 +115,11 @@ class Runner(RunControl):
         poll_seconds: float = 1.0,
         pin: Pin | None = None,
         take: Take | None = None,
+        previews: Previews = no_previews,
     ) -> None:
         """`pin` and `take` serve workflow stages; without `pin` they fail the run."""
         folder, notify = data_dir or system_db.parent, notifier or LogNotifier()
-        super().__init__(storage, system_db, folder, notify)
+        super().__init__(storage, system_db, folder, notify, previews)
         self.connector = connector
         self.swarm = swarm
         self.pin = pin
@@ -387,6 +388,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     if gate_opened:
         index = state.stages.index("waiting")
         _, stage = runner.storage.stage_def(run_id, index)
+        shown = runner.preview_after(run_id, index, run.world_id)
         event = Event.new(
             "gate.opened",
             world_id=run.world_id,
@@ -398,6 +400,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
                 "stage": stage.name,
                 "kind": stage.config.get("kind") or "approve",
                 "ask": stage.config.get("ask") or "",
+                "publish": asdict(shown) if shown else None,
             },
         )
     elif state.status in TERMINAL:
@@ -421,4 +424,12 @@ def _execute(run_id: str, index: int) -> None:
     run = runner.storage.get_run(run_id)
     if run is None:
         raise KeyError(f"run not found: {run_id}")
+    if stage.type == "connector" and runner.previews(run.world_id, stage) is not None:
+        before = run.stages[index - 1] if index > 0 else None
+        if before is None or before.type != "gate" or before.status != "done":
+            # The editor refuses this too, but a connector can turn publish after the save.
+            raise PermissionError(
+                f"'{stage.name}' calls a publish connector, so it runs only right after an answered"
+                " gate (ADR 0007)"
+            )
     call(run, stage_id, stage)

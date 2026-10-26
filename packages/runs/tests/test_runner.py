@@ -35,8 +35,13 @@ def test_a_run_executes_its_connector_waits_at_its_gate_and_finishes(
     wait_for(lambda: status(runner, run.id) == "done")
     assert connector.calls == [(waiting.stages[0].id, "render")]
 
-    with closing(connect(storage.path)) as conn:
-        events = read_after(conn, "world_1", 0)
+    def events_now() -> list:
+        with closing(connect(storage.path)) as conn:
+            return read_after(conn, "world_1", 0)
+
+    # The done state is saved a moment before run.ended is recorded, in the same step.
+    wait_for(lambda: any(e.type == "run.ended" for e in events_now()))
+    events = events_now()
     assert all(e.run_id == run.id for e in events)
     assert [e.type for e in events if e.type != "run.updated"] == ["gate.opened", "run.ended"]
     events = [e for e in events if e.type == "run.updated"]

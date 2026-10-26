@@ -138,6 +138,7 @@ def test_gate_opened_and_run_ended_reach_the_notifier_and_the_world_stream(
         "stage": "pick",
         "kind": "pick",
         "ask": "Pick one idea.",
+        "publish": None,
     }
     assert ended.type == "run.ended"
     assert ended.payload == {"run_id": run.id, "name": "Weekly short", "status": "done"}

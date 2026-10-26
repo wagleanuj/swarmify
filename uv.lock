@@ -1728,12 +1728,14 @@ name = "swarmify-connectors"
 version = "0.1.0"
 source = { editable = "packages/connectors" }
 dependencies = [
+    { name = "httpx" },
     { name = "mcp" },
     { name = "swarmify-kernel" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
     { name = "mcp", specifier = ">=2.3" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]

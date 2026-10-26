@@ -141,3 +141,31 @@ test("a publish connector is only ever allowed in connector stages", async () =>
 test("parseKeys reads NAME=value lines and bare names", () => {
   expect(parseKeys(" A=1 \n\nB\nC = x=y ")).toEqual({ A: "1", B: "", C: "x=y" });
 });
+
+test("a built-in publish connector takes its keys in place, and the list shows them saved", async () => {
+  const keys = ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"];
+  let youtube = { ...builtins[2], command: ["python", "-m", "swarmify_connectors.youtube"], credentials: keys, missing: keys };
+  let sent: unknown = null;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json([builtins[0], youtube]),
+    "PUT /api/connectors/builtin_youtube/credentials": async (req) => {
+      sent = await req.json();
+      youtube = { ...youtube, missing: [] };
+      return Response.json(youtube);
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  const row = screen.getByTestId("connector-list").getByRole("listitem").nth(1);
+  await expect.element(row).toMatchTextContent(/YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN missing/);
+  await row.getByRole("button", { name: "Set keys for youtube" }).click();
+  const form = row.getByRole("form", { name: "Keys for youtube" });
+  await form.getByLabelText("YOUTUBE_CLIENT_ID").fill("id");
+  await form.getByLabelText("YOUTUBE_REFRESH_TOKEN").fill(" r ");
+  await form.getByRole("button", { name: "Save keys" }).click();
+  await vi.waitFor(() =>
+    expect(sent).toEqual({ credentials: { YOUTUBE_CLIENT_ID: "id", YOUTUBE_CLIENT_SECRET: "", YOUTUBE_REFRESH_TOKEN: "r" } }),
+  );
+  await expect.element(row).toMatchTextContent(/ready/);
+  await expect.element(row.getByRole("button", { name: "Set keys for youtube" })).toHaveTextContent("Change keys");
+});

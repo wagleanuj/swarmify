@@ -15,6 +15,7 @@ import shutil
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from swarmify_kernel import Event
 from swarmify_kernel.events import append
@@ -47,7 +48,7 @@ def _slug(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60] or "note"
 
 
-def _frontmatter(fields: dict[str, str | None]) -> str:
+def _frontmatter(fields: dict[str, Any]) -> str:
     """JSON scalars are valid YAML, so values never need hand escaping."""
     lines = [f"{k}: {json.dumps(v)}" for k, v in fields.items() if v is not None]
     return "---\n" + "\n".join(lines) + "\n---\n\n"
@@ -96,21 +97,29 @@ class Memory:
         return self._created(world_id, run_id, stage_id, author, "note", path)
 
     def write_artifact(
-        self, world_id: str, run_id: str, stage_id: str, author: str, name: str, content: str
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        author: str,
+        name: str,
+        content: str,
+        type: str = "file",
+        fields: dict[str, Any] | None = None,
     ) -> str:
-        """Writing a name again replaces the file."""
+        """Writing a name again replaces the file. `fields` join the frontmatter."""
         if not _NAME.match(name):
             raise ValueError(f"{name!r} is not a plain file name like ideas.md")
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         path = folder / name
-        meta = _frontmatter(self._meta("file", author, run_id, stage_id, None))
+        meta = _frontmatter({**self._meta(type, author, run_id, stage_id, None), **(fields or {})})
         if path.suffix == ".md":
             path.write_text(meta + content)
         else:
             path.write_text(content)
             (folder / f"{name}.md").write_text(f"{meta}Sidecar of {name}.\n")
-        return self._created(world_id, run_id, stage_id, author, "file", path)
+        return self._created(world_id, run_id, stage_id, author, type, path)
 
     def copy_artifacts(
         self,

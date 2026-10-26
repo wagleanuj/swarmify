@@ -13,11 +13,13 @@ A long job is a tool answer carrying `job_id` and `poll`, the tool to poll with
 
 import re
 import shlex
+import sys
 import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
+from swarmify_connectors import publish
 from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
@@ -56,20 +58,49 @@ __all__ = [
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,59}$")
 
 
-def _builtin(name: str, kind: Kind, stage_type: str, about: str) -> Connector:
+def _builtin(
+    name: str,
+    kind: Kind,
+    stage_type: str,
+    about: str,
+    command: list[str] | None = None,
+    credentials: list[str] | None = None,
+) -> Connector:
     return Connector(
-        f"builtin_{name}", None, name, kind, stage_types=[stage_type], builtin=True, about=about
+        f"builtin_{name}",
+        None,
+        name,
+        kind,
+        command or [],
+        credentials=credentials or [],
+        stage_types=[stage_type],
+        builtin=True,
+        about=about,
     )
 
 
-# ponytail: remotion_render, youtube and upload_post are declared so workflows can name them;
-# their wrappers ship with the render and publish connectors. Until then a call fails clearly.
+# ponytail: remotion_render is declared so workflows can name it; its wrapper ships with the
+# render connector (T11). Until then a call fails clearly.
 BUILTINS = [
     _builtin("web_search", "tool", "swarm", "Built into Claude. No key."),
     _builtin("graph", "tool", "swarm", "This world's graph, read only."),
     _builtin("remotion_render", "stage", "connector", "Renders a script. Server not installed."),
-    _builtin("youtube", "publish", "connector", "Publishes to YouTube. Server not installed."),
-    _builtin("upload_post", "publish", "connector", "Schedules posts. Server not installed."),
+    _builtin(
+        "youtube",
+        "publish",
+        "connector",
+        "Uploads to YouTube through the Data API; a schedule keeps it private until then.",
+        [sys.executable, "-m", "swarmify_connectors.youtube"],
+        ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
+    ),
+    _builtin(
+        "upload_post",
+        "publish",
+        "connector",
+        "Posts or schedules to YouTube, TikTok and Instagram through Upload-Post's MCP.",
+        ["npx", "-y", "@upload-post/mcp@0.11.4"],
+        ["UPLOAD_POST_API_KEY"],
+    ),
 ]
 
 
@@ -170,6 +201,15 @@ class Connectors:
     def delete(self, connector_id: str) -> bool:
         return self.storage.delete_connector(connector_id)
 
+    def set_credentials(self, connector: Connector, values: dict[str, str]) -> None:
+        """Merge values for the connector's own credential names; others are refused."""
+        foreign = sorted(set(values) - set(connector.credentials))
+        if foreign:
+            raise ValueError(f"{connector.name} does not use {', '.join(foreign)}")
+        filled = {k: v for k, v in values.items() if v}
+        if filled:
+            self.credentials.set(filled)
+
     def missing(self, connector: Connector) -> list[str]:
         """Credential names the file does not hold yet."""
         try:
@@ -212,6 +252,19 @@ class Connectors:
             )
         return {n: values[n] for n in connector.credentials}
 
+    # Publish stages (ADR 0007)
+
+    def publish_preview(self, world_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
+        """What a connector stage will post, when it calls a publish connector; else None."""
+        connector = self.find(world_id, str(config.get("calls", "")))
+        if connector is None or connector.kind != "publish":
+            return None
+        return publish.preview(connector.name, config)
+
+    def publish_result(self, call: Call) -> dict[str, Any]:
+        """A finished publish call's links, normalized across connectors."""
+        return publish.result(call.connector, call.response or {})
+
     # Connector stages
 
     def call_for(self, stage_id: str) -> Call | None:
@@ -231,6 +284,16 @@ class Connectors:
             raise ConnectorError(f"connector '{name}' is not allowed in connector stages")
         if not connector.has_server:
             raise ConnectorError(f"connector '{name}' has no MCP server installed yet")
+        if connector.kind == "publish":
+            if done is not None and done.status == "running":
+                # A crash mid-call: the post may be out already. Never risk posting twice.
+                raise ConnectorError(
+                    f"an earlier {name} call was interrupted and may have posted; check"
+                    f" {name} and start a new run if it did not"
+                )
+            problems = publish.preview(name, config)["problems"]
+            if problems:
+                raise ConnectorError("; ".join(problems))
         env = self._env(connector)
         call = done
         if call is None or call.status != "polling":
@@ -256,6 +319,8 @@ class Connectors:
         for key in ("input", "output"):
             if config.get(key):
                 request[key] = config[key]
+        if connector.kind == "publish" and connector.builtin:
+            tool, request = publish.request(connector.name, config, stage_id) or (tool, request)
         now = _now()
         call = self.storage.save_call(
             Call(
@@ -289,9 +354,14 @@ class Connectors:
                     updated_at=_now(),
                 )
             )
-        return self.storage.save_call(
-            replace(call, status="done", response=response, progress=1.0, updated_at=_now())
-        )
+        call = replace(call, response=response, updated_at=_now())
+        if connector.kind == "publish":
+            out = publish.result(connector.name, response)
+            if not out["links"] and out["status"] != "scheduled" and out["failed"]:
+                error = "; ".join(f"{p}: {e}" for p, e in out["failed"].items())
+                self._fail(call, error)
+                raise ConnectorError(f"{connector.name}: nothing was posted. {error}")
+        return self.storage.save_call(replace(call, status="done", progress=1.0))
 
     def _poll(self, connector: Connector, call: Call, env: dict[str, str]) -> Call:
         assert call.poll_tool is not None and call.job_id is not None
