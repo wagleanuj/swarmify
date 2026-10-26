@@ -1,0 +1,14 @@
+[project]
+name = "swarmify-api"
+version = "0.1.0"
+description = "Swarmify HTTP API"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.162",
+  "swarmify-kernel",
+  "uvicorn>=0.54",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"

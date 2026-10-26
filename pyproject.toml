@@ -1,0 +1,49 @@
+[project]
+name = "swarmify"
+version = "0.1.0"
+description = "A swarm of Claude Code agents sharing one graphify memory per world"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28",
+  "pyright>=1.1.414",
+  "pytest>=9.1",
+  "pytest-cov>=7.1",
+  "pytest-playwright>=0.10",
+  "ruff>=0.17",
+]
+
+[tool.uv.workspace]
+members = ["packages/*", "apps/api"]
+
+[tool.uv.sources]
+swarmify-kernel = { workspace = true }
+swarmify-api = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["node_modules", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["swarmify_*", "check_imports"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+include = ["packages", "apps/api", "tools", "tests"]
+exclude = ["**/node_modules", "**/.venv", "**/dist"]
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "apps/api", "tools"]
+pythonpath = ["tools"]
+addopts = "--cov=swarmify_kernel --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+
+[tool.coverage.run]
+omit = ["*/tests/*"]

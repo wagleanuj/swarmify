@@ -1,0 +1,13 @@
+.git
+.venv
+node_modules
+**/node_modules
+**/dist
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.vitest
+design
+docs
+tests
+tools

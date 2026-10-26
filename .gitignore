@@ -6,3 +6,10 @@ dist/
 *.db
 .playwright-mcp/
 .DS_Store
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+apps/web/openapi.json
+test-results/
+.vitest/

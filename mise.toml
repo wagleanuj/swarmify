@@ -1,0 +1,59 @@
+[tools]
+python = "3.12.15"
+node = "22.23.4"
+uv = "0.13.5"
+pnpm = "12.15.0"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.install]
+description = "Install Python and web dependencies and Playwright's Chromium"
+run = [
+  "uv sync --all-packages",
+  "pnpm install --frozen-lockfile",
+  "uv run playwright install chromium",
+]
+
+[tasks."dev:api"]
+description = "Run the API with reload on :8000"
+run = "uv run uvicorn swarmify_api.main:app --reload --port 8000"
+
+[tasks."dev:web"]
+description = "Run the Vite dev server on :5173, proxying /api to :8000"
+run = "pnpm --filter web dev"
+
+[tasks.dev]
+description = "Run the API and the web dev server together"
+depends = ["dev:api", "dev:web"]
+
+[tasks.gen-client]
+description = "Regenerate the typed web client from the API's OpenAPI schema"
+run = [
+  "uv run python -c 'import json; from swarmify_api.main import app; print(json.dumps(app.openapi(), indent=2))' > apps/web/openapi.json",
+  "pnpm --filter web gen",
+]
+
+[tasks.lint]
+description = "ruff, pyright, import boundaries, tsc"
+run = [
+  "uv run ruff check .",
+  "uv run ruff format --check .",
+  "uv run pyright",
+  "uv run python tools/check_imports.py packages",
+  "pnpm --filter web typecheck",
+]
+
+[tasks.test]
+description = "pytest with the coverage gate, then Vitest in browser mode"
+run = [
+  "uv run pytest",
+  "pnpm --filter web test",
+]
+
+[tasks.e2e]
+description = "Build the web skin and run Playwright against the real API"
+run = [
+  "pnpm --filter web build",
+  "uv run pytest tests/e2e --no-cov -p no:cacheprovider",
+]

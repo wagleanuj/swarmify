@@ -1,0 +1,19 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - data:/data
+    environment:
+      SWARMIFY_DATA_DIR: /data
+
+  # ponytail: stub until the Memory context ships its GraphWriter (ADR 0003); same image, idle loop.
+  graph-writer:
+    build: .
+    volumes:
+      - data:/data
+    command: ["python", "-c", "import time; print('graph writer stub'); time.sleep(10**9)"]
+
+volumes:
+  data:
