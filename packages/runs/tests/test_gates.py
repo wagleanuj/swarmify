@@ -1,10 +1,15 @@
 """Gates at the runner's seam: real DBOS on SQLite, a fake connector and a fake notifier."""
 
+import threading
+from contextlib import closing
 from pathlib import Path
 
 import pytest
+from dbos import DBOS
 
 from runs_fakes import FakeConnector, FakeNotifier, wait_for
+from swarmify_kernel.events import read_after
+from swarmify_kernel.sqlite import connect
 from swarmify_runs import Illegal, Run, Runner, SqliteStorage, StageDef
 from swarmify_runs.control import RunControl
 
@@ -58,7 +63,7 @@ def test_each_gate_kind_pauses_the_run_lists_in_the_inbox_and_records_a_decision
         "Less text on screen.",
     )
     path = Path(decision.path)
-    assert path == tmp_path / "worlds/world_1/runs" / run.id / "02-pick/decision.md"
+    assert path == tmp_path / "worlds/world_1/runs" / run.id / run.stages[1].id / "decision.md"
     text = path.read_text()
     assert text.startswith('---\ntype: "decision"\n')
     assert f'run: "{run.id}"\n' in text and 'stage: "pick"\n' in text
@@ -143,11 +148,6 @@ def test_gate_opened_and_run_ended_reach_the_notifier_and_the_world_stream(
     assert ended.type == "run.ended"
     assert ended.payload == {"run_id": run.id, "name": "Weekly short", "status": "done"}
 
-    from contextlib import closing
-
-    from swarmify_kernel.events import read_after
-    from swarmify_kernel.sqlite import connect
-
     with closing(connect(storage.path)) as conn:
         types = [e.type for e in read_after(conn, "world_1", 0)]
     assert types.count("gate.opened") == 1 and types.count("run.ended") == 1
@@ -188,8 +188,6 @@ def test_pause_holds_the_run_and_resume_moves_it_on(
 def test_pause_sent_mid_stage_lands_when_the_stage_finishes(
     runner: Runner, connector: FakeConnector
 ) -> None:
-    import threading
-
     gate_open = threading.Event()
     original = connector.__call__
 
@@ -234,6 +232,21 @@ def test_abort_ends_the_run_and_cascades_to_its_children(
     assert {e.payload["status"] for e in notifier.events if e.type == "run.ended"} == {"aborted"}
 
 
+def test_abort_reaches_a_live_grandchild_past_a_finished_child(runner: Runner) -> None:
+    parent = runner.start("world_1", "wf_1", 1, "Parent", [PICK])
+    child = runner.start("world_2", "wf_2", 1, "Child", [CONFIRM], parent_run_id=parent.id)
+    grandchild = runner.start("world_2", "wf_3", 1, "Grandchild", [PICK], parent_run_id=child.id)
+    for run_id in (parent.id, child.id, grandchild.id):
+        at(runner, run_id, "waiting_gate")
+    runner.decide(child.id)
+    at(runner, child.id, "done")
+
+    runner.abort(parent.id)
+    at(runner, parent.id, "aborted")
+    at(runner, grandchild.id, "aborted")
+    assert fetch(runner, child.id).status == "done"
+
+
 def test_a_queued_run_aborts_at_once_without_a_slot(runner: Runner, notifier: FakeNotifier) -> None:
     held = [runner.start("world_1", "wf_1", 1, f"Held {i}", [PICK]) for i in range(2)]
     for run in held:
@@ -266,6 +279,7 @@ def test_a_stale_message_at_a_gate_is_ignored_and_the_run_still_finishes(runner:
     runner.decide(run.id, choice="idea 1")
     at(runner, run.id, "waiting_gate", "review")
     runner.client.send(run.id, {"action": "resume"}, topic="control")
+    runner.client.send(run.id, {"action": "rewind"}, topic="control")  # unknown: not an abort
     runner.client.send(run.id, {"action": "decide", "index": 1}, topic="control")  # the old gate
     runner.decide(run.id)
     at(runner, run.id, "done")
@@ -334,8 +348,6 @@ def test_a_decision_that_cannot_reach_the_run_is_undone_and_can_be_retried(
 def test_a_run_already_ended_when_its_workflow_loads_returns_at_once(
     runner: Runner, storage: SqliteStorage
 ) -> None:
-    from dbos import DBOS
-
     ended = Run("run_gone", "world_1", "wf_1", 1, "Gone", "aborted", "t", "t", [])
     runner._enqueue(storage.add_run(ended, [PICK]))  # pyright: ignore[reportPrivateUsage]
     wait_for(lambda: getattr(DBOS.get_workflow_status("run_gone"), "status", None) == "SUCCESS")

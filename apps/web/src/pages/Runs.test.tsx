@@ -1,20 +1,11 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { FakeEventSource, fakeFetch, run } from "../test/fakes";
+import { FakeEventSource, fakeFetch, run, stage as shared } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const ts = "2026-10-26T10:00:00+00:00";
 const video = { id: "world_1", name: "Video", purpose: "", created_at: ts };
-const stage = (index: number, status: string) => ({
-  id: `stage_${index}`,
-  index,
-  name: `s${index}`,
-  type: "connector",
-  status,
-  started_at: null,
-  ended_at: null,
-  error: null,
-});
+const stage = (index: number, status: string) => shared(index, `s${index}`, "connector", status);
 
 beforeEach(() => FakeEventSource.install());
 afterEach(() => {

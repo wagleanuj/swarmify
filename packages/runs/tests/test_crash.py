@@ -63,13 +63,13 @@ def test_a_run_waiting_at_its_gate_survives_a_restart(
     tmp_path: Path, storage: SqliteStorage, connector: FakeConnector
 ) -> None:
     stages = [StageDef("render", "connector"), StageDef("pick", "gate")]
-    first = Runner(storage, tmp_path / "dbos.sqlite", connector, poll_seconds=0.05)
+    first = Runner(storage, tmp_path / "dbos.sqlite", connector, tmp_path, poll_seconds=0.05)
     first.launch()
     run = first.start("world_1", "wf_1", 1, "Restart", stages)
     wait_for(lambda: getattr(storage.get_run(run.id), "status", None) == "waiting_gate")
     first.shutdown()
 
-    second = Runner(storage, tmp_path / "dbos.sqlite", connector, poll_seconds=0.05)
+    second = Runner(storage, tmp_path / "dbos.sqlite", connector, tmp_path, poll_seconds=0.05)
     second.launch()
     try:
         second.decide(run.id)
@@ -86,7 +86,7 @@ def test_a_queued_run_left_behind_is_enqueued_on_launch(
 
     stub = Run("run_left", "world_1", "wf_1", 1, "Left", "queued", "t", "t", [])
     storage.add_run(stub, [StageDef("render", "connector")])
-    runner = Runner(storage, tmp_path / "dbos.sqlite", connector, poll_seconds=0.05)
+    runner = Runner(storage, tmp_path / "dbos.sqlite", connector, tmp_path, poll_seconds=0.05)
     runner.launch()
     try:
         wait_for(lambda: getattr(storage.get_run("run_left"), "status", None) == "done")

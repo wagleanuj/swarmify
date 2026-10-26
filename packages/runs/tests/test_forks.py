@@ -62,7 +62,8 @@ def test_a_fork_copies_the_stages_before_the_chosen_one_and_runs_on_from_there(
     assert fork.decisions == [], "the pick runs again, so its decision is not copied"
     copied = run_folder(tmp_path, fork) / fork.stages[0].id / "artifacts" / "ideas.md"
     assert copied.read_text() == "1. Hooks"
-    assert not (run_folder(tmp_path, fork) / "02-pick").exists()
+    assert not (run_folder(tmp_path, fork) / fork.stages[1].id).exists()
+    assert not (run_folder(tmp_path, fork) / source.stages[1].id).exists()
 
     at(runner, fork.id, "waiting_gate")
     assert called(connector) == ["research", "render"], "the copied stage did not run again"
@@ -81,7 +82,7 @@ def test_a_fork_after_a_gate_keeps_its_decision(
     (decision,) = fork.decisions
     assert (decision.stage_name, decision.choice) == ("pick", "idea 1")
     assert decision.id != source.decisions[0].id
-    assert Path(decision.path) == run_folder(tmp_path, fork) / "02-pick" / "decision.md"
+    assert Path(decision.path) == run_folder(tmp_path, fork) / fork.stages[1].id / "decision.md"
     assert Path(decision.path).read_text() == Path(source.decisions[0].path).read_text()
     at(runner, fork.id, "done")
     assert called(connector) == ["research", "render", "render"]

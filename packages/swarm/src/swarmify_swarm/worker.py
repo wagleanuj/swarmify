@@ -145,6 +145,8 @@ class _At:
     stage_name: str
     config: dict[str, Any]
     world_folder: Path
+    notes: tuple[str, ...] = ()
+    """The send-back notes addressed to this stage, oldest first."""
 
 
 def _wants(config: dict[str, Any]) -> str:
@@ -268,10 +270,16 @@ class Swarm:
         stage_name: str,
         config: dict[str, Any],
         world_folder: Path,
+        notes: list[str] | None = None,
+        visit: int = 0,
     ) -> None:
         """Plan an empty whiteboard, work it until no task is left, then judge it: a pass
         projects the stage's typed artifacts, a fail adds gap tasks and loops, at most
         MAX_LOOPS times. Raises StageError to fail the stage.
+
+        `notes` are the send-back notes addressed to this stage and `visit` the run's send-back
+        count. A stage the run comes back to after send-back `visit` gets one rework task
+        carrying the newest note, so its passed board is worked and judged again.
 
         Every step reads where the stage got to from the whiteboard and its verdicts, so a
         retried stage resumes: a seeded board is not planned again, a worked board is not worked
@@ -280,13 +288,24 @@ class Swarm:
             kind = output_type(config.get("output_type"))
         except ValueError as exc:
             raise StageError(str(exc)) from exc
-        at = _At(world_id, run_id, stage_id, stage_name, config, world_folder)
-        if not self.board.list_tasks(stage_id):
+        at = _At(world_id, run_id, stage_id, stage_name, config, world_folder, tuple(notes or ()))
+        tasks = self.board.list_tasks(stage_id)
+        if not tasks:
             self._plan(at)
+        elif visit and self.board.list_verdicts(stage_id):
+            rework = f"Rework after send-back {visit}"
+            # ponytail: a stage first run after a send-back and then retried by DBOS gets one
+            # needless rework; extra work, never lost work.
+            if all(t.title != rework for t in tasks):  # a retried step added it already
+                body = at.notes[-1] if at.notes else "An earlier stage was redone. Update the work."
+                self.board.add_task(world_id, run_id, stage_id, rework, added_by="gate", body=body)
         while True:
             verdicts = self.board.list_verdicts(stage_id)
             last = verdicts[-1] if verdicts else None
-            if last and last.passed:
+            open_tasks = any(t.status != "done" for t in self.board.list_tasks(stage_id))
+            # ponytail: judge loops count across visits, so a revisit gets what the first visit
+            # left of MAX_LOOPS; count per visit if reworks start failing on the cap.
+            if last and last.passed and not open_tasks:
                 self._project(at, kind, last)
                 return
             if last and last.loop > MAX_LOOPS:
@@ -378,6 +397,7 @@ class Swarm:
                 " workers take them and you judge again.",
                 output,
                 f"Artifacts of the run: {', '.join(prior)}." if prior else "",
+                *(f"A reviewer sent the stage back with this note: {n}" for n in at.notes),
                 "# Whiteboard",
                 *[
                     f"- {t.title} ({t.status}): " + " / ".join(n.body for n in t.notes)
@@ -521,16 +541,16 @@ class Swarm:
         return f"Pinned references, required reading before you start (Read each): {paths}."
 
     def _system_prompt(self, at: "_At") -> str:
-        config = at.config
         prior = self.files.artifacts(at.world_id, at.run_id)
         return "\n".join(
             [
                 f"You are {WORKER}, a worker in a swarm. Stage: {at.stage_name}.",
-                f"Goal: {config.get('goal', '')}",
-                f"Done when: {config.get('done_when', '')}",
-                _wants(config),
+                f"Goal: {at.config.get('goal', '')}",
+                f"Done when: {at.config.get('done_when', '')}",
+                _wants(at.config),
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
                 self._pins(at),
+                *(f"Sent back to you with this note: {n}" for n in at.notes),
                 "How you work: call query_graph before your first claim and reuse what the world"
                 " knows. claim_task takes the next ready task. heartbeat at least every minute"
                 " while you hold one. Write what you learn with write_note and outputs with"

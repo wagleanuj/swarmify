@@ -108,10 +108,8 @@ test("a connector stage that has not started yet says so", async () => {
 });
 
 test("a run at a gate links to the inbox, pauses, resumes and aborts, showing decisions", async () => {
-  const waiting = run("waiting_gate", [
-    stage(0, "render", "connector", "done"),
-    stage(1, "review", "gate", "waiting"),
-  ]);
+  const stages = [stage(0, "render", "connector", "done"), stage(1, "review", "gate", "waiting")];
+  const waiting = run("waiting_gate", stages);
   const posted: string[] = [];
   fakeFetch({
     "GET /api/runs/run_1": () => Response.json(waiting),
@@ -133,7 +131,7 @@ test("a run at a gate links to the inbox, pauses, resumes and aborts, showing de
   await screen.getByRole("button", { name: "Pause" }).click();
   await vi.waitFor(() => expect(posted).toEqual(["pause"]));
 
-  const paused = run("paused", waiting.stages, {
+  const paused = run("paused", [stage(0, "render", "connector", "done", { notes: ["Darker."] }), stages[1]!], {
     send_backs: 1,
     decisions: [
       {
@@ -149,7 +147,6 @@ test("a run at a gate links to the inbox, pauses, resumes and aborts, showing de
       },
     ],
   });
-  paused.stages[0]!.notes = ["Darker."];
   FakeEventSource.emit("run.updated", { payload: paused });
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Paused. Nothing moves until it is resumed. Sent back 1 of 2 times.");
   await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/Sent back with: Darker\./);
@@ -161,7 +158,7 @@ test("a run at a gate links to the inbox, pauses, resumes and aborts, showing de
   expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Abort Render then pick?"));
   await expect.element(screen.getByRole("alert")).toHaveTextContent("run is done");
 
-  FakeEventSource.emit("run.updated", { payload: run("aborted", waiting.stages) });
+  FakeEventSource.emit("run.updated", { payload: run("aborted", stages) });
   await expect.element(screen.getByTestId("run-actions")).not.toBeInTheDocument();
 });
 

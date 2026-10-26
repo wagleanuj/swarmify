@@ -96,7 +96,7 @@ def test_the_inbox_lists_open_gates_newest_first_and_each_kind_takes_its_decisio
     )
     path = Path(decision["path"])
     assert path.is_relative_to(tmp_path / "worlds" / world / "runs" / first["id"])
-    assert path.name == "decision.md" and path.parent.name == "02-pick"
+    assert path.name == "decision.md" and path.parent.name == first["stages"][1]["id"]
     assert 'choice: "idea 2"' in path.read_text()
 
     waiting_at(running, first["id"], "review")

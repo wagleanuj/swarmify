@@ -119,7 +119,7 @@ class Runner(RunControl):
         storage: Storage,
         system_db: Path,
         connector: Connector,
-        data_dir: Path | None = None,
+        data_dir: Path,
         notifier: Notifier | None = None,
         cap: int = DEFAULT_CAP,
         swarm: Swarm | None = None,
@@ -129,8 +129,7 @@ class Runner(RunControl):
         previews: Previews = no_previews,
     ) -> None:
         """`pin` and `take` serve workflow stages; without `pin` they fail the run."""
-        folder, notify = data_dir or system_db.parent, notifier or LogNotifier()
-        super().__init__(storage, system_db, folder, notify, previews)
+        super().__init__(storage, system_db, data_dir, notifier or LogNotifier(), previews)
         self.connector = connector
         self.swarm = swarm
         self.pin = pin
@@ -289,7 +288,8 @@ def execute_run(run_id: str) -> str:
     error: str | None = None
     while True:
         if not events:  # at a gate, paused, waiting on a child, or after a stale message
-            events = [_as_event(_wait(run_id))]
+            events = [e for e in [_as_event(_wait(run_id))] if e is not None]
+            continue
         event, events = events[0], events[1:]
         if isinstance(event, _ChildEnded):
             taken = _take(run_id, event.child_run_id, event.status)
@@ -331,7 +331,7 @@ def execute_run(run_id: str) -> str:
         events = [*_drain(run_id), outcome]
 
 
-def _as_event(message: dict[str, Any]) -> RunEvent | _ChildEnded:
+def _as_event(message: dict[str, Any]) -> RunEvent | _ChildEnded | None:
     match message["action"]:
         case "child":
             return _ChildEnded(message["child"], message["status"])
@@ -343,16 +343,19 @@ def _as_event(message: dict[str, Any]) -> RunEvent | _ChildEnded:
             return Paused()
         case "resume":
             return Resumed()
-        case _:
+        case "abort":
             return Aborted()
+        case action:
+            log.warning("ignoring unknown control action %r", action)
+            return None
 
 
 def _drain(run_id: str) -> list[RunEvent | _ChildEnded]:
     """Every control message that arrived while the workflow was busy, in order."""
     events: list[RunEvent | _ChildEnded] = []
     while (message := DBOS.recv(CONTROL_TOPIC, timeout_seconds=0)) is not None:
-        if message != WAKE:
-            events.append(_as_event(message))
+        if message != WAKE and (event := _as_event(message)) is not None:
+            events.append(event)
     return events
 
 

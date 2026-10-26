@@ -43,20 +43,28 @@ export class FakeEventSource extends EventTarget {
 }
 
 const ts = "2026-10-26T10:00:00+00:00";
-export const stage = (index: number, name: string, type: string, status: string) => ({
+type StageView = Run["stages"][number];
+export const stage = (
+  index: number,
+  name: string,
+  type: string,
+  status: string,
+  over: Partial<StageView> = {},
+): StageView => ({
   id: `stage_${index}`,
   index,
   name,
   type,
-  status,
+  status: status as StageView["status"],
   started_at: null,
   ended_at: null,
   error: null as string | null,
   notes: [] as string[],
+  ...over,
 });
 
 /** A run snapshot as the API and `run.updated` carry it. */
-export function run(status: Run["status"], stages: object[], over = {}): Run {
+export function run(status: Run["status"], stages: StageView[], over = {}): Run {
   return {
     id: "run_1",
     world_id: "world_1",

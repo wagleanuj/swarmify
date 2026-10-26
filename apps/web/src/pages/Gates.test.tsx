@@ -58,8 +58,9 @@ test("renders each gate kind with its own control and posts the decision", async
   await expect.element(confirm).toMatchTextContent(/Nothing goes out until you confirm\./);
   await confirm.getByRole("button", { name: "Confirm" }).click();
   await vi.waitFor(() => expect(bodies.run_3).toEqual({ note: "" }));
-  // Each answer refetches the inbox; wait for the last one so it never outlives the fake fetch.
-  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(4));
+  // Each answer hides its card at once, without refetching before the run moves.
+  await expect.element(screen.getByTestId("no-gates")).toBeInTheDocument();
+  expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });
 
 test("approve without send-backs left says so, and a refused decision is an alert", async () => {
@@ -141,5 +142,6 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   await expect.element(broken).toMatchTextContent(/Now, as soon as you confirm/);
   await expect.element(broken.getByRole("alert")).toMatchTextContent(/This will not post:.*needs params\.user/);
   await expect.element(broken.getByRole("button", { name: "Confirm and post" })).toBeDisabled();
-  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
+  await expect.element(card).not.toBeInTheDocument();
+  expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });

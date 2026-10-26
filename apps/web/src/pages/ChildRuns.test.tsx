@@ -30,7 +30,7 @@ test("the runs page links each child run to its parent, in whatever world it liv
 });
 
 test("a workflow stage links to its child run and the child links back to its parent", async () => {
-  const parent = run("running", [{ ...stage(0, "trends", "workflow", "running"), child: mid }, stage(1, "pick", "gate", "pending")], {
+  const parent = run("running", [stage(0, "trends", "workflow", "running", { child: mid }), stage(1, "pick", "gate", "pending")], {
     ...top,
   });
   const agents = [
