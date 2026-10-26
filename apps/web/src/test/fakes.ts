@@ -1,6 +1,8 @@
 /** Test doubles for the browser APIs the pages use: fetch routing and EventSource. */
 import { vi } from "vitest";
 
+import type { Run } from "../api/runs";
+
 type Handler = (req: Request) => Response | Promise<Response>;
 
 /** Route fetch calls by `METHOD /path`; unmatched calls return 404. Returns the call log. */
@@ -37,4 +39,32 @@ export class FakeEventSource extends EventTarget {
     FakeEventSource.open = [];
     vi.stubGlobal("EventSource", FakeEventSource);
   }
+}
+
+const ts = "2026-10-26T10:00:00+00:00";
+export const stage = (index: number, name: string, type: string, status: string) => ({
+  id: `stage_${index}`,
+  index,
+  name,
+  type,
+  status,
+  started_at: null,
+  ended_at: null,
+  error: null as string | null,
+});
+
+/** A run snapshot as the API and `run.updated` carry it. */
+export function run(status: Run["status"], stages: ReturnType<typeof stage>[], over = {}): Run {
+  return {
+    id: "run_1",
+    world_id: "world_1",
+    workflow_id: "wf_1",
+    workflow_version: 2,
+    name: "Render then pick",
+    status,
+    created_at: ts,
+    updated_at: ts,
+    stages,
+    ...over,
+  } as Run;
 }

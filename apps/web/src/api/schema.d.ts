@@ -167,6 +167,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/{workflow_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Run */
+        post: operations["start_run_api_workflows__workflow_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_worlds__world_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -251,6 +302,60 @@ export interface components {
             /** Violations */
             violations: components["schemas"]["Violation"][];
             model?: components["schemas"]["WorkflowModel"] | null;
+        };
+        /** Run */
+        Run: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: number;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "waiting_gate" | "paused" | "done" | "failed" | "aborted";
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Stages */
+            stages: components["schemas"]["RunStageView"][];
+        };
+        /**
+         * RunStageView
+         * @description A stage of a run as the timeline shows it. `id` is the connector idempotency key.
+         */
+        RunStageView: {
+            /** Id */
+            id: string;
+            /** Index */
+            index: number;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "waiting" | "done" | "failed" | "skipped";
+            /** Started At */
+            started_at?: string | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** StartRun */
+        StartRun: {
+            /** Version */
+            version?: number | null;
         };
         /**
          * SwarmStage
@@ -770,6 +875,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowVersion"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_workflows__workflow_id__runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartRun"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_worlds__world_id__runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
                 };
             };
             /** @description Validation Error */

@@ -4,6 +4,7 @@ Run over stdio with `uv run swarmify-mcp`. Reads the same `SWARMIFY_DATA_DIR` as
 world created here appears on the API's event stream.
 """
 
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
@@ -13,7 +14,10 @@ from swarmify_workflows import Invalid, Workflows
 from swarmify_worlds import Worlds
 
 
-def server(worlds: Worlds, workflows: Workflows) -> MCPServer:
+def server(
+    worlds: Worlds, workflows: Workflows, on_delete: Callable[[str], None] = lambda _: None
+) -> MCPServer:
+    """`on_delete` clears other contexts' rows of a deleted world (runs, for now)."""
     mcp = MCPServer("swarmify", instructions="Drive swarmify: worlds and workflows now, runs next.")
 
     @mcp.tool(description="Create a world: one long-lived memory with its own folder and stream.")
@@ -36,6 +40,7 @@ def server(worlds: Worlds, workflows: Workflows) -> MCPServer:
         if not worlds.delete(world_id):
             raise ValueError(f"world not found: {world_id}")
         workflows.delete_world(world_id)
+        on_delete(world_id)
         return {"deleted": world_id}
 
     @mcp.tool(
@@ -78,7 +83,9 @@ def server(worlds: Worlds, workflows: Workflows) -> MCPServer:
 
 
 def main() -> None:
-    from swarmify_api.main import data_dir, workflow_service, world_service
+    from swarmify_api.main import data_dir, run_storage, workflow_service, world_service
 
     root = data_dir()
-    server(world_service(root), workflow_service(root)).run("stdio")
+    # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
+    # Cancel through DBOSClient when the MCP server starts runs too.
+    server(world_service(root), workflow_service(root), run_storage(root).delete_world).run("stdio")

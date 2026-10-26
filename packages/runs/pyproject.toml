@@ -1,0 +1,10 @@
+[project]
+name = "swarmify-runs"
+version = "0.1.0"
+description = "Runs context: a run executes one workflow version, stage by stage, on DBOS"
+requires-python = ">=3.12"
+dependencies = ["dbos>=3.3", "swarmify-kernel"]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"

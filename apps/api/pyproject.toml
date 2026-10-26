@@ -8,6 +8,7 @@ dependencies = [
   "mcp>=2.3",
   "swarmify-kernel",
   "swarmify-worlds",
+  "swarmify-runs",
   "swarmify-workflows",
   "uvicorn>=0.54",
 ]
