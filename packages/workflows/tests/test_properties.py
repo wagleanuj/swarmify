@@ -5,12 +5,11 @@ from dataclasses import replace
 from pathlib import Path
 
 import yaml
-from conftest import migrated_db
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, initialize, invariant, rule
 
-from samples import CONNECTORS
+from samples import CONNECTORS, migrated_db
 from swarmify_workflows import Invalid, SqliteStorage, Workflows
 from swarmify_workflows.model import (
     ConnectorStage,
@@ -200,7 +199,11 @@ class SavesKeepTheStoreSound(RuleBasedStateMachine):
 
     @invariant()
     def store_is_acyclic_and_shallow(self) -> None:
-        graph = self.service._references()
+        graph = {}
+        for workflow_id, text in self.service.storage.current_yaml().items():
+            model, _ = parse_workflow(text)
+            stages = model.stages if model else []
+            graph[workflow_id] = [s.runs for s in stages if isinstance(s, WorkflowStage)]
         for node in graph:
             assert not _reaches(graph, node, node), f"cycle through {node}"
             assert _depth(graph, node) <= 2, f"{node} nests deeper than two"

@@ -127,3 +127,6 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
                 "save_workflow", {"world_id": world.id, "yaml": WEEKLY, "workflow_id": "wf_nope"}
             )
         ).is_error
+
+        await client.call_tool("delete_world", {"world_id": world.id})
+        assert (await client.call_tool("get_workflow", {"workflow_id": v1["workflow_id"]})).is_error

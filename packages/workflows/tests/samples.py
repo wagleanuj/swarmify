@@ -1,6 +1,19 @@
 """Shared sample data for the Workflows tests."""
 
-from swarmify_workflows import ConnectorRef
+from contextlib import closing
+from pathlib import Path
+
+from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
+from swarmify_kernel.sqlite import connect, migrate
+from swarmify_workflows import MIGRATIONS, ConnectorRef
+
+
+def migrated_db(tmp_path: Path) -> Path:
+    db = tmp_path / "swarmify.db"
+    with closing(connect(db)) as conn:
+        migrate(conn, KERNEL_MIGRATIONS, MIGRATIONS)
+    return db
+
 
 CONNECTORS = {
     c.name: c

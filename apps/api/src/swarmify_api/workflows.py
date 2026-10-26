@@ -63,14 +63,21 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
         world_or_404(world_id)
         return workflows.list_all(world_id)
 
-    @api.post("/worlds/{world_id}/workflows", status_code=201, responses=INVALID)
-    def create_workflow(world_id: str, body: YamlBody) -> WorkflowVersion:
+    @api.post(
+        "/worlds/{world_id}/workflows",
+        status_code=201,
+        responses=INVALID,
+        response_model=WorkflowVersion,
+    )
+    def create_workflow(world_id: str, body: YamlBody) -> WorkflowVersion | JSONResponse:
         world_or_404(world_id)
-        return save(world_id, body.yaml, None)  # type: ignore[return-value]
+        return save(world_id, body.yaml, None)
 
     @api.post("/worlds/{world_id}/workflows/check")
     def check_workflow(world_id: str, body: CheckBody) -> Report:
         world_or_404(world_id)
+        if body.workflow_id is not None:
+            workflow_or_404(body.workflow_id)
         draft = workflows.check(world_id, body.yaml, body.workflow_id)
         return Report(violations=draft.violations, model=draft.model)
 
@@ -83,10 +90,15 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
         workflow_or_404(workflow_id)
         return workflows.versions(workflow_id)
 
-    @api.post("/workflows/{workflow_id}/versions", status_code=201, responses=INVALID)
-    def add_version(workflow_id: str, body: YamlBody) -> WorkflowVersion:
+    @api.post(
+        "/workflows/{workflow_id}/versions",
+        status_code=201,
+        responses=INVALID,
+        response_model=WorkflowVersion,
+    )
+    def add_version(workflow_id: str, body: YamlBody) -> WorkflowVersion | JSONResponse:
         workflow = workflow_or_404(workflow_id)
-        return save(workflow.world_id, body.yaml, workflow_id)  # type: ignore[return-value]
+        return save(workflow.world_id, body.yaml, workflow_id)
 
     @api.get("/workflows/{workflow_id}/versions/{number}")
     def get_version(workflow_id: str, number: int) -> WorkflowVersion:

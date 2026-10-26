@@ -34,7 +34,7 @@ def data_dir() -> Path:
 
 
 # ponytail: the built-in connectors every world gets (V1 spec, Connectors context), as a constant
-# until T10 ships the connector registry, which replaces `builtin_connectors` with a lookup.
+# until T10 ships the connector registry, which replaces it with a per-world lookup.
 BUILTIN_CONNECTORS = {
     c.name: c
     for c in [
@@ -45,10 +45,6 @@ BUILTIN_CONNECTORS = {
         ConnectorRef("upload_post", "publish", frozenset({"connector"})),
     ]
 }
-
-
-def builtin_connectors(world_id: str) -> dict[str, ConnectorRef]:
-    return BUILTIN_CONNECTORS
 
 
 def migrated_db(root: Path) -> Path:
@@ -63,7 +59,7 @@ def world_service(root: Path) -> Worlds:
 
 
 def workflow_service(root: Path) -> Workflows:
-    return Workflows(WorkflowStorage(migrated_db(root)), builtin_connectors)
+    return Workflows(WorkflowStorage(migrated_db(root)), lambda _: BUILTIN_CONNECTORS)
 
 
 class SpaFiles(StaticFiles):
@@ -90,9 +86,9 @@ def create_app(root: Path | None = None) -> FastAPI:
         return Health(version=VERSION)
 
     root = root or data_dir()
-    world_svc = world_service(root)
-    app.include_router(worlds.router(world_svc))
-    app.include_router(workflows.router(workflow_service(root), world_svc))
+    world_svc, workflow_svc = world_service(root), workflow_service(root)
+    app.include_router(worlds.router(world_svc, workflow_svc.delete_world))
+    app.include_router(workflows.router(workflow_svc, world_svc))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

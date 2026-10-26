@@ -35,6 +35,7 @@ def server(worlds: Worlds, workflows: Workflows) -> MCPServer:
     def delete_world(world_id: str) -> dict[str, Any]:
         if not worlds.delete(world_id):
             raise ValueError(f"world not found: {world_id}")
+        workflows.delete_world(world_id)
         return {"deleted": world_id}
 
     @mcp.tool(

@@ -108,6 +108,10 @@ class SqliteStorage:
             ).fetchone()
             return _version(row) if row else None
 
+    def delete_world(self, world_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM workflows WHERE world_id = ?", (world_id,))
+
     def current_yaml(self) -> dict[str, str]:
         with self._conn() as conn:
             rows = conn.execute(

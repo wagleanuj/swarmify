@@ -28,6 +28,10 @@ class Storage(Protocol):
 
     def get_version(self, workflow_id: str, number: int) -> WorkflowVersion | None: ...
 
+    def delete_world(self, world_id: str) -> None:
+        """Remove every workflow of the world and, with them, their versions."""
+        ...
+
     def current_yaml(self) -> dict[str, str]:
         """Every workflow id, across worlds, to the YAML of its current version."""
         ...

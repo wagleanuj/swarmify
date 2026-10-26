@@ -149,6 +149,35 @@ def test_unknown_worlds_and_workflows_are_404s(client: TestClient) -> None:
     assert client.get("/api/workflows/wf_nope/versions").status_code == 404
     assert client.get("/api/workflows/wf_nope/versions/1").status_code == 404
     assert client.post("/api/workflows/wf_nope/versions", json={"yaml": WEEKLY}).status_code == 404
+    world_id = _world(client)
+    check = client.post(
+        f"/api/worlds/{world_id}/workflows/check", json={"yaml": WEEKLY, "workflow_id": "wf_nope"}
+    )
+    assert check.status_code == 404
+
+
+def _runs(*ids: str) -> str:
+    return "name: w\nstages:\n  - gate: g\n    ask: ok\n" + "".join(
+        f"  - workflow: s{n}\n    runs: {wf}\n" for n, wf in enumerate(ids)
+    )
+
+
+def test_deleting_a_world_drops_its_workflows_from_every_rule(client: TestClient) -> None:
+    a, b = _world(client), _world(client)
+    child, leaf = _workflow(client, b, _runs()), _workflow(client, b, _runs())
+    parent = _workflow(client, a, _runs(child))
+    _workflow(client, a, _runs(parent))
+    assert client.post(f"/api/workflows/{child}/versions", json={"yaml": _runs(leaf)}).json()[
+        "violations"
+    ] == [{"rule": "depth", "message": "workflows nest 3 deep, the limit is 2", "stage": None}]
+
+    assert client.delete(f"/api/worlds/{a}").status_code == 204
+
+    assert client.get(f"/api/workflows/{parent}").status_code == 404
+    deeper = client.post(f"/api/workflows/{child}/versions", json={"yaml": _runs(leaf)})
+    assert deeper.status_code == 201, deeper.text
+    looped = client.post(f"/api/workflows/{leaf}/versions", json={"yaml": _runs(parent)})
+    assert [v["rule"] for v in looped.json()["violations"]] == ["unknown_workflow"]
 
 
 def test_saving_appears_on_the_world_event_stream(client: TestClient) -> None:

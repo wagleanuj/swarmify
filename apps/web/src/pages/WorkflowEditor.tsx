@@ -75,10 +75,15 @@ export function WorkflowEditor() {
     const id = ++latestCheck.current;
     setChecking(true);
     const timer = setTimeout(async () => {
-      const { data } = await api.POST("/api/worlds/{world_id}/workflows/check", {
-        params: { path: { world_id: worldId } },
-        body: { yaml: text, workflow_id: workflowId ?? null },
-      });
+      let data;
+      try {
+        ({ data } = await api.POST("/api/worlds/{world_id}/workflows/check", {
+          params: { path: { world_id: worldId } },
+          body: { yaml: text, workflow_id: workflowId ?? null },
+        }));
+      } catch {
+        data = undefined;
+      }
       if (id !== latestCheck.current) return;
       setChecking(false);
       if (!data) {
@@ -183,8 +188,8 @@ export function WorkflowEditor() {
             <h2>Stages</h2>
             {model && model.stages.length > 0 ? (
               <ol className="stage-rail" data-testid="stage-rail">
-                {model.stages.map((s) => (
-                  <li key={s.name}>
+                {model.stages.map((s, i) => (
+                  <li key={i}>
                     <b>{s.name}</b> <span className="faint">{s.type}</span>
                   </li>
                 ))}

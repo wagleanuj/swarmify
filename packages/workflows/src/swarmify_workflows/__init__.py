@@ -114,9 +114,16 @@ class Workflows:
     def version(self, workflow_id: str, number: int) -> WorkflowVersion | None:
         return self.storage.get_version(workflow_id, number)
 
+    def delete_world(self, world_id: str) -> None:
+        """Drop a deleted world's workflows so they stop shaping cycle and depth checks."""
+        self.storage.delete_world(world_id)
+
     def _references(self) -> dict[str, list[str]]:
-        # ponytail: re-parses every current version on each save. Fine for one operator's
-        # dozens of workflows; cache per workflow id if saves ever feel slow.
+        # ponytail: re-parses every current version on each save, outside the save's
+        # transaction, so two concurrent saves (UI tab plus MCP) could each pass and together
+        # make a cycle or nest past two, and the event's version number is read before the
+        # UPDATE that assigns it. Fine for one operator; compute references and the number
+        # inside the BEGIN IMMEDIATE transaction when a second writer appears.
         refs: dict[str, list[str]] = {}
         for workflow_id, yaml in self.storage.current_yaml().items():
             model, _ = parse_workflow(yaml)
