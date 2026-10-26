@@ -72,7 +72,7 @@ async def _stream(worlds: Worlds, world_id: str, after: int) -> AsyncIterator[st
     while True:
         events = worlds.events_after(world_id, after)
         for event in events:
-            after = event.seq or after
+            after = event.seq  # type: ignore[assignment]  # rows read back always carry seq
             yield f"id: {event.seq}\nevent: {event.type}\ndata: {json.dumps(asdict(event))}\n\n"
         idle = 0.0 if events else idle + POLL_SECONDS
         if idle >= KEEPALIVE_SECONDS:

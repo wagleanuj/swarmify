@@ -29,13 +29,13 @@ class Worlds:
         if not name:
             raise ValueError("a world needs a name")
         world = World(new_id("world"), name, purpose, datetime.now(UTC).isoformat())
-        self.folder(world.id).mkdir(parents=True)
         event = Event.new(
             "world.created",
             world_id=world.id,
             payload={"id": world.id, "name": name, "purpose": purpose},
         )
         self.storage.add_world(world, event)
+        self.folder(world.id).mkdir(parents=True)
         return world
 
     def list_all(self) -> list[World]:

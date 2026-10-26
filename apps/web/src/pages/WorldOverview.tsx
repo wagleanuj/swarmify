@@ -33,6 +33,8 @@ export function WorldOverview() {
       const data = JSON.parse((e as MessageEvent<string>).data) as Activity;
       setActivity((prev) => (prev.some((a) => a.seq === data.seq) ? prev : [...prev, data]));
     };
+    // ponytail: EventSource only delivers named events to matching listeners, so each new event
+    // type must be added here. Switch to one generic listener when the API emits unnamed events.
     for (const type of ["world.created", "world.deleted"]) source.addEventListener(type, onEvent);
     return () => source.close();
   }, [worldId]);

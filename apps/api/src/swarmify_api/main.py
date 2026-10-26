@@ -12,6 +12,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
+from starlette.types import Scope
 
 from swarmify_api import worlds
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
@@ -34,6 +37,18 @@ def world_service(root: Path) -> Worlds:
     return Worlds(SqliteStorage(db), root)
 
 
+class SpaFiles(StaticFiles):
+    """The built skin, answering unknown non-API paths with index.html so deep links load."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or path == "api" or path.startswith("api/"):
+                raise
+            return await super().get_response("index.html", scope)
+
+
 class Health(BaseModel):
     version: str
 
@@ -47,5 +62,5 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     app.include_router(worlds.router(world_service(root or data_dir())))
     if WEB_DIST.is_dir():
-        app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")
+        app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

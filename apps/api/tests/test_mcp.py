@@ -20,6 +20,7 @@ async def test_world_tools_create_list_get_delete(tmp_path: Path) -> None:
 
         created = await client.call_tool("create_world", {"name": "Video", "purpose": "Shorts."})
         assert not created.is_error
+        assert (await client.call_tool("create_world", {"name": "  "})).is_error
         world = created.structured_content
         assert world and world["name"] == "Video" and world["purpose"] == "Shorts."
         assert (tmp_path / "worlds" / world["id"]).is_dir()
