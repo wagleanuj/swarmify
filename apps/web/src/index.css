@@ -112,3 +112,19 @@ legend { font-size: 0.9rem; margin-bottom: 0.3rem; padding: 0; }
 .kind.picked { border-color: CanvasText; }
 .check { display: flex; gap: 0.4rem; align-items: center; }
 .tool-list { margin: 0.4rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.2rem; }
+.stage-pick { justify-self: start; padding: 0.15rem 0.55rem; font-size: 0.8rem; }
+.stage-pick[aria-pressed="true"] { background: CanvasText; color: Canvas; border-color: CanvasText; }
+.whiteboard { margin-top: 1.5rem; display: grid; gap: 0.8rem; }
+.add-task { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.add-task input { min-width: min(20rem, 100%); }
+.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; align-items: start; }
+.col h3 { margin: 0 0 0.5rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.col h3 span { font-variant-numeric: tabular-nums; }
+.col ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+.col-empty { margin: 0; font-size: 0.85rem; color: var(--muted); padding: 0.7rem; border: 1px dashed var(--line); border-radius: 10px; }
+.task { display: grid; gap: 0.2rem; border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.7rem; }
+.task-claimed { border-color: #2f6fb5; }
+.task-done b { color: var(--muted); }
+.task .notes { gap: 0.15rem; font-size: 0.85rem; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 48rem) { .board { grid-template-columns: 1fr; } }

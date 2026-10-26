@@ -2,8 +2,21 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { type Call, type Run, statusLine, useRunUpdates } from "../api/runs";
+import { useWorldEvents } from "../api/events";
+import { type Call, type Run, statusLine } from "../api/runs";
+import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
+import { Whiteboard } from "./Whiteboard";
+
+/** The swarm stage whose whiteboard opens first: the live one, else the next, else the first. */
+function defaultSwarm(run: Run) {
+  const swarms = run.stages.filter((s) => s.type === "swarm");
+  return (
+    swarms.find((s) => s.status === "running") ??
+    swarms.find((s) => s.status === "pending") ??
+    swarms[0]
+  );
+}
 
 export function RunTimeline() {
   const { worldId, runId } = runRoute.useParams();
@@ -11,6 +24,10 @@ export function RunTimeline() {
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<Record<string, Call | null>>({});
   const [open, setOpen] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const stage = run ? (run.stages.find((s) => s.id === picked) ?? defaultSwarm(run)) : undefined;
+  const stageId = stage?.type === "swarm" ? stage.id : undefined;
 
   useEffect(() => {
     api
@@ -23,15 +40,28 @@ export function RunTimeline() {
       .catch(() => setError("Could not load this run. Is the API running?"));
   }, [runId]);
 
-  useRunUpdates(
-    worldId,
-    (update) => {
+  useEffect(() => {
+    setTasks([]);
+    if (!stageId) return;
+    api
+      .GET("/api/runs/{run_id}/stages/{stage_id}/tasks", {
+        params: { path: { run_id: runId, stage_id: stageId } },
+      })
+      .then(({ data }) => data && setTasks((prev) => data.reduce(upsert, prev)))
+      .catch(() => setError("Could not load the whiteboard. Is the API running?"));
+  }, [runId, stageId]);
+
+  useWorldEvents(worldId, {
+    "run.updated": (update) => {
       if (update.id === runId) setRun(update);
     },
-    (call) => {
+    "task.updated": (task) => {
+      if (task.stage_id === stageId) setTasks((prev) => upsert(prev, task));
+    },
+    "connector_call.updated": (call) => {
       if (call.run_id === runId) setCalls((prev) => ({ ...prev, [call.idempotency_key]: call }));
     },
-  );
+  });
 
   function toggle(stageId: string) {
     setOpen((prev) => (prev === stageId ? null : stageId));
@@ -95,6 +125,17 @@ export function RunTimeline() {
                 </span>
               )}
               {s.error && <span className="stage-error">{s.error}</span>}
+              {s.type === "swarm" && (
+                <button
+                  type="button"
+                  className="stage-pick"
+                  aria-pressed={s.id === stageId}
+                  aria-label={`Open the whiteboard of ${s.name}`}
+                  onClick={() => setPicked(s.id)}
+                >
+                  whiteboard
+                </button>
+              )}
               {s.type === "connector" && (
                 <button
                   type="button"
@@ -110,6 +151,14 @@ export function RunTimeline() {
         })}
       </ol>
       {open && <CallPanel call={calls[open]} />}
+      {stage && stageId && (
+        <Whiteboard
+          runId={run.id}
+          stage={stage}
+          tasks={tasks}
+          onAdded={(task) => setTasks((prev) => upsert(prev, task))}
+        />
+      )}
     </main>
   );
 }

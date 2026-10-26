@@ -10,15 +10,24 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from swarmify_api import tasks
+from swarmify_api.tasks import GetRun
+from swarmify_swarm import OPERATOR, Refused, Storage
 from swarmify_workflows import Invalid, Workflows
 from swarmify_worlds import Worlds
 
 
 def server(
-    worlds: Worlds, workflows: Workflows, on_delete: Callable[[str], None] = lambda _: None
+    worlds: Worlds,
+    workflows: Workflows,
+    board: Storage,
+    get_run: GetRun,
+    on_delete: Callable[[str], None] = lambda _: None,
 ) -> MCPServer:
-    """`on_delete` clears other contexts' rows of a deleted world (runs, for now)."""
-    mcp = MCPServer("swarmify", instructions="Drive swarmify: worlds and workflows now, runs next.")
+    """`on_delete` clears other contexts' rows of a deleted world (runs and tasks, for now)."""
+    mcp = MCPServer(
+        "swarmify", instructions="Drive swarmify: worlds, workflows and swarm stage whiteboards."
+    )
 
     @mcp.tool(description="Create a world: one long-lived memory with its own folder and stream.")
     def create_world(name: str, purpose: str = "") -> dict[str, Any]:
@@ -79,6 +88,42 @@ def server(
             raise ValueError(f"version not found: {workflow_id} v{version}")
         return asdict(found)
 
+    @mcp.tool(
+        description="Add a task to a swarm stage's whiteboard to steer the swarm. It starts open;"
+        " depends_on names tasks of the same stage that must be done before it can be claimed."
+    )
+    def add_task(
+        run_id: str,
+        stage_id: str,
+        title: str,
+        body: str = "",
+        depends_on: list[str] | None = None,
+        added_by: str = OPERATOR,
+    ) -> dict[str, Any]:
+        try:
+            task = tasks.add_task(
+                board,
+                get_run,
+                run_id,
+                stage_id,
+                title,
+                body=body,
+                depends_on=tuple(depends_on or ()),
+                added_by=added_by,
+            )
+        except KeyError as exc:
+            raise ValueError(f"stage not found in run {run_id}: {stage_id}") from exc
+        except Refused as exc:
+            raise ValueError(str(exc)) from exc
+        return asdict(task)
+
+    @mcp.tool(description="List the tasks on a swarm stage's whiteboard, oldest first.")
+    def list_tasks(run_id: str, stage_id: str) -> list[dict[str, Any]]:
+        try:
+            return [asdict(t) for t in tasks.list_tasks(board, get_run, run_id, stage_id)]
+        except KeyError as exc:
+            raise ValueError(f"stage not found in run {run_id}: {stage_id}") from exc
+
     return mcp
 
 
@@ -87,17 +132,22 @@ def main() -> None:
         connector_service,
         data_dir,
         run_storage,
+        task_board,
         workflow_service,
         world_service,
     )
 
     root = data_dir()
     registry = connector_service(root)
+    runs, board = run_storage(root), task_board(root)
 
     def on_delete(world_id: str) -> None:
         # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
         # Cancel through DBOSClient when the MCP server starts runs too.
-        run_storage(root).delete_world(world_id)
+        runs.delete_world(world_id)
+        board.delete_world(world_id)
         registry.delete_world(world_id)
 
-    server(world_service(root), workflow_service(root, registry), on_delete).run("stdio")
+    server(
+        world_service(root), workflow_service(root, registry), board, runs.get_run, on_delete
+    ).run("stdio")
