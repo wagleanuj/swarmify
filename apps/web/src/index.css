@@ -173,3 +173,8 @@ select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); 
 .chip.pinned { color: #b7791f; border-color: #b7791f; }
 .promote { display: grid; gap: 0.4rem; justify-items: start; margin-top: 0.4rem; padding-top: 0.5rem; border-top: 1px solid var(--line); font-size: 0.9rem; }
 .lineage { font-size: 0.85rem; }
+
+/* Russ and Hooli: budget against spend, and the baseline beside the swarm. */
+.measure { display: grid; gap: 0.25rem; max-width: 28rem; margin-top: 0.5rem; }
+.measure meter { width: 100%; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

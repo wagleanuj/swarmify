@@ -196,6 +196,8 @@ class SessionEnd:
     result: str = ""
     output: Any = None
     """The structured answer when the spec asked for one."""
+    stopped: str | None = None
+    """Why the hooks stopped the session before its result (the run's Budget is spent)."""
 
 
 class SessionHooks(Protocol):
@@ -207,8 +209,10 @@ class SessionHooks(Protocol):
         """Every tool call, before it runs. A returned reason denies the call."""
         ...
 
-    def cost(self, usd: float) -> None:
-        """The session's estimated cost so far, after every result."""
+    def cost(self, usd: float) -> str | None:
+        """An increment of the session's estimated cost: one per model step, and at the result
+        the rest, so the increments add up to the runtime's whole-session estimate. A returned
+        reason stops the session (ignored at the result, when it has ended anyway)."""
         ...
 
 

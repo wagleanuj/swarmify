@@ -32,6 +32,7 @@ test("the runs page links each child run to its parent, in whatever world it liv
 test("a workflow stage links to its child run and the child links back to its parent", async () => {
   const parent = run("running", [stage(0, "trends", "workflow", "running", { child: mid }), stage(1, "pick", "gate", "pending")], {
     ...top,
+    spent_usd: 0.25,
   });
   const agents = [
     { id: "a1", run_id: "run_mid", stage_id: "s9", name: "worker-1", status: "done", session_id: null, skills: [], cost_usd: 0.25, created_at: ts, updated_at: ts },

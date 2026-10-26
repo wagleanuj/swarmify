@@ -3,13 +3,14 @@
 import json
 import sqlite3
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
+from swarmify_runs import budget
 from swarmify_runs.machine import MAX_SEND_BACKS, Illegal, RunState
 from swarmify_runs.model import Decision, Gate, Run, RunLink, RunStageView, StageDef
 
@@ -121,7 +122,8 @@ class SqliteStorage:
         conn.execute(
             "INSERT INTO runs (id, world_id, workflow_id, workflow_version, name, status,"
             " created_at, updated_at, parent_run_id, forked_from_run_id, fork_stage_index,"
-            " promoted_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " promoted_from, budget_usd, baseline)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 run.id,
                 run.world_id,
@@ -135,6 +137,8 @@ class SqliteStorage:
                 forked_from,
                 index,
                 run.promoted_from,
+                run.budget_usd,
+                run.baseline,
             ),
         )
 
@@ -143,8 +147,9 @@ class SqliteStorage:
             conn.execute("BEGIN IMMEDIATE")
             now = _now()
             found = conn.execute(
-                "UPDATE runs SET status = ?, send_backs = ?, updated_at = ? WHERE id = ?",
-                (state.status, state.send_backs, now, run_id),
+                "UPDATE runs SET status = ?, send_backs = ?, over_budget = ?, updated_at = ?"
+                " WHERE id = ?",
+                (state.status, state.send_backs, state.over_budget, now, run_id),
             ).rowcount
             if not found:
                 conn.execute("ROLLBACK")
@@ -172,6 +177,45 @@ class SqliteStorage:
             append(conn, _updated(saved))
             conn.execute("COMMIT")
             return saved
+
+    def set_spent(self, run_id: str, usd: float) -> Run | None:
+        return self._set(run_id, "spent_usd", usd)
+
+    def set_budget(self, run_id: str, usd: float) -> Run | None:
+        return self._set(run_id, "budget_usd", usd)
+
+    def _set(self, run_id: str, column: str, usd: float) -> Run | None:
+        """Write one money column; a change appends `run.updated`. None for an unknown run."""
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute(
+                f"UPDATE runs SET {column} = ? WHERE id = ? AND {column} IS NOT ?",
+                (usd, run_id, usd),
+            ).rowcount
+            saved = self._read(conn, run_id)
+            if changed and saved is not None:
+                append(conn, _updated(saved))
+            conn.execute("COMMIT")
+            return saved
+
+    def mark_warned(self, run_id: str, budget_usd: float) -> bool:
+        with self._conn() as conn:
+            return bool(
+                conn.execute(
+                    "UPDATE runs SET budget_warned_usd = ? WHERE id = ?"
+                    " AND budget_warned_usd IS NOT ?",
+                    (budget_usd, run_id, budget_usd),
+                ).rowcount
+            )
+
+    def latest_baseline(self, workflow_id: str) -> Run | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id FROM runs WHERE workflow_id = ? AND baseline = 1 AND status = 'done'"
+                " ORDER BY created_at DESC, id DESC LIMIT 1",
+                (workflow_id,),
+            ).fetchone()
+            return self._read(conn, row[0]) if row else None
 
     def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
         try:
@@ -220,9 +264,9 @@ class SqliteStorage:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT s.id, s.idx, s.name, s.config, s.started_at, s.run_id,"
-                " r.world_id, r.name AS run_name, r.send_backs, r.parent_run_id"
+                " r.world_id, r.name AS run_name, r.send_backs, r.parent_run_id, r.over_budget"
                 " FROM run_stages s JOIN runs r ON r.id = s.run_id"
-                " WHERE s.status = 'waiting' AND s.type = 'gate'"
+                " WHERE s.status = 'waiting' AND (s.type = 'gate' OR r.over_budget = 1)"
                 " ORDER BY s.started_at DESC, s.id DESC"
             ).fetchall()
             gates = []
@@ -232,23 +276,34 @@ class SqliteStorage:
                     (g["run_id"], g["idx"]),
                 ).fetchall()
                 config = json.loads(g["config"])
-                gates.append(
-                    Gate(
-                        g["run_id"],
-                        g["world_id"],
-                        g["run_name"],
-                        g["id"],
-                        g["idx"],
-                        g["name"],
-                        config.get("kind") or "approve",
-                        config.get("ask") or "",
-                        g["started_at"] or "",
-                        MAX_SEND_BACKS - g["send_backs"],
-                        [e["name"] for e in earlier],
-                        g["parent_run_id"],
-                        _link(conn, g["parent_run_id"]),
-                    )
+                gate = Gate(
+                    g["run_id"],
+                    g["world_id"],
+                    g["run_name"],
+                    g["id"],
+                    g["idx"],
+                    g["name"],
+                    config.get("kind") or "approve",
+                    config.get("ask") or "",
+                    g["started_at"] or "",
+                    MAX_SEND_BACKS - g["send_backs"],
+                    [e["name"] for e in earlier],
+                    g["parent_run_id"],
+                    _link(conn, g["parent_run_id"]),
                 )
+                if g["over_budget"]:
+                    top = _top(conn, g["run_id"])
+                    spent, limit = top["spent_usd"], top["budget_usd"] or 0.0
+                    gate = replace(
+                        gate,
+                        kind="budget",
+                        ask=budget.ask(spent, limit),
+                        send_backs_left=0,
+                        earlier_stages=[],
+                        budget_usd=limit,
+                        spent_usd=spent,
+                    )
+                gates.append(gate)
             return gates
 
     def child_run_ids(self, run_id: str) -> list[str]:
@@ -355,6 +410,10 @@ class SqliteStorage:
                 )
             ],
             row["promoted_from"],
+            row["budget_usd"],
+            row["spent_usd"],
+            bool(row["over_budget"]),
+            bool(row["baseline"]),
         )
 
 
@@ -363,6 +422,14 @@ def _link(conn: sqlite3.Connection, run_id: str | None) -> RunLink | None:
         return None
     row = conn.execute("SELECT id, world_id, name FROM runs WHERE id = ?", (run_id,)).fetchone()
     return RunLink(row["id"], row["world_id"], row["name"]) if row else None
+
+
+def _top(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row:
+    """The top run above `run_id` (itself when it has no parent): the one holding the Budget."""
+    row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    while row["parent_run_id"] is not None:
+        row = conn.execute("SELECT * FROM runs WHERE id = ?", (row["parent_run_id"],)).fetchone()
+    return row
 
 
 def _updated(run: Run) -> Event:

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { decide, type Gate } from "../api/runs";
+import { actOn, decide, type Gate, money, setBudget } from "../api/runs";
 import type { components } from "../api/schema";
 import { RunRef } from "./Runs";
 import { LABEL } from "./Connectors";
@@ -43,9 +43,9 @@ export function Gates() {
     return () => sources.forEach((s) => s.close());
   }, [worlds, load]);
 
-  async function answer(gate: Gate, body: Parameters<typeof decide>[1]) {
+  async function answer(gate: Gate, send: () => Promise<string | null>) {
     setError(null);
-    const refused = await decide(gate.run_id, body);
+    const refused = await send();
     if (refused) {
       setError(refused);
       load();
@@ -78,7 +78,7 @@ export function Gates() {
         <div className="empty" data-testid="no-gates">
           <p>
             Nothing is waiting on you. When a run reaches a gate it lands here, pausing until you
-            pick, approve or confirm.
+            pick, approve or confirm, and so does a run whose budget ran out.
           </p>
           <Link to="/" className="button">
             See your worlds
@@ -103,7 +103,7 @@ function GateCard({
 }: {
   gate: Gate;
   world: string;
-  onAnswer: (gate: Gate, body: Parameters<typeof decide>[1]) => Promise<void>;
+  onAnswer: (gate: Gate, send: () => Promise<string | null>) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [sendBack, setSendBack] = useState(false);
@@ -111,14 +111,28 @@ function GateCard({
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fields = new FormData(e.currentTarget);
+    if (gate.kind === "budget") {
+      const total = (gate.budget_usd ?? 0) + Number(fields.get("add"));
+      setBusy(true);
+      await onAnswer(gate, () => setBudget(gate.run_id, Math.round(total * 100) / 100));
+      setBusy(false);
+      return;
+    }
     const note = String(fields.get("note") ?? "").trim();
     const body: Parameters<typeof decide>[1] = { note };
     if (gate.kind === "pick") body.choice = String(fields.get("choice") ?? "").trim();
     if (sendBack) body.send_back_to = String(fields.get("send_back_to") ?? "");
     setBusy(true);
-    await onAnswer(gate, body);
+    await onAnswer(gate, () => decide(gate.run_id, body));
     setBusy(false);
     setSendBack(false);
+  }
+
+  async function abort() {
+    if (!window.confirm(`Abort ${gate.run_name}? Finished stages keep their artifacts.`)) return;
+    setBusy(true);
+    await onAnswer(gate, () => actOn(gate.run_id, "abort"));
+    setBusy(false);
   }
 
   // A post that cannot go out would fail the run; say why instead of letting it.
@@ -141,6 +155,34 @@ function GateCard({
       <p className="ask">{gate.ask}</p>
       {gate.publish && <WhatGoesOut preview={gate.publish} />}
       <form onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
+        {gate.kind === "budget" && (
+          <>
+            <label>
+              Add (US dollars)
+              <input
+                name="add"
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                required
+                defaultValue={(gate.budget_usd ?? 1).toFixed(2)}
+              />
+            </label>
+            <span className="faint">
+              Russ has spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
+              stopped agents resume where they stopped.
+            </span>
+            <div className="row gate-actions">
+              <button type="submit" className="primary" disabled={busy}>
+                Add money and go on
+              </button>
+              <button type="button" className="danger" onClick={abort} disabled={busy}>
+                Abort the run
+              </button>
+            </div>
+          </>
+        )}
         {gate.kind === "pick" && (
           <>
             <label>
@@ -152,10 +194,12 @@ function GateCard({
             </span>
           </>
         )}
+        {gate.kind !== "budget" && (
         <label>
           {gate.kind === "approve" ? "Note (sent back with it, or kept with the approval)" : "Note (optional)"}
           <textarea name="note" rows={2} />
         </label>
+        )}
         {gate.kind === "approve" && sendBack && (
           <label>
             Send back to

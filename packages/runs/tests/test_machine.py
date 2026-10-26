@@ -9,6 +9,8 @@ from swarmify_runs.machine import (
     MAX_SEND_BACKS,
     TERMINAL,
     Aborted,
+    BudgetAdded,
+    BudgetSpent,
     Command,
     GateAnswered,
     Illegal,
@@ -35,6 +37,8 @@ EVENTS = st.one_of(
     st.builds(StageFailed, INDEX),
     st.builds(GateAnswered, INDEX),
     st.builds(SentBack, INDEX, INDEX),
+    st.builds(BudgetSpent, INDEX),
+    st.just(BudgetAdded()),
     st.just(Paused()),
     st.just(Resumed()),
     st.just(Aborted()),
@@ -101,7 +105,13 @@ class AnyEvents(RuleBasedStateMachine):
         for cmd in self.commands:
             expected = "waiting" if isinstance(cmd, OpenGate) else "running"
             assert self.state.stages[cmd.index] == expected
-            assert (self.kinds[cmd.index] == "gate") == isinstance(cmd, OpenGate)
+            gate = self.kinds[cmd.index] == "gate" or self.state.over_budget
+            assert gate == isinstance(cmd, OpenGate)
+
+    @invariant()
+    def over_budget_means_a_stage_waits_for_money(self) -> None:
+        if self.state.over_budget:
+            assert "waiting" in self.state.stages and self.state.status not in TERMINAL
 
 
 TestAnyEvents = AnyEvents.TestCase
@@ -129,6 +139,18 @@ class Shell(RuleBasedStateMachine):
             self._apply(
                 GateAnswered(cmd.index) if isinstance(cmd, OpenGate) else StageFinished(cmd.index)
             )
+
+    @rule()
+    def budget_spent_then_added(self) -> None:
+        """A stage stopped by the Budget runs again once money is added: it starts twice."""
+        if self.pending and not isinstance(self.pending[0], OpenGate):
+            index = self.pending.pop(0).index
+            self._apply(BudgetSpent(index))
+            assert self.state.status == "waiting_gate" and self.state.over_budget
+            self.pending.pop(0)  # the budget gate
+            self.started = [i for i in self.started if i != index]  # it starts afresh
+            self._apply(BudgetAdded())
+            assert not self.state.over_budget
 
     @rule()
     def pause_then_resume(self) -> None:
@@ -220,3 +242,32 @@ def test_a_decision_while_paused_holds_until_resumed() -> None:
     assert held == RunState("paused", ("pending", "pending"), 1) and cmds == []
     resumed, cmds = transition(kinds, held, Resumed())
     assert resumed == RunState("running", ("running", "pending"), 1) and cmds == [RunStage(0)]
+
+
+def test_a_budget_gate_takes_money_or_an_abort_never_a_decision() -> None:
+    kinds = ("swarm", "gate")
+    state, _ = transition(kinds, RunState.new(2), Started())
+    spent, cmds = transition(kinds, state, BudgetSpent(0))
+    assert spent == RunState("waiting_gate", ("waiting", "pending"), over_budget=True)
+    assert cmds == [OpenGate(0)]
+    for event in (GateAnswered(0), SentBack(0, 0), BudgetSpent(0)):
+        with pytest.raises(Illegal):
+            transition(kinds, spent, event)
+    again, cmds = transition(kinds, spent, BudgetAdded())
+    assert again == RunState("running", ("running", "pending")) and cmds == [RunStage(0)]
+    with pytest.raises(Illegal, match="not over budget"):
+        transition(kinds, again, BudgetAdded())
+    aborted, _ = transition(kinds, spent, Aborted())
+    assert aborted == RunState("aborted", ("failed", "pending"))
+
+
+def test_money_added_while_paused_runs_the_stage_on_resume() -> None:
+    kinds = ("swarm",)
+    state, _ = transition(kinds, RunState.new(1), Started())
+    state, _ = transition(kinds, state, Paused())
+    state, cmds = transition(kinds, state, BudgetSpent(0))
+    assert state.status == "paused" and state.over_budget and cmds == [OpenGate(0)]
+    state, cmds = transition(kinds, state, BudgetAdded())
+    assert state == RunState("paused", ("pending",)) and cmds == []
+    state, cmds = transition(kinds, state, Resumed())
+    assert state == RunState("running", ("running",)) and cmds == [RunStage(0)]

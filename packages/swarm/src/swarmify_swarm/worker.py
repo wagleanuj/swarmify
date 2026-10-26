@@ -5,6 +5,12 @@ skills. Its hooks write every tool call to the stage's live log, deny tools outs
 allowlist and a claim before the agent's first graph query, and keep the agent's session id and
 estimated cost. A session that dies is replaced by one that resumes the stored session id.
 
+After every cost estimate the hooks ask the run's Budget (`budget`, from the composition root);
+once it is spent they stop the session and the stage raises Stopped, leaving the agent's session
+to resume when money is added. A baseline stage is one worker with no graph: no planner, no
+judge, no graph tools and no graph-first rule, the single-agent measure the swarm is compared
+against.
+
 Memory and the graph are other contexts, so the composition root hands in `Files` and `Graphs`.
 Graph tools are wrapped: an agent may name the graph of its own world or of a world the stage
 lists under `graphs`, by id, name or folder, and nothing else (ADR 0009). Every answer is labelled
@@ -47,7 +53,7 @@ from swarmify_swarm.projection import (
 WORKER, PLANNER, JUDGE = "worker-1", "planner", "judge"
 SESSIONS = 2
 """An agent's first session and one replacement."""
-# ponytail: fixed turn caps until the Budget (T15) stops sessions by cost.
+# ponytail: fixed turn caps as well, for runs with no Budget.
 MAX_TURNS, SHORT_TURNS = 200, 30
 SHORT_TOOLS = ("query_graph", "list_tasks")
 """What the planner and the judge may call besides the built-ins: they read, never claim."""
@@ -61,6 +67,8 @@ STAGE_TOOLS = {"web_search": ["WebSearch", "WebFetch"], "graph": []}
 
 Servers = Callable[[str, list[str]], dict[str, dict[str, Any]]]
 """(world id, connector names) to their MCP server configs, for the session."""
+Budget = Callable[[str], str | None]
+"""(run id) to why its agents must stop, once the run's Budget is spent; None otherwise."""
 
 
 class Files(Protocol):
@@ -135,6 +143,15 @@ class StageError(RuntimeError):
     """The swarm stage failed; the message lands on the stage."""
 
 
+class Stopped(Exception):
+    """The run's Budget stopped the stage's agents. Not a failure: the stage runs again, its
+    agents resuming their sessions, once money is added."""
+
+
+def no_budget(_run_id: str) -> str | None:
+    return None
+
+
 @dataclass(frozen=True)
 class _At:
     """The stage being run."""
@@ -147,6 +164,7 @@ class _At:
     world_folder: Path
     notes: tuple[str, ...] = ()
     """The send-back notes addressed to this stage, oldest first."""
+    baseline: bool = False
 
 
 def _wants(config: dict[str, Any]) -> str:
@@ -161,8 +179,8 @@ def no_servers(_world_id: str, _names: list[str]) -> dict[str, dict[str, Any]]:
     return {}
 
 
-def allowlist(stage_tools: list[str]) -> list[str]:
-    allowed = [tool_id(t) for t in TOOLS] + BUILTIN
+def allowlist(stage_tools: list[str], baseline: bool = False) -> list[str]:
+    allowed = [tool_id(t) for t in TOOLS if not (baseline and t in GRAPH_TOOLS)] + BUILTIN
     for name in stage_tools:
         allowed += STAGE_TOOLS.get(name, [f"mcp__{name}__*"])
     return allowed
@@ -254,7 +272,9 @@ class Swarm:
         graphs: Graphs | None = None,
         servers: Servers = no_servers,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        budget: Budget = no_budget,
     ) -> None:
+        self.budget = budget
         self.board = board
         self.runtime = runtime
         self.files = files
@@ -272,10 +292,12 @@ class Swarm:
         world_folder: Path,
         notes: list[str] | None = None,
         visit: int = 0,
+        baseline: bool = False,
     ) -> None:
         """Plan an empty whiteboard, work it until no task is left, then judge it: a pass
         projects the stage's typed artifacts, a fail adds gap tasks and loops, at most
-        MAX_LOOPS times. Raises StageError to fail the stage.
+        MAX_LOOPS times. Raises StageError to fail the stage, Stopped when the run's Budget
+        stopped an agent. `baseline` runs one worker on the goal alone, with no graph.
 
         `notes` are the send-back notes addressed to this stage and `visit` the run's send-back
         count. A stage the run comes back to after send-back `visit` gets one rework task
@@ -288,7 +310,24 @@ class Swarm:
             kind = output_type(config.get("output_type"))
         except ValueError as exc:
             raise StageError(str(exc)) from exc
-        at = _At(world_id, run_id, stage_id, stage_name, config, world_folder, tuple(notes or ()))
+        at = _At(
+            world_id,
+            run_id,
+            stage_id,
+            stage_name,
+            config,
+            world_folder,
+            tuple(notes or ()),
+            baseline,
+        )
+        if baseline:
+            # ponytail: no judge, so a baseline stage projects no typed artifacts; later stages
+            # see only what the worker wrote. Enough to measure cost and duration.
+            goal = str(config.get("goal", "")).strip() or stage_name
+            if not self.board.list_tasks(stage_id):
+                self.board.add_task(world_id, run_id, stage_id, goal, added_by=WORKER)
+            self._work(at)
+            return
         tasks = self.board.list_tasks(stage_id)
         if not tasks:
             self._plan(at)
@@ -348,7 +387,7 @@ class Swarm:
         if all(t.status == "done" for t in board.list_tasks(at.stage_id)):
             return
         stage_tools = [str(t) for t in at.config.get("tools") or []]
-        allowed = allowlist(stage_tools)
+        allowed = allowlist(stage_tools, at.baseline)
 
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
@@ -357,7 +396,7 @@ class Swarm:
                 cwd=self.files.stage_folder(at.world_id, at.run_id, at.stage_id),
                 plugin=at.world_folder,
                 tools=self._tools(
-                    at.world_id, at.run_id, at.stage_id, WORKER, self._readable_at(at)
+                    at.world_id, at.run_id, at.stage_id, WORKER, self._readable_at(at), at.baseline
                 ),
                 allowed=allowed,
                 servers=self.servers(at.world_id, [t for t in stage_tools if t not in STAGE_TOOLS]),
@@ -499,8 +538,19 @@ class Swarm:
         `fresh`: a planner or judge answer starts clean so verdicts do not carry each other."""
         board = self.board
         before = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
+        if reason := self.budget(at.run_id):
+            board.log(at.stage_id, name, "session", f"Not started: {reason}")
+            raise Stopped(reason)
         board.update_agent(at.stage_id, name, status="working")
-        hooks = _Hooks(board, at.stage_id, name, allowed, at.world_folder)
+        hooks = _Hooks(
+            board,
+            at.stage_id,
+            name,
+            allowed,
+            at.world_folder,
+            lambda: self.budget(at.run_id),
+            graph_first=not at.baseline,
+        )
         for attempt in range(SESSIONS):
             stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
             resume = None if fresh and stored == before else stored
@@ -512,6 +562,10 @@ class Swarm:
             except Exception as exc:
                 board.log(at.stage_id, name, "error", f"The session died: {exc}")
                 continue
+            if end.stopped:
+                detail = f"Stopped: {end.stopped} It resumes once money is added."
+                board.log(at.stage_id, name, "session", detail)
+                raise Stopped(end.stopped)
             if end.is_error:
                 board.log(at.stage_id, name, "error", f"The session failed: {end.result}")
                 continue
@@ -551,8 +605,13 @@ class Swarm:
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
                 self._pins(at),
                 *(f"Sent back to you with this note: {n}" for n in at.notes),
-                "How you work: call query_graph before your first claim and reuse what the world"
-                " knows. claim_task takes the next ready task. heartbeat at least every minute"
+                "How you work: "
+                + (
+                    ""
+                    if at.baseline
+                    else "call query_graph before your first claim and reuse what the world knows. "
+                )
+                + "claim_task takes the next ready task. heartbeat at least every minute"
                 " while you hold one. Write what you learn with write_note and outputs with"
                 " write_artifact. finish_task with a short note. add_task for work you discover."
                 " Stop when no task is ready.",
@@ -594,6 +653,7 @@ class Swarm:
         stage_id: str,
         agent: str,
         readable: dict[str, Path],
+        baseline: bool = False,
     ) -> list[AgentTool]:
         board, files, now = self.board, self.files, self.clock
 
@@ -679,6 +739,7 @@ class Swarm:
         return [
             AgentTool(name, about, schema, bind(handlers[name]))
             for name, (about, schema) in TOOLS.items()
+            if not (baseline and name in GRAPH_TOOLS)
         ]
 
 
@@ -686,13 +747,23 @@ class _Hooks:
     """The SessionHooks of one agent: the live log, the allowlist and the graph-first rule."""
 
     def __init__(
-        self, board: Storage, stage_id: str, agent: str, allowed: list[str], world_folder: Path
+        self,
+        board: Storage,
+        stage_id: str,
+        agent: str,
+        allowed: list[str],
+        world_folder: Path,
+        budget: Callable[[], str | None] = lambda: None,
+        graph_first: bool = True,
     ) -> None:
         self.board = board
         self.stage_id = stage_id
         self.agent = agent
         self.allowed = allowed
         self.world_folder = world_folder.resolve()
+        self.budget = budget
+        self.graph_first = graph_first
+        self.stopped: str | None = None
 
     def started(self, init: SessionInit) -> None:
         self.board.update_agent(
@@ -713,21 +784,28 @@ class _Hooks:
         self.board.log(self.stage_id, self.agent, kind, reason or "", tool=tool, input=input)
         return reason
 
-    def cost(self, usd: float) -> None:
-        # ponytail: cost lands once per session result, not per tool call (the SDK reports
-        # total_cost_usd only on the result), so the Budget (T15) can stop a session no sooner.
+    def cost(self, usd: float) -> str | None:
+        """Add the estimate to the agent, then ask the Budget whether the session goes on."""
         self.board.update_agent(self.stage_id, self.agent, cost_usd=usd)
+        self.stopped = self.budget()
+        return self.stopped
 
     def _refusal(self, tool: str, input: dict[str, Any]) -> str | None:
+        if self.stopped:  # a call already on its way when the Budget ran out
+            return f"Stopped: {self.stopped}"
         if not is_allowed(tool, self.allowed):
             return f"{tool} is not allowed in this stage."
         if tool == "Read":
             path = Path(str(input.get("file_path", "")))
             if not path.is_absolute() or not path.resolve().is_relative_to(self.world_folder):
                 return "Read is limited to this world's folder."
-        if tool == CLAIM and not any(
-            e.agent == self.agent and e.kind == "tool" and e.tool == GRAPH
-            for e in self.board.list_log(self.stage_id)
+        if (
+            tool == CLAIM
+            and self.graph_first
+            and not any(
+                e.agent == self.agent and e.kind == "tool" and e.tool == GRAPH
+                for e in self.board.list_log(self.stage_id)
+            )
         ):
             return "Query the graph first: call query_graph about the work before your first claim."
         return None

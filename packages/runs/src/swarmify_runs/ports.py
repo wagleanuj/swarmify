@@ -32,6 +32,23 @@ class Storage(Protocol):
         Illegal when this visit already has a decision."""
         ...
 
+    def set_spent(self, run_id: str, usd: float) -> Run | None:
+        """Write the run's estimated spend; a change appends `run.updated`."""
+        ...
+
+    def set_budget(self, run_id: str, usd: float) -> Run | None:
+        """Write the run's Budget; a change appends `run.updated`."""
+        ...
+
+    def mark_warned(self, run_id: str, budget_usd: float) -> bool:
+        """Record that the 80 percent warning went out for this budget. False when it already
+        had, so of any number of concurrent callers exactly one warns."""
+        ...
+
+    def latest_baseline(self, workflow_id: str) -> Run | None:
+        """The newest finished baseline run of the workflow, any version."""
+        ...
+
     def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
         """Link the workflow stage at `index` to the child run it started."""
         ...
@@ -71,6 +88,7 @@ class Storage(Protocol):
 
 class Notifier(Protocol):
     def notify(self, event: Event) -> None:
-        """Tell a person: `gate.opened` or `run.ended`. Payloads carry run id, name and stage.
+        """Tell a person: `gate.opened` (kind `budget` at 100 percent of the Budget),
+        `budget.warning` (80 percent) or `run.ended`. Payloads carry run id and name.
         May raise (Slack is down); callers log it and go on."""
         ...

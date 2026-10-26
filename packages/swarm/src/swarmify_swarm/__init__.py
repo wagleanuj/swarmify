@@ -38,6 +38,7 @@ from swarmify_swarm.worker import (
     Files,
     Graphs,
     StageError,
+    Stopped,
     Swarm,
     allowlist,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "SessionSpec",
     "SqliteStorage",
     "StageError",
+    "Stopped",
     "Storage",
     "Swarm",
     "Task",

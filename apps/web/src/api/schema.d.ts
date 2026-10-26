@@ -260,6 +260,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Baseline
+         * @description The newest finished baseline run of the run's workflow, any version: its cost and
+         *     duration are what the swarm is measured against. Null when there is none yet.
+         */
+        get: operations["get_baseline_api_runs__run_id__baseline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Budget
+         * @description Set the Budget of the run and its child runs. A run waiting at a budget gate goes on;
+         *     422 when the new budget is not above what was spent.
+         */
+        post: operations["set_budget_api_runs__run_id__budget_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/gates": {
         parameters: {
             query?: never;
@@ -1034,6 +1076,10 @@ export interface components {
             parent_run_id?: string | null;
             parent?: components["schemas"]["RunLink"] | null;
             publish?: components["schemas"]["PublishPreview"] | null;
+            /** Budget Usd */
+            budget_usd?: number | null;
+            /** Spent Usd */
+            spent_usd?: number | null;
         };
         /**
          * GateStage
@@ -1341,6 +1387,23 @@ export interface components {
             forks?: components["schemas"]["RunLink"][];
             /** Promoted From */
             promoted_from?: string | null;
+            /** Budget Usd */
+            budget_usd?: number | null;
+            /**
+             * Spent Usd
+             * @default 0
+             */
+            spent_usd: number;
+            /**
+             * Over Budget
+             * @default false
+             */
+            over_budget: boolean;
+            /**
+             * Baseline
+             * @default false
+             */
+            baseline: boolean;
         };
         /**
          * RunLink
@@ -1384,10 +1447,26 @@ export interface components {
             notes?: string[];
             child?: components["schemas"]["RunLink"] | null;
         };
+        /**
+         * SetBudget
+         * @description The run's new Budget in total, not an increment, so sending it twice adds nothing twice.
+         *     Must be above what the run and its child runs have spent.
+         */
+        SetBudget: {
+            /** Budget Usd */
+            budget_usd: number;
+        };
         /** StartRun */
         StartRun: {
             /** Version */
             version?: number | null;
+            /** Budget Usd */
+            budget_usd?: number | null;
+            /**
+             * Baseline
+             * @default false
+             */
+            baseline: boolean;
         };
         /**
          * SwarmStage
@@ -2182,6 +2261,86 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Run"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_baseline_api_runs__run_id__baseline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_budget_api_runs__run_id__budget_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetBudget"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

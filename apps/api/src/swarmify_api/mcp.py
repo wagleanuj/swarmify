@@ -154,6 +154,14 @@ def server(
     ) -> dict[str, Any]:
         return run_or_fail(lambda: control.decide(run_id, choice, note, send_back_to))
 
+    @mcp.tool(
+        description="Set a run's Budget in US dollars, the total, not an increment. It covers the"
+        " run and its child runs and must be above what they spent. A run stopped at a budget"
+        " gate goes on; to refuse more money, abort the run instead."
+    )
+    def set_budget(run_id: str, budget_usd: float) -> dict[str, Any]:
+        return run_or_fail(lambda: control.set_budget(run_id, budget_usd))
+
     @mcp.tool(description="Pause a run: at once at a gate, otherwise after the current stage.")
     def pause_run(run_id: str) -> dict[str, Any]:
         return run_or_fail(lambda: control.pause(run_id))

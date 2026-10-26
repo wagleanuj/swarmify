@@ -16,6 +16,7 @@ from swarmify_swarm import (
     SdkRuntime,
     SqliteStorage,
     StageError,
+    Stopped,
     Swarm,
     tool_id,
 )
@@ -536,3 +537,80 @@ def test_pinned_artifacts_are_required_reading_for_the_planner_and_the_worker(
     assert "Pinned references, required reading" in planner and pinned in planner
     assert pinned in str(script.sessions[1].system_prompt) and pinned not in worker
     assert "Pinned" not in judge, "the judge judges the stage's own notes"
+
+
+DOLLAR = {"input_tokens": 250_000}
+"""One model step's usage that the adapter prices at $1.00."""
+
+
+def test_every_tool_call_adds_its_estimate_and_the_result_trues_it_up(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    script = Script([GRAPH, CLAIM, FINISH, Say("Done.")], PASS, cost=3.5, usage=DOLLAR)
+    seen: list[float] = []
+
+    def budget(run_id: str) -> str | None:
+        seen.append(sum(a.cost_usd for a in board.list_agents(run_id)))
+        return None
+
+    _run(_swarm(board, tmp_path, script, budget=budget), tmp_path)
+    # Worker: before the session, after each tool call's step, after the result's remainder.
+    # Judge: before its session and after its result (an answer calls no tool).
+    assert seen == [0.0, 1.0, 2.0, 3.0, 3.5, 3.5, 7.0]
+    assert _worker(board).cost_usd == 3.5
+
+
+def test_a_spent_budget_stops_the_session_and_a_rerun_resumes_it(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    limit = [2.0]
+
+    def budget(run_id: str) -> str | None:
+        spent = sum(a.cost_usd for a in board.list_agents(run_id))
+        return "The run's budget of $2.00 is spent." if spent >= limit[0] else None
+
+    note = Call(tool_id("write_note"), {"title": "late", "body": "Too late."})
+    script = Script(
+        [GRAPH, CLAIM, note, FINISH, Say("Done.")],
+        [CLAIM, FINISH, Say("Resumed.")],
+        PASS,
+        cost=0.5,
+        usage=DOLLAR,
+    )
+    swarm = _swarm(board, tmp_path, script, budget=budget)
+    with pytest.raises(Stopped, match="budget of \\$2.00 is spent"):
+        _run(swarm, tmp_path)
+    agent = _worker(board)
+    assert agent.status == "working" and agent.cost_usd == 2.0
+    assert _tools(board) == [GRAPH.tool]  # the session stopped before the claim ran
+    assert board.list_tasks(S)[0].status == "open"
+    assert "Stopped: The run's budget" in board.list_log(S)[-1].detail
+    with pytest.raises(Stopped):  # still spent: no session starts at all
+        _run(swarm, tmp_path)
+    assert len(script.sessions) == 1
+    assert board.list_log(S)[-1].detail.startswith("Not started: The run's budget")
+
+    limit[0] = 10.0
+    _run(swarm, tmp_path)
+    assert script.sessions[1].resume == agent.session_id
+    agent = _worker(board)
+    assert agent.status == "done" and agent.cost_usd == 2.5
+    assert len(board.list_verdicts(S)) == 1
+
+
+def test_a_baseline_stage_is_one_worker_with_no_graph(board: SqliteStorage, tmp_path: Path) -> None:
+    script = Script([CLAIM, GRAPH, FINISH, Say("Done.")])
+    swarm = _swarm(board, tmp_path, script, graphs=DiskGraphs(tmp_path))
+    swarm.run_stage(W, R, S, "research", dict(STAGE), _world(tmp_path), baseline=True)
+    claim, graph, finish = script.outcomes
+    assert not claim.is_error and not finish.is_error  # no graph query is asked for first
+    assert graph.is_error and _tools(board, "denied") == [tool_id("query_graph")]
+    (task,) = board.list_tasks(S)
+    assert (task.title, task.added_by, task.status) == (STAGE["goal"], WORKER, "done")
+    (options,) = script.sessions  # no planner, no judge
+    assert not any("graph" in t for t in options.allowed_tools)
+    assert "query_graph" not in str(options.system_prompt)
+    assert [a.name for a in board.list_agents(R)] == [WORKER]
+    assert board.list_verdicts(S) == []

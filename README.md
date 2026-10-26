@@ -83,6 +83,31 @@ Agents below), a gate waits for a person (see Gates below), and a workflow stage
 `GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its
 stages and decisions.
 
+## Budget and baseline
+
+A run's Budget (Russ in the skin) is its spend ceiling in US dollars: the workflow's `budget_usd`,
+or `budget_usd` in the start body (`POST /api/workflows/<id>/runs`), which overrides it. No budget
+means no ceiling. Spend is the Agent SDK's estimate, not your bill.
+
+- Cost hook: every model step of an agent session (one per tool call) adds an estimate priced
+  from the step's token usage, and the session's result trues the sum up to the SDK's own total.
+  After each estimate the hooks ask the Budget, which refreshes the run's `spent_usd` (the run and
+  every child run below it, ADR 0013) and streams it as `run.updated`.
+- At 80 percent a `budget.warning` event goes to the world's stream and the Notifier, once per
+  budget value. At 100 percent the agents stop: the session ends where it is (its id kept), further
+  tool calls are denied, and the stage waits at a budget gate (`gate.opened` with kind `budget`,
+  run status `waiting_gate`, `over_budget` true). An agent (planner, worker or judge) whose session
+  would start over budget does not start.
+- The budget gate takes money or an abort, never a decision. `POST /api/runs/<id>/budget` with
+  `{"budget_usd": total}` sets the new total (not an increment, so a double click adds nothing
+  twice; it must be above what was spent); the stopped stage runs again and its agent resumes its
+  session. `POST /api/runs/<id>/abort` ends the run. The MCP server exposes `set_budget`.
+- Baseline (Hooli in the skin): `{"baseline": true}` in the start body runs every swarm stage with
+  one worker and no graph: no planner (the goal is its one task), no judge (so no typed
+  projection), no graph tools and no graph-first rule. `GET /api/runs/<id>/baseline`
+  returns the newest finished baseline of the same workflow, and the run page shows its cost and
+  duration beside the run's own.
+
 ## Child runs
 
 A workflow stage (`- workflow: <name>`, `runs: <workflow id>`, optional `take: [names]`) starts a
@@ -290,8 +315,9 @@ judge decides when the stage is done (see Planner and judge below).
   `web_search` (WebSearch, WebFetch) and any connector named in `tools` (`mcp__<name>__*`, its
   server and credentials passed to the session).
 - Hooks: a PreToolUse hook writes every tool call to the stage's live log, denies anything outside
-  the allowlist and denies a claim until the agent has queried the graph. Each result's estimated
-  cost (the SDK's estimate, not billing) is kept on the agent; the run's cost is the sum.
+  the allowlist and denies a claim until the agent has queried the graph. Each step's estimated
+  cost (not billing) is added to the agent and checked against the Budget (see Budget and
+  baseline); the run's `spent_usd` is the sum over it and its child runs.
 - Skills: the world folder is passed as a local plugin with host settings off
   (`setting_sources=[]`, ADR 0016), so `worlds/<w>/skills/<name>/SKILL.md` loads as
   `<world id>:<name>` and nothing from `~/.claude` does. The init message's skill list is stored on
@@ -424,7 +450,7 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008,
-  0010 and 0013, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
+  0010, 0013 and 0015, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the

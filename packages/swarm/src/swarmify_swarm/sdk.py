@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     HookMatcher,
@@ -29,6 +30,24 @@ from swarmify_swarm.ports import (
     SessionSpec,
     ToolError,
 )
+
+# ponytail: one price for every model, Claude Opus 5.5's per million tokens (input, output, cache
+# write, cache read). The SDK prices only the whole session, at its result, and that total trues
+# the per-step estimates up; a price table per model when stopping on time needs it. A resumed
+# session's total includes the session it resumed, so a replacement counts that one twice: the
+# Budget errs high, never low.
+PRICE_PER_MTOK = {
+    "input_tokens": 4.0,
+    "output_tokens": 20.0,
+    "cache_creation_input_tokens": 5.0,
+    "cache_read_input_tokens": 0.2,
+}
+
+
+def step_cost(usage: dict[str, Any] | None) -> float:
+    """The estimated cost of one model step from its usage."""
+    return sum(float((usage or {}).get(k) or 0) * p for k, p in PRICE_PER_MTOK.items()) / 1e6
+
 
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
 """Builds the SDK `Transport` for a session from its options (the SDK's own test seam)."""
@@ -87,10 +106,26 @@ class SdkRuntime:
     async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
         opts = options(spec, hooks, self.model)
         custom = self.transport(opts) if self.transport else None
+        spent, steps, session = 0.0, set[str](), spec.resume or ""
         async with ClaudeSDKClient(opts, transport=custom) as client:
             await client.query(spec.prompt)
             async for msg in client.receive_response():
-                if isinstance(msg, SystemMessage) and msg.subtype == "init":
+                if isinstance(msg, AssistantMessage):
+                    # One model step arrives as one message per content block, each carrying the
+                    # step's usage, so a step is charged once, by its message id.
+                    step = msg.message_id or msg.uuid or str(len(steps))
+                    if step in steps or not msg.usage:
+                        continue
+                    steps.add(step)
+                    usd = step_cost(msg.usage)
+                    spent += usd
+                    if stop := hooks.cost(usd):
+                        # Leaving the client ends the CLI; the session id stays resumable.
+                        return SessionEnd(
+                            msg.session_id or session, spent, True, stop, stopped=stop
+                        )
+                elif isinstance(msg, SystemMessage) and msg.subtype == "init":
+                    session = msg.data["session_id"]
                     errors = msg.data.get("plugin_errors") or []
                     hooks.started(
                         SessionInit(
@@ -100,8 +135,8 @@ class SdkRuntime:
                         )
                     )
                 elif isinstance(msg, ResultMessage):
-                    cost = msg.total_cost_usd or 0.0
-                    hooks.cost(cost)
+                    cost = spent if msg.total_cost_usd is None else msg.total_cost_usd
+                    hooks.cost(cost - spent)
                     return SessionEnd(
                         msg.session_id, cost, msg.is_error, msg.result or "", msg.structured_output
                     )

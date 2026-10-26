@@ -74,19 +74,19 @@ export function WorldOverview() {
     };
     // ponytail: EventSource only delivers named events to matching listeners, so each new event
     // type must be added here. Switch to one generic listener when the API emits unnamed events.
-    const types = ["world.created", "world.deleted", "workflow.saved", "run.updated", "gate.opened", "run.ended"];
+    const types = ["world.created", "world.deleted", "workflow.saved", "run.updated", "gate.opened", "budget.warning", "run.ended"];
     for (const type of types) {
       source.addEventListener(type, onEvent);
     }
     return () => source.close();
   }, [worldId]);
 
-  async function start(workflowId: string) {
+  async function start(workflowId: string, baseline = false) {
     setStarting(workflowId);
     setError(null);
     const { data, error } = await api.POST("/api/workflows/{workflow_id}/runs", {
       params: { path: { workflow_id: workflowId } },
-      body: {},
+      body: { baseline },
     });
     setStarting(null);
     if (error || !data) {
@@ -229,6 +229,15 @@ export function WorldOverview() {
                     aria-label={`Start a run of ${w.name}`}
                   >
                     {starting === w.id ? "Starting..." : "Start run"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => start(w.id, true)}
+                    disabled={starting !== null}
+                    aria-label={`Start a Hooli baseline of ${w.name}`}
+                    title="One agent and no graph, so the swarm's runs have something to beat"
+                  >
+                    Hooli baseline
                   </button>
                 </span>
               </li>
