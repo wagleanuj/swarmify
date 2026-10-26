@@ -6,7 +6,6 @@ Runs is another context, so callers hand in the world, run and stage ids.
 from swarmify_swarm.model import (
     HEARTBEAT_TIMEOUT,
     OPERATOR,
-    TASK_STATUSES,
     Note,
     Refused,
     Task,
@@ -19,7 +18,6 @@ __all__ = [
     "HEARTBEAT_TIMEOUT",
     "MIGRATIONS",
     "OPERATOR",
-    "TASK_STATUSES",
     "Note",
     "Refused",
     "SqliteStorage",

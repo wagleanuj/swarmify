@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Literal
 
 TaskStatus = Literal["open", "claimed", "done"]
-TASK_STATUSES: tuple[TaskStatus, ...] = ("open", "claimed", "done")
 HEARTBEAT_TIMEOUT = timedelta(minutes=2)
 """A claimed task whose last heartbeat is older than this returns to open."""
 OPERATOR = "operator"

@@ -20,7 +20,7 @@ from swarmify_worlds import Worlds
 def server(
     worlds: Worlds,
     workflows: Workflows,
-    board: Storage,
+    whiteboard: Storage,
     get_run: GetRun,
     on_delete: Callable[[str], None] = lambda _: None,
 ) -> MCPServer:
@@ -102,7 +102,7 @@ def server(
     ) -> dict[str, Any]:
         try:
             task = tasks.add_task(
-                board,
+                whiteboard,
                 get_run,
                 run_id,
                 stage_id,
@@ -120,7 +120,7 @@ def server(
     @mcp.tool(description="List the tasks on a swarm stage's whiteboard, oldest first.")
     def list_tasks(run_id: str, stage_id: str) -> list[dict[str, Any]]:
         try:
-            return [asdict(t) for t in tasks.list_tasks(board, get_run, run_id, stage_id)]
+            return [asdict(t) for t in tasks.list_tasks(whiteboard, get_run, run_id, stage_id)]
         except KeyError as exc:
             raise ValueError(f"stage not found in run {run_id}: {stage_id}") from exc
 
@@ -139,15 +139,15 @@ def main() -> None:
 
     root = data_dir()
     registry = connector_service(root)
-    runs, board = run_storage(root), task_board(root)
+    runs, whiteboard = run_storage(root), task_board(root)
 
     def on_delete(world_id: str) -> None:
         # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
         # Cancel through DBOSClient when the MCP server starts runs too.
         runs.delete_world(world_id)
-        board.delete_world(world_id)
+        whiteboard.delete_world(world_id)
         registry.delete_world(world_id)
 
     server(
-        world_service(root), workflow_service(root, registry), board, runs.get_run, on_delete
+        world_service(root), workflow_service(root, registry), whiteboard, runs.get_run, on_delete
     ).run("stdio")

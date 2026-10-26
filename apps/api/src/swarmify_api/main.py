@@ -7,9 +7,10 @@ app is served (or inside `with TestClient(app)`).
 """
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -39,6 +40,7 @@ from swarmify_workflows import SqliteStorage as WorkflowStorage
 from swarmify_worlds import MIGRATIONS as WORLDS_MIGRATIONS
 from swarmify_worlds import SqliteStorage, Worlds
 
+log = logging.getLogger(__name__)
 VERSION = version("swarmify-api")
 WEB_DIST = Path(os.environ.get("SWARMIFY_WEB_DIST", Path(__file__).parents[4] / "apps/web/dist"))
 
@@ -141,11 +143,14 @@ def create_app(
         registry.run_stage(run.world_id, run.id, stage_id, stage.config)
 
     runner = Runner(run_storage(root), root / "dbos.sqlite", connector or call_connector)
-    board = task_board(root)
+    whiteboard = task_board(root)
 
     async def sweep() -> None:
         while True:
-            await to_thread.run_sync(lambda: board.expire(clock()))
+            try:
+                await to_thread.run_sync(lambda: whiteboard.expire(clock()))
+            except Exception:
+                log.exception("whiteboard sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
 
     @asynccontextmanager
@@ -155,6 +160,8 @@ def create_app(
         sweeper = asyncio.create_task(sweep())
         yield
         sweeper.cancel()
+        with suppress(asyncio.CancelledError):
+            await sweeper
         await to_thread.run_sync(runner.shutdown)
 
     app = FastAPI(title="Swarmify", version=VERSION, lifespan=lifespan)
@@ -169,13 +176,13 @@ def create_app(
         workflow_svc.delete_world(world_id)
         runner.delete_world(world_id)
         registry.delete_world(world_id)
-        board.delete_world(world_id)
+        whiteboard.delete_world(world_id)
 
     app.include_router(worlds.router(world_svc, on_delete))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(runs.router(runner, workflow_svc, world_svc))
     app.include_router(connectors.router(registry, world_svc))
-    app.include_router(tasks.router(board, runner.get, clock))
+    app.include_router(tasks.router(whiteboard, runner.get, clock))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     return app

@@ -151,6 +151,7 @@ export function RunTimeline() {
         })}
       </ol>
       {open && <CallPanel call={calls[open]} />}
+      {error && <p role="alert">{error}</p>}
       {stage && stageId && (
         <Whiteboard
           runId={run.id}

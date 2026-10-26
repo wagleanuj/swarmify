@@ -1,6 +1,7 @@
 """The whiteboard over HTTP: real DBOS on SQLite behind the app, a run waiting at a gate in front
 of its swarm stage, and an injectable clock so a silent claim can time out without waiting."""
 
+import sqlite3
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -11,8 +12,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from sse import sse_events
 from swarmify_api.main import create_app
-from test_world_events import _events
+from swarmify_swarm import SqliteStorage
 
 GATE_THEN_SWARM = """name: Brief then research
 stages:
@@ -143,6 +145,28 @@ def test_a_silent_claim_returns_to_open_with_its_partial_notes(
     assert running.post(f"{act}/claim", json={"agent": "jared"}).json()["owner"] == "jared"
 
 
+def test_one_failed_sweep_does_not_stop_the_sweeper(
+    tmp_path: Path, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real, calls = SqliteStorage.expire, []
+
+    def flaky(self: SqliteStorage, now: datetime | None = None) -> list:
+        calls.append(now)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(self, now)
+
+    monkeypatch.setattr(SqliteStorage, "expire", flaky)
+    with TestClient(create_app(tmp_path, clock=clock, sweep_seconds=0.05)) as client:
+        _until(lambda: len(calls) >= 1)
+        _, _, url = _swarm_stage(client)
+        task = client.post(url, json={"title": "Pull top shorts"}).json()
+        act = f"/api/tasks/{task['id']}"
+        client.post(f"{act}/claim", json={"agent": "gilfoyle"})
+        clock.now = T0 + timedelta(minutes=2, seconds=1)
+        _until(lambda: client.get(act).json()["status"] == "open")
+
+
 def test_deleting_the_world_takes_its_tasks(running: TestClient) -> None:
     world, _, url = _swarm_stage(running)
     task = running.post(url, json={"title": "x"}).json()
@@ -166,7 +190,7 @@ def test_parallel_http_claims_have_one_winner_and_stream_live(live_url: str) -> 
             ).status_code
 
     with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events", timeout=10) as r:
-        events = _events(r)
+        events = sse_events(r)
         threads = [threading.Thread(target=claim, args=(i,)) for i in range(agents)]
         for t in threads:
             t.start()
