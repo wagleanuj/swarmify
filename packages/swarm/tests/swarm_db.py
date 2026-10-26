@@ -2,6 +2,7 @@
 
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
@@ -20,6 +21,8 @@ class DiskFiles:
 
     def __init__(self, root: Path) -> None:
         self.root = root
+        self.typed: list[tuple[str, str, dict[str, Any], str]] = []
+        """Every typed artifact written: (name, type, fields, body)."""
 
     def stage_folder(self, world_id: str, run_id: str, stage_id: str) -> Path:
         folder = self.root / world_id / "runs" / run_id / stage_id
@@ -27,7 +30,8 @@ class DiskFiles:
         return folder
 
     def artifacts(self, world_id: str, run_id: str) -> list[str]:
-        return []
+        run = self.root / world_id / "runs" / run_id
+        return sorted(str(p.relative_to(run)) for p in run.glob("*/artifacts/*") if p.is_file())
 
     def write_note(
         self,
@@ -53,6 +57,27 @@ class DiskFiles:
         path.parent.mkdir(exist_ok=True)
         path.write_text(content)
         return str(path.relative_to(self.root / world_id))
+
+    def notes(self, world_id: str, run_id: str, stage_id: str) -> list[tuple[str, str]]:
+        folder = self.stage_folder(world_id, run_id, stage_id) / "notes"
+        return [
+            (str(p.relative_to(self.root / world_id)), p.read_text())
+            for p in sorted(folder.glob("*.md"))
+        ]
+
+    def write_typed(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        author: str,
+        name: str,
+        type: str,
+        fields: dict[str, Any],
+        body: str,
+    ) -> str:
+        self.typed.append((name, type, fields, body))
+        return self.write_artifact(world_id, run_id, stage_id, author, name, body)
 
 
 class DiskGraphs:

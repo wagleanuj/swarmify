@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_swarm import tool_id
-from swarmify_swarm.fake import Call, Say, Script
+from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
 
 LEAF = """name: Trends
 stages:
@@ -23,8 +23,11 @@ SCRIPT = [
     Call(tool_id("query_graph"), {"question": "What did we reject before?"}),
     Call(tool_id("claim_task")),
     Call(tool_id("write_artifact"), {"name": "ideas.md", "content": "1. Hooks"}),
+    Call(tool_id("finish_task"), {"task_id": LAST, "note": "Five found."}),
     Say("Five ideas."),
 ]
+PLAN = [Answer({"tasks": [{"title": "Find 5 ideas trending this week."}]})]
+PASS = [Answer({"passed": True, "reasons": ["Five ideas."]})]
 
 
 def runs(name: str, child: str, then: str) -> str:
@@ -39,7 +42,7 @@ REVIEW = "  - gate: review\n    ask: Approve?\n"
 
 @pytest.fixture
 def running(app: FastAPI, script: Script) -> Iterator[TestClient]:
-    script.scripts, script.cost = [SCRIPT], 0.042
+    script.scripts, script.cost, script.cycle = [PLAN, SCRIPT, PASS], 0.042, True
     with TestClient(app) as client:
         yield client
 
@@ -91,8 +94,8 @@ def test_depth_two_takes_the_grandchilds_artifact_up_across_worlds(
     }
 
     agents = running.get(f"/api/runs/{top['id']}/agents").json()
-    assert [(a["run_id"], a["cost_usd"]) for a in agents] == [(leaf["id"], 0.042)], (
-        "the grandchild's spend counts against the top run"
+    assert [(a["run_id"], a["cost_usd"]) for a in agents] == [(leaf["id"], 0.042)] * 3, (
+        "the grandchild's planner, worker and judge spend counts against the top run"
     )
 
     assert running.post(f"/api/runs/{mid['id']}/decision", json={"choice": "1"}).status_code == 200

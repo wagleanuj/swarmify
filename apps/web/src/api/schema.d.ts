@@ -534,6 +534,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/stages/{stage_id}/verdicts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Verdicts
+         * @description The judge's verdict on every loop of the stage, oldest first.
+         */
+        get: operations["get_verdicts_api_runs__run_id__stages__stage_id__verdicts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/stages/{stage_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Artifacts
+         * @description The stage's artifact files as they are on disk: projected ones carry their type and
+         *     fields (an idea's rank and source references) in `fields`.
+         */
+        get: operations["get_artifacts_api_runs__run_id__stages__stage_id__artifacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/graph": {
         parameters: {
             query?: never;
@@ -590,9 +631,9 @@ export interface components {
             name: string;
             /**
              * Role
-             * @constant
+             * @enum {string}
              */
-            role: "worker";
+            role: "planner" | "worker" | "judge";
             /**
              * Status
              * @enum {string}
@@ -613,6 +654,28 @@ export interface components {
         Answer: {
             /** Answer */
             answer: string;
+        };
+        /**
+         * ArtifactFile
+         * @description An artifact of a stage as its file says: `fields` is the whole frontmatter.
+         */
+        ArtifactFile: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Type */
+            type: string;
+            /** Author */
+            author: string;
+            /** Title */
+            title: string;
+            /** Fields */
+            fields: {
+                [key: string]: unknown;
+            };
+            /** Body */
+            body: string;
         };
         /**
          * Call
@@ -1197,6 +1260,38 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * Verdict
+         * @description The Judge's pass or fail on one loop of a swarm stage, with reasons. A fail names the
+         *     gap tasks it added to the whiteboard; a pass keeps the typed items it projected, so a retried
+         *     stage projects the same artifacts again without asking the judge twice.
+         */
+        Verdict: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Stage Id */
+            stage_id: string;
+            /** Loop */
+            loop: number;
+            /** Passed */
+            passed: boolean;
+            /** Reasons */
+            reasons: string[];
+            /** Gaps */
+            gaps: string[];
+            /** Items */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /** Path */
+            path: string;
+            /** Created At */
+            created_at: string;
         };
         /**
          * Violation
@@ -2441,6 +2536,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LogEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_verdicts_api_runs__run_id__stages__stage_id__verdicts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                stage_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Verdict"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifacts_api_runs__run_id__stages__stage_id__artifacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                stage_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactFile"][];
                 };
             };
             /** @description Validation Error */

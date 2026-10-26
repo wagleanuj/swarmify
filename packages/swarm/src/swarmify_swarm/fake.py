@@ -13,6 +13,7 @@ settings are on, standing in for `~/.claude/skills` leaking in), `resume` keeps 
 and the result carries `cost` as the session's estimated total.
 """
 
+import contextlib
 import itertools
 import json
 import re
@@ -25,6 +26,10 @@ from typing import Any
 import anyio
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk._internal.transport import Transport  # the SDK's documented test seam
+
+LAST = "$last.id"
+"""In a Call's input, stands for the `id` in the last successful answer that had one, so a
+script can finish the task it just claimed without knowing its id."""
 
 
 @dataclass(frozen=True)
@@ -45,7 +50,16 @@ class Die:
     """The CLI process dies here, before any result."""
 
 
-Step = Call | Say | Die
+@dataclass(frozen=True)
+class Answer:
+    """The session's structured output (the result's `structured_output`). A callable is
+    called with the session's options when the step plays, for answers that depend on ids the
+    script cannot know before the run starts."""
+
+    data: Any
+
+
+Step = Call | Say | Die | Answer
 
 
 @dataclass(frozen=True)
@@ -62,16 +76,22 @@ class Script:
     `transport` is the factory to hand `SdkRuntime`; `sessions` keeps each session's options
     and `outcomes` every call's answer, for assertions."""
 
-    def __init__(self, *sessions: Sequence[Step], cost: float = 0.01) -> None:
+    def __init__(self, *sessions: Sequence[Step], cost: float = 0.01, cycle: bool = False) -> None:
         self.scripts: Sequence[Sequence[Step]] = list(sessions) or [[]]
         self.cost = cost
+        self.cycle = cycle
+        """Start over at the first step list after the last, instead of repeating it."""
         self.sessions: list[ClaudeAgentOptions] = []
+        self.prompts: list[str] = []
+        """The prompt each session was started with."""
         self.outcomes: list[Outcome] = []
+        self.last_id: str | None = None
 
     def transport(self, options: ClaudeAgentOptions) -> "ScriptedTransport":
         n = len(self.sessions)
         self.sessions.append(options)
-        steps = self.scripts[min(n, len(self.scripts) - 1)]
+        last = len(self.scripts) - 1
+        steps = self.scripts[n % len(self.scripts) if self.cycle else min(n, last)]
         return ScriptedTransport(options, steps, self)
 
 
@@ -141,6 +161,8 @@ class ScriptedTransport(Transport):
                     self._hooks = msg["request"].get("hooks") or {}
                 yield _answer(msg["request_id"], {})
             elif msg["type"] == "user":
+                content = msg["message"]["content"]
+                self.script.prompts.append(content if isinstance(content, str) else str(content))
                 async for out in self._play():
                     yield out
 
@@ -177,14 +199,22 @@ class ScriptedTransport(Transport):
         if errors:
             init["plugin_errors"] = errors
         yield init
-        last = ""
+        last, answer = "", None
         for step in self.steps:
             if isinstance(step, Die):
                 raise RuntimeError("the claude process died")
+            if isinstance(step, Answer):
+                answer = step.data(self.options) if callable(step.data) else step.data
+                continue
             if isinstance(step, Say):
                 last = step.text
                 yield _assistant(sid, {"type": "text", "text": step.text})
                 continue
+            if LAST in step.input.values():
+                step = Call(
+                    step.tool,
+                    {k: self.script.last_id if v == LAST else v for k, v in step.input.items()},
+                )
             use_id = f"toolu_{next(self._ids)}"
             yield _assistant(
                 sid, {"type": "tool_use", "id": use_id, "name": step.tool, "input": step.input}
@@ -225,6 +255,11 @@ class ScriptedTransport(Transport):
                     else:
                         yield item
             self.script.outcomes.append(Outcome(step.tool, is_error, text))
+            if not is_error:
+                with contextlib.suppress(ValueError):
+                    data = json.loads(text)
+                    if isinstance(data, dict) and isinstance(data.get("id"), str):
+                        self.script.last_id = data["id"]
             yield {
                 "type": "user",
                 "message": {
@@ -251,6 +286,7 @@ class ScriptedTransport(Transport):
             "session_id": sid,
             "total_cost_usd": self.script.cost,
             "result": last,
+            "structured_output": answer,
         }
 
     async def _run_tool(self, step: Call) -> AsyncIterator[dict[str, Any] | tuple[str, bool]]:

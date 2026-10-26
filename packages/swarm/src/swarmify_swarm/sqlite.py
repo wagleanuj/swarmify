@@ -26,7 +26,12 @@ from swarmify_swarm.model import (
     Note,
     Refused,
     Task,
+    Verdict,
 )
+from swarmify_swarm.projection import MAX_LOOPS
+
+Seed = tuple[str, str, tuple[int, ...]]
+"""A task to add with others: title, body, indexes of earlier tasks of the batch it needs."""
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 SYSTEM = "swarmify"
@@ -63,27 +68,23 @@ class SqliteStorage:
         body: str = "",
         depends_on: tuple[str, ...] = (),
     ) -> Task:
-        title = title.strip()
-        if not title:
-            raise Refused("a task needs a title")
-        now = _iso(None)
-        task_id = new_id("task")
         with self._write() as conn:
-            for dep in dict.fromkeys(depends_on):
-                row = conn.execute("SELECT stage_id FROM tasks WHERE id = ?", (dep,)).fetchone()
-                if row is None or row["stage_id"] != stage_id:
-                    raise Refused(f"{dep} is not a task of this stage")
-            conn.execute(
-                "INSERT INTO tasks (id, world_id, run_id, stage_id, title, body, status, owner,"
-                " added_by, heartbeat_at, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, ?, NULL, ?, ?)",
-                (task_id, world_id, run_id, stage_id, title, body, added_by, now, now),
-            )
-            conn.executemany(
-                "INSERT INTO task_deps (task_id, depends_on) VALUES (?, ?)",
-                [(task_id, dep) for dep in dict.fromkeys(depends_on)],
+            task_id = _insert_task(
+                conn, world_id, run_id, stage_id, title, added_by, body, depends_on
             )
             return self._changed(conn, task_id)
+
+    def add_tasks(
+        self, world_id: str, run_id: str, stage_id: str, tasks: list[Seed], *, added_by: str
+    ) -> list[Task]:
+        with self._write() as conn:
+            ids: list[str] = []
+            for title, body, after in tasks:
+                deps = tuple(ids[i] for i in after)
+                ids.append(
+                    _insert_task(conn, world_id, run_id, stage_id, title, added_by, body, deps)
+                )
+            return [self._changed(conn, task_id) for task_id in ids]
 
     def get_task(self, task_id: str) -> Task | None:
         with closing(connect(self.path)) as conn:
@@ -155,7 +156,89 @@ class SqliteStorage:
     def delete_world(self, world_id: str) -> None:
         with self._write() as conn:
             conn.execute("DELETE FROM tasks WHERE world_id = ?", (world_id,))
+            conn.execute("DELETE FROM verdicts WHERE world_id = ?", (world_id,))
             conn.execute("DELETE FROM agents WHERE world_id = ?", (world_id,))
+
+    # Verdicts
+
+    def record_verdict(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        *,
+        passed: bool,
+        reasons: list[str],
+        gaps: list[str],
+        items: list[dict[str, Any]],
+        path: str,
+        added_by: str,
+    ) -> Verdict:
+        with self._write() as conn:
+            (loop,) = conn.execute(
+                "SELECT count(*) + 1 FROM verdicts WHERE stage_id = ?", (stage_id,)
+            ).fetchone()
+            verdict = Verdict(
+                new_id("verdict"),
+                world_id,
+                run_id,
+                stage_id,
+                loop,
+                passed,
+                reasons,
+                gaps,
+                items,
+                path,
+                _iso(None),
+            )
+            conn.execute(
+                "INSERT INTO verdicts (id, world_id, run_id, stage_id, loop, passed, reasons,"
+                " gaps, items, path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    verdict.id,
+                    world_id,
+                    run_id,
+                    stage_id,
+                    loop,
+                    int(passed),
+                    json.dumps(reasons),
+                    json.dumps(gaps),
+                    json.dumps(items),
+                    path,
+                    verdict.created_at,
+                ),
+            )
+            # The final allowed verdict fails the stage, so its gaps stay on the verdict only.
+            for gap in gaps if loop <= MAX_LOOPS else []:
+                task_id = _insert_task(conn, world_id, run_id, stage_id, gap, added_by, "", ())
+                self._changed(conn, task_id)
+            event = Event.new(
+                "verdict.created", world_id=world_id, run_id=run_id, payload=asdict(verdict)
+            )
+            append(conn, event)
+            return verdict
+
+    def list_verdicts(self, stage_id: str) -> list[Verdict]:
+        with closing(connect(self.path)) as conn:
+            rows = conn.execute(
+                "SELECT * FROM verdicts WHERE stage_id = ? ORDER BY loop", (stage_id,)
+            ).fetchall()
+        return [
+            Verdict(
+                r["id"],
+                r["world_id"],
+                r["run_id"],
+                r["stage_id"],
+                r["loop"],
+                bool(r["passed"]),
+                json.loads(r["reasons"]),
+                json.loads(r["gaps"]),
+                json.loads(r["items"]),
+                r["path"],
+                r["created_at"],
+            )
+            for r in rows
+        ]
 
     # Agents and the live log
 
@@ -327,6 +410,38 @@ def _agent(row: sqlite3.Row) -> Agent:
         row["updated_at"],
         json.loads(row["skills"]),
     )
+
+
+def _insert_task(
+    conn: sqlite3.Connection,
+    world_id: str,
+    run_id: str,
+    stage_id: str,
+    title: str,
+    added_by: str,
+    body: str,
+    depends_on: tuple[str, ...],
+) -> str:
+    title = title.strip()
+    if not title:
+        raise Refused("a task needs a title")
+    for dep in dict.fromkeys(depends_on):
+        row = conn.execute("SELECT stage_id FROM tasks WHERE id = ?", (dep,)).fetchone()
+        if row is None or row["stage_id"] != stage_id:
+            raise Refused(f"{dep} is not a task of this stage")
+    now = _iso(None)
+    task_id = new_id("task")
+    conn.execute(
+        "INSERT INTO tasks (id, world_id, run_id, stage_id, title, body, status, owner,"
+        " added_by, heartbeat_at, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, ?, NULL, ?, ?)",
+        (task_id, world_id, run_id, stage_id, title, body, added_by, now, now),
+    )
+    conn.executemany(
+        "INSERT INTO task_deps (task_id, depends_on) VALUES (?, ?)",
+        [(task_id, dep) for dep in dict.fromkeys(depends_on)],
+    )
+    return task_id
 
 
 def _note(conn: sqlite3.Connection, task_id: str, author: str, body: str, ts: str) -> None:

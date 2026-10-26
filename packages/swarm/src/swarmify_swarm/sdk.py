@@ -72,6 +72,9 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
         resume=spec.resume,
         max_turns=spec.max_turns,
         model=model,
+        output_format=(
+            {"type": "json_schema", "schema": spec.output_schema} if spec.output_schema else None
+        ),
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[pre_tool])]},
     )
 
@@ -99,5 +102,7 @@ class SdkRuntime:
                 elif isinstance(msg, ResultMessage):
                     cost = msg.total_cost_usd or 0.0
                     hooks.cost(cost)
-                    return SessionEnd(msg.session_id, cost, msg.is_error, msg.result or "")
+                    return SessionEnd(
+                        msg.session_id, cost, msg.is_error, msg.result or "", msg.structured_output
+                    )
         raise RuntimeError("the agent session ended without a result")

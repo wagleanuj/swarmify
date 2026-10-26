@@ -15,6 +15,8 @@ const CAST: Record<string, string> = {
   operator: "you",
   swarmify: "the swarm",
   "worker-1": "Gilfoyle",
+  planner: "Richard",
+  judge: "Erlich",
 };
 
 export const who = (name: string | null) => (name ? (CAST[name] ?? name) : "nobody");

@@ -14,12 +14,12 @@ with the world it came from.
 import asyncio
 import json
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
-from swarmify_swarm.model import Refused, Task
+from swarmify_swarm.model import AgentRole, Refused, Task, Verdict
 from swarmify_swarm.ports import (
     AgentRuntime,
     AgentTool,
@@ -29,14 +29,29 @@ from swarmify_swarm.ports import (
     ToolError,
     tool_id,
 )
+from swarmify_swarm.projection import (
+    MAX_LOOPS,
+    PLAN_SCHEMA,
+    VERDICT_SCHEMA,
+    Item,
+    OutputType,
+    Source,
+    notes_for_judge,
+    output_type,
+    parse_plan,
+    parse_verdict,
+    project,
+    verdict_file,
+)
 
-WORKER = "worker-1"
-SWARM = "swarmify"
-"""`added_by` of the task the swarm seeds from the stage goal."""
+WORKER, PLANNER, JUDGE = "worker-1", "planner", "judge"
 SESSIONS = 2
-"""The worker's first session and one replacement."""
-# ponytail: a fixed turn cap until the Budget (T15) stops sessions by cost.
-MAX_TURNS = 200
+"""An agent's first session and one replacement."""
+# ponytail: fixed turn caps until the Budget (T15) stops sessions by cost.
+MAX_TURNS, SHORT_TURNS = 200, 30
+SHORT_TOOLS = ("query_graph", "list_tasks")
+"""What the planner and the judge may call besides the built-ins: they read, never claim."""
+T = TypeVar("T")
 
 GRAPH, CLAIM = tool_id("query_graph"), tool_id("claim_task")
 BUILTIN = ["Skill", "Read"]
@@ -74,6 +89,25 @@ class Files(Protocol):
         self, world_id: str, run_id: str, stage_id: str, author: str, name: str, content: str
     ) -> str: ...
 
+    def notes(self, world_id: str, run_id: str, stage_id: str) -> list[tuple[str, str]]:
+        """The stage's notes as (path relative to the world folder, body without frontmatter)."""
+        ...
+
+    def write_typed(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        author: str,
+        name: str,
+        type: str,
+        fields: dict[str, Any],
+        body: str,
+    ) -> str:
+        """A typed artifact `name` (markdown) of `type` with `fields` in its frontmatter.
+        Writing a name again replaces it. Returns the path relative to the world folder."""
+        ...
+
 
 class Graphs(Protocol):
     """What the swarm needs from Memory's GraphIndex: read-only graph tools per world folder."""
@@ -95,6 +129,26 @@ class NoGraphs:
 
 class StageError(RuntimeError):
     """The swarm stage failed; the message lands on the stage."""
+
+
+@dataclass(frozen=True)
+class _At:
+    """The stage being run."""
+
+    world_id: str
+    run_id: str
+    stage_id: str
+    stage_name: str
+    config: dict[str, Any]
+    world_folder: Path
+
+
+def _wants(config: dict[str, Any]) -> str:
+    produces = ", ".join(str(p) for p in config.get("produces") or [])
+    out = f"Write these artifacts: {produces}." if produces else ""
+    if config.get("output_type"):
+        out += f" The judge projects the notes into output type {config['output_type']}."
+    return out.strip()
 
 
 def no_servers(_world_id: str, _names: list[str]) -> dict[str, dict[str, Any]]:
@@ -211,69 +265,257 @@ class Swarm:
         config: dict[str, Any],
         world_folder: Path,
     ) -> None:
-        """Run the stage's worker until its session ends. Raises StageError when every
-        session failed. A worker that already finished (a retried step) does not run again."""
-        goal = str(config.get("goal", "")).strip()
+        """Plan an empty whiteboard, work it until no task is left, then judge it: a pass
+        projects the stage's typed artifacts, a fail adds gap tasks and loops, at most
+        MAX_LOOPS times. Raises StageError to fail the stage.
+
+        Every step reads where the stage got to from the whiteboard and its verdicts, so a
+        retried stage resumes: a seeded board is not planned again, a worked board is not worked
+        again and a passing verdict is projected without asking the judge again."""
+        try:
+            kind = output_type(config.get("output_type"))
+        except ValueError as exc:
+            raise StageError(str(exc)) from exc
+        at = _At(world_id, run_id, stage_id, stage_name, config, world_folder)
         if not self.board.list_tasks(stage_id):
-            # ponytail: one seed task from the goal until the Planner (T08) seeds the board.
-            self.board.add_task(world_id, run_id, stage_id, goal or stage_name, added_by=SWARM)
+            self._plan(at)
+        while True:
+            verdicts = self.board.list_verdicts(stage_id)
+            last = verdicts[-1] if verdicts else None
+            if last and last.passed:
+                self._project(at, kind, last)
+                return
+            if last and last.loop > MAX_LOOPS:
+                raise StageError(
+                    f"The judge failed the stage {last.loop} times, the last time because: "
+                    + "; ".join(last.reasons)
+                )
+            self._work(at)
+            self._judge(at, kind)
+
+    def _plan(self, at: "_At") -> None:
+        goal = str(at.config.get("goal", "")).strip()
+        prior = self.files.artifacts(at.world_id, at.run_id)
+        prompt = "\n".join(
+            [
+                f"Seed the whiteboard of swarm stage {at.stage_name}.",
+                f"Goal: {goal}",
+                f"Done when: {at.config.get('done_when', '')}",
+                _wants(at.config),
+                f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
+                "Query the graph for what the world already knows, then answer with the tasks:"
+                " small, concrete, each one worker can finish alone. `after` lists the indexes"
+                " of earlier tasks in your list that must be done first.",
+            ]
+        )
+        seeds = self._short(at, PLANNER, "planner", prompt, PLAN_SCHEMA, parse_plan)
+        self.board.add_tasks(
+            at.world_id,
+            at.run_id,
+            at.stage_id,
+            [(t.title, t.body, t.after) for t in seeds],
+            added_by=PLANNER,
+        )
+
+    def _work(self, at: "_At") -> None:
+        """Run the worker while any task is not done. A worker that stops early fails the
+        stage: the judge only ever sees a worked-out board."""
         board = self.board
-        if board.agent(world_id, run_id, stage_id, WORKER, "worker").status == "done":
+        if all(t.status == "done" for t in board.list_tasks(at.stage_id)):
             return
-        stage_tools = [str(t) for t in config.get("tools") or []]
+        stage_tools = [str(t) for t in at.config.get("tools") or []]
         allowed = allowlist(stage_tools)
-        hooks = _Hooks(board, stage_id, WORKER, allowed, world_folder)
-        for _ in range(SESSIONS):
-            resume = board.agent(world_id, run_id, stage_id, WORKER, "worker").session_id
-            if resume:
-                board.log(stage_id, WORKER, "session", f"A replacement resumes session {resume}.")
-            spec = SessionSpec(
-                system_prompt=self._system_prompt(world_id, run_id, stage_name, config),
-                prompt=f"Work the whiteboard of stage {stage_name} until no task is ready.",
-                cwd=self.files.stage_folder(world_id, run_id, stage_id),
-                plugin=world_folder,
+
+        def spec(resume: str | None) -> SessionSpec:
+            return SessionSpec(
+                system_prompt=self._system_prompt(at.world_id, at.run_id, at.stage_name, at.config),
+                prompt=f"Work the whiteboard of stage {at.stage_name} until no task is ready.",
+                cwd=self.files.stage_folder(at.world_id, at.run_id, at.stage_id),
+                plugin=at.world_folder,
                 tools=self._tools(
-                    world_id,
-                    run_id,
-                    stage_id,
-                    WORKER,
-                    self._readable(world_id, world_folder, config),
+                    at.world_id, at.run_id, at.stage_id, WORKER, self._readable_at(at)
                 ),
                 allowed=allowed,
-                servers=self.servers(world_id, [t for t in stage_tools if t not in STAGE_TOOLS]),
+                servers=self.servers(at.world_id, [t for t in stage_tools if t not in STAGE_TOOLS]),
                 resume=resume,
                 max_turns=MAX_TURNS,
             )
+
+        self._session(at, WORKER, "worker", spec, allowed, lambda _: None)
+        left = [t.title for t in board.list_tasks(at.stage_id) if t.status != "done"]
+        if left:
+            raise StageError(
+                f"{WORKER} stopped with {len(left)} task(s) not done: {'; '.join(left)}"
+            )
+
+    def _judge(self, at: "_At", kind: OutputType | None) -> None:
+        board, files = self.board, self.files
+        loop = len(board.list_verdicts(at.stage_id)) + 1
+        notes = files.notes(at.world_id, at.run_id, at.stage_id)
+        tasks = board.list_tasks(at.stage_id)
+        prior = files.artifacts(at.world_id, at.run_id)
+        if kind is None:
+            output = "The stage declares no output type: return no items."
+        else:
+            shape = f"items of type {kind.type}" if kind.many else f"exactly one {kind.type}"
+            output = (
+                f"On pass, return the stage's output as {shape}, ranked from 1 (best), each"
+                " citing the note paragraphs it comes from by note path and paragraph number."
+                + (" Put an idea's hook and why in fields." if kind.type == "idea" else "")
+            )
+        prompt = "\n".join(
+            [
+                f"Judge swarm stage {at.stage_name}, loop {loop} of at most {MAX_LOOPS + 1}.",
+                f"Goal: {at.config.get('goal', '')}",
+                f"Done when: {at.config.get('done_when', '')}",
+                "Pass only if the done condition is met by what the notes and artifacts show."
+                " Give your reasons. On fail, name each missing piece as a gap task title; the"
+                " workers take them and you judge again.",
+                output,
+                f"Artifacts of the run: {', '.join(prior)}." if prior else "",
+                "# Whiteboard",
+                *[
+                    f"- {t.title} ({t.status}): " + " / ".join(n.body for n in t.notes)
+                    for t in tasks
+                ],
+                "# Notes",
+                notes_for_judge(notes),
+            ]
+        )
+        j = self._short(at, JUDGE, "judge", prompt, VERDICT_SCHEMA, parse_verdict)
+        file = verdict_file(loop, j)
+        path = files.write_typed(
+            at.world_id,
+            at.run_id,
+            at.stage_id,
+            JUDGE,
+            file.name,
+            file.type,
+            file.fields,
+            file.body,
+        )
+        board.record_verdict(
+            at.world_id,
+            at.run_id,
+            at.stage_id,
+            passed=j.passed,
+            reasons=j.reasons,
+            gaps=j.gaps,
+            items=[asdict(i) for i in j.items],
+            path=path,
+            added_by=JUDGE,
+        )
+
+    def _project(self, at: "_At", kind: OutputType | None, verdict: Verdict) -> None:
+        if kind is None:
+            return
+        items = [
+            Item(
+                i["title"],
+                i["body"],
+                i.get("rank"),
+                i.get("fields") or {},
+                [Source(s["note"], s["paragraph"]) for s in i.get("sources") or []],
+            )
+            for i in verdict.items
+        ]
+        notes = self.files.notes(at.world_id, at.run_id, at.stage_id)
+        for a in project(kind, items, notes):
+            self.files.write_typed(
+                at.world_id, at.run_id, at.stage_id, JUDGE, a.name, a.type, a.fields, a.body
+            )
+
+    def _short(
+        self,
+        at: "_At",
+        name: str,
+        role: AgentRole,
+        prompt: str,
+        schema: dict[str, Any],
+        parse: Callable[[Any], T],
+    ) -> T:
+        """A planner or judge session: the graph and the whiteboard to read, a JSON answer."""
+        allowed = [tool_id(t) for t in SHORT_TOOLS] + BUILTIN
+        tools = [
+            t
+            for t in self._tools(at.world_id, at.run_id, at.stage_id, name, self._readable_at(at))
+            if t.name in SHORT_TOOLS
+        ]
+        system = f"You are the {role} of a swarm. Answer only with the JSON the schema asks for."
+
+        def spec(resume: str | None) -> SessionSpec:
+            return SessionSpec(
+                system_prompt=system,
+                prompt=prompt,
+                cwd=self.files.stage_folder(at.world_id, at.run_id, at.stage_id),
+                plugin=at.world_folder,
+                tools=tools,
+                allowed=allowed,
+                resume=resume,
+                max_turns=SHORT_TURNS,
+                output_schema=schema,
+            )
+
+        return self._session(at, name, role, spec, allowed, parse, fresh=True)
+
+    def _session(
+        self,
+        at: "_At",
+        name: str,
+        role: AgentRole,
+        spec: Callable[[str | None], SessionSpec],
+        allowed: list[str],
+        parse: Callable[[Any], T],
+        fresh: bool = False,
+    ) -> T:
+        """Run the agent's session to a usable answer. A session that dies, errors or answers
+        what `parse` refuses is replaced once by one resuming it; when both fail the stage
+        fails. The first session continues the agent's stored session when it has one, unless
+        `fresh`: a planner or judge answer starts clean so verdicts do not carry each other."""
+        board = self.board
+        before = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
+        board.update_agent(at.stage_id, name, status="working")
+        hooks = _Hooks(board, at.stage_id, name, allowed, at.world_folder)
+        for attempt in range(SESSIONS):
+            stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
+            resume = None if fresh and stored == before else stored
+            if resume:
+                said = "A replacement resumes" if attempt else "Continuing"
+                board.log(at.stage_id, name, "session", f"{said} session {resume}.")
             try:
-                end = asyncio.run(self.runtime.run(spec, hooks))
+                end = asyncio.run(self.runtime.run(spec(resume), hooks))
             except Exception as exc:
-                board.log(stage_id, WORKER, "error", f"The session died: {exc}")
+                board.log(at.stage_id, name, "error", f"The session died: {exc}")
                 continue
             if end.is_error:
-                board.log(stage_id, WORKER, "error", f"The session failed: {end.result}")
+                board.log(at.stage_id, name, "error", f"The session failed: {end.result}")
+                continue
+            try:
+                answer = parse(end.output)
+            except ValueError as exc:
+                board.log(at.stage_id, name, "error", f"The answer was not usable: {exc}")
                 continue
             board.log(
-                stage_id,
-                WORKER,
+                at.stage_id,
+                name,
                 "result",
                 f"Session ended at an estimated ${end.cost_usd:.4f}. {end.result}".strip(),
             )
-            board.update_agent(stage_id, WORKER, status="done")
-            return
-        board.update_agent(stage_id, WORKER, status="failed")
-        raise StageError(f"{WORKER} failed {SESSIONS} sessions in a row; see the stage log")
+            board.update_agent(at.stage_id, name, status="done")
+            return answer
+        board.update_agent(at.stage_id, name, status="failed")
+        raise StageError(f"{name} failed {SESSIONS} sessions in a row; see the stage log")
 
     def _system_prompt(
         self, world_id: str, run_id: str, stage_name: str, config: dict[str, Any]
     ) -> str:
-        produces = ", ".join(str(p) for p in config.get("produces") or [])
         prior = self.files.artifacts(world_id, run_id)
         return "\n".join(
             [
                 f"You are {WORKER}, a worker in a swarm. Stage: {stage_name}.",
                 f"Goal: {config.get('goal', '')}",
                 f"Done when: {config.get('done_when', '')}",
-                f"Write these artifacts: {produces}." if produces else "",
+                _wants(config),
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
                 "How you work: call query_graph before your first claim and reuse what the world"
                 " knows. claim_task takes the next ready task. heartbeat at least every minute"
@@ -282,6 +524,9 @@ class Swarm:
                 " Stop when no task is ready.",
             ]
         )
+
+    def _readable_at(self, at: "_At") -> dict[str, Path]:
+        return self._readable(at.world_id, at.world_folder, at.config)
 
     def _readable(
         self, world_id: str, world_folder: Path, config: dict[str, Any]

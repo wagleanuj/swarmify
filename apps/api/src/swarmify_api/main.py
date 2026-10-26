@@ -318,7 +318,7 @@ def create_app(
     app.include_router(runs.router(runner, workflow_svc, world_svc))
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
-    app.include_router(agents.router(whiteboard, runner.get, runner.family))
+    app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")

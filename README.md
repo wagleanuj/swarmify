@@ -244,8 +244,8 @@ operators and for agents outside swarmify (a Claude Code session driving a stage
 A swarm stage runs one worker (`worker-1`, Gilfoyle in the skin) through the AgentRuntime port.
 The adapter is the Claude Agent SDK, whose wheel bundles the `claude` CLI; sessions run on your
 Claude subscription (ADR 0010), so for a headless host run `claude setup-token` once and export
-`CLAUDE_CODE_OAUTH_TOKEN`. Until the planner ships (T08) an empty whiteboard is seeded with one
-task, the stage goal, and the stage is done when the worker's session ends cleanly.
+`CLAUDE_CODE_OAUTH_TOKEN`. The planner seeds an empty whiteboard, the worker works it, and the
+judge decides when the stage is done (see Planner and judge below).
 
 - In-process tools (`mcp__swarmify__<name>`): `query_graph`, `list_tasks`, `claim_task` (the named
   task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `write_note`,
@@ -305,6 +305,39 @@ dependency of `packages/memory`) from the world's files.
 `docker compose up --build` builds the api image (web skin baked in, served at `/`) and the
 graph writer.
 
+## Planner and judge
+
+A swarm stage runs three kinds of agent session on the same runtime: `planner` (Richard in the
+skin), `worker-1` (Gilfoyle) and `judge` (Erlich). Planner and judge are short sessions that may
+only read (`query_graph`, `list_tasks`, `Skill`, `Read`) and must answer structured JSON
+(`--json-schema`, the SDK's `output_format`); an answer that does not parse counts as a failed
+session, replaced once like any other.
+
+1. **Plan.** On an empty whiteboard the planner answers `{"tasks": [{"title", "body", "after"}]}`
+   (`after`: indexes of earlier tasks it depends on); the tasks land in one transaction,
+   `added_by: planner`.
+2. **Work.** The worker runs while any task is not done. A worker that ends with tasks left fails
+   the stage, so the judge only sees a worked-out board.
+3. **Judge.** The judge gets the goal, `done_when`, the whiteboard and every note of the stage with
+   numbered paragraphs, and answers `{"passed", "reasons", "gaps", "items"}`. Each verdict is a row
+   (`verdict.created` event) and an artifact `artifacts/verdict-<loop>.md`. A fail adds its gaps as
+   open tasks (`added_by: judge`; a fail without gaps gets one per reason) and the stage loops.
+   Three gap loops are allowed: the fourth failed verdict fails the stage.
+4. **Project.** On a pass with an `output_type` (`idea`, or `list[idea]` for several), each item
+   becomes `artifacts/<type>-<slug>.md` with frontmatter `type`, `author`, `run`, `stage`, `title`,
+   `rank`, its fields (an idea's `hook` and `why`) and `sources: ["<note path>#p<n>"]`, keeping only
+   references to a real paragraph of one of the stage's notes, quoted under Sources in the body
+   (ADR 0011). A single type keeps the best ranked item.
+
+A retried stage resumes from what is stored: a seeded board is not planned again, a worked board is
+not worked again, a passing verdict is projected again from its stored items without a new judge
+session. `GET /api/runs/<run>/stages/<stage>/verdicts` lists the verdicts and
+`GET /api/runs/<run>/stages/<stage>/artifacts` the stage's artifact files with their frontmatter;
+the run page shows both under the timeline, live.
+
+Scripts can answer for a session with `Answer(data)` (the structured output) and refer to the task
+just claimed with `LAST`; `Script(..., cycle=True)` repeats the step lists per run.
+
 ## Layout
 
 - `packages/kernel` shared kernel: ids, the event envelope and its append-only log, SQLite
@@ -312,7 +345,7 @@ graph writer.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008
-  and 0010, ...) and the composition root passes them all to `migrate` once.
+  and 0010, swarm 0009, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the

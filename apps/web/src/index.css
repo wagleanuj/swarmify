@@ -165,3 +165,5 @@ select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); 
 .publish-problems { border-left: 3px solid #c53030; padding-left: 0.8rem; }
 .publish-problems p, .publish-problems ul { margin: 0.2rem 0; }
 .set-keys { display: grid; gap: 0.4rem; flex-basis: 100%; }
+.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem; display: grid; gap: 0.25rem; }

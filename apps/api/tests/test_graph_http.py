@@ -16,7 +16,11 @@ from sse import sse_events
 from swarmify_api.main import create_app
 from swarmify_memory import EMPTY, FakeGraphIndex
 from swarmify_swarm import SdkRuntime, tool_id
-from swarmify_swarm.fake import Call, Say, Script
+from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
+
+PLAN = [Answer({"tasks": [{"title": "Find 5 ideas."}]})]
+FINISH = Call(tool_id("finish_task"), {"task_id": LAST, "note": "Done."})
+PASS = [Answer({"passed": True, "reasons": ["Five ideas."]})]
 
 
 @pytest.fixture
@@ -78,12 +82,15 @@ def test_notes_from_a_run_are_rebuilt_into_the_graph_and_streamed(
     app: FastAPI, script: Script, tmp_path: Path
 ) -> None:
     script.scripts = [
+        PLAN,
         [
             Call(tool_id("query_graph"), {"question": "What do we know?"}),
             Call(tool_id("claim_task")),
             Call(tool_id("write_note"), {"title": "Hooks", "body": "Short ones win."}),
+            FINISH,
             Say("Done."),
-        ]
+        ],
+        PASS,
     ]
     with TestClient(app) as client:
         world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
@@ -139,13 +146,17 @@ def test_agents_read_their_world_and_listed_worlds_only(
     market = running.post("/api/worlds", json={"name": "Market"}).json()["id"]
     secret = running.post("/api/worlds", json={"name": "Secret"}).json()["id"]
     script.scripts = [
+        PLAN,
         [
             Call(tool_id("query_graph"), {"question": "What sells?", "world": "Market"}),
             Call(tool_id("god_nodes"), {}),
             Call(tool_id("graph_stats"), {"world": secret}),
             Call(tool_id("get_node"), {"label": "x", "project_path": str(tmp_path / "worlds")}),
+            Call(tool_id("claim_task")),
+            FINISH,
             Say("Done."),
-        ]
+        ],
+        PASS,
     ]
     assert _run(running, video, _research("[Market]"))["status"] == "done"
     worlds = tmp_path / "worlds"
@@ -155,4 +166,4 @@ def test_agents_read_their_world_and_listed_worlds_only(
     ]
     texts = [(o.is_error, o.text.splitlines()[0]) for o in script.outcomes]
     assert texts[:2] == [(False, "[world Market]"), (False, f"[world {video}]")]
-    assert all(err and "not readable" in text for err, text in texts[2:]), texts
+    assert all(err and "not readable" in text for err, text in texts[2:4]), texts

@@ -7,7 +7,7 @@ import pytest
 
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
-from swarmify_swarm import SqliteStorage
+from swarmify_swarm import Refused, SqliteStorage
 
 
 def test_an_agent_is_added_once_and_updated_field_by_field(board: SqliteStorage) -> None:
@@ -56,3 +56,67 @@ def test_deleting_a_world_drops_its_agents_and_log(board: SqliteStorage) -> None
     board.log("stage_1", "worker-1", "session", "started")
     board.delete_world("world_1")
     assert board.list_agents("run_1") == [] and board.list_log("stage_1") == []
+
+
+def test_a_verdict_numbers_its_loop_and_adds_its_gap_tasks_at_once(
+    board: SqliteStorage, db: Path
+) -> None:
+    common = {"items": [], "path": "runs/run_1/stage_1/artifacts/verdict.md", "added_by": "judge"}
+    first = board.record_verdict(
+        "world_1", "run_1", "stage_1", passed=False, reasons=["thin"], gaps=["A", "B"], **common
+    )
+    second = board.record_verdict(
+        "world_1", "run_1", "stage_1", passed=True, reasons=["ok"], gaps=[], **common
+    )
+    assert (first.loop, second.loop) == (1, 2)
+    assert board.list_verdicts("stage_1") == [first, second]
+    assert [(t.title, t.added_by) for t in board.list_tasks("stage_1")] == [
+        ("A", "judge"),
+        ("B", "judge"),
+    ]
+    with closing(connect(db)) as conn:
+        types = [e.type for e in read_after(conn, "world_1", 0)]
+    assert types == ["task.updated", "task.updated", "verdict.created", "verdict.created"]
+    with pytest.raises(Refused):  # a gap without a title rolls back the verdict too
+        board.record_verdict(
+            "world_1", "run_1", "stage_1", passed=False, reasons=["r"], gaps=[" "], **common
+        )
+    assert len(board.list_verdicts("stage_1")) == 2
+    board.delete_world("world_1")
+    assert board.list_verdicts("stage_1") == []
+
+
+def test_a_seed_lands_whole_with_its_dependencies(board: SqliteStorage) -> None:
+    a, b = board.add_tasks(
+        "world_1", "run_1", "stage_1", [("A", "", ()), ("B", "b", (0,))], added_by="planner"
+    )
+    assert b.depends_on == [a.id] and a.added_by == "planner"
+    with pytest.raises(Refused):
+        board.add_tasks("world_1", "run_1", "stage_1", [("C", "", ()), ("", "", ())], added_by="p")
+    assert len(board.list_tasks("stage_1")) == 2
+
+
+def test_migration_9_keeps_agents_and_their_log(tmp_path: Path) -> None:
+    from swarmify_kernel import MIGRATIONS as KERNEL
+    from swarmify_kernel.sqlite import migrate
+    from swarmify_swarm import MIGRATIONS
+
+    old = tmp_path / "old"
+    old.mkdir()
+    for f in MIGRATIONS.glob("*.sql"):
+        if not f.name.startswith("0009"):
+            (old / f.name).write_text(f.read_text())
+    db = tmp_path / "swarmify.db"
+    with closing(connect(db)) as conn:
+        migrate(conn, KERNEL, old)
+    board = SqliteStorage(db)
+    board.agent("world_1", "run_1", "stage_1", "worker-1", "worker")
+    board.log("stage_1", "worker-1", "tool", tool="Read")
+    with closing(connect(db)) as conn:
+        assert migrate(conn, KERNEL, MIGRATIONS) == [9]
+    assert [a.name for a in board.list_agents("run_1")] == ["worker-1"]
+    assert [e.tool for e in board.list_log("stage_1")] == ["Read"]
+    board.agent("world_1", "run_1", "stage_1", "judge", "judge")
+    assert board.log("stage_1", "judge", "session").seq == 2
+    board.delete_world("world_1")
+    assert board.list_log("stage_1") == []

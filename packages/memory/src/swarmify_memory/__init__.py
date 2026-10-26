@@ -4,6 +4,8 @@ in the Context Map); a note is an artifact of type `note`.
 
 Layout: `<data_dir>/worlds/<world>/runs/<run>/<stage>/notes/<slug>.md` and
 `.../<stage>/artifacts/<name>`. An artifact that is not markdown gets a sidecar `<name>.md`.
+Typed artifacts the judge projects (idea, verdict, ...) carry their type and fields in the
+frontmatter.
 
 The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read through
 the GraphIndex port.
@@ -13,6 +15,7 @@ import json
 import re
 import shutil
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,7 @@ from swarmify_memory.writer import DEBOUNCE, GraphWriter, extract_command, run_g
 __all__ = [
     "DEBOUNCE",
     "EMPTY",
+    "ArtifactFile",
     "GRAPH_OUT",
     "GRAPH_TOOLS",
     "FakeGraphIndex",
@@ -49,9 +53,40 @@ def _slug(title: str) -> str:
 
 
 def _frontmatter(fields: dict[str, Any]) -> str:
-    """JSON scalars are valid YAML, so values never need hand escaping."""
+    """JSON values are valid YAML (flow style), so values never need hand escaping."""
     lines = [f"{k}: {json.dumps(v)}" for k, v in fields.items() if v is not None]
     return "---\n" + "\n".join(lines) + "\n---\n\n"
+
+
+def _split(text: str) -> tuple[dict[str, Any], str]:
+    """Frontmatter as written by `_frontmatter`, and the body after it. A value that is not
+    JSON (a hand edit) is kept as its text."""
+    if not text.startswith("---\n") or "\n---\n" not in text[3:]:
+        return {}, text
+    head, body = text[4:].split("\n---\n", 1)
+    fields: dict[str, Any] = {}
+    for line in head.splitlines():
+        key, sep, value = line.partition(": ")
+        if sep:
+            try:
+                fields[key] = json.loads(value)
+            except ValueError:
+                fields[key] = value
+    return fields, body.lstrip("\n")
+
+
+@dataclass(frozen=True)
+class ArtifactFile:
+    """An artifact of a stage as its file says: `fields` is the whole frontmatter."""
+
+    name: str
+    path: str
+    """Relative to the world folder."""
+    type: str
+    author: str
+    title: str
+    fields: dict[str, Any]
+    body: str
 
 
 class Memory:
@@ -151,6 +186,63 @@ class Memory:
             if path.suffix != ".md" and sidecar.exists():
                 shutil.copyfile(sidecar, folder / sidecar.name)
             out.append(self._created(world_id, run_id, stage_id, author, "file", folder / name))
+        return out
+
+    def write_typed(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        author: str,
+        name: str,
+        type: str,
+        fields: dict[str, Any],
+        body: str,
+    ) -> str:
+        """A typed artifact (idea, verdict, ...) as markdown: `type` and `fields` go in the
+        frontmatter, `fields` never overriding the reserved keys (type, author, run, ...) since
+        they may come from model output. Writing a name again replaces the file."""
+        if not _NAME.match(name) or not name.endswith(".md"):
+            raise ValueError(f"{name!r} is not a plain markdown file name like idea-hooks.md")
+        folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
+        folder.mkdir(exist_ok=True)
+        path = folder / name
+        meta: dict[str, Any] = self._meta(type, author, run_id, stage_id, None)
+        meta |= {k: v for k, v in fields.items() if k not in meta}
+        path.write_text(_frontmatter(meta) + body)
+        return self._created(world_id, run_id, stage_id, author, type, path)
+
+    def notes(self, world_id: str, run_id: str, stage_id: str) -> list[tuple[str, str]]:
+        """The stage's notes by name: (path relative to the world folder, body)."""
+        folder = self.world_folder(world_id) / "runs" / run_id / stage_id / "notes"
+        world = self.world_folder(world_id)
+        return [
+            (str(p.relative_to(world)), _split(p.read_text())[1])
+            for p in sorted(folder.glob("*.md"))
+        ]
+
+    def stage_artifacts(self, world_id: str, run_id: str, stage_id: str) -> list[ArtifactFile]:
+        """The stage's artifacts by name, sidecars standing in for their files."""
+        folder = self.world_folder(world_id) / "runs" / run_id / stage_id / "artifacts"
+        world = self.world_folder(world_id)
+        files = sorted(p for p in folder.glob("*") if p.is_file())
+        names = {p.name for p in files}
+        out = []
+        for p in files:
+            if not p.name.endswith(".md") and f"{p.name}.md" in names:
+                continue  # its sidecar carries it
+            fields, body = _split(p.read_text(errors="replace"))
+            out.append(
+                ArtifactFile(
+                    p.name.removesuffix(".md") if p.name[:-3] in names else p.name,
+                    str(p.relative_to(world)),
+                    str(fields.get("type", "file")),
+                    str(fields.get("author", "")),
+                    str(fields.get("title") or p.name),
+                    fields,
+                    body,
+                )
+            )
         return out
 
     @staticmethod
