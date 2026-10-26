@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+node_modules/
+dist/
+.env
+*.db
+.playwright-mcp/
+.DS_Store
