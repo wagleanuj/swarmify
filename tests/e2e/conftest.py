@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -26,8 +27,9 @@ def data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("swarmify")
 
 
-@pytest.fixture(scope="session")
-def base_url(data_dir: Path) -> Iterator[str]:
+@contextmanager
+def _serve(data_dir: Path, **env: str) -> Iterator[str]:
+    """The scripted app under uvicorn on a free port, with `env` added to its environment."""
     if not (WEB_DIST / "index.html").exists():
         pytest.fail(f"{WEB_DIST} is missing; run `pnpm --filter web build` first")
     port = _free_port()
@@ -37,6 +39,7 @@ def base_url(data_dir: Path) -> Iterator[str]:
         "SWARMIFY_WEB_DIST": str(WEB_DIST),
         "SWARMIFY_DATA_DIR": str(data_dir),
         "PYTHONPATH": str(Path(__file__).parent),
+        **env,
     }
     cmd = [
         sys.executable,
@@ -60,3 +63,17 @@ def base_url(data_dir: Path) -> Iterator[str]:
             yield url
         finally:
             server.terminate()
+
+
+@pytest.fixture(scope="session")
+def base_url(data_dir: Path) -> Iterator[str]:
+    with _serve(data_dir) as url:
+        yield url
+
+
+@pytest.fixture(scope="session")
+def locked_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    """A second app behind basic auth, with its own data folder."""
+    data = tmp_path_factory.mktemp("swarmify-locked")
+    with _serve(data, SWARMIFY_USER="erlich", SWARMIFY_PASSWORD="aviato") as url:
+        yield url

@@ -14,6 +14,7 @@ args = [a for a in sys.argv[1:] if not a.startswith("-")]
 assert args[:2] == ["remotion", "render"], args
 _, _, entry, composition, output = args[:5]
 props = next(a.split("=", 1)[1] for a in sys.argv if a.startswith("--props="))
+browser = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--browser-executable=")), "")
 if composition == "Broken":
     print("Bundling 100%")
     print(f"Error: No composition with the ID {composition} found.", flush=True)
@@ -25,4 +26,6 @@ for frame in range(1, 4):
 print("Encoded 3/3", flush=True)
 if composition != "Empty":
     given = json.loads(Path(props).read_text())
-    Path(output).write_text(json.dumps({"entry": entry, "composition": composition, **given}))
+    Path(output).write_text(
+        json.dumps({"entry": entry, "composition": composition, "browser": browser, **given})
+    )

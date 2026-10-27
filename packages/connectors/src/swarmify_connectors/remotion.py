@@ -17,6 +17,7 @@ coverage tool cannot see. The transport tests in tests/test_remotion.py exercise
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -120,6 +121,9 @@ def remotion_render(
     argv += [f"--props={_hidden(output, 'props.json')}", f"--codec={_flag('codec', codec)}"]
     if frames:
         argv.append(f"--frames={_flag('frames', str(frames))}")
+    # The Docker image ships Chrome Headless Shell on PATH; elsewhere Remotion finds its own.
+    if browser := shutil.which("chrome-headless-shell"):
+        argv.append(f"--browser-executable={browser}")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.unlink(missing_ok=True)
     _hidden(output, "props.json").write_text(

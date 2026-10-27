@@ -5,7 +5,7 @@ The GraphWriter runs in the API process unless `SWARMIFY_GRAPH_WRITER=external` 
 `swarmify-graph-writer` process does it instead; never both (ADR 0003).
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db`, the DBOS system database
 `dbos.sqlite` and `worlds/<id>/`. DBOS launches in the lifespan, so runs execute only while the
-app is served (or inside `with TestClient(app)`).
+app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` turns on basic auth.
 """
 
 import asyncio
@@ -39,6 +39,7 @@ from swarmify_api import (
     workflows,
     worlds,
 )
+from swarmify_api.auth import BasicAuth
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import (
     ConnectorError,
@@ -434,4 +435,7 @@ def create_app(
     app.include_router(notifications.router(channels, world_svc))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
+    if password := os.environ.get("SWARMIFY_PASSWORD"):
+        user = os.environ.get("SWARMIFY_USER", "swarmify")
+        app.add_middleware(BasicAuth, user=user, password=password)
     return app
