@@ -76,7 +76,14 @@ export function Graph() {
   }
 
   if (world === undefined) {
-    return <main>{error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}</main>;
+    return (
+      <main>
+        <div className="crumb">
+          <Link to="/">worlds</Link>
+        </div>
+        {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
+      </main>
+    );
   }
   if (world === null) {
     return (
@@ -171,7 +178,7 @@ export function Graph() {
           <h2>God nodes</h2>
           <p className="faint">What this world's knowledge revolves around. Pick one to ask about it.</p>
           {view && view.god_nodes.length > 0 ? (
-            <ol className="gods" data-testid="god-nodes">
+            <ul className="gods" data-testid="god-nodes">
               {view.god_nodes.map((g) => (
                 <li key={g.label}>
                   <button
@@ -188,7 +195,7 @@ export function Graph() {
                   <span className="faint">{g.degree} links</span>
                 </li>
               ))}
-            </ol>
+            </ul>
           ) : (
             <p className="faint">None yet.</p>
           )}

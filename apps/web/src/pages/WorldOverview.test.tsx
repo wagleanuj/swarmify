@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
+import { collapse } from "./WorldOverview";
 
 const video = {
   id: "world_1",
@@ -15,6 +16,16 @@ beforeEach(() => FakeEventSource.install());
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+test("a run of the same event type collapses into one activity row with a count", () => {
+  const at = (seq: number, type: string) => ({ seq, type, ts: video.created_at });
+  const rows = collapse([at(1, "run.updated"), at(2, "run.updated"), at(3, "run.ended"), at(4, "run.updated")]);
+  expect(rows.map((r) => [r.seq, r.type, r.times])).toEqual([
+    [2, "run.updated", 2],
+    [3, "run.ended", 1],
+    [4, "run.updated", 1],
+  ]);
 });
 
 test("shows the world, its tiles and live activity from the world's event stream", async () => {
@@ -40,7 +51,7 @@ test("shows the world, its tiles and live activity from the world's event stream
 
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
   FakeEventSource.emit("world.created", { seq: 1, type: "world.created", ts: video.created_at });
-  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/world\.created/);
+  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/World created/);
 });
 
 test("lists the world's workflows and refreshes the list when one is saved", async () => {
@@ -60,7 +71,7 @@ test("lists the world's workflows and refreshes the list when one is saved", asy
   listed = [{ ...weekly, name: "Daily short", current_version: 2 }];
   FakeEventSource.emit("workflow.saved", { seq: 2, type: "workflow.saved", ts: video.created_at });
   await expect.element(screen.getByTestId("workflow-list")).toMatchTextContent(/Daily short.*v2/);
-  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/workflow\.saved/);
+  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/Workflow saved/);
 });
 
 test("deleting asks for confirmation, names the loss, then returns to the worlds list", async () => {

@@ -12,7 +12,7 @@ def test_create_open_and_delete_a_world(page: Page, base_url: str) -> None:
     expect(page.get_by_role("heading", name="Video", level=1)).to_be_visible()
     expect(page.get_by_text("Weekly shorts for the attraction channel.")).to_be_visible()
     # The overview renders the world's own SSE stream, so creation shows up as activity.
-    expect(page.get_by_test_id("activity")).to_contain_text("world.created")
+    expect(page.get_by_test_id("activity")).to_contain_text("World created")
 
     page.get_by_role("link", name="worlds").click()
     expect(page.get_by_role("link", name="Video")).to_be_visible()
