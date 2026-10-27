@@ -236,7 +236,7 @@ class Runner(RunControl):
         Raises ValueError for an index that skips nothing or everything, or a missing file."""
         if not 1 <= index < len(pinned.stages):
             raise ValueError(
-                "a promote skips at least one stage and starts before the last; to run every"
+                "a promote skips at least one stage and starts at or before the last; to run every"
                 " stage, start a run"
             )
         if not artifact.is_file():

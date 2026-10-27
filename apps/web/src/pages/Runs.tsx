@@ -73,7 +73,7 @@ export function Runs() {
                 {r.name}
               </Link>
               <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
-              {r.parent && <ChildOf parent={r.parent} />}
+              {r.parent && <RunRef label="child of" run={r.parent} testId="child-of" />}
               {r.forked_from && <RunRef label="fork of" run={r.forked_from} testId="fork-of" />}
               <span className="faint">{progress(r)}</span>
               <span className="faint">v{r.workflow_version}</span>
@@ -86,11 +86,6 @@ export function Runs() {
       )}
     </main>
   );
-}
-
-/** "child of <parent>", linking to the parent run, which may live in another world. */
-export function ChildOf({ parent }: { parent: RunLink }) {
-  return <RunRef label="child of" run={parent} testId="child-of" />;
 }
 
 /** "<label> <run>", linking to a related run. */

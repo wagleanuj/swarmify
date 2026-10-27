@@ -340,6 +340,7 @@ class SqliteStorage:
             _link(conn, row["parent_run_id"]),
             _link(conn, row["forked_from_run_id"]),
             row["fork_stage_index"],
+            # ponytail: one query per run read, so list_runs is N+1 (like _link); join if it shows
             [
                 RunLink(f["id"], f["world_id"], f["name"])
                 for f in conn.execute(

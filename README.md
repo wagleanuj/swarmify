@@ -414,7 +414,7 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
   optional}`) starts a run at stage `n` with a Library artifact as its input: stages before `n`
   are inserted `skipped`, the file (with its sidecar, frontmatter kept as provenance) lands in the
   last skipped stage's `artifacts/` folder where later stages' `input` finds it, and the run
-  carries `promoted_from`. `n` must skip at least one stage and start before the last (422). The
+  carries `promoted_from`. `n` must skip at least one stage and start at or before the last (422). The
   Library's "Promote..." picks the workflow and the stage.
 
 ## Layout

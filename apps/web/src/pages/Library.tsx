@@ -16,7 +16,7 @@ type Filters = { type: string; workflow: string; stage: string; run: string; fro
 const NONE: Filters = { type: ANY, workflow: ANY, stage: ANY, run: ANY, from: ANY, to: ANY };
 
 /** The items that pass every set filter; dates compare on the calendar day. */
-export function filter(items: Item[], f: Filters): Item[] {
+function filter(items: Item[], f: Filters): Item[] {
   return items.filter(
     (i) =>
       (!f.type || i.type === f.type) &&

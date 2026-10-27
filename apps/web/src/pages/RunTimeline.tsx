@@ -7,7 +7,7 @@ import { actOn, type Call, decisionLine, type Run, statusLine } from "../api/run
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
-import { ChildOf, RunRef } from "./Runs";
+import { RunRef } from "./Runs";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
@@ -205,7 +205,7 @@ export function RunTimeline() {
           </h1>
           {run.parent && (
             <p className="sub">
-              <ChildOf parent={run.parent} />. It spends that run's budget, and aborting that run
+              <RunRef label="child of" run={run.parent} testId="child-of" />. It spends that run's budget, and aborting that run
               aborts this one.
             </p>
           )}

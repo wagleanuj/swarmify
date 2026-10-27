@@ -265,6 +265,7 @@ class Memory:
             file = file.with_name(f"{file.name}.md")
         if not (file.is_relative_to(runs) and file.suffix == ".md" and file.is_file()):
             raise ValueError(f"no artifact at {path}")
+        file = world / file.relative_to(runs.parent)  # resolved only for the check above
         fields, body = _split(file.read_text(errors="replace"))
         if pinned:
             fields["pinned"] = True

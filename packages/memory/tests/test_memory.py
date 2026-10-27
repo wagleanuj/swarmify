@@ -201,3 +201,23 @@ def test_a_pin_lives_in_the_frontmatter_and_the_pinned_list_follows_it(memory: M
     for bad in ("runs/r1/s1/artifacts/missing.md", "../escape.md", "/etc/hosts", "runs/r1/s1"):
         with pytest.raises(ValueError, match="no artifact at"):
             memory.pin("w1", bad)
+
+
+@pytest.mark.parametrize("root", ["symlink", "relative"])
+def test_a_pin_works_when_the_data_root_is_a_symlink_or_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, root: str
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    db = real / "swarmify.db"
+    with closing(connect(db)) as conn:
+        migrate(conn, MIGRATIONS)
+    if root == "symlink":
+        (tmp_path / "link").symlink_to(real)
+        memory = Memory(db, tmp_path / "link")
+    else:
+        monkeypatch.chdir(tmp_path)
+        memory = Memory(db, Path("real"))
+    brief = memory.write_artifact("w1", "r1", "s1", "worker-1", "brief.md", "Brief")
+    assert [a.path for a in memory.library("w1")] == [brief]
+    assert memory.pin("w1", brief).pinned and memory.pinned("w1") == [brief]
