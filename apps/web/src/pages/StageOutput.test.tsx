@@ -93,6 +93,10 @@ test("a publish card shows the views written back, and a pruned file says its re
     title: "Five hooks",
     fields: { type: "publish", views: 41250, views_at: "2026-10-27T12:00:00+00:00" },
     body: "# Five hooks",
+    run_id: "run_1",
+    stage: "stage_0",
+    created: ts,
+    pinned: false,
   };
   const video: ArtifactFile = {
     name: "short.mp4",
@@ -102,6 +106,10 @@ test("a publish card shows the views written back, and a pruned file says its re
     title: "short.mp4.md",
     fields: { type: "file", deleted: "2027-01-30T00:00:00+00:00" },
     body: "Sidecar of short.mp4.",
+    run_id: "run_1",
+    stage: "stage_0",
+    created: ts,
+    pinned: false,
   };
   routes([], () => [publish, video]);
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");

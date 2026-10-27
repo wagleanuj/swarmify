@@ -53,6 +53,7 @@ def test_the_gate_before_a_publish_stage_shows_what_goes_out(
     wait_for(lambda: status(runner, run.id) == "waiting_gate")
     (gate,) = runner.gates()
     assert gate.publish == PublishPreview("youtube", "Hooks", "public", "2099-01-01T09:00:00Z")
+    wait_for(lambda: any(e.type == "gate.opened" for e in notifier.events))  # notify follows save
     opened = next(e for e in notifier.events if e.type == "gate.opened")
     assert opened.payload["publish"]["title"] == "Hooks"
     assert opened.payload["publish"]["schedule"] == "2099-01-01T09:00:00Z"

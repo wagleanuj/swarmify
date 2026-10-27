@@ -300,7 +300,9 @@ class Memory:
             if p.suffix != ".md" and p.with_name(f"{p.name}.md").is_file():
                 continue  # its sidecar carries it
             fields, body = _split(p.read_text(errors="replace"))
-            carried = p.suffix == ".md" and (p.with_name(p.name[:-3]).is_file() or "deleted" in fields)
+            carried = p.suffix == ".md" and (
+                p.with_name(p.name[:-3]).is_file() or "deleted" in fields
+            )
             parts = p.relative_to(world).parts  # runs, <run>, <stage>, ...
             out.append(
                 ArtifactFile(

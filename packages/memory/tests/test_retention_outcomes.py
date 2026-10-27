@@ -76,7 +76,7 @@ def test_prune_deletes_old_binaries_and_keeps_markdown_and_sidecars(memory: Memo
 def test_an_outcome_lands_in_frontmatter_and_body_replacing_the_last_one(memory: Memory) -> None:
     body = "# Five hooks\n\nshort.mp4 went to youtube: public, now.\n\n- youtube: https://youtu.be/v1\n"
     path = memory.write_artifact(
-        "w1", "r1", "s9", "publish", "publish.md", body, type="publish", fields={"id": "v1"}
+        "w1", "r1", "s9", "publish", "publish.md", body, kind="publish", fields={"id": "v1"}
     )
     [(found, fields)] = memory.publish_records("w1")
     assert (found, fields["type"], fields["id"]) == (path, "publish", "v1")

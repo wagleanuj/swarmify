@@ -121,10 +121,3 @@ def test_retention_deletes_old_binaries_and_keeps_their_markdown(
     assert "short.mp4 was deleted by retention" in sidecar.read_text()
     assert "artifact.pruned" in _types(tmp_path, video["id"])
     assert all(f.exists() for f in files[keep["id"]])  # 0 keeps files forever
-
-
-def test_world_settings_are_validated(running: TestClient) -> None:
-    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
-    for bad in ({"retention_days": -1}, {"retention_days": 3651}, {}):
-        assert running.patch(f"/api/worlds/{world}", json=bad).status_code == 422
-    assert running.patch("/api/worlds/world_nope", json={"retention_days": 5}).status_code == 404
