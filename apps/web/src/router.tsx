@@ -9,6 +9,7 @@ import {
 import { Connectors } from "./pages/Connectors";
 import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
+import { Library } from "./pages/Library";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
 import { Settings } from "./pages/Settings";
@@ -72,6 +73,12 @@ export const graphRoute = createRoute({
   component: Graph,
 });
 
+export const libraryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/library",
+  component: Library,
+});
+
 export const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/settings",
@@ -88,6 +95,7 @@ const routeTree = rootRoute.addChildren([
   runRoute,
   connectorsRoute,
   graphRoute,
+  libraryRoute,
   settingsRoute,
 ]);
 

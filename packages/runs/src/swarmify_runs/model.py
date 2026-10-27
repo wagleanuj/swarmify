@@ -86,6 +86,12 @@ class Run:
     parent_run_id: str | None = None
     decisions: list[Decision] = field(default_factory=list)
     parent: RunLink | None = None
+    forked_from: RunLink | None = None
+    """The run this one was forked from; `fork_stage_index` is the first stage that runs anew."""
+    fork_stage_index: int | None = None
+    forks: list[RunLink] = field(default_factory=list)
+    promoted_from: str | None = None
+    """The Library artifact (a path in the world folder) a promoted run started from."""
 
 
 @dataclass(frozen=True)

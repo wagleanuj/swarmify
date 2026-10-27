@@ -27,7 +27,17 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from swarmify_api import agents, connectors, graph, notifications, runs, tasks, workflows, worlds
+from swarmify_api import (
+    agents,
+    connectors,
+    graph,
+    library,
+    notifications,
+    runs,
+    tasks,
+    workflows,
+    worlds,
+)
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import (
     ConnectorError,
@@ -364,6 +374,7 @@ def create_app(
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index))
+    app.include_router(library.router(memory, world_svc, runner.list_all))
     app.include_router(notifications.router(channels, world_svc))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")

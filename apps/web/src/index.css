@@ -168,3 +168,8 @@ select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); 
 .set-keys { display: grid; gap: 0.4rem; flex-basis: 100%; }
 .cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem; display: grid; gap: 0.25rem; }
+.filters { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; margin-bottom: 1rem; font-size: 0.9rem; }
+.filters input[type="date"] { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+.chip.pinned { color: #b7791f; border-color: #b7791f; }
+.promote { display: grid; gap: 0.4rem; justify-items: start; margin-top: 0.4rem; padding-top: 0.5rem; border-top: 1px solid var(--line); font-size: 0.9rem; }
+.lineage { font-size: 0.85rem; }

@@ -31,7 +31,7 @@ test("renders the stages in order and follows the run live from the world stream
   const waiting = run("waiting_gate", [stage(0, "render", "connector", "done"), stage(1, "pick", "gate", "waiting")]);
   FakeEventSource.emit("run.updated", { payload: waiting });
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Waiting for you at stage 2: pick.");
-  await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/1 · done · connector\s*render\s*Show the call\s*2 · you · gate\s*pick/);
+  await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/1 · done · connector\s*render\s*Fork from here\s*Show the call\s*2 · you · gate\s*pick/);
 });
 
 test("a failed stage shows its error", async () => {

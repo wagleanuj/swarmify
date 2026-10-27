@@ -520,3 +520,19 @@ def test_graph_tools_read_only_the_worlds_the_stage_allows(
     ]
     for o in script.outcomes[3:6]:
         assert o.is_error and f"Readable: {W}, market." in o.text
+
+
+def test_pinned_artifacts_are_required_reading_for_the_planner_and_the_worker(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    plan = Answer({"tasks": [{"title": "Pull top shorts"}]})
+    script = Script([GRAPH, plan], [GRAPH, CLAIM, FINISH], PASS)
+    files = DiskFiles(tmp_path)
+    files.pins = ["runs/run_0/stage_0/artifacts/brief.md"]
+    _run(Swarm(board, SdkRuntime(transport=script.transport), files), tmp_path)  # type: ignore[arg-type]
+
+    pinned = str(tmp_path / W / "runs/run_0/stage_0/artifacts/brief.md")
+    planner, worker, judge = script.prompts
+    assert "Pinned references, required reading" in planner and pinned in planner
+    assert pinned in str(script.sessions[1].system_prompt) and pinned not in worker
+    assert "Pinned" not in judge, "the judge judges the stage's own notes"

@@ -180,6 +180,12 @@ export function WorldOverview() {
           </Link>
         </div>
         <div className="tile">
+          <b>Library</b>Every artifact across runs; pin one or start a run from it.{" "}
+          <Link to="/worlds/$worldId/library" params={{ worldId }}>
+            Open the library
+          </Link>
+        </div>
+        <div className="tile">
           <b>Connectors</b>Web search and the graph are ready.{" "}
           <Link to="/worlds/$worldId/connectors" params={{ worldId }}>
             Manage connectors

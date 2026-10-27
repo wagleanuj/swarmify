@@ -184,6 +184,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fork
+         * @description A new run of the same workflow version that copies this one, rows and files, up to
+         *     `stage` and runs on from there. Every earlier stage must have finished.
+         */
+        post: operations["fork_api_runs__run_id__fork_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Promote
+         * @description A run that starts at `stage` with `artifact` as its input; the earlier stages are
+         *     skipped.
+         */
+        post: operations["promote_api_workflows__workflow_id__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/runs": {
         parameters: {
             query?: never;
@@ -609,6 +651,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library
+         * @description Every artifact of the world across its runs, newest first.
+         */
+        get: operations["library_api_worlds__world_id__library_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pin
+         * @description Pin or unpin an artifact. Pinned artifacts are injected into the planner and worker
+         *     context of every later swarm stage of the world.
+         */
+        post: operations["pin_api_worlds__world_id__pins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/notifications": {
         parameters: {
             query?: never;
@@ -714,6 +797,26 @@ export interface components {
             };
             /** Body */
             body: string;
+            /**
+             * Run Id
+             * @default
+             */
+            run_id: string;
+            /**
+             * Stage
+             * @default
+             */
+            stage: string;
+            /**
+             * Created
+             * @default
+             */
+            created: string;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
         };
         /**
          * Call
@@ -895,6 +998,11 @@ export interface components {
             /** Error */
             error: string;
         };
+        /** Fork */
+        Fork: {
+            /** Stage */
+            stage: number;
+        };
         /**
          * Gate
          * @description An open gate as the inbox lists it: which run waits, what it asks, how to answer.
@@ -987,6 +1095,44 @@ export interface components {
             };
         };
         /**
+         * LibraryItem
+         * @description An artifact as the Library lists it: the file plus where it came from.
+         */
+        LibraryItem: {
+            /** Path */
+            path: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Title */
+            title: string;
+            /** Author */
+            author: string;
+            /** Created */
+            created: string;
+            /** Pinned */
+            pinned: boolean;
+            /** Body */
+            body: string;
+            /** Fields */
+            fields: {
+                [key: string]: unknown;
+            };
+            /** Run Id */
+            run_id: string;
+            /** Run Name */
+            run_name: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: number | null;
+            /** Stage Index */
+            stage_index: number | null;
+            /** Stage Name */
+            stage_name: string;
+        };
+        /**
          * LogEntry
          * @description One line of a stage's live log: a session starting or ending, or one tool call the hooks
          *     saw, allowed (`tool`) or refused (`denied`, with the reason in `detail`).
@@ -1074,12 +1220,31 @@ export interface components {
             /** Ts */
             ts: string;
         };
+        /** PinBody */
+        PinBody: {
+            /** Path */
+            path: string;
+            /**
+             * Pinned
+             * @default true
+             */
+            pinned: boolean;
+        };
         /** Progress */
         Progress: {
             /** Agent */
             agent: string;
             /** Note */
             note?: string | null;
+        };
+        /** Promote */
+        Promote: {
+            /** Artifact */
+            artifact: string;
+            /** Stage */
+            stage: number;
+            /** Version */
+            version?: number | null;
         };
         /**
          * PublishPreview
@@ -1169,6 +1334,13 @@ export interface components {
             /** Decisions */
             decisions?: components["schemas"]["Decision"][];
             parent?: components["schemas"]["RunLink"] | null;
+            forked_from?: components["schemas"]["RunLink"] | null;
+            /** Fork Stage Index */
+            fork_stage_index?: number | null;
+            /** Forks */
+            forks?: components["schemas"]["RunLink"][];
+            /** Promoted From */
+            promoted_from?: string | null;
         };
         /**
          * RunLink
@@ -1868,6 +2040,95 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    fork_api_runs__run_id__fork_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Fork"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_api_workflows__workflow_id__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Promote"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2717,6 +2978,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Answer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_api_worlds__world_id__library_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pin_api_worlds__world_id__pins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItem"];
                 };
             };
             /** @description Validation Error */
