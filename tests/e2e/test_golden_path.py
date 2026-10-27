@@ -7,6 +7,7 @@ Behind the API: the scripted agent CLI (no model) and the fake render and YouTub
 
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -16,7 +17,7 @@ KEYS = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRES
 
 
 def test_draft_with_the_planner_run_every_gate_and_publish(
-    page: Page, base_url: str, data_dir: Path
+    page: Page, base_url: str, data_dir: Path, until: Callable[..., None]
 ) -> None:
     page.goto(base_url)
     page.get_by_label("Name").fill("Golden")
@@ -24,12 +25,12 @@ def test_draft_with_the_planner_run_every_gate_and_publish(
     expect(page.get_by_role("heading", name="Golden", level=1)).to_be_visible()
     world = page.url.rstrip("/").split("/")[-1]
     try:
-        _run(page, base_url, data_dir, world)
+        _run(page, base_url, data_dir, world, until)
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world}")
 
 
-def _run(page: Page, base_url: str, data_dir: Path, world: str) -> None:
+def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[..., None]) -> None:
     httpx.put(
         f"{base_url}/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS}
     ).raise_for_status()
@@ -109,10 +110,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str) -> None:
     assert "https://youtu.be/e2e-video" in publish.read_text()
 
     # Upkeep writes the video's views into the publish record and onto the scorecard (84, 85).
-    for _ in range(100):
-        if "1,234 views" in publish.read_text():
-            break
-        time.sleep(0.1)
+    until(lambda: "1,234 views" in publish.read_text())
     assert "e2e-video: 1,234 views" in publish.read_text()  # in the body, where the graph reads
     page.goto(f"{base_url}/worlds/{world}")
     page.get_by_role("link", name="Scorecard of Weekly short").click()
@@ -122,9 +120,6 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str) -> None:
     (video,) = folder.rglob("short.mp4")
     old = time.time() - 100 * 86400
     os.utime(video, (old, old))
-    for _ in range(100):
-        if not video.exists():
-            break
-        time.sleep(0.1)
+    until(lambda: not video.exists())
     assert not video.exists()
     assert "deleted by retention" in video.with_name("short.mp4.md").read_text()

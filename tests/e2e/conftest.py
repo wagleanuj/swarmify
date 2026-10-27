@@ -84,3 +84,17 @@ def serve() -> Callable[..., AbstractContextManager[str]]:
     """Start an app of its own: `with serve(data_dir, **env) as url`. For a test that restarts
     the server, sets its environment, or leaves the shared script's session cycle shifted."""
     return _serve
+
+
+def _until(check: Callable[[], object]) -> None:
+    for _ in range(200):
+        if check():
+            return
+        time.sleep(0.1)
+    raise AssertionError("timed out")
+
+
+@pytest.fixture
+def until() -> Callable[[Callable[[], object]], None]:
+    """Polls `check` every 0.1 s for up to 20 s, for state no locator shows."""
+    return _until

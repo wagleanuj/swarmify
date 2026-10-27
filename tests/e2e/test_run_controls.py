@@ -2,7 +2,6 @@
 reaching a child run, a Hooli baseline measured beside the swarm, and an ad hoc run from a typed
 goal saved as a workflow. Every change reaches the open page over the world's event stream."""
 
-import time
 from typing import Any
 
 import httpx
@@ -21,15 +20,9 @@ stages:
 """
 
 
-def until(check: Any) -> None:
-    for _ in range(200):
-        if check():
-            return
-        time.sleep(0.1)
-    raise AssertionError("timed out")
-
-
-def test_pause_resume_the_cap_and_abort_reaching_the_child(page: Page, base_url: str) -> None:
+def test_pause_resume_the_cap_and_abort_reaching_the_child(
+    page: Page, base_url: str, until: Any
+) -> None:
     api = httpx.Client(base_url=f"{base_url}/api")
     world = api.post("/worlds", json={"name": "Video"}).json()["id"]
     try:
