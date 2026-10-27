@@ -78,10 +78,9 @@ def test_eighty_percent_warns_once_and_the_run_goes_on(
     budgeted: Runner, notifier: FakeNotifier
 ) -> None:
     run = budgeted.start("world_1", "wf_1", 1, "Research", [RESEARCH], budget_usd=4.5)
-    wait_for(lambda: fetch(budgeted, run.id).status == "done")
+    wait_for(lambda: types(notifier) == ["budget.warning", "run.ended"])
     done = fetch(budgeted, run.id)
     assert done.spent_usd == 4.0 and done.budget_usd == 4.5 and not done.over_budget
-    assert types(notifier) == ["budget.warning", "run.ended"]
     warning = notifier.events[0]
     assert warning.run_id == run.id
     assert warning.payload == {
@@ -91,20 +90,19 @@ def test_eighty_percent_warns_once_and_the_run_goes_on(
 
 def test_a_run_without_a_budget_never_stops(budgeted: Runner, notifier: FakeNotifier) -> None:
     run = budgeted.start("world_1", "wf_1", 1, "Research", [RESEARCH])
-    wait_for(lambda: fetch(budgeted, run.id).status == "done")
-    assert fetch(budgeted, run.id).spent_usd == 4.0 and types(notifier) == ["run.ended"]
+    wait_for(lambda: types(notifier) == ["run.ended"])
+    assert fetch(budgeted, run.id).spent_usd == 4.0
 
 
 def test_a_hundred_percent_stops_the_agents_at_a_budget_gate_until_money_is_added(
     budgeted: Runner, notifier: FakeNotifier, swarm: FakeSwarm
 ) -> None:
     run = budgeted.start("world_1", "wf_1", 1, "Research", [RESEARCH, PICK], budget_usd=3)
-    wait_for(lambda: fetch(budgeted, run.id).status == "waiting_gate")
+    wait_for(lambda: types(notifier) == ["budget.warning", "gate.opened"])  # notified after save
     stopped = fetch(budgeted, run.id)
     assert stopped.over_budget and stopped.spent_usd == 3.0
     assert [s.status for s in stopped.stages] == ["waiting", "pending"]
     assert swarm.done == {stopped.stages[0].id: 3}
-    assert types(notifier) == ["budget.warning", "gate.opened"]
     opened = notifier.events[1].payload
     assert opened["kind"] == "budget" and "$3.00 is spent ($3.00 so far" in opened["ask"]
 

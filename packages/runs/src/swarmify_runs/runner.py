@@ -79,7 +79,7 @@ MAX_DEPTH = 2
 guards a run against workflows edited after it pinned its version."""
 # ponytail: pinned so a code change does not orphan runs in flight (DBOS only recovers
 # workflows of the current application version). Bump it when the workflow's step order changes.
-APP_VERSION = "4"
+APP_VERSION = "5"
 
 Connector = Callable[[Run, str, StageDef], None]
 """Calls one connector stage. Arguments: the run, the stage id (the idempotency key) and the
@@ -350,7 +350,11 @@ def execute_run(run_id: str) -> str:
             state, commands = transition(tuple(kinds), state, event)
         except Illegal:
             continue  # a stale message, e.g. a resume for a run that is not paused
-        _save(run_id, state, error, bool(commands and isinstance(commands[0], OpenGate)))
+        gate_opened = bool(commands and isinstance(commands[0], OpenGate))
+        outcome_next = events and isinstance(events[-1], StageFinished | StageFailed | BudgetSpent)
+        if outcome_next and not gate_opened and state.status not in TERMINAL:
+            continue  # a pause sent mid-stage is saved with the stage's outcome, never before it
+        _save(run_id, state, error, gate_opened)
         if state.status in TERMINAL:
             if parent is not None:
                 # ponytail: a parent already ended (aborted first) never reads this, so it stays

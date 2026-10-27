@@ -186,7 +186,7 @@ def test_pause_holds_the_run_and_resume_moves_it_on(
 
 
 def test_pause_sent_mid_stage_lands_when_the_stage_finishes(
-    runner: Runner, connector: FakeConnector
+    runner: Runner, connector: FakeConnector, storage: SqliteStorage
 ) -> None:
     gate_open = threading.Event()
     original = connector.__call__
@@ -204,6 +204,10 @@ def test_pause_sent_mid_stage_lands_when_the_stage_finishes(
     gate_open.set()
     at(runner, run.id, "paused")
     assert [s.status for s in fetch(runner, run.id).stages] == ["done", "pending", "pending"]
+    with closing(connect(storage.path)) as conn:
+        shown = [e.payload for e in read_after(conn, "world_1", 0) if e.type == "run.updated"]
+    paused = [[s["status"] for s in p["stages"]] for p in shown if p["status"] == "paused"]
+    assert paused == [["done", "pending", "pending"]]  # never paused with the stage still running
     runner.resume(run.id)
     at(runner, run.id, "waiting_gate", "pick")
 

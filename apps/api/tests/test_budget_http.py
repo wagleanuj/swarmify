@@ -70,13 +70,11 @@ def test_eighty_percent_warns_and_a_hundred_stops_the_agents_at_a_budget_gate(
     run = running.post(f"/api/workflows/{wf}/runs", json={}).json()
     assert run["budget_usd"] == 3.5 and run["spent_usd"] == 0 and run["baseline"] is False
 
-    until(lambda: _run(running, run["id"])["over_budget"])
+    until(lambda: [e.type for e in notifier.events] == ["budget.warning", "gate.opened"])
     stopped = _run(running, run["id"])
     # planner 0.25, then the worker's steps: 1.25, 2.25, 3.25 (warns), 4.25 (stops)
     assert stopped["status"] == "waiting_gate" and stopped["spent_usd"] == 4.25
     assert stopped["stages"][0]["status"] == "waiting"
-    types = [e.type for e in notifier.events]
-    assert types == ["budget.warning", "gate.opened"]
     assert notifier.events[0].payload["spent_usd"] == 3.25  # the third call crossed $2.80
     assert notifier.events[1].payload["kind"] == "budget"
 
