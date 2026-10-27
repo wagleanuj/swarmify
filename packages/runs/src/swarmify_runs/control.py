@@ -386,6 +386,8 @@ def decision_markdown(run: Run, decision: Decision) -> str:
         outcome = f"Picked {decision.choice}."
     elif decision.kind == "confirm":
         outcome = "Confirmed."
+    elif decision.kind == "skill":
+        outcome = f"Skill proposal {decision.choice or 'approved'}."
     else:
         outcome = "Approved."
     body = [f"# Decision at {decision.stage_name}", "", outcome]

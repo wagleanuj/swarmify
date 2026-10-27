@@ -13,6 +13,7 @@ import { Gates } from "./pages/Gates";
 import { Library } from "./pages/Library";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
+import { Scorecard } from "./pages/Scorecard";
 import { Settings } from "./pages/Settings";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
 import { WorldOverview } from "./pages/WorldOverview";
@@ -48,6 +49,12 @@ export const workflowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/workflows/$workflowId",
   component: WorkflowEditor,
+});
+
+export const scorecardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/workflows/$workflowId/scorecard",
+  component: Scorecard,
 });
 
 export const runsRoute = createRoute({
@@ -98,6 +105,7 @@ const routeTree = rootRoute.addChildren([
   worldRoute,
   newWorkflowRoute,
   workflowRoute,
+  scorecardRoute,
   runsRoute,
   runRoute,
   connectorsRoute,

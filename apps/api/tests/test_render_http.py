@@ -23,7 +23,7 @@ FAKE_NPX = HERE.parents[2] / "packages/connectors/tests/fake_npx.py"
 
 @pytest.fixture
 def app(tmp_path: Path) -> FastAPI:
-    return create_app(tmp_path / "data", poll_seconds=0.05)
+    return create_app(tmp_path / "data", poll_seconds=0.05, retro=False)
 
 
 @pytest.fixture

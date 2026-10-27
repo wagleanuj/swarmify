@@ -105,3 +105,45 @@ test("a cancelled confirmation changes nothing and a refusal is shown", async ()
   await screen.getByRole("button", { name: "Save as version 2" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("Not saved: nothing changed.");
 });
+
+test("lists the skills the cast loads, each with where it came from", async () => {
+  const skill = (name: string, over = {}) => ({
+    name,
+    description: `About ${name}.`,
+    source: "world",
+    path: `worlds/world_1/skills/${name}/SKILL.md`,
+    content: "",
+    version: null,
+    run_id: null,
+    created_at: null,
+    ...over,
+  });
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/cast": () => Response.json(cast),
+    "GET /api/worlds/world_1/skills": () =>
+      Response.json([
+        skill("cite", { source: "shared", path: "skills/cite/SKILL.md" }),
+        skill("hand"),
+        skill("hooks", { version: 2, run_id: "run_01HXABC", created_at: video.created_at }),
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/cast");
+  await expect.element(screen.getByRole("heading", { name: "Skills" })).toBeVisible();
+  await expect.element(screen.getByTestId("skill-cite")).toMatchTextContent(/cite.*shared.*About cite\..*every world reads it/);
+  await expect.element(screen.getByTestId("skill-hand")).toMatchTextContent(/this world.*Hand-written/);
+  await expect.element(screen.getByTestId("skill-hooks")).toMatchTextContent(/this world.*v2 · from run 1HXABC/);
+  await expect
+    .element(screen.getByTestId("skill-hooks").getByRole("link"))
+    .toHaveAttribute("href", "/worlds/world_1/runs/run_01HXABC");
+});
+
+test("with no skills it says where the first one comes from", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/cast": () => Response.json(cast),
+    "GET /api/worlds/world_1/skills": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/cast");
+  await expect.element(screen.getByTestId("no-skills")).toMatchTextContent(/approve a retro proposal or promote/);
+});

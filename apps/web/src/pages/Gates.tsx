@@ -9,6 +9,7 @@ import { LABEL } from "./Connectors";
 
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
+type Proposal = components["schemas"]["Proposal"];
 
 export function Gates() {
   const [gates, setGates] = useState<Gate[] | null>(null);
@@ -155,6 +156,9 @@ function GateCard({
       </div>
       <p className="ask">{gate.ask}</p>
       {gate.publish && <WhatGoesOut preview={gate.publish} />}
+      {gate.kind === "skill" ? (
+        <SkillGate gate={gate} onAnswer={onAnswer} />
+      ) : (
       <form onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
         {gate.kind === "budget" && (
           <>
@@ -263,7 +267,134 @@ function GateCard({
           )}
         </div>
       </form>
+      )}
     </li>
+  );
+}
+
+/** The retro's proposal: at most one skill change to approve as is, edited, or reject, and the
+ * workflow change it drew from a recurring intervention (ADR 0008). */
+function SkillGate({
+  gate,
+  onAnswer,
+}: {
+  gate: Gate;
+  onAnswer: (gate: Gate, send: () => Promise<string | null>) => Promise<void>;
+}) {
+  const [proposal, setProposal] = useState<Proposal | null | undefined>(undefined);
+  const [content, setContent] = useState("");
+  const [applyWorkflow, setApplyWorkflow] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .GET("/api/runs/{run_id}/proposal", { params: { path: { run_id: gate.run_id } } })
+      .then(({ data }) => {
+        setProposal(data ?? null);
+        setContent(data?.skill?.content ?? "");
+      })
+      .catch(() => setProposal(null));
+  }, [gate.run_id]);
+
+  async function decide(e: FormEvent<HTMLFormElement>, approve: boolean) {
+    e.preventDefault();
+    if (!proposal) return;
+    const note = String(new FormData(e.currentTarget).get("note") ?? "").trim();
+    if (!approve && !note && !window.confirm("Reject without saying why? The retro learns from the reason.")) return;
+    setBusy(true);
+    await onAnswer(gate, async () => {
+      const { error, response } = await api.POST("/api/proposals/{proposal_id}/decide", {
+        params: { path: { proposal_id: proposal.id } },
+        body: {
+          approve,
+          content: proposal.skill && proposal.skill.action !== "retired" ? content : null,
+          apply_workflow: approve && applyWorkflow && proposal.workflow !== null,
+          note,
+        },
+      });
+      if (!error) return null;
+      const detail = (error as { detail?: unknown }).detail;
+      return typeof detail === "string" ? detail : `The decision was refused (${response.status}).`;
+    });
+    setBusy(false);
+  }
+
+  if (proposal === undefined) return <p role="status">Loading the proposal...</p>;
+  if (proposal === null) {
+    return <p className="faint">The proposal could not be loaded; the run keeps waiting.</p>;
+  }
+  const skill = proposal.skill;
+  return (
+    <form className="gate-form proposal" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => void decide(e, true)}>
+      {skill && (
+        <section data-testid="skill-change">
+          <b>
+            {skill.action === "new" && `New skill ${skill.name}`}
+            {skill.action === "changed" && `Change skill ${skill.name}`}
+            {skill.action === "retired" && `Retire skill ${skill.name}`}
+          </b>
+          <p>{skill.summary}</p>
+          <span className="faint">Evidence</span>
+          <ul>
+            {(skill.evidence ?? []).map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          {skill.action !== "retired" && (
+            <label>
+              SKILL.md (edit before approving)
+              <textarea value={content} rows={8} onChange={(e) => setContent(e.target.value)} />
+            </label>
+          )}
+        </section>
+      )}
+      {proposal.workflow && (
+        <section data-testid="workflow-change">
+          <b>Workflow change: {proposal.workflow.summary}</b>
+          <ul>
+            {(proposal.workflow.evidence ?? []).map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          <pre>{proposal.workflow.yaml}</pre>
+          <label className="check">
+            <input type="checkbox" checked={applyWorkflow} onChange={(e) => setApplyWorkflow(e.target.checked)} />
+            Save it as the workflow's next version when approving
+          </label>
+        </section>
+      )}
+      <label>
+        Note (kept with the decision; on a rejection, say why)
+        <textarea name="note" rows={2} />
+      </label>
+      <div className="row gate-actions">
+        <button type="submit" className="primary" disabled={busy}>
+          Approve
+        </button>
+        <RejectButton busy={busy} onReject={(e) => void decide(e, false)} />
+        <span className="faint">
+          {skill ? "Approving writes the skill as a new version every later stage loads." : "Nothing changes until you approve."}
+        </span>
+      </div>
+    </form>
+  );
+}
+
+/** A reject button that submits the surrounding form with the rejection intent. */
+function RejectButton({ busy, onReject }: { busy: boolean; onReject: (e: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <button
+      type="button"
+      className="danger"
+      disabled={busy}
+      onClick={(e) => {
+        const form = (e.currentTarget as HTMLButtonElement).form;
+        if (!form) return;
+        onReject({ preventDefault: () => undefined, currentTarget: form } as unknown as FormEvent<HTMLFormElement>);
+      }}
+    >
+      Reject
+    </button>
   );
 }
 

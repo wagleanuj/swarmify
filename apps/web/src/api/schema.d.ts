@@ -868,6 +868,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Skills
+         * @description Every skill the world's agents load: its own (with version and the run that produced
+         *     it) and the shared ones it has not overridden.
+         */
+        get: operations["list_skills_api_worlds__world_id__skills_get"];
+        put?: never;
+        /**
+         * Write Skill
+         * @description Write the next version of a skill (version 1 for a new one) into the world's skills
+         *     folder, so every stage that starts from now on loads it.
+         */
+        post: operations["write_skill_api_worlds__world_id__skills_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/skills/{name}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Skill Versions
+         * @description Every stored version of the skill, oldest first, each with its run.
+         */
+        get: operations["skill_versions_api_worlds__world_id__skills__name__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Proposals
+         * @description Every retro proposal of the world, oldest first: what was proposed and how it went.
+         */
+        get: operations["list_proposals_api_worlds__world_id__proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pending Proposal
+         * @description The proposal the run's retro gate waits on.
+         */
+        get: operations["pending_proposal_api_runs__run_id__proposal_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proposals/{proposal_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide
+         * @description Approve (with edits) or reject the proposal, then answer the run's gate. 422 when the
+         *     edited skill or the suggested workflow would not load; nothing is written then.
+         */
+        post: operations["decide_api_proposals__proposal_id__decide_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/scorecard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scorecard
+         * @description First-try acceptance, send-backs, cost, duration and outcome of every run of the
+         *     workflow, oldest first: whether learning works.
+         */
+        get: operations["scorecard_api_workflows__workflow_id__scorecard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1188,6 +1316,28 @@ export interface components {
             send_back_to?: string | null;
         };
         /**
+         * DecideProposal
+         * @description The gate's answer. Approving writes the skill (as edited in `content` when given) as a new
+         *     version; `apply_workflow` saves the suggested YAML as the workflow's next version. Rejecting
+         *     records `note` as why.
+         */
+        DecideProposal: {
+            /** Approve */
+            approve: boolean;
+            /** Content */
+            content?: string | null;
+            /**
+             * Apply Workflow
+             * @default false
+             */
+            apply_workflow: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
          * Decision
          * @description What a person decided at a gate. `path` is the decision artifact on disk (ADR 0001).
          */
@@ -1398,6 +1548,24 @@ export interface components {
             /** Stage Types */
             stage_types: ("swarm" | "connector")[];
         };
+        /**
+         * NewSkill
+         * @description A skill version to write: a Library artifact promoted to a skill draft and edited, or a
+         *     hand-written one. `run_id` is the run the content came from, kept as lineage.
+         */
+        NewSkill: {
+            /** Name */
+            name: string;
+            /** Content */
+            content: string;
+            /** Run Id */
+            run_id?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
         /** NewTask */
         NewTask: {
             /** Title */
@@ -1462,6 +1630,35 @@ export interface components {
             stage: number;
             /** Version */
             version?: number | null;
+        };
+        /**
+         * Proposal
+         * @description What a Retro proposed for one run, awaiting its gate or decided at it.
+         */
+        Proposal: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Stage Id */
+            stage_id: string;
+            skill: components["schemas"]["SkillChange"] | null;
+            workflow: components["schemas"]["WorkflowSuggestion"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected";
+            /** Note */
+            note: string;
+            /** Path */
+            path: string;
+            /** Created At */
+            created_at: string;
+            /** Decided At */
+            decided_at?: string | null;
         };
         /**
          * PublishPreview
@@ -1620,6 +1817,36 @@ export interface components {
             name: string;
         };
         /**
+         * RunScore
+         * @description One run on the Scorecard. `cost_usd` is the runtime's estimate, not billing.
+         */
+        RunScore: {
+            /** Run Id */
+            run_id: string;
+            /** Name */
+            name: string;
+            /** Workflow Version */
+            workflow_version: number | null;
+            /** Baseline */
+            baseline: boolean;
+            /** Status */
+            status: string;
+            /** Created At */
+            created_at: string;
+            /** Judged */
+            judged: number;
+            /** First Try */
+            first_try: number;
+            /** Send Backs */
+            send_backs: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Duration S */
+            duration_s: number | null;
+            /** Views */
+            views: number | null;
+        };
+        /**
          * RunStageView
          * @description A stage of a run as the timeline shows it. `id` is the connector idempotency key.
          *
@@ -1650,6 +1877,21 @@ export interface components {
             child?: components["schemas"]["RunLink"] | null;
         };
         /**
+         * Scorecard
+         * @description Per-run measures of one workflow across its runs, oldest first. Cost is the runtime's
+         *     estimate, not billing.
+         */
+        Scorecard: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** World Id */
+            world_id: string;
+            /** Name */
+            name: string;
+            /** Runs */
+            runs: components["schemas"]["RunScore"][];
+        };
+        /**
          * SetBudget
          * @description The run's new Budget in total, not an increment, so sending it twice adds nothing twice.
          *     Must be above what the run and its child runs have spent.
@@ -1657,6 +1899,73 @@ export interface components {
         SetBudget: {
             /** Budget Usd */
             budget_usd: number;
+        };
+        /**
+         * Skill
+         * @description A skill as agents of the world load it: the world's own, or a shared one the world has
+         *     not overridden (world wins on conflict).
+         */
+        Skill: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "world" | "shared";
+            /** Path */
+            path: string;
+            /** Content */
+            content: string;
+            /** Version */
+            version?: number | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /**
+         * SkillChange
+         * @description A Retro's Skill Proposal: one new, changed or retired skill, with the evidence for it.
+         */
+        SkillChange: {
+            /** Action */
+            action: string;
+            /** Name */
+            name: string;
+            /** Content */
+            content: string;
+            /** Summary */
+            summary: string;
+            /** Evidence */
+            evidence?: string[];
+        };
+        /**
+         * SkillVersion
+         * @description One stored version of a world's skill. `run_id` is the run whose retro produced it, or
+         *     the run an artifact was promoted from; None for a hand-written one.
+         */
+        SkillVersion: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Name */
+            name: string;
+            /** Number */
+            number: number;
+            /** Content */
+            content: string;
+            /** Run Id */
+            run_id: string | null;
+            /** Note */
+            note: string;
+            /** Retired */
+            retired: boolean;
+            /** Created At */
+            created_at: string;
         };
         /**
          * Spend
@@ -1864,6 +2173,19 @@ export interface components {
              * @constant
              */
             type: "workflow";
+        };
+        /**
+         * WorkflowSuggestion
+         * @description A Retro's Workflow Suggestion: the workflow YAML as a new version, drawn from a manual
+         *     intervention that recurred across runs.
+         */
+        WorkflowSuggestion: {
+            /** Summary */
+            summary: string;
+            /** Yaml */
+            yaml: string;
+            /** Evidence */
+            evidence?: string[];
         };
         /**
          * WorkflowVersion
@@ -3773,6 +4095,256 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_skills_api_worlds__world_id__skills_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_skill_api_worlds__world_id__skills_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewSkill"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    skill_versions_api_worlds__world_id__skills__name__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersion"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_proposals_api_worlds__world_id__proposals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Proposal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pending_proposal_api_runs__run_id__proposal_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Proposal"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_api_proposals__proposal_id__decide_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Proposal"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scorecard_api_workflows__workflow_id__scorecard_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Scorecard"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

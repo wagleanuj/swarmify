@@ -51,6 +51,7 @@ from swarmify_runs.machine import (
     BudgetAdded,
     BudgetSpent,
     GateAnswered,
+    GateRaised,
     Illegal,
     MonthSpent,
     OpenGate,
@@ -87,6 +88,9 @@ stage's definition."""
 Swarm = Callable[[Run, str, StageDef], None]
 """Runs one swarm stage to its end, with the same arguments. Raises to fail the stage, or
 OverBudget when the run's Budget stopped its agents."""
+Retro = Callable[[Run, str, StageDef], bool]
+"""Runs the retro stage of a run, with the same arguments. True when it recorded a proposal:
+the stage then waits at a gate of kind `skill` until a person decides it (ADR 0008)."""
 Pin = Callable[[str], Pinned]
 """The current version of a workflow, by id. Raises KeyError for an unknown workflow."""
 Take = Callable[[Run, Run, str, list[str]], None]
@@ -144,6 +148,7 @@ class Runner(RunControl):
         spend: Spend = no_spend,
         monthly: Monthly = lambda _world_id: None,
         cap_for: CapFor | None = None,
+        retro: Retro | None = None,
     ) -> None:
         """`pin` and `take` serve workflow stages; without `pin` they fail the run. `spend` sums
         the agents' estimated cost of runs, for the Budget. `monthly` is each world's Monthly
@@ -151,6 +156,7 @@ class Runner(RunControl):
         super().__init__(storage, system_db, data_dir, notifier or LogNotifier(), previews, spend)
         self.connector = connector
         self.swarm = swarm
+        self.retro = retro
         self.pin = pin
         self.take = take
         self.cap_for = cap_for or (lambda _world_id: cap)
@@ -377,8 +383,8 @@ def execute_run(run_id: str) -> str:
             events = list(_drain(run_id))  # then wait for the child's end on the control topic
             continue
         try:
-            _execute(run_id, index)
-            outcome: RunEvent = StageFinished(index)
+            raised = _execute(run_id, index)
+            outcome: RunEvent = GateRaised(index) if raised else StageFinished(index)
         except OverBudget:  # the agents stopped; the stage waits at a budget gate
             outcome = BudgetSpent(index)
         except Exception as exc:  # a failed stage fails the run; the error lands on the stage
@@ -544,10 +550,16 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
 
 
 @DBOS.step(name="swarmify.execute")
-def _execute(run_id: str, index: int) -> None:
+def _execute(run_id: str, index: int) -> bool:
+    """True when the stage raised a gate of its own instead of finishing (a retro's proposal)."""
     runner = _current()
     stage_id, stage = runner.storage.stage_def(run_id, index)
-    call = {"connector": runner.connector, "swarm": runner.swarm}.get(stage.type)
+    calls: dict[str, Callable[[Run, str, StageDef], Any] | None] = {
+        "connector": runner.connector,
+        "swarm": runner.swarm,
+        "retro": runner.retro,
+    }
+    call = calls.get(stage.type)
     if call is None:
         raise NotImplementedError(f"{stage.type} stages cannot run yet")
     run = runner.storage.get_run(run_id)
@@ -561,4 +573,4 @@ def _execute(run_id: str, index: int) -> None:
                 f"'{stage.name}' calls a publish connector, so it runs only right after an answered"
                 " gate (ADR 0007)"
             )
-    call(run, stage_id, stage)
+    return bool(call(run, stage_id, stage))

@@ -554,6 +554,43 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   echo '{"currentContext":"desktop-linux"}' > /tmp/dockercfg/config.json`, then prefix the
   commands with `DOCKER_CONFIG=/tmp/dockercfg`.
 
+## Learning: retro, skills, scorecard
+
+Every run but a baseline ends with a Retro stage (ADR 0008): a judge-style session that reads the
+run's verdicts, send-backs and gate notes, the skills the agents load and the earlier retros, and
+answers with at most one Skill Proposal (a new, changed or retired skill, with the evidence lines
+that call for it) or nothing. The retro runs through the swarm's session seam, so it is logged,
+costed against the Budget and resumable like any agent (named `retro`). A proposal is written as
+`artifacts/proposal.md` of the retro stage (type `skill_proposal`, in the Library) and the stage
+waits at a gate of kind `skill`; a quiet retro just finishes the run.
+
+- `GET /api/runs/<id>/proposal` is what the gate shows; `POST /api/proposals/<id>/decide` with
+  `{"approve", "content", "apply_workflow", "note"}` approves it (writing `content`, the SKILL.md
+  as edited, as the next version of the world's skill) or rejects it with `note` as why, then
+  answers the run's gate. The gates inbox renders the proposal with its evidence, the editable
+  SKILL.md and Approve and Reject.
+- Skills: a world's own live in `worlds/<id>/skills/<name>/SKILL.md`, every version in
+  `skill_versions` with the run that produced it (`GET /api/worlds/<id>/skills`, each with
+  `source`, `version` and `run_id`; `GET .../skills/<name>/versions`). The shared folder
+  `<data dir>/skills/<name>/SKILL.md` is read by every world: before agents start, each shared
+  skill the world has not overridden is linked into the world's folder, so the plugin loads it
+  (ADR 0016) and a world skill of the same name wins. The cast page lists them.
+- Promote: the Library's "Make a skill..." turns any note or artifact into a SKILL.md draft
+  (title as description, body as the procedure) you edit and save with
+  `POST /api/worlds/<id>/skills` (`{"name", "content", "run_id", "note"}`), version 1 or the next.
+- Workflow Suggestion: when the same manual intervention (a send-back from one gate to one
+  stage, the same note at a gate, or a task you added with the same title) recurs in three runs
+  of a workflow, the retro gets the recurrence and the pinned YAML and may answer with the whole
+  YAML changed; the gate shows it and `apply_workflow: true` saves it as the workflow's next
+  version (refused with 422, nothing decided, when it breaks a rule).
+- Scorecard: `GET /api/workflows/<id>/scorecard`, a read model over the world's events with no
+  storage, lists every run of the workflow oldest first with first-try acceptance (stages passed
+  on the judge's first verdict out of stages judged), send-backs, estimated cost, duration and
+  outcome (the published artifacts' latest view counts). The page is
+  `/worlds/<id>/workflows/<wf>/scorecard`, linked from the editor and the world overview, with a
+  trend line comparing the last three swarm runs with the ones before.
+- `create_app(retro=False)` leaves the Retro stage out; tests that script no retro session use it.
+
 ## Layout
 
 - `packages/kernel` shared kernel: ids, the event envelope and its append-only log, SQLite
@@ -562,15 +599,17 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `migrations` table, so a lower number merged after a higher one still runs. Numbers are unique
   across the repo (take the next free one, renumber on rebase if another ticket took it): each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, 0019, 0020 and 0021, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007,
-  runs 0008, 0010, 0013 and 0017, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
+  runs 0008, 0010, 0013 and 0017, swarm 0009, notifications 0016, learning 0022, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
-  connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the
+  connectors, learning, notifications). `packages/learning` declares its Storage port and `Ask`,
+  the one question the Retro puts to the agent runtime, which the composition root answers with
+  `Swarm.ask`. `packages/swarm` also declares AgentRuntime, with the
   Agent SDK adapter `SdkRuntime`; `packages/memory` writes notes and artifacts as files and declares GraphIndex, with
   `McpGraphIndex` and `FakeGraphIndex`, plus the GraphWriter. `tools/check_imports.py` fails CI if a context imports
   anything but the kernel and itself. Each context declares its ports in `ports.py` (ADR 0012);
-  `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors`, `packages/swarm` and
-  `packages/notifications` each have a Storage port with a SQLite adapter.
+  `packages/worlds`, `packages/workflows`, `packages/runs`, `packages/connectors`, `packages/swarm`,
+  `packages/learning` and `packages/notifications` each have a Storage port with a SQLite adapter.
   Workflows learns which connectors a world allows through a function the composition root passes
   in, backed by the connector registry. `packages/connectors` also declares ConnectorTransport, with
   the MCP adapter and `FakeTransport` for tests.

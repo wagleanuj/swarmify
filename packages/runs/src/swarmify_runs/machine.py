@@ -72,6 +72,14 @@ class BudgetSpent:
 
 
 @dataclass(frozen=True)
+class GateRaised:
+    """The running stage at `index` raised a gate of its own (a retro's proposal): it waits for
+    a person, then GateAnswered moves the run on."""
+
+    index: int
+
+
+@dataclass(frozen=True)
 class BudgetAdded:
     """Money was added at the budget gate; the stopped stage runs again."""
 
@@ -98,6 +106,7 @@ RunEvent = (
     | GateAnswered
     | SentBack
     | BudgetSpent
+    | GateRaised
     | BudgetAdded
     | Paused
     | Resumed
@@ -108,7 +117,7 @@ RunEvent = (
 # Commands: what the shell must do next.
 @dataclass(frozen=True)
 class RunStage:
-    """Execute a non-gate stage, then report StageFinished or StageFailed."""
+    """Execute a non-gate stage, then report StageFinished, StageFailed or GateRaised."""
 
     index: int
 
@@ -134,7 +143,7 @@ class MonthSpent(Illegal):
 def transition(
     kinds: tuple[str, ...], state: RunState, event: RunEvent
 ) -> tuple[RunState, list[Command]]:
-    """`kinds` are the stage types in order (swarm, gate, connector, workflow)."""
+    """`kinds` are the stage types in order (swarm, gate, connector, workflow, retro)."""
     if len(kinds) != len(state.stages):
         raise ValueError("kinds and stages differ in length")
     if state.status in TERMINAL:
@@ -171,6 +180,11 @@ def transition(
             status = "paused" if state.status == "paused" else "waiting_gate"
             spent = replace(state, status=status, stages=tuple(stages), over_budget=True)
             return spent, [OpenGate(i)]
+        case GateRaised(i):
+            _require(_at(stages, i) == "running", f"stage {i} is not running")
+            stages[i] = "waiting"
+            status = "paused" if state.status == "paused" else "waiting_gate"
+            return replace(state, status=status, stages=tuple(stages)), [OpenGate(i)]
         case BudgetAdded():
             _require(state.over_budget, "the run is not over budget")
             stages[stages.index("waiting")] = "pending"  # runs again, from where it stopped

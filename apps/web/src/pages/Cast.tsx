@@ -10,6 +10,7 @@ import { usd } from "./AgentLog";
 type World = components["schemas"]["World"];
 type Member = components["schemas"]["CastMember"];
 type Version = components["schemas"]["CastEdit"];
+type Skill = components["schemas"]["Skill"];
 
 const ROLE: Record<string, string> = {
   planner: "seeds every whiteboard",
@@ -44,12 +45,17 @@ export function Cast() {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skills, setSkills] = useState<Skill[] | null | undefined>(undefined);
 
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", path)
       .then(({ data }) => setWorld(data ?? null))
       .catch(() => undefined);
+    api
+      .GET("/api/worlds/{world_id}/skills", path)
+      .then(({ data }) => setSkills(data ?? null))
+      .catch(() => setSkills(null));
     api
       .GET("/api/worlds/{world_id}/cast", path)
       .then(({ data, error }) => {
@@ -209,6 +215,55 @@ export function Cast() {
           </li>
         ))}
       </ul>
+      <section aria-label="Skills" className="skills">
+        <h2>Skills</h2>
+        <p className="faint">
+          Procedures the cast loads when they match a stage. The retro after every run may propose
+          one; you approve it on the Needs you page, or make one from the library. A world skill
+          wins over a shared one of the same name.
+        </p>
+        {skills === undefined && <p role="status">Loading skills...</p>}
+        {skills === null && <p className="faint">Could not load the skills.</p>}
+        {skills?.length === 0 && (
+          <p className="faint" data-testid="no-skills">
+            No skills yet. The first arrives when you approve a retro proposal or promote a
+            library artifact.
+          </p>
+        )}
+        {skills && skills.length > 0 && (
+          <ul className="skill-list" data-testid="skills">
+            {skills.map((sk) => (
+              <li key={sk.name} data-testid={`skill-${sk.name}`}>
+                <span className="row">
+                  <b>{sk.name}</b>
+                  <span className="chip">{sk.source === "shared" ? "shared" : "this world"}</span>
+                </span>
+                <span>{sk.description || "No description."}</span>
+                <span className="faint">
+                  {sk.source === "shared" && "From the shared skills folder; every world reads it."}
+                  {sk.source === "world" && sk.version === null && "Hand-written in the world folder."}
+                  {sk.source === "world" && sk.version !== null && (
+                    <>
+                      v{sk.version}
+                      {sk.run_id ? (
+                        <>
+                          {" "}
+                          · from run{" "}
+                          <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: sk.run_id }}>
+                            {sk.run_id.slice(-6)}
+                          </Link>
+                        </>
+                      ) : (
+                        " · written by you"
+                      )}
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <p className="faint">
         How many workers there are is a world setting.{" "}
         <Link to="/worlds/$worldId/settings" params={{ worldId }}>

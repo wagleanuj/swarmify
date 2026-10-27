@@ -281,7 +281,7 @@ class SqliteStorage:
                 "SELECT s.id, s.idx, s.name, s.config, s.started_at, s.run_id,"
                 " r.world_id, r.name AS run_name, r.send_backs, r.parent_run_id, r.over_budget"
                 " FROM run_stages s JOIN runs r ON r.id = s.run_id"
-                " WHERE s.status = 'waiting' AND (s.type = 'gate' OR r.over_budget = 1)"
+                " WHERE s.status = 'waiting' AND (s.type IN ('gate', 'retro') OR r.over_budget = 1)"
                 " ORDER BY s.started_at DESC, s.id DESC"
             ).fetchall()
             gates = []

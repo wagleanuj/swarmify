@@ -46,6 +46,7 @@ def running(tmp_path: Path, script: Script, notifier: FakeNotifier) -> Iterator[
         graph_index=FakeGraphIndex(),
         notifier=notifier,
         extract=lambda _: None,
+        retro=False,
     )
     with TestClient(app) as client:
         yield client

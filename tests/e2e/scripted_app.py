@@ -1,9 +1,9 @@
 """The real app with a scripted agent CLI behind the Agent SDK, so e2e runs need no model.
 
-Every swarm stage takes three sessions, in order, through the real SDK client, hooks and
-in-process tools: the planner seeds one task; the worker queries the graph, claims it, writes a
-note and an artifact and finishes it; the judge passes with two ranked ideas. The script cycles,
-so each run gets the same three.
+Every run takes four sessions, in order, through the real SDK client, hooks and in-process
+tools: the planner seeds one task; the worker queries the graph, claims it, writes a note and an
+artifact and finishes it; the judge passes with two ranked ideas; the retro proposes nothing. The
+script cycles, so each one-stage run gets the same four.
 
 The GraphWriter's extract writes a fixed graph instead of calling graphify's model, a second
 after the last change; the real graphify MCP process answers queries over it."""
@@ -39,6 +39,8 @@ IDEAS = [
     {"title": "The chase", "body": "A chase in 30 seconds.", "rank": 2, "sources": []},
 ]
 JUDGE = [Answer({"passed": True, "reasons": ["Two ideas, ranked."], "items": IDEAS})]
+RETRO = [Answer({"skill": None, "workflow": None})]
+"""The retro after the run proposes nothing, so the run ends without a skill gate."""
 
 
 GRAPH = {
@@ -59,7 +61,7 @@ def extract(folder: Path) -> None:
 
 
 def create_app() -> FastAPI:
-    script = Script(PLANNER, WORKER, JUDGE, cost=0.0042, cycle=True)
+    script = Script(PLANNER, WORKER, JUDGE, RETRO, cost=0.0042, cycle=True)
     return real_app(
         runtime=SdkRuntime(transport=script.transport),
         extract=extract,

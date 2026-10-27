@@ -1,0 +1,10 @@
+[project]
+name = "swarmify-learning"
+version = "0.1.0"
+description = "Learning context: skills, the retro that proposes them, and the scorecard"
+requires-python = ">=3.12"
+dependencies = ["swarmify-kernel"]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"

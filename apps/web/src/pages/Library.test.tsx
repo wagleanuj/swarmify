@@ -201,3 +201,56 @@ test("a load failure is an alert and the overview links here", async () => {
     .element(overview.screen.getByRole("link", { name: "Open the library" }))
     .toHaveAttribute("href", "/worlds/world_1/library");
 });
+
+test("a note or artifact becomes a skill draft the operator edits and saves as a version", async () => {
+  const bodies: unknown[] = [];
+  const note = item("trends.md", {
+    path: "runs/run_1/stage_0/notes/trends.md",
+    type: "note",
+    title: "Trends: hooks win",
+    body: "Open on the hook.\n\nKeep the first second moving.",
+  });
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short]),
+    "GET /api/worlds/world_1/library": () => Response.json([note]),
+    "POST /api/worlds/world_1/skills": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(
+        { name: "hooks-win", description: "Trends: hooks win", source: "world", path: "x", content: "", version: 1, run_id: "run_1", created_at: video.created_at },
+        { status: 201 },
+      );
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await screen.getByRole("button", { name: "Make a skill from Trends: hooks win" }).click();
+  const form = screen.getByRole("form", { name: "Make a skill from Trends: hooks win" });
+  await expect.element(form.getByLabelText("Skill name")).toHaveValue("trends-hooks-win");
+  await expect.element(form.getByRole("textbox", { name: "SKILL.md" })).toHaveValue(
+    "---\nname: trends-hooks-win\ndescription: Trends: hooks win\n---\n\nOpen on the hook.\n\nKeep the first second moving.\n",
+  );
+  await form.getByLabelText("Skill name").fill("hooks-win");
+  await expect.element(form.getByRole("textbox", { name: "SKILL.md" })).toHaveValue(
+    "---\nname: hooks-win\ndescription: Trends: hooks win\n---\n\nOpen on the hook.\n\nKeep the first second moving.\n",
+  );
+  await form.getByRole("button", { name: "Save skill" }).click();
+  await vi.waitFor(() => expect(bodies).toHaveLength(1));
+  expect(bodies[0]).toMatchObject({ name: "hooks-win", run_id: "run_1", note: "Promoted from runs/run_1/stage_0/notes/trends.md" });
+  expect((bodies[0] as { content: string }).content).toMatch(/^---\nname: hooks-win\ndescription: Trends: hooks win\n---/);
+  await expect.element(screen.getByRole("status")).toMatchTextContent(/Saved hooks-win as version 1/);
+  await expect.element(screen.getByRole("link", { name: "See the skills" })).toHaveAttribute("href", "/worlds/world_1/cast");
+});
+
+test("a skill the API refuses shows why", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short]),
+    "GET /api/worlds/world_1/library": () => Response.json([ideas]),
+    "POST /api/worlds/world_1/skills": () =>
+      Response.json({ detail: "the SKILL.md frontmatter needs a description" }, { status: 422 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await screen.getByRole("button", { name: "Make a skill from ideas.md" }).click();
+  await screen.getByRole("button", { name: "Save skill" }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("the SKILL.md frontmatter needs a description");
+});

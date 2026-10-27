@@ -39,6 +39,8 @@ export function Library() {
   const [error, setError] = useState<string | null>(null);
   const [seen, setSeen] = useState(0);
   const [promoting, setPromoting] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -103,6 +105,14 @@ export function Library() {
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
+      {said && (
+        <p role="status" className="ok">
+          {said}{" "}
+          <Link to="/worlds/$worldId/cast" params={{ worldId }}>
+            See the skills
+          </Link>
+        </p>
+      )}
       {items === null && !error && <p role="status">Loading...</p>}
       {items?.length === 0 && (
         <div className="empty" data-testid="no-artifacts">
@@ -178,7 +188,27 @@ export function Library() {
                   >
                     Promote...
                   </button>
+                  {i.type !== "skill_proposal" && (
+                    <button
+                      type="button"
+                      aria-expanded={drafting === i.path}
+                      aria-label={`Make a skill from ${i.title}`}
+                      onClick={() => setDrafting((p) => (p === i.path ? null : i.path))}
+                    >
+                      Make a skill...
+                    </button>
+                  )}
                 </span>
+                {drafting === i.path && (
+                  <SkillDraftForm
+                    item={i}
+                    worldId={worldId}
+                    onSaved={(skill) => {
+                      setDrafting(null);
+                      setSaid(`Saved ${skill.name} as version ${skill.version}. Every stage that starts from now on loads it.`);
+                    }}
+                  />
+                )}
                 {promoting === i.path && (
                   <PromoteForm
                     item={i}
@@ -220,6 +250,66 @@ function Select({
         ))}
       </select>
     </label>
+  );
+}
+
+type Skill = components["schemas"]["Skill"];
+
+/** A skill name from a title: lowercase, digits and hyphens, as the Agent Skills spec wants. */
+export const skillName = (title: string) =>
+  title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "skill";
+
+/** The SKILL.md a note or artifact becomes: its title as the description, its body as the procedure. */
+export const skillDraft = (name: string, item: Item) =>
+  `---\nname: ${name}\ndescription: ${item.title.replace(/\n/g, " ")}\n---\n\n${item.body.trim()}\n`;
+
+/** Turn a note or artifact into a skill draft: edit the SKILL.md, then save it as a version. */
+function SkillDraftForm({ item, worldId, onSaved }: { item: Item; worldId: string; onSaved: (skill: Skill) => void }) {
+  const [name, setName] = useState(skillName(item.title));
+  const [content, setContent] = useState(skillDraft(skillName(item.title), item));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function rename(next: string) {
+    setContent((c) => c.replace(/^(---\nname: ).*$/m, `$1${next}`));
+    setName(next);
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const { data, error, response } = await api.POST("/api/worlds/{world_id}/skills", {
+      params: { path: { world_id: worldId } },
+      body: { name, content, run_id: item.run_id || null, note: `Promoted from ${item.path}` },
+    });
+    setBusy(false);
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      return setError(typeof detail === "string" ? detail : `Could not save the skill (${response.status}).`);
+    }
+    onSaved(data);
+  }
+
+  return (
+    <form className="promote" aria-label={`Make a skill from ${item.title}`} onSubmit={submit}>
+      <label>
+        Skill name
+        <input value={name} onChange={(e) => rename(e.target.value)} required pattern="[a-z0-9][a-z0-9-]*" />
+      </label>
+      <label>
+        SKILL.md
+        <textarea value={content} rows={8} onChange={(e) => setContent(e.target.value)} />
+      </label>
+      <span className="faint">
+        Saved as a version of this world's skills, with {item.run_name || "its run"} as where it came from.
+        Gilfoyle and the others load it from the next stage on.
+      </span>
+      <button type="submit" disabled={busy}>
+        {busy ? "Saving..." : "Save skill"}
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </form>
   );
 }
 

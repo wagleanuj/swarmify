@@ -188,7 +188,7 @@ async def test_gate_tools_act_on_runs_the_api_process_hosts(tmp_path: Path) -> N
 
     worlds = world_service(tmp_path)
     control = run_control(tmp_path)
-    with TestClient(create_app(tmp_path, connector=lambda *_: None)) as http:
+    with TestClient(create_app(tmp_path, connector=lambda *_: None, retro=False)) as http:
         world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
         wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": REVIEW}).json()
         run = http.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()

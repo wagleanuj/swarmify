@@ -44,7 +44,7 @@ def clock() -> Clock:
 
 @pytest.fixture
 def running(tmp_path: Path, clock: Clock) -> Iterator[TestClient]:
-    with TestClient(create_app(tmp_path, clock=clock, sweep_seconds=0.05)) as client:
+    with TestClient(create_app(tmp_path, clock=clock, sweep_seconds=0.05, retro=False)) as client:
         yield client
 
 
@@ -151,7 +151,7 @@ def test_one_failed_sweep_does_not_stop_the_sweeper(
         return real(self, now)
 
     monkeypatch.setattr(SqliteStorage, "expire", flaky)
-    with TestClient(create_app(tmp_path, clock=clock, sweep_seconds=0.05)) as client:
+    with TestClient(create_app(tmp_path, clock=clock, sweep_seconds=0.05, retro=False)) as client:
         until(lambda: len(calls) >= 1)
         _, _, url = _swarm_stage(client)
         task = client.post(url, json={"title": "Pull top shorts"}).json()

@@ -145,3 +145,82 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   await expect.element(card).not.toBeInTheDocument();
   expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });
+
+const hooks = "---\nname: hooks\ndescription: Open on the hook.\n---\n\nWrite the hook first.\n";
+const proposal = {
+  id: "prop_1",
+  world_id: "world_1",
+  run_id: "run_4",
+  stage_id: "s4",
+  skill: {
+    action: "new",
+    name: "hooks",
+    content: hooks,
+    summary: "Hook first",
+    evidence: ["review: sent back with the note: Hook sooner."],
+  },
+  workflow: {
+    summary: "Ask for hooks up front",
+    yaml: "name: Research\nstages: []\n",
+    evidence: ["send_back at review: research in 3 runs"],
+  },
+  status: "pending",
+  note: "",
+  path: "runs/run_4/s4/artifacts/proposal.md",
+  created_at: ts,
+  decided_at: null,
+};
+
+test("a skill gate shows the proposal with its evidence and posts the edited skill on approval", async () => {
+  const bodies: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([gate("skill", { run_id: "run_4", stage_id: "s4", stage_name: "retro", earlier_stages: ["research", "review"] })]),
+    "GET /api/runs/run_4/proposal": () => Response.json(proposal),
+    "POST /api/proposals/prop_1/decide": async (req) => {
+      bodies.push(await req.json());
+      return Response.json({ ...proposal, status: "approved" });
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_4");
+  await expect.element(card).toMatchTextContent(/Approve it, edit it, or reject it/);
+  await expect.element(card.getByTestId("skill-change")).toMatchTextContent(/New skill hooks.*Hook first.*sent back with the note: Hook sooner/);
+  await expect.element(card.getByTestId("workflow-change")).toMatchTextContent(/Ask for hooks up front.*in 3 runs.*name: Research/);
+  await expect.element(card.getByRole("button", { name: "Send back..." })).not.toBeInTheDocument();
+  const edited = hooks.replace("Write the hook first.", "Write the hook in the first second.");
+  await card.getByLabelText(/SKILL\.md/).fill(edited);
+  await card.getByLabelText(/Save it as the workflow's next version/).click();
+  await card.getByLabelText(/^Note/).fill("Tightened.");
+  await card.getByRole("button", { name: "Approve" }).click();
+  await vi.waitFor(() =>
+    expect(bodies).toEqual([{ approve: true, content: edited, apply_workflow: false, note: "Tightened." }]),
+  );
+  await expect.element(screen.getByTestId("no-gates")).toBeVisible();
+});
+
+test("rejecting a skill proposal asks for the reason and records it", async () => {
+  const bodies: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([gate("skill", { run_id: "run_4", stage_id: "s4", stage_name: "retro" })]),
+    "GET /api/runs/run_4/proposal": () => Response.json({ ...proposal, workflow: null }),
+    "POST /api/proposals/prop_1/decide": async (req) => {
+      bodies.push(await req.json());
+      return Response.json({ detail: "the proposal was already approved" }, { status: 422 });
+    },
+  });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_4");
+  await expect.element(card.getByTestId("skill-change")).toBeVisible();
+  await card.getByRole("button", { name: "Reject" }).click();
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(bodies).toEqual([]);
+  await card.getByLabelText(/^Note/).fill("Not the gap.");
+  await card.getByRole("button", { name: "Reject" }).click();
+  await vi.waitFor(() =>
+    expect(bodies).toEqual([{ approve: false, content: hooks, apply_workflow: false, note: "Not the gap." }]),
+  );
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("the proposal was already approved");
+});
