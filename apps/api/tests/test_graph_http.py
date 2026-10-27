@@ -33,6 +33,7 @@ def app(tmp_path: Path, script: Script, graph_index: FakeGraphIndex) -> FastAPI:
         extract=fake_extract,
         graph_debounce=0.1,
         graph_poll=0.02,
+        retro=False,
     )
 
 

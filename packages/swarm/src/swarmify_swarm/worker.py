@@ -567,6 +567,27 @@ class Swarm:
                 at.world_id, at.run_id, at.stage_id, JUDGE, a.name, a.type, a.fields, a.body
             )
 
+    def ask(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        stage_name: str,
+        world_folder: Path,
+        name: str,
+        system: str,
+        prompt: str,
+        schema: dict[str, Any],
+        parse: Callable[[Any], T],
+    ) -> T:
+        """One judge-style session outside a swarm stage, for another context's question (the
+        Learning retro): the graph and the world folder to read, the world's skills loaded, a
+        JSON answer that `parse` accepts. Logged, costed and budgeted like any agent of the
+        stage, under `name`. Raises StageError when two sessions fail, Stopped when the run's
+        Budget stopped it."""
+        at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder)
+        return self._short(at, name, "judge", prompt, schema, parse, system)
+
     def _short(
         self,
         at: "_At",
@@ -575,6 +596,7 @@ class Swarm:
         prompt: str,
         schema: dict[str, Any],
         parse: Callable[[Any], T],
+        system: str | None = None,
     ) -> T:
         """A planner or judge session: the graph and the whiteboard to read, a JSON answer."""
         allowed = [tool_id(t) for t in SHORT_TOOLS] + BUILTIN
@@ -583,7 +605,10 @@ class Swarm:
             for t in self._tools(at.world_id, at.run_id, at.stage_id, name, self._readable_at(at))
             if t.name in SHORT_TOOLS
         ]
-        system = f"You are the {role} of a swarm. Answer only with the JSON the schema asks for."
+        if system is None:
+            system = (
+                f"You are the {role} of a swarm. Answer only with the JSON the schema asks for."
+            )
         if standing := at.entry(name, role).prompt:
             system += f"\nYour standing instructions: {standing}"
 

@@ -4,7 +4,7 @@ typed goal, fork a run or promote a Library artifact into one, list runs, read o
 against, the world's spend this month, and list every open gate."""
 
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -17,6 +17,15 @@ from swarmify_worlds import Worlds
 
 DONE_WHEN = "The goal is met and what was found is written down as notes and artifacts."
 """An Ad Hoc Run's done condition when none is typed."""
+RETRO = StageDef(
+    "retro",
+    "retro",
+    {
+        "kind": "skill",
+        "ask": "The retro read this run and proposes a change. Approve it, edit it, or reject it.",
+    },
+)
+"""The stage every run ends with (ADR 0008): the Retro, whose proposal waits at a skill gate."""
 ToolsFor = Callable[[str], list[str]]
 """(world id) to the names of the world's connectors a swarm stage may use."""
 
@@ -112,6 +121,11 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
     return pin
 
 
+def with_retro(stages: list[StageDef], baseline: bool = False) -> list[StageDef]:
+    """The run's stages plus the Retro at the end. A baseline run has no judge to learn from."""
+    return stages if baseline else [*stages, RETRO]
+
+
 def act(action: Callable[[], Run]) -> Run:
     """The control layer's refusals as HTTP: unknown run 404, wrong moment 409 (a spent Monthly
     Budget too), bad input 422."""
@@ -130,10 +144,15 @@ def router(
     workflows: Workflows,
     worlds: Worlds,
     tools_for: ToolsFor = lambda _world_id: [],
+    retro: bool = True,
 ) -> APIRouter:
-    """`tools_for` names the world's connectors an Ad Hoc Run's stage gets as its tools."""
+    """`tools_for` names the world's connectors an Ad Hoc Run's stage gets as its tools. With
+    `retro`, every run but a baseline ends with the Retro stage."""
     api = APIRouter(prefix="/api", tags=["runs"])
     pin = pinner(workflows)
+
+    def stages(defs: list[StageDef], baseline: bool = False) -> list[StageDef]:
+        return with_retro(defs, baseline) if retro else defs
 
     @api.post("/workflows/{workflow_id}/runs", status_code=201, responses={404: {}, 409: {}})
     def start_run(workflow_id: str, body: StartRun) -> Run:
@@ -149,7 +168,7 @@ def router(
                 p.workflow_id,
                 p.version,
                 p.name,
-                p.stages,
+                stages(p.stages, body.baseline),
                 budget_usd=body.budget_usd or p.budget_usd,
                 baseline=body.baseline,
             )
@@ -178,7 +197,7 @@ def router(
                 None,
                 None,
                 name,
-                [stage],
+                stages([stage], body.baseline),
                 budget_usd=body.budget_usd,
                 baseline=body.baseline,
             )
@@ -216,7 +235,8 @@ def router(
         file = (folder / body.artifact).resolve()
         if not file.is_relative_to((folder / "runs").resolve()) or not file.is_file():
             raise HTTPException(404, "artifact not found")
-        return act(lambda: runner.promote(p, body.stage, file, body.artifact))
+        pinned = replace(p, stages=stages(p.stages))
+        return act(lambda: runner.promote(pinned, body.stage, file, body.artifact))
 
     @api.get("/worlds/{world_id}/runs")
     def list_runs(world_id: str) -> list[Run]:

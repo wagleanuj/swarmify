@@ -53,6 +53,7 @@ def app(
         extract=fake_extract,
         graph_debounce=0.1,
         graph_poll=0.02,
+        retro=False,
     )
 
 

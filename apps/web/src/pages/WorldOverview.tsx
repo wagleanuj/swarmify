@@ -276,6 +276,14 @@ export function WorldOverview() {
                 </Link>
                 <span className="actions">
                   <span className="faint">v{w.current_version}</span>
+                  <Link
+                    to="/worlds/$worldId/workflows/$workflowId/scorecard"
+                    params={{ worldId, workflowId: w.id }}
+                    className="faint"
+                    aria-label={`Scorecard of ${w.name}`}
+                  >
+                    Scorecard
+                  </Link>
                   <button
                     type="button"
                     onClick={() => start(w.id)}

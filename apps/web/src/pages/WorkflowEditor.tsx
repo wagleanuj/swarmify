@@ -152,8 +152,18 @@ export function WorkflowEditor() {
           <p className="sub">
             Four stage types: swarm, gate, connector, workflow. Every save is a new version and
             runs keep the version they started with, so editing never changes a run in flight.
+            Every run ends with a retro that may propose one skill change for you to approve.
           </p>
         </div>
+        {workflowId && (
+          <Link
+            to="/worlds/$worldId/workflows/$workflowId/scorecard"
+            params={{ worldId, workflowId }}
+            className="button"
+          >
+            Scorecard
+          </Link>
+        )}
       </header>
       {error && <p role="alert">{error}</p>}
       <div className="editor">

@@ -32,6 +32,7 @@ def running(tmp_path: Path, transport: FakeTransport) -> Iterator[TestClient]:
         graph_index=FakeGraphIndex(),
         extract=fake_extract,
         upkeep_seconds=0.05,
+        retro=False,
     )
     with TestClient(app) as client:
         yield client

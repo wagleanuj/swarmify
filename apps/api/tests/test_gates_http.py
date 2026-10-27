@@ -46,7 +46,7 @@ def calls() -> list[str]:
 @pytest.fixture
 def running(tmp_path: Path, calls: list[str], notifier: FakeNotifier) -> Iterator[TestClient]:
     connector = lambda _run, _id, stage: calls.append(stage.name)  # noqa: E731
-    app = create_app(tmp_path, connector=connector, notifier=notifier)
+    app = create_app(tmp_path, connector=connector, notifier=notifier, retro=False)
     with TestClient(app) as client:
         yield client
 

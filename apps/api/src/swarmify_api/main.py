@@ -31,6 +31,7 @@ from swarmify_api import (
     agents,
     connectors,
     graph,
+    learning,
     library,
     notifications,
     runs,
@@ -52,6 +53,9 @@ from swarmify_connectors import (
 from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
+from swarmify_learning import MIGRATIONS as LEARNING_MIGRATIONS
+from swarmify_learning import Learning
+from swarmify_learning import SqliteStorage as LearningStorage
 from swarmify_memory import (
     DEBOUNCE,
     GraphIndex,
@@ -107,6 +111,7 @@ def migrated_db(root: Path) -> Path:
             CONNECTORS_MIGRATIONS,
             SWARM_MIGRATIONS,
             NOTIFICATIONS_MIGRATIONS,
+            LEARNING_MIGRATIONS,
         )
     return db
 
@@ -143,6 +148,12 @@ def workflow_service(root: Path, registry: Connectors | None = None) -> Workflow
 def base_url() -> str:
     """Where deep links in Notifications point: the web skin as the operator reaches it."""
     return os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000")
+
+
+def learning_service(root: Path) -> Learning:
+    """Skills (shared ones in `<data_dir>/skills`, a world's own in its folder), retro
+    proposals and the scorecard."""
+    return Learning(LearningStorage(migrated_db(root)), root)
 
 
 def notification_service(root: Path) -> Notifications:
@@ -249,6 +260,7 @@ def create_app(
     graph_poll: float = 2.0,
     notifier: Notifier | None = None,
     upkeep_seconds: float = upkeep.UPKEEP_SECONDS,
+    retro: bool = True,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
     between long-job polls, and `connector` replaces the connector stage call altogether.
@@ -256,13 +268,15 @@ def create_app(
     runs agent sessions: the Agent SDK by default, a scripted transport in tests.
     `notifier` receives `gate.opened`, `budget.warning` and `run.ended`; each world's Slack
     Channel by default. Every `upkeep_seconds` the view counts are written back and old
-    binaries pruned."""
+    binaries pruned. `retro` ends every run but a baseline with the Retro stage (ADR 0008); tests
+    that script no retro session turn it off."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
     whiteboard = task_board(root)
     world_svc = world_service(root)
     memory = Memory(migrated_db(root), root)
     channels = notification_service(root)
+    learning_svc = learning_service(root)
 
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
         shown = registry.publish_preview(run.world_id, stage.config)
@@ -311,6 +325,7 @@ def create_app(
 
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
         folder = world_svc.folder(run.world_id)
+        learning_svc.sync(run.world_id)  # shared skills the world lacks load from its folder
         notes = next(s.notes for s in run.stages if s.id == stage_id)
         # The Cast as it stands when the stage starts: an edit reaches every later stage.
         members = world_svc.cast(run.world_id) or []
@@ -330,6 +345,32 @@ def create_app(
             )
         except Stopped as exc:
             raise OverBudget(str(exc)) from exc
+
+    def run_retro(run: Run, stage_id: str, stage: StageDef) -> bool:
+        """The Retro stage: a judge-style session over the world's events, through the swarm's
+        session seam so it is logged, costed and budgeted like any agent. True when it recorded
+        a proposal, which then waits at the stage's skill gate."""
+        folder = world_svc.folder(run.world_id)
+        yaml = None
+        if run.workflow_id and run.workflow_version:
+            version = workflow_svc.version(run.workflow_id, run.workflow_version)
+            yaml = version.yaml if version else None
+
+        def ask(system: str, prompt: str, schema: dict[str, Any], parse: Any) -> Any:
+            try:
+                return swarm.ask(
+                    run.world_id, run.id, stage_id, stage.name, folder, "retro",
+                    system, prompt, schema, parse,
+                )  # fmt: skip
+            except Stopped as exc:
+                raise OverBudget(str(exc)) from exc
+
+        learning_svc.sync(run.world_id)
+        events = world_svc.events_after(run.world_id)
+        made = learning_svc.retro(
+            run.world_id, run.id, stage_id, run.workflow_id, yaml, events, ask
+        )
+        return made is not None
 
     def spend(run_ids: list[str]) -> float:
         """The agents' estimated cost of these runs: what their Budget counts."""
@@ -358,6 +399,7 @@ def create_app(
         spend=spend,
         monthly=lambda w: setting(w, "monthly_budget_usd"),
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
+        retro=run_retro,
     )
 
     def swarm_tools(world_id: str) -> list[str]:
@@ -423,16 +465,20 @@ def create_app(
         registry.delete_world(world_id)
         whiteboard.delete_world(world_id)
         channels.delete_world(world_id)
+        learning_svc.delete_world(world_id)
 
     app.include_router(worlds.router(world_svc, on_delete, lambda w: runner.set_cap(w.id)))
     app.include_router(workflows.router(workflow_svc, world_svc))
-    app.include_router(runs.router(runner, workflow_svc, world_svc, swarm_tools))
+    app.include_router(runs.router(runner, workflow_svc, world_svc, swarm_tools, retro))
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index))
     app.include_router(library.router(memory, world_svc, runner.list_all))
     app.include_router(notifications.router(channels, world_svc))
+    app.include_router(
+        learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
+    )
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     if password := os.environ.get("SWARMIFY_PASSWORD"):

@@ -614,3 +614,50 @@ def test_a_baseline_stage_is_one_worker_with_no_graph(board: SqliteStorage, tmp_
     assert "query_graph" not in str(options.system_prompt)
     assert [a.name for a in board.list_agents(R)] == [WORKER]
     assert board.list_verdicts(S) == []
+
+
+def test_ask_runs_one_read_only_session_with_the_world_skills_and_the_run_budget(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    """Another context's question (the retro) goes through the same seam as the judge: logged
+    under its name, costed, the world's skills loaded, a malformed answer retried once."""
+    world = _world(tmp_path)
+    skill = world / "skills" / "hooks" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: hooks\ndescription: Hook first.\n---\n")
+    schema = {"type": "object", "properties": {"n": {"type": "integer"}}}
+    script = Script(
+        [Call("Bash", {"command": "ls"}), Answer({"n": "not a number"})],
+        [Call(tool_id("query_graph"), {"question": "What recurs?"}), Answer({"n": 2})],
+        cost=0.05,
+    )
+    swarm = _swarm(board, tmp_path, script)
+
+    def parse(output: object) -> int:
+        n = output["n"] if isinstance(output, dict) else None
+        if not isinstance(n, int):
+            raise ValueError("n must be a number")
+        return n
+
+    answer = swarm.ask(
+        W, R, "stage_retro", "retro", world, "retro", "You are the retro.", "Go.", schema, parse
+    )
+    assert answer == 2
+    first, second = script.sessions
+    assert first.system_prompt == "You are the retro." and first.output_format == {
+        "type": "json_schema",
+        "schema": schema,
+    }
+    assert first.plugins == [{"type": "local", "path": str(world)}] and first.setting_sources == []
+    (agent,) = board.list_agents(R)
+    assert second.resume == agent.session_id, "the replacement resumes the unusable session"
+    assert (agent.name, agent.role, agent.status, agent.cost_usd) == ("retro", "judge", "done", 0.1)
+    assert agent.skills == [f"{W}:hooks"] and agent.stage_id == "stage_retro"
+    log = board.list_log("stage_retro")
+    assert [e.kind for e in log if e.tool == "Bash"] == ["denied"]
+    assert any(e.kind == "error" and "n must be a number" in e.detail for e in log)
+    assert any(e.kind == "tool" and e.tool == tool_id("query_graph") for e in log)
+
+    dead = _swarm(board, tmp_path, Script([Die()]))
+    with pytest.raises(StageError, match="retro failed 2 sessions"):
+        dead.ask(W, R, "stage_r2", "retro", world, "retro", "s", "p", schema, parse)

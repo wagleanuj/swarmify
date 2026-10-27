@@ -29,6 +29,7 @@ swarmify-runs = { workspace = true }
 swarmify-connectors = { workspace = true }
 swarmify-swarm = { workspace = true }
 swarmify-memory = { workspace = true }
+swarmify-learning = { workspace = true }
 swarmify-notifications = { workspace = true }
 
 [tool.ruff]
@@ -52,7 +53,7 @@ typeCheckingMode = "standard"
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps/api", "tools"]
 pythonpath = ["tools"]
-addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_learning --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
 
 [tool.coverage.run]
 omit = ["*/tests/*"]

@@ -34,7 +34,7 @@ def running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestCli
         if getattr(stage, "name", "") == "explode":
             raise RuntimeError("connector said no")
 
-    with TestClient(create_app(tmp_path, connector=connector)) as client:
+    with TestClient(create_app(tmp_path, connector=connector, retro=False)) as client:
         yield client
 
 

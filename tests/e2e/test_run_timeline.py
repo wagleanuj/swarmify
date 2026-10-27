@@ -38,6 +38,6 @@ def test_start_a_run_and_watch_it_reach_its_gate_live(page: Page, base_url: str)
 
         page.get_by_role("link", name="runs").click()
         expect(page.get_by_test_id("run-list")).to_contain_text("needs you")
-        expect(page.get_by_test_id("run-list")).to_contain_text("1 of 2 stages")
+        expect(page.get_by_test_id("run-list")).to_contain_text("1 of 3 stages")
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")

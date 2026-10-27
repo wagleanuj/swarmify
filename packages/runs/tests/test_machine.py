@@ -13,6 +13,7 @@ from swarmify_runs.machine import (
     BudgetSpent,
     Command,
     GateAnswered,
+    GateRaised,
     Illegal,
     OpenGate,
     Paused,
@@ -28,7 +29,7 @@ from swarmify_runs.machine import (
 )
 
 KINDS = st.lists(
-    st.sampled_from(["swarm", "gate", "connector", "workflow"]), min_size=1, max_size=6
+    st.sampled_from(["swarm", "gate", "connector", "workflow", "retro"]), min_size=1, max_size=6
 )
 INDEX = st.integers(min_value=-1, max_value=7)
 EVENTS = st.one_of(
@@ -38,6 +39,7 @@ EVENTS = st.one_of(
     st.builds(GateAnswered, INDEX),
     st.builds(SentBack, INDEX, INDEX),
     st.builds(BudgetSpent, INDEX),
+    st.builds(GateRaised, INDEX),
     st.just(BudgetAdded()),
     st.just(Paused()),
     st.just(Resumed()),
@@ -105,8 +107,9 @@ class AnyEvents(RuleBasedStateMachine):
         for cmd in self.commands:
             expected = "waiting" if isinstance(cmd, OpenGate) else "running"
             assert self.state.stages[cmd.index] == expected
-            gate = self.kinds[cmd.index] == "gate" or self.state.over_budget
-            assert gate == isinstance(cmd, OpenGate)
+            # A gate stage only ever opens a gate; any other stage may raise one (GateRaised).
+            if self.kinds[cmd.index] == "gate":
+                assert isinstance(cmd, OpenGate)
 
     @invariant()
     def over_budget_means_a_stage_waits_for_money(self) -> None:

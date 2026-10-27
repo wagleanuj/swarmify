@@ -8,6 +8,7 @@ dependencies = [
   "mcp>=2.3",
   "swarmify-connectors",
   "swarmify-kernel",
+  "swarmify-learning",
   "swarmify-memory",
   "swarmify-notifications",
   "swarmify-worlds",

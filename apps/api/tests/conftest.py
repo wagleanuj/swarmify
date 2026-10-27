@@ -45,6 +45,7 @@ def app(
         runtime=SdkRuntime(transport=script.transport),
         graph_index=graph_index,
         extract=fake_extract,
+        retro=False,
     )
 
 

@@ -12,6 +12,7 @@ members = [
     "swarmify-api",
     "swarmify-connectors",
     "swarmify-kernel",
+    "swarmify-learning",
     "swarmify-memory",
     "swarmify-notifications",
     "swarmify-runs",
@@ -1702,6 +1703,7 @@ dependencies = [
     { name = "mcp" },
     { name = "swarmify-connectors" },
     { name = "swarmify-kernel" },
+    { name = "swarmify-learning" },
     { name = "swarmify-memory" },
     { name = "swarmify-notifications" },
     { name = "swarmify-runs" },
@@ -1717,6 +1719,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=2.3" },
     { name = "swarmify-connectors", editable = "packages/connectors" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
+    { name = "swarmify-learning", editable = "packages/learning" },
     { name = "swarmify-memory", editable = "packages/memory" },
     { name = "swarmify-notifications", editable = "packages/notifications" },
     { name = "swarmify-runs", editable = "packages/runs" },
@@ -1747,6 +1750,17 @@ requires-dist = [
 name = "swarmify-kernel"
 version = "0.1.0"
 source = { editable = "packages/kernel" }
+
+[[package]]
+name = "swarmify-learning"
+version = "0.1.0"
+source = { editable = "packages/learning" }
+dependencies = [
+    { name = "swarmify-kernel" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "swarmify-kernel", editable = "packages/kernel" }]
 
 [[package]]
 name = "swarmify-memory"
