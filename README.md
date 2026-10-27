@@ -70,10 +70,15 @@ allow the stage type; a connector's `input` must be produced by an earlier stage
 ## Runs
 
 `POST /api/workflows/<id>/runs` (body `{"version": n}` optional, the current version otherwise)
-starts a run pinned to that version. Each run is one DBOS workflow (ADR 0014) with the run id as
+starts a run pinned to that version. `POST /api/worlds/<id>/runs` with `{"goal": "..."}` (optional
+`done_when`, `budget_usd`, `baseline`) starts an Ad Hoc Run: one swarm stage on the typed goal
+with every connector of the world that swarm stages may use as its tools, no workflow pinned
+(`workflow_id` and `workflow_version` are null, the runs page says `ad hoc`), its notes feeding
+the world's graph like any run's. The world overview has the form. Each run is one DBOS workflow (ADR 0014) with the run id as
 its workflow id and one DBOS step per side effect: load the run, save each new state, execute a
 stage. A crash or restart resumes at the last completed step, so a finished stage never runs again.
-Runs wait on a queue partitioned by world, at most two running per world.
+Runs wait on their world's own DBOS queue, at most the world's run cap running at once (two by
+default, a world setting that takes effect live).
 
 Run status is one of queued, running, waiting_gate, paused, done, failed, aborted; stage status one
 of pending, running, waiting, done, failed, skipped. The rules live in `swarmify_runs.machine`, a
@@ -106,6 +111,10 @@ means no ceiling. Spend is the Agent SDK's estimate, not your bill.
   `{"budget_usd": total}` sets the new total (not an increment, so a double click adds nothing
   twice; it must be above what was spent); the stopped stage runs again and its agent resumes its
   session. `POST /api/runs/<id>/abort` ends the run. The MCP server exposes `set_budget`.
+- Monthly Budget: a world setting (`monthly_budget_usd`, none by default). Every run that starts
+  gets its Budget cut down to what is left of the calendar month (the sum of the world's top
+  runs' `spent_usd` this month, `GET /api/worlds/<id>/spend`); once that is spent, starting a run
+  is refused with 409 until the budget is raised or the month turns.
 - Baseline (Hooli in the skin): `{"baseline": true}` in the start body runs every swarm stage with
   one worker and no graph: no planner (the goal is its one task), no judge (so no typed
   projection), no graph tools and no graph-first rule. `GET /api/runs/<id>/baseline`
@@ -302,11 +311,15 @@ operators and for agents outside swarmify (a Claude Code session driving a stage
 
 ## Agents
 
-A swarm stage runs one worker (`worker-1`, Gilfoyle in the skin) through the AgentRuntime port.
-The adapter is the Claude Agent SDK, whose wheel bundles the `claude` CLI; sessions run on your
-Claude subscription (ADR 0010), so for a headless host run `claude setup-token` once and export
-`CLAUDE_CODE_OAUTH_TOKEN`. The planner seeds an empty whiteboard, the worker works it, and the
-judge decides when the stage is done (see Planner and judge below).
+A swarm stage runs the world's Cast (see Settings and cast below) through the AgentRuntime port:
+the planner, then one worker per ready task up to the world's agent count (`worker-1` to
+`worker-n`, Gilfoyle, Dinesh, Jared and Big Head in the skin), each in its own thread over the
+shared whiteboard, then the judge. The adapter is the Claude Agent SDK, whose wheel bundles the
+`claude` CLI; sessions run on your Claude subscription (ADR 0010), so for a headless host run
+`claude setup-token` once and export `CLAUDE_CODE_OAUTH_TOKEN`. The planner seeds an empty
+whiteboard, the workers work it, and the judge decides when the stage is done (see Planner and
+judge below). An agent's standing prompt from the cast is added to its system prompt and its
+cast tools narrow the stage's `tools`.
 
 - In-process tools (`mcp__swarmify__<name>`): `query_graph`, `list_tasks`, `claim_task` (the named
   task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `write_note`,
@@ -399,6 +412,27 @@ the run page shows both under the timeline, live.
 
 Scripts can answer for a session with `Answer(data)` (the structured output) and refer to the task
 just claimed with `LAST`; `Script(..., cycle=True)` repeats the step lists per run.
+
+## Settings and cast
+
+Each world has four settings on `/worlds/<id>/settings`, read with `GET /api/worlds/<id>` and
+changed with `PATCH /api/worlds/<id>` (any subset of `monthly_budget_usd` (null removes it),
+`run_cap` (1 to 8), `retention_days` (0 to 3650, 0 keeps binaries forever), `agent_count` (1 to
+8)); every change is a `world.updated` event. The monthly budget caps each new run's Budget (see
+Budget and baseline), the run cap is the world's DBOS queue concurrency and applies at once, the
+retention is read by the retention job, and the agent count is how many workers the cast has.
+
+The Cast is the world's agents: `planner`, `worker-1` to `worker-<agent_count>` and `judge`
+(Richard, Gilfoyle, Dinesh, Jared, Big Head and Erlich in the skin, ADR 0004). `GET
+/api/worlds/<id>/cast` lists them at their current version with a record folded from the world's
+event stream, no extra storage: tasks done (`task.updated`), stages passed on the judge's first
+verdict out of stages judged (`verdict.created`), send-backs to stages the agent worked
+(`run.updated` decisions) and estimated cost (`agent.updated`). `PUT /api/worlds/<id>/cast/<name>`
+with `{"prompt", "tools", "confirm": true}` appends a version of the agent's standing prompt and
+allowed stage tools (`tools` null means any the stage allows); it is refused without `confirm`
+or when nothing changed, and `GET /api/worlds/<id>/cast/<name>/versions` lists every version,
+version 1 being the default. The page is `/worlds/<id>/cast`: each edit asks for confirmation
+naming the version it becomes, and applies to every stage that starts from then on.
 
 ## Notifications
 

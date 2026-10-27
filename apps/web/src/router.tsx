@@ -6,6 +6,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 
+import { Cast } from "./pages/Cast";
 import { Connectors } from "./pages/Connectors";
 import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
@@ -79,6 +80,12 @@ export const libraryRoute = createRoute({
   component: Library,
 });
 
+export const castRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/cast",
+  component: Cast,
+});
+
 export const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/settings",
@@ -96,6 +103,7 @@ const routeTree = rootRoute.addChildren([
   connectorsRoute,
   graphRoute,
   libraryRoute,
+  castRoute,
   settingsRoute,
 ]);
 

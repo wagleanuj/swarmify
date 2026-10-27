@@ -1,7 +1,9 @@
 """The DBOS shell around the stage state machine (ADR 0014).
 
-One DBOS workflow per run, id equal to the run id, enqueued on a queue partitioned by world so
-each world runs at most `cap` runs at once. Every side effect is a DBOS step: loading the run,
+One DBOS workflow per run, id equal to the run id, enqueued on the world's own queue so each
+world runs at most its run cap at once (`cap_for`, a World setting read through the composition
+root; `cap` when none is given). Queue configs live in DBOS's system database and reload live,
+so a changed cap takes effect without a restart. Every side effect is a DBOS step: loading the run,
 saving each new state, executing a stage. A crash resumes from the last completed step, so a
 finished stage never runs twice. DBOS is a process singleton, hence one module-level Runner.
 
@@ -26,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID
+from dbos import DBOS, DBOSConfig, SetWorkflowID
 
 from swarmify_kernel import Event, new_id
 from swarmify_runs import budget
@@ -50,6 +52,7 @@ from swarmify_runs.machine import (
     BudgetSpent,
     GateAnswered,
     Illegal,
+    MonthSpent,
     OpenGate,
     Paused,
     Resumed,
@@ -64,9 +67,13 @@ from swarmify_runs.machine import (
 from swarmify_runs.model import Pinned, Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
 
-QUEUE = "runs"
 CHILD_QUEUE = "child-runs"
 DEFAULT_CAP = 2
+Monthly = Callable[[str], float | None]
+"""(world id) to the world's Monthly Budget, None for no ceiling. The composition root reads
+it from the Worlds context."""
+CapFor = Callable[[str], int]
+"""(world id) to how many of the world's runs execute at once."""
 MAX_DEPTH = 2
 """A child may start a child, no deeper (ADR 0013). Saving refuses deeper nesting already; this
 guards a run against workflows edited after it pinned its version."""
@@ -135,16 +142,22 @@ class Runner(RunControl):
         take: Take | None = None,
         previews: Previews = no_previews,
         spend: Spend = no_spend,
+        monthly: Monthly = lambda _world_id: None,
+        cap_for: CapFor | None = None,
     ) -> None:
         """`pin` and `take` serve workflow stages; without `pin` they fail the run. `spend` sums
-        the agents' estimated cost of runs, for the Budget."""
+        the agents' estimated cost of runs, for the Budget. `monthly` is each world's Monthly
+        Budget and `cap_for` its run cap (`cap` for every world when left out)."""
         super().__init__(storage, system_db, data_dir, notifier or LogNotifier(), previews, spend)
         self.connector = connector
         self.swarm = swarm
         self.pin = pin
         self.take = take
-        self.cap = cap
+        self.cap_for = cap_for or (lambda _world_id: cap)
+        self.monthly = monthly
         self.poll_seconds = poll_seconds
+        self._caps: dict[str, int] = {}
+        """The cap each world's queue was last registered with."""
 
     def launch(self) -> None:
         """Start DBOS. Recovers runs interrupted by a crash and re-enqueues queued ones."""
@@ -160,14 +173,7 @@ class Runner(RunControl):
         }
         DBOS(config=config)
         DBOS.launch()
-        # ponytail: one partitioned queue gives every world the same cap. Per-world caps need a
-        # queue per world, registered as worlds are created.
-        DBOS.register_queue(
-            QUEUE,
-            partition_concurrency=self.cap,
-            polling_interval_sec=self.poll_seconds,
-            on_conflict="always_update",
-        )
+        self._caps.clear()
         DBOS.register_queue(
             CHILD_QUEUE, polling_interval_sec=self.poll_seconds, on_conflict="always_update"
         )
@@ -199,8 +205,8 @@ class Runner(RunControl):
     def start(
         self,
         world_id: str,
-        workflow_id: str,
-        version: int,
+        workflow_id: str | None,
+        version: int | None,
         name: str,
         stages: list[StageDef],
         parent_run_id: str | None = None,
@@ -208,8 +214,16 @@ class Runner(RunControl):
         baseline: bool = False,
     ) -> Run:
         """Record a queued run pinned to `version` and enqueue it. `budget_usd` is its Budget
-        (none: no ceiling); `baseline` runs every swarm stage with one agent and no graph."""
+        (none: no ceiling), cut down to what is left of the world's Monthly Budget this month;
+        MonthSpent when nothing is left. `baseline` runs every swarm stage with one agent and no
+        graph. An Ad Hoc Run has no workflow: `workflow_id` and `version` are None."""
         now = datetime.now(UTC).isoformat()
+        try:
+            budget_usd = budget.monthly_cap(
+                budget_usd, self.monthly(world_id), self.storage.spent_in_month(world_id, now[:7])
+            )
+        except ValueError as exc:
+            raise MonthSpent(str(exc)) from exc
         run = Run(
             new_id("run"), world_id, workflow_id, version, name, "queued", now, now, [],
             parent_run_id=parent_run_id, budget_usd=budget_usd, baseline=baseline,
@@ -280,14 +294,32 @@ class Runner(RunControl):
             DBOS.send(run_id, WAKE, topic=CONTROL_TOPIC)
         self.storage.delete_world(world_id)
 
+    def set_cap(self, world_id: str) -> None:
+        """Register (or update) the world's queue with its current cap. Call it when the cap
+        setting changes; `_enqueue` calls it for a world it has not seen since launch."""
+        cap = self.cap_for(world_id)
+        DBOS.register_queue(
+            queue_name(world_id),
+            global_concurrency=cap,
+            polling_interval_sec=self.poll_seconds,
+            on_conflict="always_update",
+        )
+        self._caps[world_id] = cap
+
     def _enqueue(self, run: Run) -> None:
         # The run id is the workflow id, so enqueueing twice attaches to the same workflow.
         if run.parent_run_id is not None:
             with SetWorkflowID(run.id):
                 DBOS.enqueue_workflow(CHILD_QUEUE, execute_run, run.id)
             return
-        with SetWorkflowID(run.id), SetEnqueueOptions(queue_partition_key=run.world_id):
-            DBOS.enqueue_workflow(QUEUE, execute_run, run.id)
+        if run.world_id not in self._caps:
+            self.set_cap(run.world_id)
+        with SetWorkflowID(run.id):
+            DBOS.enqueue_workflow(queue_name(run.world_id), execute_run, run.id)
+
+
+def queue_name(world_id: str) -> str:
+    return f"runs:{world_id}"
 
 
 def _current() -> Runner:

@@ -31,10 +31,12 @@ from swarmify_swarm.projection import MAX_LOOPS
 from swarmify_swarm.sdk import SdkRuntime
 from swarmify_swarm.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_swarm.worker import (
+    DEFAULT_CAST,
     GRAPH_TOOLS,
     JUDGE,
     PLANNER,
     WORKER,
+    CastEntry,
     Files,
     Graphs,
     StageError,
@@ -44,6 +46,7 @@ from swarmify_swarm.worker import (
 )
 
 __all__ = [
+    "DEFAULT_CAST",
     "GRAPH_TOOLS",
     "HEARTBEAT_TIMEOUT",
     "JUDGE",
@@ -55,6 +58,7 @@ __all__ = [
     "Agent",
     "AgentRuntime",
     "AgentTool",
+    "CastEntry",
     "Files",
     "Graphs",
     "LogEntry",

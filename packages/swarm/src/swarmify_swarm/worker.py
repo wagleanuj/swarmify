@@ -1,9 +1,12 @@
-"""One Worker working a swarm stage's whiteboard through the AgentRuntime port.
+"""Workers working a swarm stage's whiteboard through the AgentRuntime port.
 
-The worker's session gets the in-process tools below, the stage's allowlist and the world's
-skills. Its hooks write every tool call to the stage's live log, deny tools outside the
-allowlist and a claim before the agent's first graph query, and keep the agent's session id and
-estimated cost. A session that dies is replaced by one that resumes the stored session id.
+Each worker's session gets the in-process tools below, the stage's allowlist and the world's
+skills. The world's Cast (handed in by the composition root as `CastEntry` rows) names the
+workers, adds each agent's standing prompt to its system prompt and may narrow its tools; as
+many workers start as there are ready tasks, up to the cast's size. Each agent's hooks write
+every tool call to the stage's live log, deny tools outside the allowlist and a claim before the
+agent's first graph query, and keep the agent's session id and estimated cost. A session that
+dies is replaced by one that resumes the stored session id.
 
 After every cost estimate the hooks ask the run's Budget (`budget`, from the composition root);
 once it is spent they stop the session and the stage raises Stopped, leaving the agent's session
@@ -20,6 +23,7 @@ with the world it came from.
 import asyncio
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -139,6 +143,24 @@ class NoGraphs:
         return "The world graph has nothing yet. Work from the task and the stage goal."
 
 
+@dataclass(frozen=True)
+class CastEntry:
+    """One agent of the world's Cast as the swarm runs it. `tools` narrows the stage's tools to
+    these names; None allows whatever the stage allows."""
+
+    name: str
+    role: AgentRole
+    prompt: str = ""
+    tools: list[str] | None = None
+
+
+DEFAULT_CAST = [
+    CastEntry(PLANNER, "planner"),
+    CastEntry(WORKER, "worker"),
+    CastEntry(JUDGE, "judge"),
+]
+
+
 class StageError(RuntimeError):
     """The swarm stage failed; the message lands on the stage."""
 
@@ -165,6 +187,16 @@ class _At:
     notes: tuple[str, ...] = ()
     """The send-back notes addressed to this stage, oldest first."""
     baseline: bool = False
+    cast: tuple[CastEntry, ...] = tuple(DEFAULT_CAST)
+
+    def entry(self, name: str, role: AgentRole) -> CastEntry:
+        return next((c for c in self.cast if c.name == name), CastEntry(name, role))
+
+    @property
+    def workers(self) -> list[CastEntry]:
+        """The cast's workers; a baseline stage runs only the first (one agent, no graph)."""
+        workers = [c for c in self.cast if c.role == "worker"] or [CastEntry(WORKER, "worker")]
+        return workers[:1] if self.baseline else workers
 
 
 def _wants(config: dict[str, Any]) -> str:
@@ -179,10 +211,14 @@ def no_servers(_world_id: str, _names: list[str]) -> dict[str, dict[str, Any]]:
     return {}
 
 
-def allowlist(stage_tools: list[str], baseline: bool = False) -> list[str]:
+def allowlist(
+    stage_tools: list[str], baseline: bool = False, agent_tools: list[str] | None = None
+) -> list[str]:
+    """`agent_tools`, an agent's own allowed stage tools from the Cast, narrows `stage_tools`."""
     allowed = [tool_id(t) for t in TOOLS if not (baseline and t in GRAPH_TOOLS)] + BUILTIN
     for name in stage_tools:
-        allowed += STAGE_TOOLS.get(name, [f"mcp__{name}__*"])
+        if agent_tools is None or name in agent_tools:
+            allowed += STAGE_TOOLS.get(name, [f"mcp__{name}__*"])
     return allowed
 
 
@@ -293,11 +329,13 @@ class Swarm:
         notes: list[str] | None = None,
         visit: int = 0,
         baseline: bool = False,
+        cast: list[CastEntry] | None = None,
     ) -> None:
         """Plan an empty whiteboard, work it until no task is left, then judge it: a pass
         projects the stage's typed artifacts, a fail adds gap tasks and loops, at most
         MAX_LOOPS times. Raises StageError to fail the stage, Stopped when the run's Budget
-        stopped an agent. `baseline` runs one worker on the goal alone, with no graph.
+        stopped an agent. `baseline` runs one worker on the goal alone, with no graph. `cast`
+        is the world's Cast (a planner, one worker and a judge with no prompts by default).
 
         `notes` are the send-back notes addressed to this stage and `visit` the run's send-back
         count. A stage the run comes back to after send-back `visit` gets one rework task
@@ -319,13 +357,14 @@ class Swarm:
             world_folder,
             tuple(notes or ()),
             baseline,
+            tuple(cast) if cast else tuple(DEFAULT_CAST),
         )
         if baseline:
             # ponytail: no judge, so a baseline stage projects no typed artifacts; later stages
             # see only what the worker wrote. Enough to measure cost and duration.
             goal = str(config.get("goal", "")).strip() or stage_name
             if not self.board.list_tasks(stage_id):
-                self.board.add_task(world_id, run_id, stage_id, goal, added_by=WORKER)
+                self.board.add_task(world_id, run_id, stage_id, goal, added_by=at.workers[0].name)
             self._work(at)
             return
         tasks = self.board.list_tasks(stage_id)
@@ -381,35 +420,67 @@ class Swarm:
         )
 
     def _work(self, at: "_At") -> None:
-        """Run the worker while any task is not done. A worker that stops early fails the
-        stage: the judge only ever sees a worked-out board."""
+        """Run the workers while any task is not done: one per ready task, up to the cast's
+        workers, each in its own thread over the shared whiteboard. Workers that stop early fail
+        the stage: the judge only ever sees a worked-out board."""
         board = self.board
-        if all(t.status == "done" for t in board.list_tasks(at.stage_id)):
+        tasks = board.list_tasks(at.stage_id)
+        if all(t.status == "done" for t in tasks):
             return
+        done = {t.id for t in tasks if t.status == "done"}
+        ready = [t for t in tasks if t.status == "open" and all(d in done for d in t.depends_on)]
+        workers = at.workers[: max(1, len(ready))]
+        failures: list[Exception] = []
+
+        def work(entry: CastEntry) -> None:
+            try:
+                self._worker(at, entry)
+            except (Stopped, StageError) as exc:
+                failures.append(exc)
+
+        if len(workers) == 1:
+            work(workers[0])
+        else:
+            with ThreadPoolExecutor(len(workers), thread_name_prefix="worker") as pool:
+                list(pool.map(work, workers))
+        # The Budget stopping an agent is not a failure: the stage waits for money (Stopped).
+        for exc in [*(e for e in failures if isinstance(e, Stopped)), *failures]:
+            raise exc
+        left = [t.title for t in board.list_tasks(at.stage_id) if t.status != "done"]
+        if left:
+            names = ", ".join(w.name for w in workers)
+            raise StageError(
+                f"{names} stopped with {len(left)} task(s) not done: {'; '.join(left)}"
+            )
+
+    def _worker(self, at: "_At", entry: CastEntry) -> None:
         stage_tools = [str(t) for t in at.config.get("tools") or []]
-        allowed = allowlist(stage_tools, at.baseline)
+        allowed = allowlist(stage_tools, at.baseline, entry.tools)
+        servers = [t for t in stage_tools if t not in STAGE_TOOLS]
+        if entry.tools is not None:
+            servers = [t for t in servers if t in entry.tools]
 
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
-                system_prompt=self._system_prompt(at),
+                system_prompt=self._system_prompt(at, entry),
                 prompt=f"Work the whiteboard of stage {at.stage_name} until no task is ready.",
                 cwd=self.files.stage_folder(at.world_id, at.run_id, at.stage_id),
                 plugin=at.world_folder,
                 tools=self._tools(
-                    at.world_id, at.run_id, at.stage_id, WORKER, self._readable_at(at), at.baseline
+                    at.world_id,
+                    at.run_id,
+                    at.stage_id,
+                    entry.name,
+                    self._readable_at(at),
+                    at.baseline,
                 ),
                 allowed=allowed,
-                servers=self.servers(at.world_id, [t for t in stage_tools if t not in STAGE_TOOLS]),
+                servers=self.servers(at.world_id, servers),
                 resume=resume,
                 max_turns=MAX_TURNS,
             )
 
-        self._session(at, WORKER, "worker", spec, allowed, lambda _: None)
-        left = [t.title for t in board.list_tasks(at.stage_id) if t.status != "done"]
-        if left:
-            raise StageError(
-                f"{WORKER} stopped with {len(left)} task(s) not done: {'; '.join(left)}"
-            )
+        self._session(at, entry.name, "worker", spec, allowed, lambda _: None)
 
     def _judge(self, at: "_At", kind: OutputType | None) -> None:
         board, files = self.board, self.files
@@ -506,6 +577,8 @@ class Swarm:
             if t.name in SHORT_TOOLS
         ]
         system = f"You are the {role} of a swarm. Answer only with the JSON the schema asks for."
+        if standing := at.entry(name, role).prompt:
+            system += f"\nYour standing instructions: {standing}"
 
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
@@ -594,11 +667,12 @@ class Swarm:
         paths = ", ".join(str(at.world_folder / p) for p in pins)
         return f"Pinned references, required reading before you start (Read each): {paths}."
 
-    def _system_prompt(self, at: "_At") -> str:
+    def _system_prompt(self, at: "_At", entry: CastEntry) -> str:
         prior = self.files.artifacts(at.world_id, at.run_id)
         return "\n".join(
             [
-                f"You are {WORKER}, a worker in a swarm. Stage: {at.stage_name}.",
+                f"You are {entry.name}, a worker in a swarm. Stage: {at.stage_name}.",
+                f"Your standing instructions: {entry.prompt}" if entry.prompt else "",
                 f"Goal: {at.config.get('goal', '')}",
                 f"Done when: {at.config.get('done_when', '')}",
                 _wants(at.config),

@@ -178,3 +178,9 @@ select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); 
 .measure { display: grid; gap: 0.25rem; max-width: 28rem; margin-top: 0.5rem; }
 .measure meter { width: 100%; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cast-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.8rem; }
+.cast-member h3 .faint-title { font-size: 0.85rem; margin-left: 0.4rem; }
+.cast-edit { display: grid; gap: 0.6rem; margin-top: 0.4rem; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.8rem 1.2rem; }
+.goal textarea { min-height: 4rem; }
+.field { display: grid; gap: 0.25rem; }

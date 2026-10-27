@@ -78,7 +78,7 @@ export function Runs() {
               {r.baseline && <span className="faint">Hooli baseline</span>}
               <span className="faint">{progress(r)}</span>
               {r.spent_usd > 0 && <span className="faint">{money(r.spent_usd)}</span>}
-              <span className="faint">v{r.workflow_version}</span>
+              <span className="faint">{version(r)}</span>
               <time className="faint" dateTime={r.created_at}>
                 {new Date(r.created_at).toLocaleString()}
               </time>
@@ -89,6 +89,9 @@ export function Runs() {
     </main>
   );
 }
+
+/** "v3", or "ad hoc" for a run started from a typed goal with no workflow. */
+export const version = (r: Run) => (r.workflow_version === null ? "ad hoc" : `v${r.workflow_version}`);
 
 /** "<label> <run>", linking to a related run. */
 export function RunRef({ label, run, testId }: { label: string; run: RunLink; testId?: string }) {

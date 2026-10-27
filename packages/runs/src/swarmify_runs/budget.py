@@ -17,6 +17,21 @@ def level(spent: float, budget: float | None) -> Level:
     return "spent" if spent >= budget else "warning"
 
 
+def monthly_cap(requested: float | None, monthly: float | None, spent: float) -> float | None:
+    """The Budget a new run gets under its world's Monthly Budget: `requested` (None: no
+    ceiling) when the world has none, else the smaller of `requested` and what is left of the
+    month. Raises ValueError when the month's budget is already spent."""
+    if monthly is None:
+        return requested
+    left = monthly - spent
+    if left <= 0:
+        raise ValueError(
+            f"the world's monthly budget of ${monthly:.2f} is spent (${spent:.2f} so far, an"
+            " estimate); raise it in the world's settings or wait for next month"
+        )
+    return left if requested is None else min(requested, left)
+
+
 def ask(spent: float, budget: float) -> str:
     """What the budget gate asks."""
     return (

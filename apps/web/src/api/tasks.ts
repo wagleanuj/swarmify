@@ -15,6 +15,9 @@ const CAST: Record<string, string> = {
   operator: "you",
   swarmify: "the swarm",
   "worker-1": "Gilfoyle",
+  "worker-2": "Dinesh",
+  "worker-3": "Jared",
+  "worker-4": "Big Head",
   planner: "Richard",
   judge: "Erlich",
 };

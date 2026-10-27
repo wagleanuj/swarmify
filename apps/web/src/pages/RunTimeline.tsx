@@ -7,7 +7,7 @@ import { actOn, type Call, decisionLine, duration, money, type Run, statusLine, 
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
-import { RunRef } from "./Runs";
+import { RunRef, version } from "./Runs";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
@@ -208,7 +208,7 @@ export function RunTimeline() {
         <div>
           {crumb}
           <h1>
-            {run.name} <span className="faint-title">v{run.workflow_version}</span>
+            {run.name} <span className="faint-title">{version(run)}</span>
           </h1>
           {run.parent && (
             <p className="sub">

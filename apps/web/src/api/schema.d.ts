@@ -54,6 +54,73 @@ export interface paths {
         delete: operations["delete_world_api_worlds__world_id__delete"];
         options?: never;
         head?: never;
+        /**
+         * Update Settings
+         * @description Change the settings given; `monthly_budget_usd: null` removes the ceiling.
+         */
+        patch: operations["update_settings_api_worlds__world_id__patch"];
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/cast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cast
+         * @description The world's agents at their current versions, each with its record: tasks done,
+         *     first-try acceptance, send-backs and estimated cost, folded from the world's events.
+         */
+        get: operations["get_cast_api_worlds__world_id__cast_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/cast/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit Cast
+         * @description Append a version of the agent's prompt and tools. Refused (422) without `confirm`,
+         *     when nothing changed, or when the input is out of range.
+         */
+        put: operations["edit_cast_api_worlds__world_id__cast__name__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/cast/{name}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cast Versions
+         * @description Every version of the agent's prompt and tools, oldest first; version 1 is the
+         *     default.
+         */
+        get: operations["cast_versions_api_worlds__world_id__cast__name__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -176,8 +243,54 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Start Run */
+        /**
+         * Start Run
+         * @description 409 when the world's Monthly Budget is spent.
+         */
         post: operations["start_run_api_workflows__workflow_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_worlds__world_id__runs_get"];
+        put?: never;
+        /**
+         * Start Ad Hoc
+         * @description Start an Ad Hoc Run from a typed goal: one swarm stage with the world's swarm
+         *     connectors as its tools, no workflow pinned. Its notes feed the world's graph like any
+         *     run's. 409 when the world's Monthly Budget is spent.
+         */
+        post: operations["start_ad_hoc_api_worlds__world_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Spend
+         * @description The world's estimated spend this month, what its Monthly Budget is measured against.
+         */
+        get: operations["get_spend_api_worlds__world_id__spend_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -220,23 +333,6 @@ export interface paths {
          *     skipped.
          */
         post: operations["promote_api_workflows__workflow_id__promote_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/worlds/{world_id}/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Runs */
-        get: operations["list_runs_api_worlds__world_id__runs_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -777,6 +873,27 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AdHoc
+         * @description An Ad Hoc Run: one swarm stage on a typed goal, using every connector of the world that
+         *     swarm stages may use, with no saved workflow.
+         */
+        AdHoc: {
+            /** Goal */
+            goal: string;
+            /**
+             * Done When
+             * @default
+             */
+            done_when: string;
+            /** Budget Usd */
+            budget_usd?: number | null;
+            /**
+             * Baseline
+             * @default false
+             */
+            baseline: boolean;
+        };
+        /**
          * Agent
          * @description One agent of a swarm stage. `session_id` is its Agent SDK session, so a replacement agent
          *     resumes it instead of starting over. `cost_usd` is the runtime's estimate, not billing.
@@ -913,6 +1030,60 @@ export interface components {
              * @default 0
              */
             polls: number;
+        };
+        /**
+         * CastChange
+         * @description A new version of an agent's prompt and tools. `confirm` must be true: the change applies
+         *     to every stage that starts from now on, in every run of this world.
+         */
+        CastChange: {
+            /**
+             * Prompt
+             * @default
+             */
+            prompt: string;
+            /** Tools */
+            tools?: string[] | null;
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
+        /**
+         * CastEdit
+         * @description One stored version of an agent's prompt and tools. Version 1 is never stored.
+         */
+        CastEdit: {
+            /** Name */
+            name: string;
+            /** Number */
+            number: number;
+            /** Prompt */
+            prompt: string;
+            /** Tools */
+            tools: string[] | null;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * CastMember
+         * @description An agent of the world's cast at its current version, with its record.
+         */
+        CastMember: {
+            /** Name */
+            name: string;
+            /** Role */
+            role: string;
+            /** Version */
+            version: number;
+            /** Prompt */
+            prompt: string;
+            /** Tools */
+            tools: string[] | null;
+            /** Updated At */
+            updated_at: string | null;
+            record?: components["schemas"]["Record"];
         };
         /** ChannelUpdate */
         ChannelUpdate: {
@@ -1339,6 +1510,37 @@ export interface components {
             seconds: number;
         };
         /**
+         * Record
+         * @description An agent's track record, folded from the world's event stream.
+         */
+        Record: {
+            /**
+             * Tasks Done
+             * @default 0
+             */
+            tasks_done: number;
+            /**
+             * Judged
+             * @default 0
+             */
+            judged: number;
+            /**
+             * First Try
+             * @default 0
+             */
+            first_try: number;
+            /**
+             * Send Backs
+             * @default 0
+             */
+            send_backs: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+        };
+        /**
          * Report
          * @description What the editor shows inline: every violation, plus the model when the shape parsed.
          */
@@ -1354,9 +1556,9 @@ export interface components {
             /** World Id */
             world_id: string;
             /** Workflow Id */
-            workflow_id: string;
+            workflow_id: string | null;
             /** Workflow Version */
-            workflow_version: number;
+            workflow_version: number | null;
             /** Name */
             name: string;
             /**
@@ -1455,6 +1657,18 @@ export interface components {
         SetBudget: {
             /** Budget Usd */
             budget_usd: number;
+        };
+        /**
+         * Spend
+         * @description What the world's runs spent this calendar month against its Monthly Budget.
+         */
+        Spend: {
+            /** Month */
+            month: string;
+            /** Spent Usd */
+            spent_usd: number;
+            /** Monthly Budget Usd */
+            monthly_budget_usd: number | null;
         };
         /** StartRun */
         StartRun: {
@@ -1678,6 +1892,37 @@ export interface components {
             purpose: string;
             /** Created At */
             created_at: string;
+            /**
+             * Retention Days
+             * @default 90
+             */
+            retention_days: number;
+            /** Monthly Budget Usd */
+            monthly_budget_usd?: number | null;
+            /**
+             * Run Cap
+             * @default 2
+             */
+            run_cap: number;
+            /**
+             * Agent Count
+             * @default 4
+             */
+            agent_count: number;
+        };
+        /**
+         * WorldSettings
+         * @description The settings to change; a field left out keeps its value.
+         */
+        WorldSettings: {
+            /** Monthly Budget Usd */
+            monthly_budget_usd?: number | null;
+            /** Run Cap */
+            run_cap?: number | null;
+            /** Retention Days */
+            retention_days?: number | null;
+            /** Agent Count */
+            agent_count?: number | null;
         };
         /** YamlBody */
         YamlBody: {
@@ -1814,6 +2059,145 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_settings_api_worlds__world_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorldSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["World"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cast_api_worlds__world_id__cast_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastMember"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_cast_api_worlds__world_id__cast__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CastChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastMember"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cast_versions_api_worlds__world_id__cast__name__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastEdit"][];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -2111,6 +2495,131 @@ export interface operations {
                     "application/json": components["schemas"]["Run"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_worlds__world_id__runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_ad_hoc_api_worlds__world_id__runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdHoc"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_spend_api_worlds__world_id__spend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Spend"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -2208,37 +2717,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    list_runs_api_worlds__world_id__runs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Run"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
             };
         };
     };
