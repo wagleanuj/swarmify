@@ -5,6 +5,7 @@ description = "Swarmify HTTP API"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.162",
+  "httpx2>=2.16",
   "mcp>=2.3",
   "swarmify-connectors",
   "swarmify-kernel",
@@ -20,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 swarmify-mcp = "swarmify_api.mcp:main"
+swarmify-eval = "swarmify_api.eval_harness:main"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]

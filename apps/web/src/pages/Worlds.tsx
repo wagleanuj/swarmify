@@ -58,6 +58,9 @@ export function Worlds() {
           <Link to="/gates" className="button">
             Needs you
           </Link>
+          <Link to="/evals" className="button">
+            Evals
+          </Link>
           <Health />
         </div>
       </header>

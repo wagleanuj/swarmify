@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1700,6 +1700,7 @@ version = "0.1.0"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "swarmify-connectors" },
     { name = "swarmify-kernel" },
@@ -1716,6 +1717,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.162" },
+    { name = "httpx2", specifier = ">=2.16" },
     { name = "mcp", specifier = ">=2.3" },
     { name = "swarmify-connectors", editable = "packages/connectors" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
