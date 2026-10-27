@@ -139,7 +139,7 @@ def test_the_query_box_asks_the_graph_index(
     )
 
 
-def test_agents_read_their_world_and_listed_worlds_only(
+def test_agents_read_their_world_and_listed_worlds_only_and_write_only_their_own(
     running: TestClient, script: Script, graph_index: FakeGraphIndex, tmp_path: Path
 ) -> None:
     video = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
@@ -153,6 +153,17 @@ def test_agents_read_their_world_and_listed_worlds_only(
             Call(tool_id("graph_stats"), {"world": secret}),
             Call(tool_id("get_node"), {"label": "x", "project_path": str(tmp_path / "worlds")}),
             Call(tool_id("claim_task")),
+            # Writing across worlds: tools take no world, and file tools are not allowed.
+            Call(tool_id("write_note"), {"title": "Mine", "body": "x", "world": "Market"}),
+            Call(
+                tool_id("write_artifact"),
+                {"name": "a.md", "content": "x", "world": market, "project_path": "../"},
+            ),
+            Call(
+                "Write", {"file_path": str(tmp_path / "worlds" / market / "x.md"), "content": "x"}
+            ),
+            Call("Edit", {"file_path": str(tmp_path / "worlds" / market / "x.md")}),
+            Call("Bash", {"command": f"touch {tmp_path / 'worlds' / market / 'x.md'}"}),
             FINISH,
             Say("Done."),
         ],
@@ -160,10 +171,14 @@ def test_agents_read_their_world_and_listed_worlds_only(
     ]
     assert _run(running, video, _research("[Market]"))["status"] == "done"
     worlds = tmp_path / "worlds"
+    assert [p.name for p in (worlds / market).rglob("*") if p.is_file()] == []
+    written = sorted(p.name for p in (worlds / video / "runs").rglob("*.md"))
+    assert "mine.md" in written and "a.md" in written
     assert [(folder, tool) for folder, tool, _ in graph_index.calls] == [
         (worlds / market, "query_graph"),
         (worlds / video, "god_nodes"),
     ]
     texts = [(o.is_error, o.text.splitlines()[0]) for o in script.outcomes]
-    assert texts[:2] == [(False, "[world Market]"), (False, f"[world {video}]")]
+    assert texts[:2] == [(False, "[world Market]"), (False, "[world Video]")]
     assert all(err and "not readable" in text for err, text in texts[2:4]), texts
+    assert [err for err, _ in texts[5:10]] == [False, False, True, True, True], texts

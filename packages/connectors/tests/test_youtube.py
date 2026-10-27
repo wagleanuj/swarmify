@@ -11,7 +11,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from swarmify_connectors import BUILTINS, McpTransport
-from swarmify_connectors.youtube import consent_url, publish
+from swarmify_connectors.youtube import consent_url, publish, video_views
 
 ENV = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
 SESSION = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=u1"
@@ -87,10 +87,13 @@ def test_google_errors_and_missing_inputs_are_tool_errors(video: Path, tmp_path:
             publish(http, {**ENV, "YOUTUBE_REFRESH_TOKEN": ""}, video, "t")
 
 
-def test_the_consent_link_asks_for_upload_only_and_offline_access() -> None:
+def test_the_consent_link_asks_for_upload_and_read_only_and_offline_access() -> None:
     url = urllib.parse.urlparse(consent_url("id", "http://127.0.0.1:5", "st"))
     query = urllib.parse.parse_qs(url.query)
-    assert query["scope"] == ["https://www.googleapis.com/auth/youtube.upload"]
+    assert query["scope"][0].split() == [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly",
+    ]
     assert (query["access_type"], query["prompt"], query["state"]) == (
         ["offline"],
         ["consent"],
@@ -98,9 +101,42 @@ def test_the_consent_link_asks_for_upload_only_and_offline_access() -> None:
     )
 
 
-def test_the_builtin_server_starts_and_lists_its_one_tool() -> None:
+def test_view_counts_come_from_videos_list_in_batches_of_50() -> None:
+    seen: list[httpx.Request] = []
+
+    def google(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "tok"})
+        ids = request.url.params["id"].split(",")
+        items = [{"id": i, "statistics": {"viewCount": str(len(i))}} for i in ids if i != "gone"]
+        return httpx.Response(200, json={"items": items})
+
+    ids = [f"v{n}" for n in range(60)] + ["gone", "v1"]
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        counts = video_views(http, ENV, ids)
+        assert video_views(http, ENV, []) == {}
+    assert counts["v1"] == 2 and counts["v59"] == 3 and "gone" not in counts and len(counts) == 60
+    _, first, second = seen
+    assert first.url.path == "/youtube/v3/videos" and first.url.params["part"] == "statistics"
+    assert len(first.url.params["id"].split(",")) == 50
+    assert second.url.params["id"].split(",") == [*(f"v{n}" for n in range(50, 60)), "gone"]
+    assert first.headers["authorization"] == "Bearer tok"
+
+    def refused(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "tok"})
+        return httpx.Response(403, json={"error": {"message": "insufficientPermissions"}})
+
+    with httpx.Client(transport=httpx.MockTransport(refused)) as http:
+        with pytest.raises(ToolError, match=r"view counts failed \(403\): insufficient"):
+            video_views(http, ENV, ["v1"])
+
+
+def test_the_builtin_server_starts_and_lists_its_two_tools() -> None:
     youtube = next(c for c in BUILTINS if c.name == "youtube")
     assert youtube.command[0] == sys.executable
-    (tool,) = McpTransport().list_tools(youtube, {})
-    assert tool.name == "youtube"
+    tool, views = McpTransport().list_tools(youtube, {})
+    assert (tool.name, views.name) == ("youtube", "views")
+    assert set(views.input_schema["properties"]) == {"video_ids"}
     assert {"input_path", "title", "visibility", "schedule"} <= set(tool.input_schema["properties"])

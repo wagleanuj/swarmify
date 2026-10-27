@@ -83,3 +83,39 @@ test("the fourth fail says the stage failed", async () => {
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("verdict")).toMatchTextContent(/loop 4 of 4\. That was the last loop, so the stage failed\./);
 });
+
+test("a publish card shows the views written back, and a pruned file says its record stayed", async () => {
+  const publish: ArtifactFile = {
+    name: "publish.md",
+    path: "runs/run_1/stage_0/artifacts/publish.md",
+    type: "publish",
+    author: "publish",
+    title: "Five hooks",
+    fields: { type: "publish", views: 41250, views_at: "2026-10-27T12:00:00+00:00" },
+    body: "# Five hooks",
+    run_id: "run_1",
+    stage: "stage_0",
+    created: ts,
+    pinned: false,
+  };
+  const video: ArtifactFile = {
+    name: "short.mp4",
+    path: "runs/run_1/stage_0/artifacts/short.mp4.md",
+    type: "file",
+    author: "render",
+    title: "short.mp4.md",
+    fields: { type: "file", deleted: "2027-01-30T00:00:00+00:00" },
+    body: "Sidecar of short.mp4.",
+    run_id: "run_1",
+    stage: "stage_0",
+    created: ts,
+    pinned: false,
+  };
+  routes([], () => [publish, video]);
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("views")).toHaveTextContent("41,250 views as of 2026-10-27");
+  await expect.element(screen.getByTestId("artifact-card")).not.toHaveTextContent("source paragraph");
+  await expect
+    .element(screen.getByTestId("artifacts"))
+    .toMatchTextContent(/Files: short\.mp4 \(deleted by retention, record kept\)/);
+});

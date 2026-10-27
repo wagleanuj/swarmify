@@ -1,13 +1,15 @@
 """The YouTube publish connector: a stdio MCP server over the YouTube Data API (ADR 0015).
 
-One tool, `youtube`, uploads a video with `videos.insert` (resumable upload, one request for the
+Two tools. `youtube` uploads a video with `videos.insert` (resumable upload, one request for the
 metadata and one for the bytes) and answers with its id and link. With a `schedule` the video is
 uploaded private with `publishAt`, and YouTube makes it public at that time: `publishAt` can be
-set only while the privacy status is private.
+set only while the privacy status is private. `views` answers the view counts of up to 50
+videos with one `videos.list` call (part statistics, 1 quota unit): the outcome write-back.
 
 Credentials, from `~/.swarmify/.env`: YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET of a Google
 Cloud OAuth client (type Desktop app, YouTube Data API v3 enabled), and YOUTUBE_REFRESH_TOKEN,
-which `uv run python -m swarmify_connectors.youtube authorize` prints after a browser consent.
+which `uv run python -m swarmify_connectors.youtube authorize` prints after a browser consent
+(upload and read-only scopes; a token from before view counts needs authorizing again).
 
 The swarmify side never repeats a publish call whose outcome is unknown, so this wrapper keeps
 no state of its own; `idempotency_key` is accepted and ignored.
@@ -30,7 +32,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
-SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
+SCOPE = (
+    "https://www.googleapis.com/auth/youtube.upload"
+    " https://www.googleapis.com/auth/youtube.readonly"
+)
+MAX_IDS = 50
 CREDENTIALS = ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]
 
 mcp = MCPServer("youtube")
@@ -135,6 +142,31 @@ def youtube(
             visibility,
             schedule,
         )
+
+
+def video_views(http: httpx.Client, env: Mapping[str, str], ids: list[str]) -> dict[str, int]:
+    """View counts by video id; a video YouTube no longer has (deleted, private) is left out."""
+    ids = list(dict.fromkeys(i for i in ids if i))
+    if not ids:
+        return {}
+    token, counts = access_token(http, env), {}
+    for start in range(0, len(ids), MAX_IDS):
+        response = http.get(
+            VIDEOS_URL,
+            params={"part": "statistics", "id": ",".join(ids[start : start + MAX_IDS])},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if response.status_code != 200:
+            raise _error(response, "reading YouTube view counts")
+        for item in response.json().get("items", []):
+            counts[item["id"]] = int(item.get("statistics", {}).get("viewCount", 0))
+    return counts
+
+
+@mcp.tool(description="View counts of YouTube videos by id, for the outcome write-back.")
+def views(video_ids: list[str]) -> dict[str, Any]:
+    with httpx.Client(timeout=60.0) as http:
+        return {"views": video_views(http, os.environ, video_ids)}
 
 
 def consent_url(client_id: str, redirect: str, state: str) -> str:

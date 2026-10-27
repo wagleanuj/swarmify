@@ -269,6 +269,22 @@ class Connectors:
         """A finished publish call's links, normalized across connectors."""
         return publish.result(call.connector, call.response or {})
 
+    # Outcomes
+
+    def youtube_views(self, world_id: str, video_ids: list[str]) -> dict[str, int]:
+        """View counts by video id from the `youtube` connector's `views` tool, the scheduled
+        outcome write-back. Raises ConnectorError, as when its credentials are missing."""
+        connector = self.find(world_id, "youtube")
+        if connector is None or not video_ids:
+            return {}
+        answer = self.transport.call(
+            connector, "views", {"video_ids": video_ids}, self._env(connector)
+        )
+        counts = answer.get("views")
+        if not isinstance(counts, dict):
+            raise ConnectorError(f"youtube views answered without counts: {answer}")
+        return {str(k): int(v) for k, v in counts.items()}
+
     # Connector stages
 
     def call_for(self, stage_id: str) -> Call | None:

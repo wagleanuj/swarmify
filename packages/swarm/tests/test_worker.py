@@ -516,8 +516,8 @@ def test_graph_tools_read_only_the_worlds_the_stage_allows(
     outcomes = [(o.is_error, o.text.splitlines()[0]) for o in script.outcomes]
     assert outcomes[:3] == [
         (False, f"[world {W}]"),
-        (False, "[world market]"),
-        (False, "[world market]"),
+        (False, "[world Market]"),
+        (False, "[world Market]"),
     ]
     for o in script.outcomes[3:6]:
         assert o.is_error and f"Readable: {W}, market." in o.text

@@ -35,6 +35,7 @@ from swarmify_api import (
     notifications,
     runs,
     tasks,
+    upkeep,
     workflows,
     worlds,
 )
@@ -246,13 +247,15 @@ def create_app(
     graph_debounce: float = DEBOUNCE,
     graph_poll: float = 2.0,
     notifier: Notifier | None = None,
+    upkeep_seconds: float = upkeep.UPKEEP_SECONDS,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
     between long-job polls, and `connector` replaces the connector stage call altogether.
     `clock` stamps claims and heartbeats and decides when a claim has gone silent. `runtime`
     runs agent sessions: the Agent SDK by default, a scripted transport in tests.
     `notifier` receives `gate.opened`, `budget.warning` and `run.ended`; each world's Slack
-    Channel by default."""
+    Channel by default. Every `upkeep_seconds` the view counts are written back and old
+    binaries pruned."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
     whiteboard = task_board(root)
@@ -368,11 +371,27 @@ def create_app(
                 log.exception("whiteboard sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
 
+    def upkeep_once() -> None:
+        upkeep.record_outcomes(world_svc, memory, registry, clock())
+        upkeep.prune(world_svc, memory, clock())
+
+    async def upkeep_loop() -> None:
+        # ponytail: an in-process interval, restarted with the app; both jobs are idempotent, so
+        # a missed tick only delays them. Move to DBOS cron if they must run at fixed times.
+        # Runs once at launch too, so an app restarted more often than the interval still does it.
+        while True:
+            try:
+                await to_thread.run_sync(upkeep_once)
+            except Exception:
+                log.exception("upkeep failed, retrying next tick")
+            await asyncio.sleep(upkeep_seconds)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # DBOS refuses its sync API on a running event loop, so launch and stop in a thread.
         await to_thread.run_sync(runner.launch)
         sweeper = asyncio.create_task(sweep())
+        upkeeper = asyncio.create_task(upkeep_loop())
         stop = threading.Event()
         # The GraphWriter's one thread: every world's rebuilds in turn (ADR 0003).
         rebuilds = threading.Thread(
@@ -382,9 +401,10 @@ def create_app(
             rebuilds.start()
         yield
         stop.set()
-        sweeper.cancel()
-        with suppress(asyncio.CancelledError):
-            await sweeper
+        for task in (sweeper, upkeeper):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         if rebuilds.is_alive():
             await to_thread.run_sync(lambda: rebuilds.join(5))
         await to_thread.run_sync(index.close)

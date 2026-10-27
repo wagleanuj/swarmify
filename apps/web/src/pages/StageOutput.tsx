@@ -70,9 +70,17 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
                   <b>{a.title}</b>
                   {typeof a.fields.hook === "string" && <span>Hook: {a.fields.hook}</span>}
                   {typeof a.fields.why === "string" && <span>Why: {a.fields.why}</span>}
-                  <span className="faint">
-                    {sources.length ? `From ${sources.map(source).join("; ")}` : "No source paragraph cited."}
-                  </span>
+                  {typeof a.fields.views === "number" && (
+                    <span data-testid="views">
+                      {a.fields.views.toLocaleString("en")} views as of{" "}
+                      {String(a.fields.views_at ?? "").slice(0, 10)}
+                    </span>
+                  )}
+                  {a.type !== "publish" && (
+                    <span className="faint">
+                      {sources.length ? `From ${sources.map(source).join("; ")}` : "No source paragraph cited."}
+                    </span>
+                  )}
                 </li>
               );
             })}
@@ -80,7 +88,10 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
         )}
         {files.length > 0 && (
           <p className="faint">
-            Files: {files.map((f) => f.name).join(", ")}
+            Files:{" "}
+            {files
+              .map((f) => (f.fields.deleted ? `${f.name} (deleted by retention, record kept)` : f.name))
+              .join(", ")}
           </p>
         )}
       </section>

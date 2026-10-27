@@ -132,12 +132,19 @@ class Graphs(Protocol):
         """The folder of the world named by id or name; None when there is no such world."""
         ...
 
+    def name(self, folder: Path) -> str:
+        """The name of the world at `folder`, which labels every answer from its graph."""
+        ...
+
     def call(self, folder: Path, tool: str, args: dict[str, Any]) -> str: ...
 
 
 class NoGraphs:
     def folder(self, world: str) -> Path | None:
         return None
+
+    def name(self, folder: Path) -> str:
+        return folder.name
 
     def call(self, folder: Path, tool: str, args: dict[str, Any]) -> str:
         return "The world graph has nothing yet. Work from the task and the stage goal."
@@ -718,7 +725,8 @@ class Swarm:
             raise ToolError(
                 f"The graph {ref} is not readable in this stage. Readable: {', '.join(readable)}."
             )
-        return f"[world {name}]\n{self.graphs.call(readable[name], tool, args)}"
+        folder = readable[name]
+        return f"[world {self.graphs.name(folder)}]\n{self.graphs.call(folder, tool, args)}"
 
     def _tools(
         self,

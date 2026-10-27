@@ -9,8 +9,13 @@ frontmatter.
 
 The Library is every artifact of a world across its runs, read from the files; a Pin marks one
 as required reading for later swarm stages and lives in its frontmatter, so it survives any
-database. The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read
-through the GraphIndex port.
+database. Retention (`prune`) deletes a world's old run binaries but never markdown: each deleted
+file's sidecar stays, saying when it went, so the graph and the library keep the record (ADR
+0001). Outcomes (`record_outcome`) are written into a publish artifact's frontmatter and body, the
+body because graphify reads bodies only.
+
+The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read through
+the GraphIndex port.
 """
 
 import json
@@ -47,6 +52,7 @@ __all__ = [
     "run_graphify",
 ]
 
+OUTCOME = "## Outcome\n\n"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 
@@ -294,7 +300,9 @@ class Memory:
             if p.suffix != ".md" and p.with_name(f"{p.name}.md").is_file():
                 continue  # its sidecar carries it
             fields, body = _split(p.read_text(errors="replace"))
-            carried = p.suffix == ".md" and p.with_name(p.name[:-3]).is_file()
+            carried = p.suffix == ".md" and (
+                p.with_name(p.name[:-3]).is_file() or "deleted" in fields
+            )
             parts = p.relative_to(world).parts  # runs, <run>, <stage>, ...
             out.append(
                 ArtifactFile(
@@ -312,6 +320,75 @@ class Memory:
                 )
             )
         return out
+
+    def publish_records(self, world_id: str) -> list[tuple[str, dict[str, Any]]]:
+        """Every publish artifact of the world: (path relative to the world folder, fields)."""
+        world = self.world_folder(world_id)
+        return [
+            (str(p.relative_to(world)), _split(p.read_text())[0])
+            for p in sorted(world.glob("runs/*/*/artifacts/publish.md"))
+        ]
+
+    def record_outcome(
+        self, world_id: str, path: str, views: int, counts: dict[str, int], at: datetime
+    ) -> None:
+        """Write a publish artifact's view count into its frontmatter (`views`, `views_at`) and
+        into an Outcome section of its body, replacing the last one. `counts` is per video."""
+        file = self._inside(world_id, path)
+        fields, body = _split(file.read_text())
+        day = at.astimezone(UTC).date().isoformat()
+        fields |= {"views": views, "views_at": at.astimezone(UTC).isoformat()}
+        lines = "".join(f"- {video}: {n:,} views\n" for video, n in counts.items())
+        body = body.split(OUTCOME)[0].rstrip("\n")
+        file.write_text(
+            f"{_frontmatter(fields)}{body}\n\n{OUTCOME}{views:,} views as of {day}.\n\n{lines}"
+        )
+        self._event(world_id, fields.get("run"), "outcome.recorded", path=path, views=views)
+
+    def prune(self, world_id: str, before: datetime, now: datetime) -> list[str]:
+        """Delete every run file of the world that is not markdown and was last changed before
+        `before`, keeping its sidecar (written when there was none) with `deleted` (`now`) in the
+        frontmatter and a line in the body. Returns the deleted paths."""
+        world = self.world_folder(world_id)
+        cutoff, gone = before.timestamp(), []
+        when = before.astimezone(UTC).isoformat()
+        for file in sorted((world / "runs").rglob("*")):
+            if file.suffix == ".md" or not file.is_file() or file.stat().st_mtime >= cutoff:
+                continue
+            sidecar = file.with_name(f"{file.name}.md")
+            fields, body = _split(sidecar.read_text()) if sidecar.exists() else ({}, "")
+            run = file.relative_to(world / "runs").parts[0]
+            fields = {
+                "type": "file",
+                "run": run,
+                **fields,
+                "deleted": now.astimezone(UTC).isoformat(),
+            }
+            body = body.rstrip("\n") or f"Sidecar of {file.name}."
+            sidecar.write_text(
+                f"{_frontmatter(fields)}{body}\n\n"
+                f"{file.name} was deleted by retention: unchanged since before {when}."
+                " This record stays.\n"
+            )
+            file.unlink()
+            rel = str(file.relative_to(world))
+            gone.append(rel)
+            self._event(world_id, run, "artifact.pruned", path=rel)
+        return gone
+
+    def _inside(self, world_id: str, path: str) -> Path:
+        world = self.world_folder(world_id).resolve()
+        file = (world / path).resolve()
+        if not file.is_relative_to(world) or not file.is_file():
+            raise ValueError(f"{path} is not a file of this world")
+        return file
+
+    def _event(self, world_id: str, run_id: Any, type: str, **payload: Any) -> None:
+        event = Event.new(
+            type, world_id=world_id, run_id=str(run_id) if run_id else None, payload=payload
+        )
+        with closing(connect(self.db)) as conn:
+            append(conn, event)
 
     @staticmethod
     def _meta(
