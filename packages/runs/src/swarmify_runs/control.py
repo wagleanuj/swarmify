@@ -185,14 +185,17 @@ class RunControl:
         note: str = "",
         send_back_to: str | None = None,
         proposal: bool = False,
+        artifact: str | None = None,
     ) -> Run:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
         A skill gate takes only the answer of its proposal (`proposal=True`, from Learning).
+        `artifact` names the chosen or approved artifact by its path in the world folder; it
+        must come from a stage before the gate, and a pick with no `choice` takes its title.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
         send-back target is not an earlier stage, on the third send-back, or when someone
-        else already answered this gate, and ValueError when
-        a pick gate gets no choice.
+        else already answered this gate, and ValueError when a pick gate gets no choice or
+        the artifact is not one of this run's before the gate.
         """
         run = self._run(run_id)
         if run.over_budget:
@@ -205,6 +208,9 @@ class RunControl:
         if kind == "skill" and not proposal:
             raise Illegal("a skill gate is answered by deciding its proposal")
         note = note.strip()
+        if artifact:
+            file = self._artifact_before(run, index, artifact)
+            choice = (choice or "").strip() or artifact_title(file)
         if kind == "pick" and not (choice or "").strip():
             raise ValueError("a pick gate needs a choice")
         if send_back_to is not None:
@@ -218,7 +224,16 @@ class RunControl:
             event = GateAnswered(index)
         transition(kinds_of(run), state_of(run), event)  # raises Illegal before anything is written
         decision = Decision(
-            new_id("dec"), index, stage.name, kind, choice, note, send_back_to, "", _now()
+            new_id("dec"),
+            index,
+            stage.name,
+            kind,
+            choice,
+            note,
+            send_back_to,
+            "",
+            _now(),
+            artifact or None,
         )
         decision = self._write_decision(run, decision)
         message: dict[str, Any] = {"action": "decide", "index": index}
@@ -408,6 +423,17 @@ class RunControl:
     def _send(self, run_id: str, message: dict[str, Any]) -> None:
         self.client.send(run_id, message, topic=CONTROL_TOPIC)
 
+    def _artifact_before(self, run: Run, index: int, path: str) -> Path:
+        """The file at `path` (relative to the world folder), which must be an artifact of a
+        stage of this run before stage `index`."""
+        folder = run_folder(self.data_dir, run).resolve()
+        file = (folder.parent.parent / path).resolve()
+        parts = file.relative_to(folder).parts if file.is_relative_to(folder) else ()
+        earlier = {s.id for s in run.stages if s.index < index}
+        if not (len(parts) >= 3 and parts[0] in earlier and file.is_file()):
+            raise ValueError(f"{path} is not an artifact of this run before this gate")
+        return file
+
     def _write_decision(self, run: Run, decision: Decision) -> Decision:
         """Record the decision row, then its markdown file."""
         folder = stage_folder(self.data_dir, run, decision.stage_index)
@@ -418,6 +444,23 @@ class RunControl:
         self.storage.add_decision(run.id, decision, run.send_backs)  # Illegal: already answered
         path.write_text(decision_markdown(run, decision))
         return decision
+
+
+def artifact_title(file: Path) -> str:
+    """The `title` in a markdown artifact's frontmatter (or its sidecar's), else the name of
+    the file, or of the binary a sidecar carries. Frontmatter values are JSON (Memory writes
+    them so), read here without importing Memory."""
+    sidecar = file.with_name(f"{file.name}.md")
+    if file.suffix != ".md" and sidecar.is_file():
+        file = sidecar
+    for line in file.read_text(errors="replace").split("\n---\n", 1)[0].splitlines():
+        if line.startswith("title: "):
+            try:
+                return str(json.loads(line[7:]))
+            except ValueError:
+                return line[7:]
+    carried = file.suffix == ".md" and file.with_name(file.name[:-3]).is_file()
+    return file.name[:-3] if carried else file.name
 
 
 def decision_markdown(run: Run, decision: Decision) -> str:
@@ -431,6 +474,7 @@ def decision_markdown(run: Run, decision: Decision) -> str:
         "stage_index": decision.stage_index,
         "kind": decision.kind,
         "choice": decision.choice,
+        "artifact": decision.artifact,
         "send_back_to": decision.send_back_to,
         "created": decision.decided_at,
     }

@@ -39,7 +39,8 @@ def finished_short(runner: Runner, tmp_path: Path) -> Run:
     artifacts = run_folder(tmp_path, source) / source.stages[0].id / "artifacts"
     artifacts.mkdir(parents=True)
     (artifacts / "ideas.md").write_text("1. Hooks")
-    runner.decide(source.id, choice="idea 1")
+    chosen = f"runs/{source.id}/{source.stages[0].id}/artifacts/ideas.md"
+    runner.decide(source.id, choice="idea 1", artifact=chosen)
     return at(runner, source.id, "done")
 
 
@@ -84,6 +85,9 @@ def test_a_fork_after_a_gate_keeps_its_decision(
     assert decision.id != source.decisions[0].id
     assert Path(decision.path) == run_folder(tmp_path, fork) / fork.stages[1].id / "decision.md"
     assert Path(decision.path).read_text() == Path(source.decisions[0].path).read_text()
+    # The chosen artifact was copied too, so the record names the fork's own copy.
+    assert decision.artifact == f"runs/{fork.id}/{fork.stages[0].id}/artifacts/ideas.md"
+    assert (tmp_path / "worlds" / fork.world_id / str(decision.artifact)).is_file()
     at(runner, fork.id, "done")
     assert called(connector) == ["research", "render", "render"]
     assert fetch(runner, fork.id).stages[1].status == "done"

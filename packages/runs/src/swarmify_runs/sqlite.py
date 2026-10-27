@@ -90,10 +90,13 @@ class SqliteStorage:
                 # the fork makes itself.
                 old_stage = stages[d["stage_index"]]["id"]
                 path = d["path"].replace(source.id, run.id).replace(old_stage, renamed[old_stage])
+                artifact = d["artifact"] and d["artifact"].replace(source.id, run.id)
+                for old, new in renamed.items():  # the artifact may be from any earlier stage
+                    artifact = artifact and artifact.replace(old, new)
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
-                    " note, send_back_to, path, decided_at, visit)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " note, send_back_to, path, decided_at, visit, artifact)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         new_id("dec"),
                         run.id,
@@ -106,6 +109,7 @@ class SqliteStorage:
                         path,
                         d["decided_at"],
                         -1 - d["visit"],
+                        artifact,
                     ),
                 )
             saved = self._read(conn, run.id)
@@ -232,8 +236,8 @@ class SqliteStorage:
             with self._conn() as conn:
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
-                    " note, send_back_to, path, decided_at, visit)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " note, send_back_to, path, decided_at, visit, artifact)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         decision.id,
                         run_id,
@@ -246,6 +250,7 @@ class SqliteStorage:
                         decision.path,
                         decision.decided_at,
                         visit,
+                        decision.artifact,
                     ),
                 )
         except sqlite3.IntegrityError as exc:
@@ -370,6 +375,7 @@ class SqliteStorage:
                 d["send_back_to"],
                 d["path"],
                 d["decided_at"],
+                d["artifact"],
             )
             for d in conn.execute(
                 "SELECT * FROM gate_decisions WHERE run_id = ? ORDER BY decided_at, id", (run_id,)

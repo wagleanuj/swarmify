@@ -51,6 +51,9 @@ class Decision:
     send_back_to: str | None
     path: str
     decided_at: str
+    artifact: str | None = None
+    """The artifact the choice names, as a path in the world folder: the card picked at a pick
+    gate, or what an approve gate approved (story 53)."""
 
 
 @dataclass(frozen=True)

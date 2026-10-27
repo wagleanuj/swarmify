@@ -6,6 +6,7 @@ upkeep writes the views back and retention prunes the video.
 Behind the API: the scripted agent CLI (no model) and the fake render and YouTube connectors."""
 
 import os
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -64,7 +65,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     page.get_by_role("link", name="Answer the gate").click()
     card = page.get_by_test_id(f"gate-{run}")
     expect(card).to_contain_text("Pick one idea.")
-    card.get_by_label("Your pick").fill("Hook first")
+    card.get_by_role("radio", name=re.compile("Hook first")).click()
     card.get_by_role("button", name="Continue with this pick").click()
     expect(card).to_contain_text("Watch it. Approve or send back.", timeout=20_000)
     card.get_by_role("button", name="Approve").click()

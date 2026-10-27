@@ -46,6 +46,22 @@ def router(
         stage_of(run_id, stage_id)
         return board.list_verdicts(stage_id)
 
+    @api.get("/runs/{run_id}/artifacts")
+    def get_run_artifacts(run_id: str, before: int | None = None) -> list[ArtifactFile]:
+        """Every artifact of the run in stage order, typed as on disk; with `before`, only
+        those of the stages before that index: what a gate at that stage chooses from or
+        reviews (stories 53 and 54). Gate decisions are included, as the Library lists them."""
+        run = get_run(run_id)
+        if run is None:
+            raise HTTPException(404, "run not found")
+        stages = run.stages if before is None else [s for s in run.stages if s.index < before]
+        return [
+            a
+            for s in stages
+            for a in memory.stage_artifacts(run.world_id, run_id, s.id)
+            + memory.decisions(run.world_id, run_id, s.id)
+        ]
+
     @api.get("/runs/{run_id}/stages/{stage_id}/artifacts")
     def get_artifacts(run_id: str, stage_id: str) -> list[ArtifactFile]:
         """The stage's artifact files as they are on disk: projected ones carry their type and

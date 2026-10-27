@@ -776,6 +776,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Artifacts
+         * @description Every artifact of the run in stage order, typed as on disk; with `before`, only
+         *     those of the stages before that index: what a gate at that stage chooses from or
+         *     reviews (stories 53 and 54). Gate decisions are included, as the Library lists them.
+         */
+        get: operations["get_run_artifacts_api_runs__run_id__artifacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/stages/{stage_id}/artifacts": {
         parameters: {
             query?: never;
@@ -843,6 +865,27 @@ export interface paths {
          * @description Every artifact of the world across its runs, newest first.
          */
         get: operations["library_api_worlds__world_id__library_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/files/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * File
+         * @description A run file as it is on disk, by its Library path: the video a gate plays, an image,
+         *     a note a card cites. Only files under the world's runs are served.
+         */
+        get: operations["file_api_worlds__world_id__files__path__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1413,8 +1456,9 @@ export interface components {
         };
         /**
          * Decide
-         * @description A gate answer. Pick gates need `choice`; approve gates may name `send_back_to`, an earlier
-         *     stage that then runs again with `note` in its context; confirm gates take neither.
+         * @description A gate answer. Pick gates need `choice` or `artifact`; approve gates may name
+         *     `send_back_to`, an earlier stage that then runs again with `note` in its context; confirm
+         *     gates take neither.
          */
         Decide: {
             /** Choice */
@@ -1426,6 +1470,8 @@ export interface components {
             note: string;
             /** Send Back To */
             send_back_to?: string | null;
+            /** Artifact */
+            artifact?: string | null;
         };
         /**
          * DecideProposal
@@ -1472,6 +1518,8 @@ export interface components {
             path: string;
             /** Decided At */
             decided_at: string;
+            /** Artifact */
+            artifact?: string | null;
         };
         /** EvalReport */
         EvalReport: {
@@ -4128,6 +4176,39 @@ export interface operations {
             };
         };
     };
+    get_run_artifacts_api_runs__run_id__artifacts_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactFile"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_artifacts_api_runs__run_id__stages__stage_id__artifacts_get: {
         parameters: {
             query?: never;
@@ -4245,6 +4326,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["LibraryItem"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    file_api_worlds__world_id__files__path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

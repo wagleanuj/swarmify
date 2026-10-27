@@ -69,12 +69,16 @@ class SetBudget(BaseModel):
 
 
 class Decide(BaseModel):
-    """A gate answer. Pick gates need `choice`; approve gates may name `send_back_to`, an earlier
-    stage that then runs again with `note` in its context; confirm gates take neither."""
+    """A gate answer. Pick gates need `choice` or `artifact`; approve gates may name
+    `send_back_to`, an earlier stage that then runs again with `note` in its context; confirm
+    gates take neither."""
 
     choice: str | None = Field(default=None, max_length=2_000)
     note: str = Field(default="", max_length=10_000)
     send_back_to: str | None = None
+    artifact: str | None = Field(default=None, max_length=2_000)
+    """The chosen artifact's path in the world folder, as `GET /runs/{run_id}/artifacts` lists
+    it: the card picked, or what was approved. A pick with no `choice` takes its title."""
 
 
 class Fork(BaseModel):
@@ -310,7 +314,11 @@ def router(
 
     @api.post("/runs/{run_id}/decision", responses=ACTION_ERRORS)
     def decide(run_id: str, body: Decide) -> Run:
-        return act(lambda: runner.decide(run_id, body.choice, body.note, body.send_back_to))
+        return act(
+            lambda: runner.decide(
+                run_id, body.choice, body.note, body.send_back_to, artifact=body.artifact
+            )
+        )
 
     @api.post("/runs/{run_id}/pause", responses=ACTION_ERRORS)
     def pause(run_id: str) -> Run:
