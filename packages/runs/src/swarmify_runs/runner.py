@@ -321,6 +321,8 @@ def execute_run(run_id: str) -> str:
         _save(run_id, state, error, bool(commands and isinstance(commands[0], OpenGate)))
         if state.status in TERMINAL:
             if parent is not None:
+                # ponytail: a parent already ended (aborted first) never reads this, so it stays
+                # in DBOS's notifications table; prune old rows if that table grows noticeably
                 message = {"action": "child", "child": run_id, "status": state.status}
                 DBOS.send(parent, message, topic=CONTROL_TOPIC)
             return state.status
@@ -429,6 +431,8 @@ def _start_child(run_id: str, index: int) -> str:
         new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
         "queued", now, now, [], parent_run_id=run_id, baseline=run.baseline,
     )  # fmt: skip
+    # ponytail: a crash between these two leaves an unlinked queued child that launch() runs
+    # and whose end nobody reads; one storage call for both if that window ever bites
     child = runner.storage.add_run(child, pinned.stages)
     runner.storage.set_child(run_id, index, child.id)
     return child.id

@@ -1,10 +1,13 @@
 """Workflow stages at the runner's seam: real DBOS on SQLite, fake pin and take behind it."""
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from runs_fakes import FakeConnector, wait_for
+from swarmify_kernel.events import read_after
+from swarmify_kernel.sqlite import connect
 from swarmify_runs import Pinned, Run, Runner, SqliteStorage, StageDef
 
 PICK = StageDef("pick", "gate", {"ask": "Pick one.", "kind": "pick"})
@@ -61,7 +64,7 @@ def child_of(runner: Runner, run_id: str, index: int) -> Run:
 
 
 def test_a_workflow_stage_runs_its_child_waits_and_takes_the_named_artifacts(
-    runner: Runner, take: FakeTake, connector: FakeConnector
+    runner: Runner, take: FakeTake, storage: SqliteStorage
 ) -> None:
     library(runner, wf_trends=Pinned("world_b", "wf_trends", 4, "Trends", [RESEARCH, PICK]))
     parent = runner.start(
@@ -81,6 +84,10 @@ def test_a_workflow_stage_runs_its_child_waits_and_takes_the_named_artifacts(
         "Short",
     )
     at(runner, child.id, "waiting_gate")
+    with closing(connect(storage.path)) as conn:
+        updates = [e for e in read_after(conn, "world_a", 0) if e.type == "run.updated"]
+    # a timeline already open must learn of the child from events alone (ADR 0002)
+    assert any(e.run_id == parent.id and e.payload["stages"][0]["child"] for e in updates)
     running = fetch(runner, parent.id)
     assert running.status == "running" and running.stages[0].status == "running"
     link = running.stages[0].child

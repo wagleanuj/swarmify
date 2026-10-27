@@ -64,14 +64,12 @@ def test_artifacts_are_plain_names_and_non_markdown_gets_a_sidecar(memory: Memor
 def test_a_stage_takes_another_runs_artifacts_across_worlds_latest_first(memory: Memory) -> None:
     memory.write_artifact("w2", "child", "s1", "worker-1", "brief.md", "old brief")
     memory.write_artifact("w2", "child", "s1", "worker-1", "ranks.csv", "a,1")
-    import os
-    import time
+    memory.write_artifact("w2", "child", "s2", "worker-1", "brief.md", "new brief")
+    # s0 is written last but comes first in the run: run order decides, not mtime
+    memory.write_artifact("w2", "child", "s0", "worker-1", "brief.md", "stale brief")
+    source = ("w2", "child", ["s0", "s1", "s2"])
 
-    later = memory.write_artifact("w2", "child", "s2", "worker-1", "brief.md", "new brief")
-    stamp = time.time() + 5
-    os.utime(memory.world_folder("w2") / later, (stamp, stamp))
-
-    taken = memory.copy_artifacts(("w2", "child"), ["brief.md", "ranks.csv"], "w1", "r1", "s9", "c")
+    taken = memory.copy_artifacts(source, ["brief.md", "ranks.csv"], "w1", "r1", "s9", "c")
     assert taken == ["runs/r1/s9/artifacts/brief.md", "runs/r1/s9/artifacts/ranks.csv"]
     folder = memory.world_folder("w1") / "runs/r1/s9/artifacts"
     assert (folder / "brief.md").read_text().endswith("new brief")
@@ -81,7 +79,7 @@ def test_a_stage_takes_another_runs_artifacts_across_worlds_latest_first(memory:
 
     for bad in ("missing.md", "../brief.md", "*"):
         with pytest.raises(ValueError, match="no artifact named"):
-            memory.copy_artifacts(("w2", "child"), ["brief.md", bad], "w1", "r2", "s9", "c")
+            memory.copy_artifacts(source, ["brief.md", bad], "w1", "r2", "s9", "c")
     assert not (memory.world_folder("w1") / "runs/r2/s9/artifacts/brief.md").exists()
 
 

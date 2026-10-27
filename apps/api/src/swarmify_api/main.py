@@ -328,7 +328,7 @@ def create_app(
 
     def take(child: Run, run: Run, stage_id: str, names: list[str]) -> None:
         stage = next(s.name for s in run.stages if s.id == stage_id)
-        source = (child.world_id, child.id)
+        source = (child.world_id, child.id, [s.id for s in child.stages])
         memory.copy_artifacts(source, names, run.world_id, run.id, stage_id, f"workflow:{stage}")
 
     workflow_svc = workflow_service(root, registry)
