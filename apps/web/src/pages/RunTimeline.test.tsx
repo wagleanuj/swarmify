@@ -177,3 +177,30 @@ test("a failed render shows the Remotion CLI output under the timeline", async (
   await expect.element(screen.getByTestId("stage-log")).toMatchTextContent(/Bundling 100%\s*Error: No composition with the ID Shortt found\./);
   await expect.element(screen.getByTestId("timeline")).not.toMatchTextContent(/Bundling/);
 });
+
+test("a done run can be saved as a workflow, which opens in the editor", async () => {
+  const done = run("done", [stage(0, "render", "connector", "done"), stage(1, "pick", "gate", "done")]);
+  let body: unknown = null;
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(done),
+    "POST /api/runs/run_1/workflow": async (req) => {
+      body = await req.json();
+      return Response.json({ id: "wfv_7", workflow_id: "wf_7", number: 1, yaml: "name: x\n", created_at: "t", model: { name: "x", stages: [] } }, { status: 201 });
+    },
+    "GET /api/worlds/world_1": () => Response.json({ id: "world_1", name: "Video", purpose: "", created_at: "t" }),
+    "GET /api/worlds": () => Response.json([]),
+    "GET /api/workflows/wf_7/versions": () => Response.json([]),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
+  await screen.getByRole("button", { name: "Save as workflow" }).click();
+  expect(body).toEqual({});
+  await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Workflow");
+  expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_7");
+});
+
+test("a run that is not done has no save as workflow button", async () => {
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(queued) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/Queued/);
+  expect(screen.getByRole("button", { name: "Save as workflow" }).elements()).toHaveLength(0);
+});

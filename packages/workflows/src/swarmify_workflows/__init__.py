@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from swarmify_kernel import Event, new_id
+from swarmify_workflows.dump import dump_workflow
 from swarmify_workflows.model import (
     ConnectorRef,
     ConnectorStage,
@@ -24,6 +25,7 @@ from swarmify_workflows.model import (
 )
 from swarmify_workflows.parse import parse_workflow
 from swarmify_workflows.ports import Storage
+from swarmify_workflows.schedule import cron_problem, next_fire
 from swarmify_workflows.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_workflows.validate import validate
 
@@ -44,6 +46,9 @@ __all__ = [
     "WorkflowStage",
     "WorkflowVersion",
     "Workflows",
+    "cron_problem",
+    "dump_workflow",
+    "next_fire",
 ]
 
 
@@ -63,10 +68,16 @@ class Invalid(ValueError):
 
 class Workflows:
     def __init__(
-        self, storage: Storage, connectors_for: Callable[[str], Mapping[str, ConnectorRef]]
+        self,
+        storage: Storage,
+        connectors_for: Callable[[str], Mapping[str, ConnectorRef]],
+        on_saved: Callable[[WorkflowVersion], None] = lambda _: None,
     ) -> None:
+        """`on_saved` sees every new version once it is stored: the composition root uses it to
+        hand the version's `schedule` to the Runs context, which owns the cron."""
         self.storage = storage
         self.connectors_for = connectors_for
+        self.on_saved = on_saved
 
     def check(self, world_id: str, yaml: str, workflow_id: str | None = None) -> Draft:
         """Parse and validate without saving. `workflow_id` is the workflow a new version is for."""
@@ -89,18 +100,39 @@ class Workflows:
             workflow = Workflow(
                 new_id("wf"), world_id, draft.model.name, 1, datetime.now(UTC).isoformat()
             )
-            return self.storage.add_workflow(
+            version = self.storage.add_workflow(
                 workflow, yaml, _saved(workflow.id, world_id, draft.model.name, 1)
             )
-        existing = self.storage.get_workflow(workflow_id)
-        if existing is None or existing.world_id != world_id:
-            raise KeyError(workflow_id)
-        number = existing.current_version + 1
-        event = _saved(workflow_id, world_id, draft.model.name, number)
-        version = self.storage.add_version(workflow_id, yaml, draft.model.name, event)
-        if version is None:
-            raise KeyError(workflow_id)
+        else:
+            existing = self.storage.get_workflow(workflow_id)
+            if existing is None or existing.world_id != world_id:
+                raise KeyError(workflow_id)
+            number = existing.current_version + 1
+            event = _saved(workflow_id, world_id, draft.model.name, number)
+            added = self.storage.add_version(workflow_id, yaml, draft.model.name, event)
+            if added is None:
+                raise KeyError(workflow_id)
+            version = added
+        self.on_saved(version)
         return version
+
+    def copy(self, workflow_id: str, world_id: str) -> WorkflowVersion:
+        """A new workflow in `world_id` from this one's current YAML. Raises KeyError for an
+        unknown workflow and Invalid when the other world lacks a connector it needs."""
+        workflow = self.get(workflow_id)
+        current = self.version(workflow_id, workflow.current_version) if workflow else None
+        if current is None:
+            raise KeyError(workflow_id)
+        return self.save(world_id, current.yaml)
+
+    def scheduled(self) -> dict[str, str]:
+        """Every workflow with a schedule, across worlds, to its cron expression."""
+        found: dict[str, str] = {}
+        for workflow_id, yaml in self.storage.current_yaml().items():
+            model, _ = parse_workflow(yaml)
+            if model is not None and model.schedule:
+                found[workflow_id] = model.schedule
+        return found
 
     def list_all(self, world_id: str) -> list[Workflow]:
         return self.storage.list_workflows(world_id)

@@ -1,4 +1,5 @@
-"""HTTP face of the Workflows context: save YAML as versions, check it, list and read versions."""
+"""HTTP face of the Workflows context: save YAML as versions, check it, list and read versions,
+copy a workflow to another world."""
 
 from typing import Any
 
@@ -14,6 +15,8 @@ from swarmify_workflows import (
     WorkflowModel,
     Workflows,
     WorkflowVersion,
+    cron_problem,
+    next_fire,
 )
 from swarmify_worlds import Worlds
 
@@ -26,11 +29,23 @@ class CheckBody(YamlBody):
     workflow_id: str | None = None
 
 
+class CopyBody(BaseModel):
+    world_id: str
+
+
 class Report(BaseModel):
-    """What the editor shows inline: every violation, plus the model when the shape parsed."""
+    """What the editor shows inline: every violation, plus the model when the shape parsed and,
+    when it has a schedule, the next time DBOS would fire it."""
 
     violations: list[Violation]
     model: WorkflowModel | None = None
+    next_run_at: str | None = None
+
+
+def next_run(model: WorkflowModel | None) -> str | None:
+    if model is None or not model.schedule or cron_problem(model.schedule):
+        return None
+    return next_fire(model.schedule).isoformat()
 
 
 INVALID: dict[int | str, dict[str, Any]] = {
@@ -79,7 +94,9 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
         if body.workflow_id is not None:
             workflow_or_404(body.workflow_id)
         draft = workflows.check(world_id, body.yaml, body.workflow_id)
-        return Report(violations=draft.violations, model=draft.model)
+        return Report(
+            violations=draft.violations, model=draft.model, next_run_at=next_run(draft.model)
+        )
 
     @api.get("/workflows/{workflow_id}")
     def get_workflow(workflow_id: str) -> Workflow:
@@ -99,6 +116,23 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
     def add_version(workflow_id: str, body: YamlBody) -> WorkflowVersion | JSONResponse:
         workflow = workflow_or_404(workflow_id)
         return save(workflow.world_id, body.yaml, workflow_id)
+
+    @api.post(
+        "/workflows/{workflow_id}/copy",
+        status_code=201,
+        responses=INVALID,
+        response_model=WorkflowVersion,
+    )
+    def copy_workflow(workflow_id: str, body: CopyBody) -> WorkflowVersion | JSONResponse:
+        """A new workflow in another world from this one's current version. Refused with the
+        violations when that world lacks a connector the workflow needs."""
+        workflow_or_404(workflow_id)
+        world_or_404(body.world_id)
+        try:
+            return workflows.copy(workflow_id, body.world_id)
+        except Invalid as exc:
+            report = Report(violations=exc.violations, model=None)
+            return JSONResponse(status_code=422, content=jsonable_encoder(report))
 
     @api.get("/workflows/{workflow_id}/versions/{number}")
     def get_version(workflow_id: str, number: int) -> WorkflowVersion:

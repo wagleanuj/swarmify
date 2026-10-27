@@ -1,4 +1,13 @@
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+
+from api_fakes import FakeNotifier, until
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from swarmify_api.main import run_storage
+from swarmify_runs import RunControl
 
 WEEKLY = """name: Weekly short
 budget_usd: 5
@@ -100,6 +109,7 @@ def test_an_invalid_workflow_is_a_422_naming_every_violation_and_saves_nothing(
             },
         ],
         "model": None,
+        "next_run_at": None,
     }
     assert client.get(f"/api/worlds/{world_id}/workflows").json() == []
 
@@ -196,3 +206,93 @@ def test_saving_appears_on_the_world_event_stream(client: TestClient) -> None:
                 break
     assert "event: workflow.saved" in lines
     assert any(f'"workflow_id": "{wf}"' in line and '"version": 2' in line for line in lines)
+
+
+def test_copy_puts_the_current_version_in_another_world_or_names_what_it_lacks(
+    client: TestClient,
+) -> None:
+    a, b = _world(client), _world(client)
+    wf = _workflow(client, a)
+    client.post(f"/api/workflows/{wf}/versions", json={"yaml": WEEKLY.replace("Weekly", "Daily")})
+    copied = client.post(f"/api/workflows/{wf}/copy", json={"world_id": b})
+    assert copied.status_code == 201, copied.text
+    assert copied.json()["number"] == 1 and copied.json()["model"]["name"] == "Daily short"
+    assert copied.json()["workflow_id"] != wf
+    assert [w["name"] for w in client.get(f"/api/worlds/{b}/workflows").json()] == ["Daily short"]
+    assert len(client.get(f"/api/worlds/{a}/workflows").json()) == 1
+
+    added = {"name": "render_video", "kind": "stage", "server": "x", "stage_types": ["connector"]}
+    assert client.post(f"/api/worlds/{a}/connectors", json=added).status_code == 201
+    uses = "name: Uses\nstages:\n  - connector: render\n    calls: render_video\n"
+    special = _workflow(client, a, uses)
+    refused = client.post(f"/api/workflows/{special}/copy", json={"world_id": b})
+    assert refused.status_code == 422
+    assert [v["rule"] for v in refused.json()["violations"]] == ["unknown_connector"]
+    assert (
+        client.post(f"/api/workflows/{wf}/copy", json={"world_id": "world_nope"}).status_code == 404
+    )
+    assert client.post("/api/workflows/wf_nope/copy", json={"world_id": b}).status_code == 404
+
+
+def test_check_reports_the_next_run_of_a_schedule_and_refuses_a_bad_one(
+    client: TestClient,
+) -> None:
+    world_id = _world(client)
+    url = f"/api/worlds/{world_id}/workflows/check"
+    assert client.post(url, json={"yaml": WEEKLY}).json()["next_run_at"] is None
+    timed = client.post(url, json={"yaml": "schedule: '0 8 * * 1'\n" + WEEKLY}).json()
+    assert timed["violations"] == [] and timed["next_run_at"]
+    at = datetime.fromisoformat(timed["next_run_at"])
+    assert at > datetime.now(UTC) and (at.hour, at.minute, at.weekday()) == (8, 0, 0)
+    bad = client.post(url, json={"yaml": "schedule: every monday\n" + WEEKLY}).json()
+    assert [v["rule"] for v in bad["violations"]] == ["schedule"] and bad["next_run_at"] is None
+    refused = client.post(
+        f"/api/worlds/{world_id}/workflows", json={"yaml": "schedule: x\n" + WEEKLY}
+    )
+    assert refused.status_code == 422
+
+
+GATED = "name: Timed\nschedule: '* * * * * *'\nstages:\n  - gate: ok\n    ask: Fine?\n"
+
+
+def test_a_saved_schedule_starts_runs_on_dbos_cron_until_the_next_version_drops_it(
+    app: FastAPI, tmp_path: Path
+) -> None:
+    control = RunControl(run_storage(tmp_path), tmp_path / "dbos.sqlite", tmp_path, FakeNotifier())
+    with TestClient(app) as running:
+        world = _world(running)
+        created = running.post(f"/api/worlds/{world}/workflows", json={"yaml": GATED})
+        assert created.status_code == 201, created.text
+        wf = created.json()["workflow_id"]
+        until(lambda: len(running.get(f"/api/worlds/{world}/runs").json()) >= 1)
+        run = running.get(f"/api/worlds/{world}/runs").json()[-1]
+        assert (run["workflow_id"], run["workflow_version"], run["name"]) == (wf, 1, "Timed")
+        until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+
+        plain = running.post(
+            f"/api/workflows/{wf}/versions",
+            json={"yaml": GATED.replace("schedule: '* * * * * *'\n", "")},
+        )
+        assert plain.status_code == 201
+        time.sleep(1.5)
+        count = len(running.get(f"/api/worlds/{world}/runs").json())
+        time.sleep(2.5)
+        assert len(running.get(f"/api/worlds/{world}/runs").json()) == count
+
+        # a world deleted with a scheduled workflow takes its schedule along
+        other = _world(running)
+        gone = _workflow(running, other, GATED)
+        assert gone in control.schedules()
+        assert running.delete(f"/api/worlds/{other}").status_code == 204
+        assert gone not in control.schedules()
+    # and on the next launch, DBOS's schedules follow the workflows table
+    with TestClient(app) as again:
+        world = _world(again)
+        wf2 = _workflow(again, world, GATED)
+        time.sleep(0.5)
+    with TestClient(app) as third:
+        until(
+            lambda: any(
+                r["workflow_id"] == wf2 for r in third.get(f"/api/worlds/{world}/runs").json()
+            )
+        )

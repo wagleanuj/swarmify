@@ -1827,12 +1827,14 @@ name = "swarmify-workflows"
 version = "0.1.0"
 source = { editable = "packages/workflows" }
 dependencies = [
+    { name = "croniter" },
     { name = "pyyaml" },
     { name = "swarmify-kernel" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "croniter", specifier = ">=6.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
