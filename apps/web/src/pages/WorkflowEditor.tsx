@@ -555,6 +555,7 @@ function StageList({
           />
         </label>
       </div>
+      <p className="faint">Edits here rewrite the YAML, so comments typed there are dropped.</p>
       <ol className="stage-cards" data-testid="stage-cards">
         {stages.map((stage, i) => {
           const type = stageType(stage);

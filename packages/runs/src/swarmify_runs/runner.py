@@ -369,7 +369,7 @@ def _start_scheduled(workflow_id: str, fired_at: str) -> tuple[str, str] | None:
     now = datetime.now(UTC).isoformat()
     run = Run(
         new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
-        "queued", now, now, [],
+        "queued", now, now, [], budget_usd=pinned.budget_usd,
     )  # fmt: skip
     run = runner.storage.add_run(run, pinned.stages)
     return run.id, run.world_id

@@ -263,7 +263,9 @@ def router(
             raise HTTPException(409, f"the run is {run.status}; only a done run becomes a workflow")
         defs = [runner.storage.stage_def(run.id, s.index)[1] for s in run.stages]
         yaml = dump_workflow(
-            (body.name or run.name).strip() or run.name, [(d.type, d.name, d.config) for d in defs]
+            (body.name or run.name).strip() or run.name,
+            [(d.type, d.name, d.config) for d in defs],
+            budget_usd=run.budget_usd,
         )
         try:
             return workflows.save(run.world_id, yaml)

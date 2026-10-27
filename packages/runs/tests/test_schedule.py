@@ -17,7 +17,7 @@ EVERY_SECOND = "* * * * * *"
 def pin(workflow_id: str, number: int | None = None) -> Pinned:
     if workflow_id != "wf_1":
         raise KeyError(workflow_id)
-    return Pinned("world_1", "wf_1", 2, "Weekly short", [PICK])
+    return Pinned("world_1", "wf_1", 2, "Weekly short", [PICK], budget_usd=5.0)
 
 
 @pytest.fixture
@@ -40,6 +40,7 @@ def test_a_schedule_starts_runs_of_the_current_version_until_removed(runner: Run
     wait_for(lambda: len(runner.list_all("world_1")) >= 1)
     run = runner.list_all("world_1")[-1]
     assert (run.workflow_id, run.workflow_version, run.name) == ("wf_1", 2, "Weekly short")
+    assert run.budget_usd == 5.0
     wait_for(lambda: runner.get(run.id) is not None and runner.get(run.id).status == "waiting_gate")  # type: ignore[union-attr]
 
     runner.schedule("wf_1", None)
