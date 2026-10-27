@@ -146,22 +146,23 @@ class Memory:
         author: str,
         name: str,
         content: str,
-        type: str = "file",
+        kind: str = "file",
         fields: dict[str, Any] | None = None,
     ) -> str:
-        """Writing a name again replaces the file. `fields` join the frontmatter."""
+        """Writing a name again replaces the file. `kind` is the artifact type; `fields` join
+        the frontmatter."""
         if not _NAME.match(name):
             raise ValueError(f"{name!r} is not a plain file name like ideas.md")
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         path = folder / name
-        meta = _frontmatter({**self._meta(type, author, run_id, stage_id, None), **(fields or {})})
+        meta = _frontmatter({**self._meta(kind, author, run_id, stage_id, None), **(fields or {})})
         if path.suffix == ".md":
             path.write_text(meta + content)
         else:
             path.write_text(content)
             (folder / f"{name}.md").write_text(f"{meta}Sidecar of {name}.\n")
-        return self._created(world_id, run_id, stage_id, author, type, path)
+        return self._created(world_id, run_id, stage_id, author, kind, path)
 
     def record(self, world_id: str, run_id: str, stage_id: str, author: str, path: Path) -> str:
         """Announce an artifact a connector wrote itself, typed by its sidecar when it has one."""

@@ -100,3 +100,14 @@ def test_unknown_stage_fields_are_named_per_stage() -> None:
     assert rules("name: x\nstages:\n  - gate: g\n    ask: a\n    goal: nope\n") == [
         ("schema", "g", "unknown field 'goal'")
     ]
+
+
+def test_an_unquoted_timestamp_stays_the_text_written() -> None:
+    model, violations = parse_workflow(
+        "name: P\nstages:\n  - connector: youtube\n"
+        "    params: {schedule: 2099-01-01T09:00:00Z, day: 2099-01-01}\n"
+    )
+    assert violations == [] and model is not None
+    stage = model.stages[0]
+    assert isinstance(stage, ConnectorStage)
+    assert stage.params == {"schedule": "2099-01-01T09:00:00Z", "day": "2099-01-01"}

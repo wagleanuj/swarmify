@@ -71,11 +71,10 @@ def publish(
     description: str = "",
     visibility: str = "private",
     schedule: str = "",
-    made_for_kids: bool = False,
 ) -> dict[str, Any]:
     if not video.is_file():
         raise ToolError(f"the video {video} does not exist")
-    status: dict[str, Any] = {"privacyStatus": visibility, "selfDeclaredMadeForKids": made_for_kids}
+    status: dict[str, Any] = {"privacyStatus": visibility, "selfDeclaredMadeForKids": False}
     if schedule:
         status = {**status, "privacyStatus": "private", "publishAt": schedule}
     token = access_token(http, env)
@@ -110,9 +109,7 @@ def publish(
     return {
         "video_id": uploaded["id"],
         "url": f"https://youtu.be/{uploaded['id']}",
-        "privacy": uploaded.get("status", {}).get("privacyStatus", status["privacyStatus"]),
         "publish_at": schedule or None,
-        "visibility": visibility,
     }
 
 
@@ -126,7 +123,6 @@ def youtube(
     description: str = "",
     visibility: str = "private",
     schedule: str = "",
-    made_for_kids: bool = False,
     idempotency_key: str = "",
 ) -> dict[str, Any]:
     with httpx.Client(timeout=httpx.Timeout(60.0, write=None)) as http:
@@ -138,7 +134,6 @@ def youtube(
             description,
             visibility,
             schedule,
-            made_for_kids,
         )
 
 

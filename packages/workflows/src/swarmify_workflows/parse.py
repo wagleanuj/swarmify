@@ -25,6 +25,14 @@ STAGE_FIELDS: dict[str, set[str]] = {
 }
 
 
+class _Loader(yaml.SafeLoader):
+    """Safe YAML that leaves timestamps as the text written, so `schedule: 2099-01-01T09:00:00Z`
+    stays a string a stage config can carry through JSON."""
+
+
+_Loader.add_constructor("tag:yaml.org,2002:timestamp", lambda loader, node: node.value)
+
+
 class _Fields:
     """Typed reads from one mapping, recording a violation per bad field instead of raising."""
 
@@ -70,7 +78,7 @@ class _Fields:
 def parse_workflow(text: str) -> tuple[WorkflowModel | None, list[Violation]]:
     """Return (model, violations). The model is None only when the document has no usable shape."""
     try:
-        doc = yaml.safe_load(text)
+        doc = yaml.load(text, Loader=_Loader)
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         where = f" at line {mark.line + 1}" if mark else ""

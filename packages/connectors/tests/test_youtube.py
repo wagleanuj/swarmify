@@ -48,9 +48,7 @@ def test_a_scheduled_upload_is_private_with_publish_at(video: Path) -> None:
     assert out == {
         "video_id": "vid1",
         "url": "https://youtu.be/vid1",
-        "privacy": "private",
         "publish_at": "2099-01-01T09:00:00Z",
-        "visibility": "public",
     }
     token, start, upload = google.requests
     assert urllib.parse.parse_qs(token.content.decode())["refresh_token"] == ["r"]

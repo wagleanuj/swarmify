@@ -43,7 +43,7 @@ class Tested(BaseModel):
     tools: list[Tool]
 
 
-class Keys(BaseModel):
+class CredentialValues(BaseModel):
     credentials: dict[str, Annotated[str, StringConstraints(max_length=4000)]] = Field(
         min_length=1, max_length=20
     )
@@ -106,7 +106,7 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
         return Response(status_code=204)
 
     @api.put("/connectors/{connector_id}/credentials")
-    def set_credentials(connector_id: str, body: Keys) -> ConnectorView:
+    def set_credentials(connector_id: str, body: CredentialValues) -> ConnectorView:
         """Store a connector's keys in the credentials file; how built-ins get theirs."""
         found = connectors.get(connector_id)
         if found is None:

@@ -993,6 +993,13 @@ export interface components {
             /** Missing */
             missing: string[];
         };
+        /** CredentialValues */
+        CredentialValues: {
+            /** Credentials */
+            credentials: {
+                [key: string]: string;
+            };
+        };
         /**
          * Decide
          * @description A gate answer. Pick gates need `choice`; approve gates may name `send_back_to`, an earlier
@@ -1132,13 +1139,6 @@ export interface components {
         Health: {
             /** Version */
             version: string;
-        };
-        /** Keys */
-        Keys: {
-            /** Credentials */
-            credentials: {
-                [key: string]: string;
-            };
         };
         /**
          * LibraryItem
@@ -2698,7 +2698,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Keys"];
+                "application/json": components["schemas"]["CredentialValues"];
             };
         };
         responses: {

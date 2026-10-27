@@ -292,7 +292,7 @@ function WhatGoesOut({ preview }: { preview: PublishPreview }) {
                 {new Date(preview.schedule).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
               </time>{" "}
               <span className="faint">
-                ({preview.schedule.replace("T", " ").replace(":00Z", " UTC")}).{" "}
+                ({preview.schedule.slice(0, 16).replace("T", " ")} UTC).{" "}
                 {preview.connector === "youtube"
                   ? `Private until then, then ${preview.visibility}.`
                   : "Nothing posts before then."}

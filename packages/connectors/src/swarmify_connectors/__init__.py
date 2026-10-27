@@ -361,6 +361,14 @@ class Connectors:
         call = replace(call, response=response, updated_at=_now())
         if connector.kind == "publish":
             out = publish.result(connector.name, response)
+            if out["status"] == "pending":
+                # ponytail: no polling of the status tool; add it if long uploads are common.
+                error = (
+                    f"the upload went on in the background, so its links are not known; check"
+                    f" {connector.name} status for request {out['id']}"
+                )
+                self._fail(call, error)
+                raise ConnectorError(f"{connector.name}: {error}")
             if not out["links"] and out["status"] != "scheduled" and out["failed"]:
                 error = "; ".join(f"{p}: {e}" for p, e in out["failed"].items())
                 self._fail(call, error)
