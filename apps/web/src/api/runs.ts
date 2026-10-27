@@ -41,6 +41,7 @@ export function statusLine(run: Run): string {
       if (at?.child) return `Stage ${at.index + 1} of ${total}, ${at.name}, waits on its child run ${at.child.name}.`;
       return at ? `Running stage ${at.index + 1} of ${total}: ${at.name}.` : "Running.";
     case "waiting_gate":
+      if (run.over_budget && at) return `Out of budget at stage ${at.index + 1}: ${at.name}. Add money or abort.`;
       return at ? `Waiting for you at stage ${at.index + 1}: ${at.name}.` : "Waiting for you.";
     case "paused":
       return "Paused. Nothing moves until it is resumed.";
@@ -73,6 +74,35 @@ export async function actOn(
     params: { path: { run_id: runId } },
   });
   return refusal(error, response, `Could not ${action} the run`);
+}
+
+/** Set the run's budget to `total` dollars (a total, so a double click adds nothing twice). */
+export async function setBudget(runId: string, total: number): Promise<string | null> {
+  const { error, response } = await api.POST("/api/runs/{run_id}/budget", {
+    params: { path: { run_id: runId } },
+    body: { budget_usd: total },
+  });
+  return refusal(error, response, "The budget was refused");
+}
+
+/** Dollars to the cent, for budgets and spend. */
+export const money = (n: number) => `$${n.toFixed(2)}`;
+
+/** Seconds from the first stage starting to the last ending (or now, while it runs). */
+export function duration(run: Run, now = Date.now()): number | null {
+  const starts = run.stages.flatMap((s) => (s.started_at ? [Date.parse(s.started_at)] : []));
+  if (starts.length === 0) return null;
+  const ended = ["done", "failed", "aborted"].includes(run.status);
+  const ends = run.stages.flatMap((s) => (s.ended_at ? [Date.parse(s.ended_at)] : []));
+  const end = ended && ends.length > 0 ? Math.max(...ends) : now;
+  return Math.max(0, (end - Math.min(...starts)) / 1000);
+}
+
+/** "40 s", "54 min", "2 h 5 min". */
+export function took(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 export async function decide(runId: string, body: Decide): Promise<string | null> {

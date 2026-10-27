@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { progress, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
+import { money, progress, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
 
@@ -75,7 +75,9 @@ export function Runs() {
               <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
               {r.parent && <RunRef label="child of" run={r.parent} testId="child-of" />}
               {r.forked_from && <RunRef label="fork of" run={r.forked_from} testId="fork-of" />}
+              {r.baseline && <span className="faint">Hooli baseline</span>}
               <span className="faint">{progress(r)}</span>
+              {r.spent_usd > 0 && <span className="faint">{money(r.spent_usd)}</span>}
               <span className="faint">v{r.workflow_version}</span>
               <time className="faint" dateTime={r.created_at}>
                 {new Date(r.created_at).toLocaleString()}

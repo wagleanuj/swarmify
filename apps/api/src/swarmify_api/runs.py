@@ -1,6 +1,6 @@
 """HTTP face of the Runs context: start a run of a workflow version, fork a run or promote a
 Library artifact into one, list runs, read one, act on one (decide at its gate, pause, resume,
-abort) and list every open gate."""
+abort, set its Budget), read the baseline it is measured against and list every open gate."""
 
 from collections.abc import Callable
 from dataclasses import asdict
@@ -17,6 +17,17 @@ from swarmify_worlds import Worlds
 class StartRun(BaseModel):
     version: int | None = None
     """The workflow version to pin. The current one when left out."""
+    budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    """The run's Budget, overriding the workflow's `budget_usd`. No budget: no ceiling."""
+    baseline: bool = False
+    """Baseline mode: every swarm stage runs one agent with no graph, to measure the swarm."""
+
+
+class SetBudget(BaseModel):
+    """The run's new Budget in total, not an increment, so sending it twice adds nothing twice.
+    Must be above what the run and its child runs have spent."""
+
+    budget_usd: float = Field(gt=0, allow_inf_nan=False)
 
 
 class Decide(BaseModel):
@@ -64,7 +75,14 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
         if version is None:
             raise KeyError(f"version not found: {workflow_id} v{number}")
         stages = [stage_def(s) for s in version.model.stages]
-        return Pinned(workflow.world_id, workflow_id, version.number, workflow.name, stages)
+        return Pinned(
+            workflow.world_id,
+            workflow_id,
+            version.number,
+            workflow.name,
+            stages,
+            version.model.budget_usd,
+        )
 
     return pin
 
@@ -92,7 +110,15 @@ def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
         except KeyError as exc:
             what = "version" if workflows.get(workflow_id) else "workflow"
             raise HTTPException(404, f"{what} not found") from exc
-        return runner.start(p.world_id, p.workflow_id, p.version, p.name, p.stages)
+        return runner.start(
+            p.world_id,
+            p.workflow_id,
+            p.version,
+            p.name,
+            p.stages,
+            budget_usd=body.budget_usd or p.budget_usd,
+            baseline=body.baseline,
+        )
 
     @api.post("/runs/{run_id}/fork", status_code=201, responses=ACTION_ERRORS)
     def fork(run_id: str, body: Fork) -> Run:
@@ -127,6 +153,21 @@ def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
         if run is None:
             raise HTTPException(404, "run not found")
         return run
+
+    @api.get("/runs/{run_id}/baseline")
+    def get_baseline(run_id: str) -> Run | None:
+        """The newest finished baseline run of the run's workflow, any version: its cost and
+        duration are what the swarm is measured against. Null when there is none yet."""
+        try:
+            return runner.baseline(run_id)
+        except KeyError as exc:
+            raise HTTPException(404, "run not found") from exc
+
+    @api.post("/runs/{run_id}/budget", responses=ACTION_ERRORS)
+    def set_budget(run_id: str, body: SetBudget) -> Run:
+        """Set the Budget of the run and its child runs. A run waiting at a budget gate goes on;
+        422 when the new budget is not above what was spent."""
+        return act(lambda: runner.set_budget(run_id, body.budget_usd))
 
     @api.get("/gates")
     def list_gates() -> list[Gate]:

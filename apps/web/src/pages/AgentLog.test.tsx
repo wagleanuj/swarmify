@@ -5,7 +5,7 @@ import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const ts = "2026-10-26T10:00:01+00:00";
-const researching = run("running", [stage(0, "research", "swarm", "running")]);
+const researching = run("running", [stage(0, "research", "swarm", "running")], { spent_usd: 0.0123 });
 const agent = (over: Partial<Agent> = {}): Agent => ({
   id: "agent_1",
   world_id: "world_1",
@@ -57,6 +57,7 @@ test("a swarm stage shows its agents, their estimated cost and a live log", asyn
   FakeEventSource.emit("agent.logged", { payload: entry(1) });
   FakeEventSource.emit("agent.logged", { payload: entry(3, { stage_id: "stage_9", tool: "elsewhere" }) });
   FakeEventSource.emit("agent.updated", { payload: agent({ status: "done", cost_usd: 0.05 }) });
+  FakeEventSource.emit("run.updated", { payload: { ...researching, spent_usd: 0.05 } });
   await expect.element(screen.getByTestId("log")).toMatchTextContent(/used query_graph\s*10:00:01 Gilfoyle was refused Bash: Bash is not allowed in this stage\.$/);
   await expect.element(screen.getByTestId("agent")).toMatchTextContent(/done.*\$0\.0500/);
   await expect.element(screen.getByTestId("run-cost")).toMatchTextContent(/\$0\.0500/);
@@ -64,7 +65,7 @@ test("a swarm stage shows its agents, their estimated cost and a live log", asyn
 
 test("before any agent starts the panel says what will appear", async () => {
   fakeFetch({
-    "GET /api/runs/run_1": () => Response.json(researching),
+    "GET /api/runs/run_1": () => Response.json({ ...researching, spent_usd: 0 }),
     "GET /api/runs/run_1/agents": () => Response.json([]),
     "GET /api/runs/run_1/stages/stage_0/log": () => Response.json([]),
     "GET /api/runs/run_1/stages/stage_0/tasks": () => Response.json([]),

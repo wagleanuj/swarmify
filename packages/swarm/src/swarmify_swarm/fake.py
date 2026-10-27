@@ -10,7 +10,8 @@ each local plugin's `skills/<name>/SKILL.md` as `<plugin>:<name>`, where `<plugi
 manifest name or else the folder name (an assumption about the real CLI for a manifest-less
 plugin; the opt-in real-CLI smoke test is where it gets pinned) (plus `host-skill` when host
 settings are on, standing in for `~/.claude/skills` leaking in), `resume` keeps the session id,
-and the result carries `cost` as the session's estimated total.
+each tool call's step carries `usage` (one message id per step), and the result carries `cost`
+as the session's estimated total.
 """
 
 import contextlib
@@ -76,11 +77,19 @@ class Script:
     `transport` is the factory to hand `SdkRuntime`; `sessions` keeps each session's options
     and `outcomes` every call's answer, for assertions."""
 
-    def __init__(self, *sessions: Sequence[Step], cost: float = 0.01, cycle: bool = False) -> None:
+    def __init__(
+        self,
+        *sessions: Sequence[Step],
+        cost: float = 0.01,
+        cycle: bool = False,
+        usage: dict[str, int] | None = None,
+    ) -> None:
         self.scripts: Sequence[Sequence[Step]] = list(sessions) or [[]]
         self.cost = cost
         self.cycle = cycle
         """Start over at the first step list after the last, instead of repeating it."""
+        self.usage = usage
+        """The usage of each step that calls a tool, e.g. `{"input_tokens": 250_000}`."""
         self.sessions: list[ClaudeAgentOptions] = []
         self.prompts: list[str] = []
         """The prompt each session was started with."""
@@ -217,7 +226,9 @@ class ScriptedTransport(Transport):
                 )
             use_id = f"toolu_{next(self._ids)}"
             yield _assistant(
-                sid, {"type": "tool_use", "id": use_id, "name": step.tool, "input": step.input}
+                sid,
+                {"type": "tool_use", "id": use_id, "name": step.tool, "input": step.input},
+                self.script.usage,
             )
             denied: str | None = None
             for matcher in self._hooks.get("PreToolUse", []):
@@ -344,10 +355,15 @@ def _answer(request_id: str, response: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _assistant(session_id: str, block: dict[str, Any]) -> dict[str, Any]:
+def _assistant(
+    session_id: str, block: dict[str, Any], usage: dict[str, int] | None = None
+) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "assistant", "model": "scripted", "content": [block]}
+    if usage is not None:
+        message |= {"id": f"msg_{uuid.uuid4()}", "usage": usage}
     return {
         "type": "assistant",
-        "message": {"role": "assistant", "model": "scripted", "content": [block]},
+        "message": message,
         "parent_tool_use_id": None,
         "session_id": session_id,
     }

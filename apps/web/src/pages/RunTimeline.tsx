@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
-import { actOn, type Call, decisionLine, type Run, statusLine } from "../api/runs";
+import { actOn, type Call, decisionLine, duration, money, type Run, statusLine, took } from "../api/runs";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
@@ -35,6 +35,7 @@ export function RunTimeline() {
   const [verdicts, setVerdicts] = useState<Verdict[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactFile[]>([]);
   const [artifactsSeen, setArtifactsSeen] = useState(0);
+  const [baseline, setBaseline] = useState<Run | null>(null);
   const stage = run ? (run.stages.find((s) => s.id === picked) ?? defaultSwarm(run)) : undefined;
   const stageId = stage?.type === "swarm" ? stage.id : undefined;
 
@@ -47,6 +48,13 @@ export function RunTimeline() {
         setRun(data);
       })
       .catch(() => setError("Could not load this run. Is the API running?"));
+  }, [runId]);
+
+  useEffect(() => {
+    api
+      .GET("/api/runs/{run_id}/baseline", { params: { path: { run_id: runId } } })
+      .then(({ data }) => setBaseline(data ?? null))
+      .catch(() => undefined);
   }, [runId]);
 
   useEffect(() => {
@@ -170,7 +178,6 @@ export function RunTimeline() {
       </Link>
     </div>
   );
-  const cost = Object.values(agents).reduce((sum, a) => sum + a.cost_usd, 0);
   if (run === undefined) {
     return <main>{error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}</main>;
   }
@@ -241,19 +248,20 @@ export function RunTimeline() {
             {statusLine(run)}
             {run.send_backs > 0 && ` Sent back ${run.send_backs} of 2 times.`}
           </p>
-          {cost > 0 && (
+          {run.spent_usd > 0 && (
             <p className="faint" data-testid="run-cost">
-              Estimated agent cost so far: {usd(cost)}
+              Estimated agent cost so far: {usd(run.spent_usd)}
               {Object.values(agents).some((a) => a.run_id !== run.id) && ", child runs included"}. An
               estimate from the Agent SDK, not your bill.
             </p>
           )}
+          <Measure run={run} baseline={baseline} />
         </div>
         {!ended && (
           <div className="row" data-testid="run-actions">
             {run.status === "waiting_gate" && (
               <Link to="/gates" className="button">
-                Answer the gate
+                {run.over_budget ? "Add money or abort" : "Answer the gate"}
               </Link>
             )}
             {run.status === "paused" ? (
@@ -357,6 +365,53 @@ export function RunTimeline() {
         />
       )}
     </main>
+  );
+}
+
+/** Russ (the budget) against the spend, and Hooli (the one-agent, no-graph baseline) beside
+ * the swarm, as in the mockup's run tile. */
+function Measure({ run, baseline }: { run: Run; baseline: Run | null }) {
+  const budget = run.budget_usd;
+  const spent = run.spent_usd ?? 0;
+  const seconds = duration(run);
+  const own = `This run: ${money(spent)}${seconds === null ? "" : ` and ${took(seconds)}`}`;
+  let russ = "";
+  if (budget != null) {
+    if (run.over_budget) russ = `Russ stopped every agent at ${money(budget)}. Add money to go on, or abort.`;
+    else if (spent >= 0.8 * budget) russ = `Past 80 percent. Russ stops every agent at ${money(budget)}.`;
+    else russ = `Russ stops every agent at ${money(budget)}.`;
+  }
+  let hooli: string;
+  if (run.baseline) hooli = "This is a Hooli baseline: one agent and no graph, to measure the swarm against.";
+  else if (baseline) {
+    const base = duration(baseline);
+    hooli = `Hooli ran this alone for ${money(baseline.spent_usd)}${base === null ? "" : ` and ${took(base)}`}. ${own}.`;
+  } else hooli = "No Hooli baseline yet: start one from the world page to measure this swarm against one agent with no graph.";
+  return (
+    <section className="measure" aria-label="Budget and baseline" data-testid="measure">
+      {budget != null && (
+        <>
+          <span className="mono" data-testid="budget">
+            Russ · {money(spent)} of {money(budget)}
+          </span>
+          <meter
+            min={0}
+            max={budget}
+            low={0.8 * budget}
+            high={0.8 * budget}
+            optimum={0}
+            value={Math.min(spent, budget)}
+            aria-label="Budget spent"
+          />
+          <span className={run.over_budget ? "stage-error" : "faint"} data-testid="budget-line">
+            {russ}
+          </span>
+        </>
+      )}
+      <span className="faint" data-testid="baseline">
+        {hooli}
+      </span>
+    </section>
   );
 }
 

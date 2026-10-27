@@ -29,19 +29,25 @@ from typing import Any
 from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID
 
 from swarmify_kernel import Event, new_id
+from swarmify_runs import budget
 from swarmify_runs.control import (
     CONTROL_TOPIC,
+    OverBudget,
     Previews,
     RunControl,
+    Spend,
     copy_run_files,
     ended_event,
     no_previews,
+    no_spend,
     run_folder,
     with_sidecar,
 )
 from swarmify_runs.machine import (
     TERMINAL,
     Aborted,
+    BudgetAdded,
+    BudgetSpent,
     GateAnswered,
     Illegal,
     OpenGate,
@@ -66,13 +72,14 @@ MAX_DEPTH = 2
 guards a run against workflows edited after it pinned its version."""
 # ponytail: pinned so a code change does not orphan runs in flight (DBOS only recovers
 # workflows of the current application version). Bump it when the workflow's step order changes.
-APP_VERSION = "3"
+APP_VERSION = "4"
 
 Connector = Callable[[Run, str, StageDef], None]
 """Calls one connector stage. Arguments: the run, the stage id (the idempotency key) and the
 stage's definition."""
 Swarm = Callable[[Run, str, StageDef], None]
-"""Runs one swarm stage to its end, with the same arguments. Raises to fail the stage."""
+"""Runs one swarm stage to its end, with the same arguments. Raises to fail the stage, or
+OverBudget when the run's Budget stopped its agents."""
 Pin = Callable[[str], Pinned]
 """The current version of a workflow, by id. Raises KeyError for an unknown workflow."""
 Take = Callable[[Run, Run, str, list[str]], None]
@@ -127,9 +134,11 @@ class Runner(RunControl):
         pin: Pin | None = None,
         take: Take | None = None,
         previews: Previews = no_previews,
+        spend: Spend = no_spend,
     ) -> None:
-        """`pin` and `take` serve workflow stages; without `pin` they fail the run."""
-        super().__init__(storage, system_db, data_dir, notifier or LogNotifier(), previews)
+        """`pin` and `take` serve workflow stages; without `pin` they fail the run. `spend` sums
+        the agents' estimated cost of runs, for the Budget."""
+        super().__init__(storage, system_db, data_dir, notifier or LogNotifier(), previews, spend)
         self.connector = connector
         self.swarm = swarm
         self.pin = pin
@@ -174,10 +183,15 @@ class Runner(RunControl):
         with _waiting_lock:
             waiting = list(_waiting)
         for run_id in waiting:
-            DBOS.send(run_id, WAKE, topic=CONTROL_TOPIC)
+            try:
+                DBOS.send(run_id, WAKE, topic=CONTROL_TOPIC)
+            except Exception:  # left by a launch that did not wind down in time; DBOS still stops
+                log.warning("could not wake run %s at shutdown", run_id)
         deadline = time.monotonic() + seconds
         while _waiting and time.monotonic() < deadline:
             time.sleep(0.01)
+        with _waiting_lock:
+            _waiting.clear()  # anything still here belongs to this launch, which is ending
         self.close()
         DBOS.destroy()
         _runner = None
@@ -190,12 +204,15 @@ class Runner(RunControl):
         name: str,
         stages: list[StageDef],
         parent_run_id: str | None = None,
+        budget_usd: float | None = None,
+        baseline: bool = False,
     ) -> Run:
-        """Record a queued run pinned to `version` and enqueue it."""
+        """Record a queued run pinned to `version` and enqueue it. `budget_usd` is its Budget
+        (none: no ceiling); `baseline` runs every swarm stage with one agent and no graph."""
         now = datetime.now(UTC).isoformat()
         run = Run(
             new_id("run"), world_id, workflow_id, version, name, "queued", now, now, [],
-            parent_run_id=parent_run_id,
+            parent_run_id=parent_run_id, budget_usd=budget_usd, baseline=baseline,
         )  # fmt: skip
         run = self.storage.add_run(run, stages)
         self._enqueue(run)
@@ -280,10 +297,10 @@ def _current() -> Runner:
 
 @DBOS.workflow(name="swarmify.run")
 def execute_run(run_id: str) -> str:
-    kinds, status, stages, send_backs, parent = _load(run_id)
+    kinds, status, stages, send_backs, parent, over_budget = _load(run_id)
     if status in TERMINAL:  # aborted between dequeue and load: nothing to run or wait for
         return status
-    state = RunState(status, tuple(stages), send_backs)  # type: ignore[arg-type]  # CHECKed rows
+    state = RunState(status, tuple(stages), send_backs, over_budget)  # type: ignore[arg-type]
     events: list[RunEvent | _ChildEnded] = [*_drain(run_id), Started()]
     error: str | None = None
     while True:
@@ -324,6 +341,8 @@ def execute_run(run_id: str) -> str:
         try:
             _execute(run_id, index)
             outcome: RunEvent = StageFinished(index)
+        except OverBudget:  # the agents stopped; the stage waits at a budget gate
+            outcome = BudgetSpent(index)
         except Exception as exc:  # a failed stage fails the run; the error lands on the stage
             outcome, error = StageFailed(index), f"{type(exc).__name__}: {exc}"
         # ponytail: a pause or abort sent mid-stage lands once the stage finishes. Cancelling a
@@ -339,6 +358,8 @@ def _as_event(message: dict[str, Any]) -> RunEvent | _ChildEnded | None:
             return SentBack(message["index"], message["to"])
         case "decide":
             return GateAnswered(message["index"])
+        case "budget":
+            return BudgetAdded()
         case "pause":
             return Paused()
         case "resume":
@@ -375,12 +396,12 @@ def _wait(run_id: str) -> dict[str, Any]:
 
 
 @DBOS.step(name="swarmify.load")
-def _load(run_id: str) -> tuple[list[str], str, list[str], int, str | None]:
+def _load(run_id: str) -> tuple[list[str], str, list[str], int, str | None, bool]:
     run = _current().storage.get_run(run_id)
     if run is None:
         raise KeyError(f"run not found: {run_id}")
     kinds, stages = [s.type for s in run.stages], [s.status for s in run.stages]
-    return kinds, run.status, stages, run.send_backs, run.parent_run_id
+    return kinds, run.status, stages, run.send_backs, run.parent_run_id, run.over_budget
 
 
 @DBOS.step(name="swarmify.start_child")
@@ -406,7 +427,7 @@ def _start_child(run_id: str, index: int) -> str:
     now = datetime.now(UTC).isoformat()
     child = Run(
         new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
-        "queued", now, now, [], parent_run_id=run_id,
+        "queued", now, now, [], parent_run_id=run_id, baseline=run.baseline,
     )  # fmt: skip
     child = runner.storage.add_run(child, pinned.stages)
     runner.storage.set_child(run_id, index, child.id)
@@ -455,6 +476,10 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
         index = state.stages.index("waiting")
         _, stage = runner.storage.stage_def(run_id, index)
         shown = runner.preview_after(run_id, index, run.world_id)
+        kind, ask = stage.config.get("kind") or "approve", stage.config.get("ask") or ""
+        if state.over_budget:
+            top, shown = runner.top(run), None
+            kind, ask = "budget", budget.ask(top.spent_usd, top.budget_usd or 0.0)
         event = Event.new(
             "gate.opened",
             world_id=run.world_id,
@@ -464,8 +489,8 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
                 "name": run.name,
                 "stage_index": index,
                 "stage": stage.name,
-                "kind": stage.config.get("kind") or "approve",
-                "ask": stage.config.get("ask") or "",
+                "kind": kind,
+                "ask": ask,
                 "publish": asdict(shown) if shown else None,
             },
         )

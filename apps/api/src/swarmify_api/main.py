@@ -65,6 +65,7 @@ from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import (
     Connector,
     Notifier,
+    OverBudget,
     Previews,
     PublishPreview,
     Run,
@@ -74,7 +75,7 @@ from swarmify_runs import (
 )
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
-from swarmify_swarm import AgentRuntime, SdkRuntime, Swarm
+from swarmify_swarm import AgentRuntime, SdkRuntime, Stopped, Swarm
 from swarmify_swarm import SqliteStorage as TaskStorage
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows
@@ -300,14 +301,30 @@ def create_app(
         graphs=graph.WorldGraphs(world_svc, index),
         servers=registry.agent_servers,
         clock=clock,
+        budget=lambda run_id: runner.check_budget(run_id),  # the Budget lives in Runs
     )
 
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
         folder = world_svc.folder(run.world_id)
         notes = next(s.notes for s in run.stages if s.id == stage_id)
-        swarm.run_stage(
-            run.world_id, run.id, stage_id, stage.name, stage.config, folder, notes, run.send_backs
-        )
+        try:
+            swarm.run_stage(
+                run.world_id,
+                run.id,
+                stage_id,
+                stage.name,
+                stage.config,
+                folder,
+                notes,
+                run.send_backs,
+                baseline=run.baseline,
+            )
+        except Stopped as exc:
+            raise OverBudget(str(exc)) from exc
+
+    def spend(run_ids: list[str]) -> float:
+        """The agents' estimated cost of these runs: what their Budget counts."""
+        return sum(a.cost_usd for r in run_ids for a in whiteboard.list_agents(r))
 
     def take(child: Run, run: Run, stage_id: str, names: list[str]) -> None:
         stage = next(s.name for s in run.stages if s.id == stage_id)
@@ -325,6 +342,7 @@ def create_app(
         pin=runs.pinner(workflow_svc),
         take=take,
         previews=previews(registry),
+        spend=spend,
     )
 
     async def sweep() -> None:

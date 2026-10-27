@@ -34,6 +34,8 @@ class Pinned:
     version: int
     name: str
     stages: list[StageDef]
+    budget_usd: float | None = None
+    """The workflow's default Budget."""
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,14 @@ class Run:
     forks: list[RunLink] = field(default_factory=list)
     promoted_from: str | None = None
     """The Library artifact (a path in the world folder) a promoted run started from."""
+    budget_usd: float | None = None
+    """The Budget, on the top run only: a child run spends its parent's (ADR 0013)."""
+    spent_usd: float = 0.0
+    """Estimated agent cost of this run and every run below it. An estimate, not billing."""
+    over_budget: bool = False
+    """The Budget is spent and the waiting stage is a budget gate: add money or abort."""
+    baseline: bool = False
+    """Baseline mode: one agent and no graph, to measure the swarm against."""
 
 
 @dataclass(frozen=True)
@@ -128,3 +138,6 @@ class Gate:
     parent: RunLink | None = None
     publish: PublishPreview | None = None
     """Set when the next stage publishes: exactly what confirming sends out."""
+    budget_usd: float | None = None
+    """For a `budget` gate: the Budget that was spent, and the spend so far."""
+    spent_usd: float | None = None

@@ -24,6 +24,8 @@ class RunState:
     status: RunStatus
     stages: tuple[StageStatus, ...]
     send_backs: int = 0
+    over_budget: bool = False
+    """The run's Budget is spent: its waiting stage is a budget gate, not a decision."""
 
     @staticmethod
     def new(stage_count: int) -> "RunState":
@@ -62,6 +64,19 @@ class SentBack:
 
 
 @dataclass(frozen=True)
+class BudgetSpent:
+    """The running stage at `index` stopped because the run's Budget is spent. It waits at a
+    budget gate: add money and it runs again, or abort."""
+
+    index: int
+
+
+@dataclass(frozen=True)
+class BudgetAdded:
+    """Money was added at the budget gate; the stopped stage runs again."""
+
+
+@dataclass(frozen=True)
 class Paused:
     pass
 
@@ -77,7 +92,16 @@ class Aborted:
 
 
 RunEvent = (
-    Started | StageFinished | StageFailed | GateAnswered | SentBack | Paused | Resumed | Aborted
+    Started
+    | StageFinished
+    | StageFailed
+    | GateAnswered
+    | SentBack
+    | BudgetSpent
+    | BudgetAdded
+    | Paused
+    | Resumed
+    | Aborted
 )
 
 
@@ -91,7 +115,7 @@ class RunStage:
 
 @dataclass(frozen=True)
 class OpenGate:
-    """Wait for a person, then report GateAnswered."""
+    """Wait for a person, then report GateAnswered (or BudgetAdded at a budget gate)."""
 
     index: int
 
@@ -118,11 +142,13 @@ def transition(
             return _advance(kinds, replace(state, status="running"))
         case StageFinished(i) | GateAnswered(i):
             expected = "waiting" if isinstance(event, GateAnswered) else "running"
+            _require(not state.over_budget, "the run waits for money, not a decision")
             _require(_at(stages, i) == expected, f"stage {i} is not {expected}")
             stages[i] = "done"
             return _settle(kinds, state, stages)
         case SentBack(i, to):
             _require(_at(stages, i) == "waiting", f"stage {i} is not waiting")
+            _require(not state.over_budget, "the run waits for money, not a decision")
             _require(0 <= to < i, f"send back must name a stage before {i}")
             _require(
                 state.send_backs < MAX_SEND_BACKS,
@@ -135,6 +161,16 @@ def transition(
             _require(_at(stages, i) == "running", f"stage {i} is not running")
             stages[i] = "failed"
             return replace(state, status="failed", stages=tuple(stages)), []
+        case BudgetSpent(i):
+            _require(_at(stages, i) == "running", f"stage {i} is not running")
+            stages[i] = "waiting"
+            status = "paused" if state.status == "paused" else "waiting_gate"
+            spent = replace(state, status=status, stages=tuple(stages), over_budget=True)
+            return spent, [OpenGate(i)]
+        case BudgetAdded():
+            _require(state.over_budget, "the run is not over budget")
+            stages[stages.index("waiting")] = "pending"  # runs again, from where it stopped
+            return _settle(kinds, replace(state, over_budget=False), stages)
         case Paused():
             _require(state.status in ("running", "waiting_gate"), "nothing to pause")
             return replace(state, status="paused"), []
@@ -148,7 +184,7 @@ def transition(
         case Aborted():
             active = ("running", "waiting")
             ended = tuple("failed" if s in active else s for s in stages)
-            return replace(state, status="aborted", stages=ended), []
+            return replace(state, status="aborted", stages=ended, over_budget=False), []
 
 
 def _settle(

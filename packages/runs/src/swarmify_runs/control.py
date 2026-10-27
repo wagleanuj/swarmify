@@ -19,6 +19,7 @@ from typing import Any
 from dbos import DBOSClient
 
 from swarmify_kernel import Event, new_id
+from swarmify_runs import budget
 from swarmify_runs.machine import (
     TERMINAL,
     Aborted,
@@ -35,7 +36,20 @@ from swarmify_runs.model import Decision, Gate, PublishPreview, Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
 
 CONTROL_TOPIC = "control"
+Spend = Callable[[list[str]], float]
+"""The estimated agent cost of the given runs, summed. The composition root reads it from the
+Swarm context, whose agents carry the cost."""
 log = logging.getLogger(__name__)
+
+
+class OverBudget(Exception):
+    """Raised by a stage call when the run's Budget stopped its agents. The stage waits at a
+    budget gate instead of failing."""
+
+
+def no_spend(_run_ids: list[str]) -> float:
+    return 0.0
+
 
 Previews = Callable[[str, StageDef], PublishPreview | None]
 """What a stage of a world will publish, or None when it does not publish. Runs cannot tell a
@@ -87,7 +101,9 @@ def with_sidecar(path: Path) -> list[Path]:
 
 
 def state_of(run: Run) -> RunState:
-    return RunState(run.status, tuple(s.status for s in run.stages), run.send_backs)
+    return RunState(
+        run.status, tuple(s.status for s in run.stages), run.send_backs, run.over_budget
+    )
 
 
 def kinds_of(run: Run) -> tuple[str, ...]:
@@ -111,23 +127,33 @@ class RunControl:
         data_dir: Path,
         notifier: Notifier,
         previews: Previews = no_previews,
+        spend: Spend = no_spend,
     ) -> None:
         self.storage = storage
         self.system_db = system_db
         self.data_dir = data_dir
         self.notifier = notifier
         self.previews = previews
+        self.spend = spend
         self._client: DBOSClient | None = None
 
     def get(self, run_id: str) -> Run | None:
         return self.storage.get_run(run_id)
 
     def gates(self) -> list[Gate]:
-        """Each with the publish preview of the stage after it, when that stage publishes."""
+        """Each with the publish preview of the stage after it, when that stage publishes, or
+        with the Budget and spend of its top run when it waits for money."""
         return [
-            replace(g, publish=self.preview_after(g.run_id, g.stage_index, g.world_id))
+            self._with_budget(g)
+            if g.kind == "budget"
+            else replace(g, publish=self.preview_after(g.run_id, g.stage_index, g.world_id))
             for g in self.storage.open_gates()
         ]
+
+    def _with_budget(self, gate: Gate) -> Gate:
+        top = self.top(self._run(gate.run_id))
+        spent, limit = top.spent_usd, top.budget_usd or 0.0
+        return replace(gate, ask=budget.ask(spent, limit), budget_usd=limit, spent_usd=spent)
 
     def preview_after(self, run_id: str, index: int, world_id: str) -> PublishPreview | None:
         try:
@@ -151,6 +177,8 @@ class RunControl:
         a pick gate gets no choice.
         """
         run = self._run(run_id)
+        if run.over_budget:
+            raise Illegal("the run waits at a budget gate: add money or abort")
         index = next((s.index for s in run.stages if s.status == "waiting"), None)
         if index is None:
             raise Illegal("the run is not waiting at a gate")
@@ -234,6 +262,66 @@ class RunControl:
         """The run and every run below it: the runs whose spend counts against its Budget, since
         a child run spends its parent's (ADR 0013)."""
         return [run_id, *(r for c in self.storage.child_run_ids(run_id) for r in self.family(c))]
+
+    def top(self, run: Run) -> Run:
+        """The run at the top of `run`'s family, which holds the Budget (ADR 0013)."""
+        while run.parent_run_id is not None and (up := self.storage.get_run(run.parent_run_id)):
+            run = up
+        return run
+
+    def check_budget(self, run_id: str) -> str | None:
+        """The cost hook calls this after every estimate. Refreshes the spend of the run and of
+        each run above it, warns once at 80 percent of the Budget (`budget.warning`) and, at 100
+        percent, returns why every agent must stop. None while they may go on."""
+        run, top = self.storage.get_run(run_id), None
+        while run is not None:
+            top = self.storage.set_spent(run.id, self.spend(self.family(run.id))) or run
+            run = self.storage.get_run(run.parent_run_id) if run.parent_run_id else None
+        if top is None or top.budget_usd is None:
+            return None
+        level = budget.level(top.spent_usd, top.budget_usd)
+        if level == "ok":
+            return None
+        if self.storage.mark_warned(top.id, top.budget_usd):
+            payload = {
+                "run_id": top.id,
+                "name": top.name,
+                "spent_usd": top.spent_usd,
+                "budget_usd": top.budget_usd,
+            }
+            event = Event.new(
+                "budget.warning", world_id=top.world_id, run_id=top.id, payload=payload
+            )
+            self.storage.record(event)
+            try:
+                self.notifier.notify(event)
+            except Exception:  # a notifier outage must not stop the agents; the event is kept
+                log.exception("notifier failed on budget.warning for run %s", top.id)
+        if level == "spent":
+            return f"The run's budget of ${top.budget_usd:.2f} is spent."
+        return None
+
+    def set_budget(self, run_id: str, usd: float) -> Run:
+        """Set the Budget of the run's family (held by its top run) to `usd`. Every run of the
+        family waiting at a budget gate goes on. Raises ValueError unless `usd` is above what
+        the family has spent, so setting the same total twice adds nothing twice."""
+        run = self._run(run_id)
+        top = self.top(run)
+        if usd <= top.spent_usd:
+            raise ValueError(f"the run has spent ${top.spent_usd:.2f}; set a budget above that")
+        self.storage.set_budget(top.id, usd)
+        for member in self.family(top.id):
+            waiting = self.storage.get_run(member)
+            if waiting is not None and waiting.over_budget and waiting.status not in TERMINAL:
+                self._send(member, {"action": "budget"})
+        return self._run(run_id)
+
+    def baseline(self, run_id: str) -> Run | None:
+        """The newest finished baseline run of the run's workflow, to measure it against."""
+        run = self.storage.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        return self.storage.latest_baseline(run.workflow_id)
 
     @property
     def client(self) -> DBOSClient:
