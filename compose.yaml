@@ -1,26 +1,36 @@
+# The same file on the Mac and on a Debian VM: `docker compose up -d --build`, settings in `.env`
+# next to it (README, Deployment). Both services share the one `data` volume.
+x-env: &env
+  SWARMIFY_DATA_DIR: /data
+  # Headless Claude Code on the subscription: `claude setup-token` prints it (ADR 0010).
+  CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?run `claude setup-token` and put CLAUDE_CODE_OAUTH_TOKEN in .env}
+
 services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      # The LAN sees it on every interface by default; SWARMIFY_BIND=127.0.0.1 keeps it local.
+      - "${SWARMIFY_BIND:-0.0.0.0}:${SWARMIFY_PORT:-8000}:8000"
     volumes:
       - data:/data
     environment:
-      SWARMIFY_DATA_DIR: /data
+      <<: *env
       SWARMIFY_GRAPH_WRITER: external
+      SWARMIFY_USER: ${SWARMIFY_USER:-swarmify}
+      SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:?set SWARMIFY_PASSWORD in .env, the LAN must sign in}
+      SWARMIFY_BASE_URL: ${SWARMIFY_BASE_URL:-http://localhost:8000}
+    restart: unless-stopped
 
-  # The single writer of every world's graph (ADR 0003). Needs CLAUDE_CODE_OAUTH_TOKEN for
-  # graphify's Claude CLI backend.
+  # The single writer of every world's graph (ADR 0003), graphify on the Claude CLI backend.
   graph-writer:
     build: .
     volumes:
       - data:/data
-    environment:
-      SWARMIFY_DATA_DIR: /data
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    environment: *env
     command: ["swarmify-graph-writer"]
     healthcheck:
       disable: true
+    restart: unless-stopped
 
 volumes:
   data:

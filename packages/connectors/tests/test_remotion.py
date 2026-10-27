@@ -75,6 +75,22 @@ def test_renders_the_script_into_a_video_with_a_sidecar(
     assert "from the script `script.md` with composition `Short`" in text
 
 
+def test_a_headless_shell_on_path_is_the_browser_remotion_uses(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    """The Docker image puts Chrome Headless Shell on PATH (README, Docker); a Mac has none and
+    Remotion finds or downloads its own."""
+    config = stage(tmp_path, fake_npx)
+    real.run_stage(W, "run_1", "stage_2", config)
+    assert json.loads(Path(config["params"]["output_path"]).read_text())["browser"] == ""
+
+    shell = tmp_path / "bin" / "chrome-headless-shell"
+    shell.write_text("#!/bin/sh\n")
+    shell.chmod(0o755)
+    real.run_stage(W, "run_1", "stage_3", config)
+    assert json.loads(Path(config["params"]["output_path"]).read_text())["browser"] == str(shell)
+
+
 def test_progress_reaches_the_call_while_it_renders(
     tmp_path: Path, db: Path, real: Connectors, fake_npx: Path
 ) -> None:
