@@ -10,7 +10,6 @@ from pathlib import Path
 from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
-from swarmify_runs import budget
 from swarmify_runs.machine import MAX_SEND_BACKS, Illegal, RunState
 from swarmify_runs.model import Decision, Gate, Run, RunLink, RunStageView, StageDef
 
@@ -291,18 +290,8 @@ class SqliteStorage:
                     g["parent_run_id"],
                     _link(conn, g["parent_run_id"]),
                 )
-                if g["over_budget"]:
-                    top = _top(conn, g["run_id"])
-                    spent, limit = top["spent_usd"], top["budget_usd"] or 0.0
-                    gate = replace(
-                        gate,
-                        kind="budget",
-                        ask=budget.ask(spent, limit),
-                        send_backs_left=0,
-                        earlier_stages=[],
-                        budget_usd=limit,
-                        spent_usd=spent,
-                    )
+                if g["over_budget"]:  # RunControl.gates adds the money from the top run
+                    gate = replace(gate, kind="budget", send_backs_left=0, earlier_stages=[])
                 gates.append(gate)
             return gates
 
@@ -422,14 +411,6 @@ def _link(conn: sqlite3.Connection, run_id: str | None) -> RunLink | None:
         return None
     row = conn.execute("SELECT id, world_id, name FROM runs WHERE id = ?", (run_id,)).fetchone()
     return RunLink(row["id"], row["world_id"], row["name"]) if row else None
-
-
-def _top(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row:
-    """The top run above `run_id` (itself when it has no parent): the one holding the Budget."""
-    row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-    while row["parent_run_id"] is not None:
-        row = conn.execute("SELECT * FROM runs WHERE id = ?", (row["parent_run_id"],)).fetchone()
-    return row
 
 
 def _updated(run: Run) -> Event:

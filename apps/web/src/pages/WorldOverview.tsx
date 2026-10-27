@@ -74,7 +74,7 @@ export function WorldOverview() {
     };
     // ponytail: EventSource only delivers named events to matching listeners, so each new event
     // type must be added here. Switch to one generic listener when the API emits unnamed events.
-    const types = ["world.created", "world.deleted", "workflow.saved", "run.updated", "gate.opened", "budget.warning", "run.ended"];
+    const types = ["world.created", "world.deleted", "workflow.saved", "run.updated", "gate.opened", "run.ended"];
     for (const type of types) {
       source.addEventListener(type, onEvent);
     }

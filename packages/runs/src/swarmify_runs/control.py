@@ -141,13 +141,19 @@ class RunControl:
         return self.storage.get_run(run_id)
 
     def gates(self) -> list[Gate]:
-        """Each with the publish preview of the stage after it, when that stage publishes."""
+        """Each with the publish preview of the stage after it, when that stage publishes, or
+        with the Budget and spend of its top run when it waits for money."""
         return [
-            g
+            self._with_budget(g)
             if g.kind == "budget"
             else replace(g, publish=self.preview_after(g.run_id, g.stage_index, g.world_id))
             for g in self.storage.open_gates()
         ]
+
+    def _with_budget(self, gate: Gate) -> Gate:
+        top = self.top(self._run(gate.run_id))
+        spent, limit = top.spent_usd, top.budget_usd or 0.0
+        return replace(gate, ask=budget.ask(spent, limit), budget_usd=limit, spent_usd=spent)
 
     def preview_after(self, run_id: str, index: int, world_id: str) -> PublishPreview | None:
         try:
