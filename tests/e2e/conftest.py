@@ -5,8 +5,8 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 
 import httpx
@@ -77,3 +77,10 @@ def locked_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     data = tmp_path_factory.mktemp("swarmify-locked")
     with _serve(data, SWARMIFY_USER="erlich", SWARMIFY_PASSWORD="aviato") as url:
         yield url
+
+
+@pytest.fixture
+def serve() -> Callable[..., AbstractContextManager[str]]:
+    """Start an app of its own: `with serve(data_dir, **env) as url`. For a test that restarts
+    the server, sets its environment, or leaves the shared script's session cycle shifted."""
+    return _serve

@@ -26,6 +26,7 @@ PAGES = [
     "/worlds/{world}",
     "/worlds/{world}/workflows/new",
     "/worlds/{world}/workflows/{workflow}",
+    "/worlds/{world}/workflows/{workflow}/scorecard",
     "/worlds/{world}/runs",
     "/worlds/{world}/runs/{run}",
     "/worlds/{world}/connectors",
@@ -33,6 +34,7 @@ PAGES = [
     "/worlds/{world}/library",
     "/worlds/{world}/cast",
     "/worlds/{world}/settings",
+    "/evals",
 ]
 
 

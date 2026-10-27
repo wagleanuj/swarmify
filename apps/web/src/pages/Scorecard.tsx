@@ -103,41 +103,43 @@ export function Scorecard() {
               {trend}
             </p>
           )}
-          <table className="scores" data-testid="scores">
-            <thead>
-              <tr>
-                <th>Run</th>
-                <th>Version</th>
-                <th>Status</th>
-                <th className="num">First try</th>
-                <th className="num">Send-backs</th>
-                <th className="num">Cost (est.)</th>
-                <th className="num">Duration</th>
-                <th>Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((r) => (
-                <tr key={r.run_id} data-testid="score" data-baseline={r.baseline}>
-                  <td>
-                    <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: r.run_id }}>
-                      {new Date(r.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
-                    </Link>
-                    {r.baseline && <span className="faint"> Hooli baseline</span>}
-                  </td>
-                  <td>{r.workflow_version === null ? "ad hoc" : `v${r.workflow_version}`}</td>
-                  <td>
-                    <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status as Run["status"]] ?? r.status}</span>
-                  </td>
-                  <td className="num">{firstTry(r)}</td>
-                  <td className="num">{r.send_backs}</td>
-                  <td className="num">{money(r.cost_usd)}</td>
-                  <td className="num">{r.duration_s === null ? "running" : took(r.duration_s)}</td>
-                  <td>{r.views === null ? "not measured" : `${r.views.toLocaleString()} views`}</td>
+          <div className="scroll-x">
+            <table className="scores" data-testid="scores">
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Version</th>
+                  <th>Status</th>
+                  <th className="num">First try</th>
+                  <th className="num">Send-backs</th>
+                  <th className="num">Cost (est.)</th>
+                  <th className="num">Duration</th>
+                  <th>Outcome</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {runs.map((r) => (
+                  <tr key={r.run_id} data-testid="score" data-baseline={r.baseline}>
+                    <td>
+                      <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: r.run_id }}>
+                        {new Date(r.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                      </Link>
+                      {r.baseline && <span className="faint"> Hooli baseline</span>}
+                    </td>
+                    <td>{r.workflow_version === null ? "ad hoc" : `v${r.workflow_version}`}</td>
+                    <td>
+                      <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status as Run["status"]] ?? r.status}</span>
+                    </td>
+                    <td className="num">{firstTry(r)}</td>
+                    <td className="num">{r.send_backs}</td>
+                    <td className="num">{money(r.cost_usd)}</td>
+                    <td className="num">{r.duration_s === null ? "running" : took(r.duration_s)}</td>
+                    <td>{r.views === null ? "not measured" : `${r.views.toLocaleString()} views`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </main>
