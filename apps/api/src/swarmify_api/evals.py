@@ -25,11 +25,8 @@ class NewEval(BaseModel):
 def router(worlds: Worlds, memory: Memory) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["evals"])
 
-    def eval_world(create: bool) -> World | None:
-        found = next((w for w in worlds.list_all() if w.name == EVAL_WORLD), None)
-        if found or not create:
-            return found
-        return worlds.create(EVAL_WORLD, "Eval reports: the baseline against the swarm.")
+    def eval_world() -> World | None:
+        return next((w for w in worlds.list_all() if w.name == EVAL_WORLD), None)
 
     @api.post("/evals", status_code=201, responses={422: {}})
     def save_eval(body: NewEval) -> EvalReport:
@@ -40,8 +37,9 @@ def router(worlds: Worlds, memory: Memory) -> APIRouter:
             report = summarize(body.trials, body.k, new_id("eval"), now)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        world = eval_world(create=True)
-        assert world is not None
+        world = eval_world() or worlds.create(
+            EVAL_WORLD, "Eval reports: the baseline against the swarm."
+        )
         memory.write_artifact(
             world.id,
             report.id,
@@ -57,10 +55,11 @@ def router(worlds: Worlds, memory: Memory) -> APIRouter:
     @api.get("/evals", response_model=list[EvalReport])
     def list_evals() -> list[dict[str, Any]]:
         """Every stored report, newest first."""
-        world = eval_world(create=False)
+        world = eval_world()
         if world is None:
             return []
-        reports = [a.fields["report"] for a in memory.library(world.id) if a.type == "eval"]
+        library = memory.library(world.id)
+        reports = [a.fields["report"] for a in library if a.type == "eval" and "report" in a.fields]
         return sorted(reports, key=lambda r: r["created_at"], reverse=True)
 
     return api

@@ -108,6 +108,9 @@ def test_the_report_compares_cost_duration_and_acceptance_and_names_the_winner()
     lost = summarize(slower, 2, "eval_2", "2026-10-27T10:00:00+00:00")
     assert not lost.swarm_wins and lost.verdict.startswith("The swarm does not win: ")
 
+    never = [trial("a", "baseline", 0, False, 1, 100), trial("a", "swarm", 0, True, 1, 300)]
+    assert summarize(never, 1, "eval_3", "now").swarm_wins, "a baseline that never accepts loses"
+
 
 def test_a_report_needs_k_trials_of_each_arm_on_each_task() -> None:
     with pytest.raises(ValueError, match="b on swarm has 1 trials, fewer than k=2"):

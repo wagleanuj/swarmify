@@ -4,6 +4,7 @@ scripted CLI behind its transport, fresh worlds per trial, and the report as an 
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -155,15 +156,44 @@ def test_a_report_with_an_arm_missing_is_refused(running: TestClient) -> None:
 def test_the_command_line_talks_to_the_api(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict = {}
 
-    def fake(http, tasks, k, settings, parallel, clean, say):  # noqa: ANN001
+    def fake(http, tasks, k, settings, clean, say):  # noqa: ANN001
         seen.update(base=str(http.base_url), auth=http.auth, tasks=len(tasks), k=k)
-        seen.update(budget=settings.budget_usd, parallel=parallel, clean=clean)
+        seen.update(budget=settings.budget_usd, clean=clean)
         return {"verdict": "The swarm wins: ...", "id": "eval_1"}
 
     monkeypatch.setattr("swarmify_api.eval_harness.run_eval", fake)
     monkeypatch.setenv("SWARMIFY_PASSWORD", "pw")
     main(["--api", "http://box:8000", "--k", "2", "--tasks", "3", "--budget", "1.5", "--clean"])
     assert seen["base"] == "http://box:8000" and seen["auth"] is not None
-    assert (seen["tasks"], seen["k"], seen["budget"], seen["parallel"], seen["clean"]) == (
-        3, 2, 1.5, 1, True,
-    )  # fmt: skip
+    assert (seen["tasks"], seen["k"], seen["budget"], seen["clean"]) == (3, 2, 1.5, True)
+
+
+def test_a_trial_past_its_timeout_is_aborted_and_fails_on_the_timeout(
+    running: TestClient, script: Script, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script.scripts = [[CLAIM, Say("Still thinking.")]]  # never finishes a task
+    report = run_eval(running, [TASK], 1, Settings(timeout_s=0.1, poll_s=0.05))
+    for t in report["trials"]:
+        assert t["status"] == "aborted"
+        assert t["failed"] == ["timed out after 0 s", "the run aborted"]
+
+    # an abort the API keeps refusing ends the wait one more timeout later
+    post = running.post
+    refuse = lambda url, **kw: httpx.Response(409) if url.endswith("/abort") else post(url, **kw)  # noqa: E731
+    monkeypatch.setattr(running, "post", refuse)
+    report = run_eval(running, [TASK], 1, Settings(timeout_s=0.1, poll_s=0.05))
+    for t in report["trials"]:
+        assert t["status"] not in ("done", "aborted")
+        assert t["failed"] == ["timed out after 0 s", f"the run {t['status']}"]
+
+
+def test_a_trial_the_api_refused_is_an_error_and_the_report_still_lands(
+    running: TestClient,
+) -> None:
+    report = run_eval(running, [TASK], 1, Settings(budget_usd=-1), clean=True)
+    # a negative Budget is refused when the trial saves its workflow
+    trials = report["trials"]
+    assert [t["status"] for t in trials] == ["error", "error"]
+    assert all("422" in t["failed"][0] and t["world_id"] for t in trials)
+    assert running.get("/api/evals").json() == [report]
+    assert [w["name"] for w in running.get("/api/worlds").json()] == ["Evals"]

@@ -16,7 +16,6 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -52,23 +51,26 @@ def _settle(http: httpx.Client, run_id: str) -> None:
         http.post(f"/api/runs/{run_id}/abort")
 
 
-def trial(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings) -> Trial:
-    world = _ok(http.post("/api/worlds", json={"name": f"Eval {task.id} {arm} {index + 1}"}))
+def trial(
+    http: httpx.Client, world_id: str, task: EvalTask, arm: str, index: int, s: Settings
+) -> Trial:
     yaml = workflow_yaml(task, s.budget_usd)
-    workflow = _ok(http.post(f"/api/worlds/{world['id']}/workflows", json={"yaml": yaml}))
+    workflow = _ok(http.post(f"/api/worlds/{world_id}/workflows", json={"yaml": yaml}))
     start = {"baseline": arm == "baseline"}
     run = _ok(http.post(f"/api/workflows/{workflow['workflow_id']}/runs", json=start))
     deadline = time.monotonic() + s.timeout_s
     timed_out = False
     while run["status"] not in ENDED:
-        if run["status"] == "waiting_gate":
-            _settle(http, run["id"])
-        elif time.monotonic() > deadline and not timed_out:
-            timed_out = True
+        if time.monotonic() > deadline:
+            if timed_out:
+                break  # the abort did not take either; the trial fails as the run stands
+            timed_out, deadline = True, time.monotonic() + s.timeout_s  # grace for the abort
             http.post(f"/api/runs/{run['id']}/abort")
+        elif run["status"] == "waiting_gate":
+            _settle(http, run["id"])
         time.sleep(s.poll_s)
         run = _ok(http.get(f"/api/runs/{run['id']}"))
-    library = _ok(http.get(f"/api/worlds/{world['id']}/library"))
+    library = _ok(http.get(f"/api/worlds/{world_id}/library"))
     outputs = {i["name"]: i["body"] for i in library if i["run_id"] == run["id"]}
     failed = grade(task, outputs) if run["status"] == "done" else [f"the run {run['status']}"]
     if timed_out:
@@ -78,7 +80,7 @@ def trial(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings)
         task.id,
         arm,
         index,
-        world["id"],
+        world_id,
         run["id"],
         run["status"],
         float(run["spent_usd"]),
@@ -88,11 +90,15 @@ def trial(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings)
 
 
 def _safe(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings) -> Trial:
-    """A trial that broke on the API's side fails, it does not end the eval."""
+    """A trial that broke on the API's side fails, it does not end the eval. Its world id is
+    kept so `clean` still removes it."""
+    world_id = ""
     try:
-        return trial(http, task, arm, index, s)
+        name = f"Eval {task.id} {arm} {index + 1}"
+        world_id = _ok(http.post("/api/worlds", json={"name": name}))["id"]
+        return trial(http, world_id, task, arm, index, s)
     except httpx.HTTPError as exc:
-        return Trial(task.id, arm, index, "", "", "error", 0.0, None, [f"error: {exc}"])
+        return Trial(task.id, arm, index, world_id, "", "error", 0.0, None, [f"error: {exc}"])
 
 
 def run_eval(
@@ -100,7 +106,6 @@ def run_eval(
     tasks: list[EvalTask],
     k: int,
     settings: Settings | None = None,
-    parallel: int = 1,
     clean: bool = False,
     say: Callable[[str], None] = lambda _line: None,
 ) -> dict[str, Any]:
@@ -108,17 +113,12 @@ def run_eval(
     s = settings or Settings()
     jobs = [(t, arm, i) for t in tasks for i in range(k) for arm in ARMS]
 
-    def one(job: tuple[EvalTask, str, int]) -> Trial:
+    trials = []
+    for job in jobs:
         done = _safe(http, *job, s)
         verdict = "accepted" if done.passed else "; ".join(done.failed)
         say(f"{done.task_id} {done.arm} {done.index + 1}: {verdict}")
-        return done
-
-    if parallel > 1:
-        with ThreadPoolExecutor(parallel) as pool:
-            trials = list(pool.map(one, jobs))
-    else:
-        trials = [one(j) for j in jobs]
+        trials.append(done)
     report = _ok(http.post("/api/evals", json={"k": k, "trials": [asdict(t) for t in trials]}))
     if clean:
         for t in trials:
@@ -136,7 +136,6 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--tasks", type=int, default=len(TASKS), help="the first N tasks (all)")
     p.add_argument("--budget", type=float, default=Settings.budget_usd, help="USD a trial")
     p.add_argument("--timeout", type=float, default=Settings.timeout_s, help="seconds a trial")
-    p.add_argument("--parallel", type=int, default=1, help="trials at once (default 1)")
     p.add_argument("--clean", action="store_true", help="delete trial worlds afterwards")
     a = p.parse_args(argv)
     password = os.environ.get("SWARMIFY_PASSWORD")
@@ -147,7 +146,6 @@ def main(argv: list[str] | None = None) -> None:
             TASKS[: a.tasks],
             a.k,
             Settings(a.budget, a.timeout),
-            a.parallel,
             a.clean,
             say=lambda line: print(line, file=sys.stderr),
         )

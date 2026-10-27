@@ -203,10 +203,8 @@ def summarize(trials: list[Trial], k: int, id: str, created_at: str) -> EvalRepo
         if missing:
             raise ValueError(f"task {min(missing)} on {arm} has 0 trials, fewer than k={k}")
     base, swarm = (_arm(a, [t for t in trials if t.arm == a], k) for a in ARMS)
-    faster = (
-        swarm.duration_s is not None
-        and base.duration_s is not None
-        and swarm.duration_s < base.duration_s
+    faster = swarm.duration_s is not None and (
+        base.duration_s is None or swarm.duration_s < base.duration_s
     )
     wins = faster and swarm.acceptance >= base.acceptance
     verdict = (

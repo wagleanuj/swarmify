@@ -563,7 +563,7 @@ uv run swarmify-eval --tasks 2 --k 1   # a smoke run
 
 Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, basic auth from
 `SWARMIFY_PASSWORD`), `--budget` (USD a trial, default 3), `--timeout` (seconds a trial, default
-2700), `--parallel` (trials at once, default 1) and `--clean` (delete the trial worlds afterwards).
+2700) and `--clean` (delete the trial worlds afterwards).
 
 - Fresh world per trial: each trial creates its own world (`Eval <task> <arm> <n>`), saves the
   eval workflow there and starts one run, `{"baseline": true}` for the baseline arm. The eval
