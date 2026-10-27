@@ -418,12 +418,13 @@ def _wait(run_id: str) -> dict[str, Any]:
     with _waiting_lock:
         _waiting.add(run_id)
     try:
-        while True:
+        # Checked after registering: shutdown sets _stopping, then wakes the runs registered,
+        # so a run registering later sees _stopping here instead of waiting out the hour.
+        while not _stopping.is_set():
             message = DBOS.recv(CONTROL_TOPIC, timeout_seconds=3600)
-            if message == WAKE and _stopping.is_set():
-                raise _Shutdown(run_id)
             if message is not None and message != WAKE:
                 return message
+        raise _Shutdown(run_id)
     finally:
         with _waiting_lock:
             _waiting.discard(run_id)
