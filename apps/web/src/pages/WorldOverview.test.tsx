@@ -35,7 +35,7 @@ test("shows the world, its tiles and live activity from the world's event stream
     .element(screen.getByRole("link", { name: "Manage connectors" }))
     .toHaveAttribute("href", "/worlds/world_1/connectors");
   await expect
-    .element(screen.getByRole("link", { name: "Set up Slack" }))
+    .element(screen.getByRole("link", { name: "Open settings" }))
     .toHaveAttribute("href", "/worlds/world_1/settings");
 
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
@@ -121,4 +121,42 @@ test("starting a run of a workflow opens its timeline", async () => {
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/Queued/);
   expect(calls).toContain("POST /api/workflows/wf_1/runs");
   expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_1");
+});
+
+test("a typed goal starts an ad hoc run and opens its timeline", async () => {
+  const bodies: unknown[] = [];
+  const started = {
+    id: "run_9", world_id: "world_1", workflow_id: null, workflow_version: null, name: "Find five hooks",
+    status: "queued", created_at: video.created_at, updated_at: video.created_at, stages: [],
+  };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "POST /api/worlds/world_1/runs": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(started, { status: 201 });
+    },
+    "GET /api/runs/run_9": () => Response.json(started),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1");
+  await screen.getByRole("textbox", { name: "Goal" }).fill("Find five hooks");
+  await screen.getByRole("button", { name: "Start run" }).click();
+  await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/Queued/);
+  expect(bodies).toEqual([{ goal: "Find five hooks", done_when: "", baseline: false }]);
+  expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_9");
+  await expect.element(screen.getByRole("heading", { level: 1 })).toMatchTextContent(/Find five hooks.*ad hoc/);
+});
+
+test("a spent monthly budget is shown as the API's reason", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "POST /api/worlds/world_1/runs": () =>
+      Response.json({ detail: "the world's monthly budget of $5.00 is spent" }, { status: 409 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  await screen.getByRole("textbox", { name: "Goal" }).fill("Anything");
+  await screen.getByRole("button", { name: "Start run" }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Not started: the world's monthly budget of $5.00 is spent.");
 });

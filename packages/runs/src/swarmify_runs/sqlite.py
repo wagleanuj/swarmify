@@ -126,8 +126,8 @@ class SqliteStorage:
             (
                 run.id,
                 run.world_id,
-                run.workflow_id,
-                run.workflow_version,
+                run.workflow_id or "",  # an ad hoc run has no workflow; the column is NOT NULL
+                run.workflow_version or 0,
                 run.name,
                 run.status,
                 run.created_at,
@@ -207,7 +207,9 @@ class SqliteStorage:
                 ).rowcount
             )
 
-    def latest_baseline(self, workflow_id: str) -> Run | None:
+    def latest_baseline(self, workflow_id: str | None) -> Run | None:
+        if workflow_id is None:
+            return None
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT id FROM runs WHERE workflow_id = ? AND baseline = 1 AND status = 'done'"
@@ -215,6 +217,15 @@ class SqliteStorage:
                 (workflow_id,),
             ).fetchone()
             return self._read(conn, row[0]) if row else None
+
+    def spent_in_month(self, world_id: str, month: str) -> float:
+        with self._conn() as conn:
+            (total,) = conn.execute(
+                "SELECT coalesce(sum(spent_usd), 0) FROM runs WHERE world_id = ?"
+                " AND parent_run_id IS NULL AND created_at LIKE ?",
+                (world_id, f"{month}-%"),
+            ).fetchone()
+            return float(total)
 
     def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
         try:
@@ -367,8 +378,8 @@ class SqliteStorage:
         return Run(
             row["id"],
             row["world_id"],
-            row["workflow_id"],
-            row["workflow_version"],
+            row["workflow_id"] or None,
+            row["workflow_version"] or None,
             row["name"],
             row["status"],
             row["created_at"],

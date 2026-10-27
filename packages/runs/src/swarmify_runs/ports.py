@@ -45,8 +45,14 @@ class Storage(Protocol):
         had, so of any number of concurrent callers exactly one warns."""
         ...
 
-    def latest_baseline(self, workflow_id: str) -> Run | None:
-        """The newest finished baseline run of the workflow, any version."""
+    def latest_baseline(self, workflow_id: str | None) -> Run | None:
+        """The newest finished baseline run of the workflow, any version. None for an ad hoc
+        run, which has no workflow to be measured against."""
+        ...
+
+    def spent_in_month(self, world_id: str, month: str) -> float:
+        """The estimated spend of the world's top runs created in `month` (`YYYY-MM`). Child
+        runs are counted through their parent's spend (ADR 0013)."""
         ...
 
     def set_child(self, run_id: str, index: int, child_run_id: str) -> None:

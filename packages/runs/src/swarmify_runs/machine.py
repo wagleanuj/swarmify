@@ -127,6 +127,10 @@ class Illegal(ValueError):
     """The event cannot happen in this state. The state is unchanged."""
 
 
+class MonthSpent(Illegal):
+    """The world's Monthly Budget is spent, so no run of it starts this month."""
+
+
 def transition(
     kinds: tuple[str, ...], state: RunState, event: RunEvent
 ) -> tuple[RunState, list[Command]]:

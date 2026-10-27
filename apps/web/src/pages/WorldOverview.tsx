@@ -1,5 +1,5 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { Gate, Run } from "../api/runs";
@@ -20,6 +20,8 @@ export function WorldOverview() {
   const [gates, setGates] = useState<Gate[]>([]);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [goal, setGoal] = useState("");
+  const [doneWhen, setDoneWhen] = useState("");
 
   useEffect(() => {
     api
@@ -97,6 +99,23 @@ export function WorldOverview() {
       to: "/worlds/$worldId/runs/$runId",
       params: { worldId, runId: data.id },
     });
+  }
+
+  async function startAdHoc(e: FormEvent) {
+    e.preventDefault();
+    setStarting("ad-hoc");
+    setError(null);
+    const { data, error, response } = await api.POST("/api/worlds/{world_id}/runs", {
+      params: { path: { world_id: worldId } },
+      body: { goal, done_when: doneWhen, baseline: false },
+    });
+    setStarting(null);
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
+      return;
+    }
+    void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
   async function remove() {
@@ -192,12 +211,47 @@ export function WorldOverview() {
           </Link>
         </div>
         <div className="tile">
-          <b>Settings</b>Slack tells you when a gate opens or a run ends.{" "}
+          <b>Cast</b>Richard plans, the workers claim tasks, Erlich judges; see their records.{" "}
+          <Link to="/worlds/$worldId/cast" params={{ worldId }}>
+            Meet the cast
+          </Link>
+        </div>
+        <div className="tile">
+          <b>Settings</b>Monthly budget, runs at once, file retention, workers, Slack.{" "}
           <Link to="/worlds/$worldId/settings" params={{ worldId }}>
-            Set up Slack
+            Open settings
           </Link>
         </div>
       </section>
+      <form className="card goal" onSubmit={(e) => void startAdHoc(e)} aria-label="Start from a goal">
+        <h2>Start from a goal</h2>
+        <p className="faint">
+          No recipe needed. One swarm stage works your goal with every connector this world allows,
+          and what it learns feeds the graph like any run.
+        </p>
+        <label>
+          Goal
+          <textarea
+            required
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="Find five hooks for next week's short."
+          />
+        </label>
+        <label>
+          Done when (optional)
+          <input
+            value={doneWhen}
+            onChange={(e) => setDoneWhen(e.target.value)}
+            placeholder="The goal is met and the findings are written down."
+          />
+        </label>
+        <div className="row">
+          <button type="submit" className="primary" disabled={starting !== null}>
+            {starting === "ad-hoc" ? "Starting..." : "Start run"}
+          </button>
+        </div>
+      </form>
       <section aria-label="Workflows" className="workflows">
         <div className="row">
           <h2>Workflows</h2>

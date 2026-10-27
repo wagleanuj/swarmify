@@ -77,8 +77,9 @@ class RunStageView:
 class Run:
     id: str
     world_id: str
-    workflow_id: str
-    workflow_version: int
+    workflow_id: str | None
+    """None for an Ad Hoc Run: one started from a typed goal with no saved workflow."""
+    workflow_version: int | None
     name: str
     status: RunStatus
     created_at: str

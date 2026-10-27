@@ -2,15 +2,22 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
 
 type World = components["schemas"]["World"];
+type Spend = components["schemas"]["Spend"];
 
 export function Settings() {
   const { worldId } = settingsRoute.useParams();
   const path = { params: { path: { world_id: worldId } } };
   const [world, setWorld] = useState<World | null>(null);
+  const [spend, setSpend] = useState<Spend | null>(null);
+  const [form, setForm] = useState({ monthly: "", runCap: "2", retention: "90", agents: "4" });
+  const [savingWorld, setSavingWorld] = useState(false);
+  const [worldSaid, setWorldSaid] = useState<string | null>(null);
+  const [worldError, setWorldError] = useState<string | null>(null);
   const [current, setCurrent] = useState<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,7 +27,20 @@ export function Settings() {
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", path)
-      .then(({ data }) => setWorld(data ?? null))
+      .then(({ data }) => {
+        if (!data) return;
+        setWorld(data);
+        setForm({
+          monthly: data.monthly_budget_usd == null ? "" : String(data.monthly_budget_usd),
+          runCap: String(data.run_cap ?? 2),
+          retention: String(data.retention_days ?? 90),
+          agents: String(data.agent_count ?? 4),
+        });
+      })
+      .catch(() => undefined);
+    api
+      .GET("/api/worlds/{world_id}/spend", path)
+      .then(({ data }) => setSpend(data ?? null))
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/notifications", path)
@@ -55,6 +75,34 @@ export function Settings() {
     void store(draft, "Saved. Send a test message to check it reaches Slack.");
   }
 
+  async function saveWorld(e: FormEvent) {
+    e.preventDefault();
+    setSavingWorld(true);
+    setWorldError(null);
+    setWorldSaid(null);
+    const { data, error } = await api.PATCH("/api/worlds/{world_id}", {
+      ...path,
+      body: {
+        monthly_budget_usd: form.monthly.trim() === "" ? null : Number(form.monthly),
+        run_cap: Number(form.runCap),
+        retention_days: Number(form.retention),
+        agent_count: Number(form.agents),
+      },
+    });
+    setSavingWorld(false);
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      setWorldError(typeof detail === "string" ? `Not saved: ${detail}.` : "Not saved. Check the numbers and try again.");
+      return;
+    }
+    setWorld(data);
+    setSpend((s) => (s ? { ...s, monthly_budget_usd: data.monthly_budget_usd ?? null } : s));
+    setWorldSaid("Settings saved. They apply to the next run that starts.");
+  }
+
+  const field = (key: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+
   async function sendTest() {
     setBusy(true);
     setError(null);
@@ -82,9 +130,65 @@ export function Settings() {
             / settings
           </div>
           <h1>Settings</h1>
-          <p className="sub">How {name} reaches you when a run needs you.</p>
+          <p className="sub">What {name} may spend and run, how long it keeps files, and how it reaches you.</p>
         </div>
       </header>
+      {worldError && <p role="alert">{worldError}</p>}
+      {worldSaid && (
+        <p role="status" className="ok">
+          {worldSaid}
+        </p>
+      )}
+      <form className="card" onSubmit={saveWorld} aria-label="World">
+        <h2>World</h2>
+        <div className="settings-grid">
+          <div className="field">
+            <label>
+              Monthly budget, dollars
+              <input type="number" min="0.01" step="0.01" value={form.monthly} onChange={field("monthly")} placeholder="No ceiling" />
+            </label>
+            <span className="faint" data-testid="spent">
+              {spend
+                ? `Spent this month: ${money(spend.spent_usd)}, an estimate${spend.monthly_budget_usd !== null ? ` of ${money(spend.monthly_budget_usd)}` : ""}.`
+                : "Loading spend..."}
+            </span>
+            <span className="faint">
+              Each run's budget is cut to what is left of the month. Once it is spent, no run starts until next month.
+            </span>
+          </div>
+          <div className="field">
+            <label>
+              Runs at once
+              <input type="number" min="1" max="8" step="1" required value={form.runCap} onChange={field("runCap")} />
+            </label>
+            <span className="faint">Runs past the cap wait in the queue. Takes effect at once.</span>
+          </div>
+          <div className="field">
+            <label>
+              Keep videos and images for, days
+              <input type="number" min="0" max="3650" step="1" required value={form.retention} onChange={field("retention")} />
+            </label>
+            <span className="faint">0 keeps them forever. Notes and markdown always stay.</span>
+          </div>
+          <div className="field">
+            <label>
+              Workers per stage
+              <input type="number" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
+            </label>
+            <span className="faint">
+              Richard and Erlich always come along; this is how many workers the cast has. A stage starts one per ready task, up to this.
+            </span>
+          </div>
+        </div>
+        <div className="row">
+          <button type="submit" className="primary" disabled={savingWorld}>
+            Save settings
+          </button>
+          <Link to="/worlds/$worldId/cast" params={{ worldId }}>
+            Meet the cast
+          </Link>
+        </div>
+      </form>
       {error && <p role="alert">{error}</p>}
       {said && (
         <p role="status" className="ok">

@@ -61,8 +61,8 @@ from swarmify_memory import (
 from swarmify_notifications import MIGRATIONS as NOTIFICATIONS_MIGRATIONS
 from swarmify_notifications import Notifications
 from swarmify_notifications import SqliteStorage as ChannelStorage
-from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import (
+    DEFAULT_CAP,
     Connector,
     Notifier,
     OverBudget,
@@ -73,9 +73,10 @@ from swarmify_runs import (
     Runner,
     StageDef,
 )
+from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
-from swarmify_swarm import AgentRuntime, SdkRuntime, Stopped, Swarm
+from swarmify_swarm import AgentRuntime, CastEntry, SdkRuntime, Stopped, Swarm
 from swarmify_swarm import SqliteStorage as TaskStorage
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows
@@ -307,6 +308,9 @@ def create_app(
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
         folder = world_svc.folder(run.world_id)
         notes = next(s.notes for s in run.stages if s.id == stage_id)
+        # The Cast as it stands when the stage starts: an edit reaches every later stage.
+        members = world_svc.cast(run.world_id) or []
+        cast = [CastEntry(m.name, m.role, m.prompt, m.tools) for m in members]  # type: ignore[arg-type]
         try:
             swarm.run_stage(
                 run.world_id,
@@ -318,6 +322,7 @@ def create_app(
                 notes,
                 run.send_backs,
                 baseline=run.baseline,
+                cast=cast,
             )
         except Stopped as exc:
             raise OverBudget(str(exc)) from exc
@@ -331,6 +336,10 @@ def create_app(
         source = (child.world_id, child.id, [s.id for s in child.stages])
         memory.copy_artifacts(source, names, run.world_id, run.id, stage_id, f"workflow:{stage}")
 
+    def setting(world_id: str, name: str) -> Any:
+        world = world_svc.get(world_id)
+        return getattr(world, name) if world else None
+
     workflow_svc = workflow_service(root, registry)
     runner = Runner(
         run_storage(root),
@@ -343,7 +352,13 @@ def create_app(
         take=take,
         previews=previews(registry),
         spend=spend,
+        monthly=lambda w: setting(w, "monthly_budget_usd"),
+        cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
     )
+
+    def swarm_tools(world_id: str) -> list[str]:
+        """The world's connectors a swarm stage may use: an Ad Hoc Run's tools."""
+        return [c.name for c in registry.list_all(world_id) if "swarm" in c.stage_types]
 
     async def sweep() -> None:
         while True:
@@ -388,9 +403,9 @@ def create_app(
         whiteboard.delete_world(world_id)
         channels.delete_world(world_id)
 
-    app.include_router(worlds.router(world_svc, on_delete))
+    app.include_router(worlds.router(world_svc, on_delete, lambda w: runner.set_cap(w.id)))
     app.include_router(workflows.router(workflow_svc, world_svc))
-    app.include_router(runs.router(runner, workflow_svc, world_svc))
+    app.include_router(runs.router(runner, workflow_svc, world_svc, swarm_tools))
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))

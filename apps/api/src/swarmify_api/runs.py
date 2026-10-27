@@ -1,17 +1,24 @@
-"""HTTP face of the Runs context: start a run of a workflow version, fork a run or promote a
-Library artifact into one, list runs, read one, act on one (decide at its gate, pause, resume,
-abort, set its Budget), read the baseline it is measured against and list every open gate."""
+"""HTTP face of the Runs context: start a run of a workflow version or an Ad Hoc Run from a
+typed goal, fork a run or promote a Library artifact into one, list runs, read one, act on one
+(decide at its gate, pause, resume, abort, set its Budget), read the baseline it is measured
+against, the world's spend this month, and list every open gate."""
 
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from swarmify_runs import Gate, Illegal, Pinned, Run, Runner, StageDef
 from swarmify_workflows import Stage, Workflows
 from swarmify_worlds import Worlds
+
+DONE_WHEN = "The goal is met and what was found is written down as notes and artifacts."
+"""An Ad Hoc Run's done condition when none is typed."""
+ToolsFor = Callable[[str], list[str]]
+"""(world id) to the names of the world's connectors a swarm stage may use."""
 
 
 class StartRun(BaseModel):
@@ -21,6 +28,24 @@ class StartRun(BaseModel):
     """The run's Budget, overriding the workflow's `budget_usd`. No budget: no ceiling."""
     baseline: bool = False
     """Baseline mode: every swarm stage runs one agent with no graph, to measure the swarm."""
+
+
+class AdHoc(BaseModel):
+    """An Ad Hoc Run: one swarm stage on a typed goal, using every connector of the world that
+    swarm stages may use, with no saved workflow."""
+
+    goal: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+    done_when: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] = ""
+    budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    baseline: bool = False
+
+
+class Spend(BaseModel):
+    """What the world's runs spent this calendar month against its Monthly Budget."""
+
+    month: str
+    spent_usd: float
+    monthly_budget_usd: float | None
 
 
 class SetBudget(BaseModel):
@@ -88,7 +113,8 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
 
 
 def act(action: Callable[[], Run]) -> Run:
-    """The control layer's refusals as HTTP: unknown run 404, wrong moment 409, bad input 422."""
+    """The control layer's refusals as HTTP: unknown run 404, wrong moment 409 (a spent Monthly
+    Budget too), bad input 422."""
     try:
         return action()
     except KeyError as exc:
@@ -99,25 +125,76 @@ def act(action: Callable[[], Run]) -> Run:
         raise HTTPException(422, str(exc)) from exc
 
 
-def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
+def router(
+    runner: Runner,
+    workflows: Workflows,
+    worlds: Worlds,
+    tools_for: ToolsFor = lambda _world_id: [],
+) -> APIRouter:
+    """`tools_for` names the world's connectors an Ad Hoc Run's stage gets as its tools."""
     api = APIRouter(prefix="/api", tags=["runs"])
     pin = pinner(workflows)
 
-    @api.post("/workflows/{workflow_id}/runs", status_code=201)
+    @api.post("/workflows/{workflow_id}/runs", status_code=201, responses={404: {}, 409: {}})
     def start_run(workflow_id: str, body: StartRun) -> Run:
+        """409 when the world's Monthly Budget is spent."""
         try:
             p = pin(workflow_id, body.version)
         except KeyError as exc:
             what = "version" if workflows.get(workflow_id) else "workflow"
             raise HTTPException(404, f"{what} not found") from exc
-        return runner.start(
-            p.world_id,
-            p.workflow_id,
-            p.version,
-            p.name,
-            p.stages,
-            budget_usd=body.budget_usd or p.budget_usd,
-            baseline=body.baseline,
+        return act(
+            lambda: runner.start(
+                p.world_id,
+                p.workflow_id,
+                p.version,
+                p.name,
+                p.stages,
+                budget_usd=body.budget_usd or p.budget_usd,
+                baseline=body.baseline,
+            )
+        )
+
+    @api.post("/worlds/{world_id}/runs", status_code=201, responses={404: {}, 409: {}})
+    def start_ad_hoc(world_id: str, body: AdHoc) -> Run:
+        """Start an Ad Hoc Run from a typed goal: one swarm stage with the world's swarm
+        connectors as its tools, no workflow pinned. Its notes feed the world's graph like any
+        run's. 409 when the world's Monthly Budget is spent."""
+        if worlds.get(world_id) is None:
+            raise HTTPException(404, "world not found")
+        stage = StageDef(
+            "goal",
+            "swarm",
+            {
+                "goal": body.goal,
+                "done_when": body.done_when or DONE_WHEN,
+                "tools": tools_for(world_id),
+            },
+        )
+        name = body.goal.splitlines()[0][:80]
+        return act(
+            lambda: runner.start(
+                world_id,
+                None,
+                None,
+                name,
+                [stage],
+                budget_usd=body.budget_usd,
+                baseline=body.baseline,
+            )
+        )
+
+    @api.get("/worlds/{world_id}/spend")
+    def get_spend(world_id: str) -> Spend:
+        """The world's estimated spend this month, what its Monthly Budget is measured against."""
+        world = worlds.get(world_id)
+        if world is None:
+            raise HTTPException(404, "world not found")
+        month = datetime.now(UTC).strftime("%Y-%m")
+        return Spend(
+            month=month,
+            spent_usd=runner.storage.spent_in_month(world_id, month),
+            monthly_budget_usd=world.monthly_budget_usd,
         )
 
     @api.post("/runs/{run_id}/fork", status_code=201, responses=ACTION_ERRORS)

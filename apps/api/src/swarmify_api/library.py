@@ -63,7 +63,7 @@ def item(artifact: ArtifactFile, run: Run | None) -> LibraryItem:
         artifact.fields,
         artifact.run_id,
         run.name if run else "",
-        run.workflow_id if run else "",
+        (run.workflow_id or "") if run else "",  # "" for an Ad Hoc Run too
         run.workflow_version if run else None,
         stage.index if stage else None,
         stage.name if stage else "",

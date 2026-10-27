@@ -70,3 +70,42 @@ test("shows why Slack refused the test and why a webhook was rejected", async ()
   );
   await expect.element(screen.getByTestId("slack-state")).toHaveTextContent(`Posting to ${shown}`);
 });
+
+test("the world card shows spend beside the budget and saves the four settings", async () => {
+  const bodies: unknown[] = [];
+  const world = { ...video, retention_days: 90, monthly_budget_usd: null, run_cap: 2, agent_count: 4 };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(world),
+    "GET /api/worlds/world_1/spend": () =>
+      Response.json({ month: "2026-10", spent_usd: 1.5, monthly_budget_usd: null }),
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+    "PATCH /api/worlds/world_1": async (req) => {
+      const body = (await req.json()) as Record<string, unknown>;
+      bodies.push(body);
+      return Response.json({ ...world, ...body });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate.");
+  await screen.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("25");
+  await screen.getByRole("spinbutton", { name: "Runs at once" }).fill("1");
+  await screen.getByRole("spinbutton", { name: "Keep videos and images for, days" }).fill("30");
+  await screen.getByRole("spinbutton", { name: "Workers per stage" }).fill("2");
+  await screen.getByRole("button", { name: "Save settings" }).click();
+  await expect.element(screen.getByRole("status")).toMatchTextContent(/Settings saved/);
+  expect(bodies).toEqual([{ monthly_budget_usd: 25, run_cap: 1, retention_days: 30, agent_count: 2 }]);
+  await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate of $25.00.");
+});
+
+test("a refused setting is shown as the API's reason", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+    "PATCH /api/worlds/world_1": () =>
+      Response.json({ detail: "the run cap is 1 to 8, got 9" }, { status: 422 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  await screen.getByRole("spinbutton", { name: "Runs at once" }).fill("8");
+  await screen.getByRole("button", { name: "Save settings" }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Not saved: the run cap is 1 to 8, got 9.");
+});
