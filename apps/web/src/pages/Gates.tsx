@@ -46,8 +46,9 @@ export function Gates() {
   async function answer(gate: Gate, send: () => Promise<string | null>) {
     setError(null);
     const refused = await send();
-    if (refused) {
-      setError(refused);
+    if (refused) setError(refused);
+    // A budget gate stays until the run resumes; it can still be aborted, so refetch.
+    if (refused || gate.kind === "budget") {
       load();
     } else {
       // Hide the answered card now; the run's next run.updated refetches the inbox. Refetching
