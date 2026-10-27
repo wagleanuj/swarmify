@@ -6,6 +6,8 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+import time
 from contextlib import closing
 from pathlib import Path
 
@@ -92,3 +94,32 @@ def test_a_queued_run_left_behind_is_enqueued_on_launch(
         wait_for(lambda: getattr(storage.get_run("run_left"), "status", None) == "done")
     finally:
         runner.shutdown()
+
+
+def test_a_run_reaching_its_gate_while_shutdown_runs_does_not_outlive_it(
+    tmp_path: Path, storage: SqliteStorage
+) -> None:
+    """Shutdown wakes the runs waiting when it starts. One that reaches its gate a moment later
+    must stop too, or its thread waits an hour and the process cannot exit."""
+    release = threading.Event()
+
+    def status() -> str | None:
+        return getattr(storage.get_run(run.id), "status", None)
+
+    class Late(Runner):
+        def close(self) -> None:  # shutdown has woken the waiting runs; now this one waits
+            release.set()
+            wait_for(lambda: status() == "waiting_gate")
+            time.sleep(0.2)
+            super().close()
+
+    def render(*_: object) -> None:
+        release.wait(10)
+
+    stages = [StageDef("render", "connector"), StageDef("pick", "gate")]
+    late = Late(storage, tmp_path / "dbos.sqlite", render, tmp_path)
+    late.launch()
+    run = late.start("world_1", "wf_1", 1, "Late", stages)
+    wait_for(lambda: status() == "running")
+    late.shutdown()
+    wait_for(lambda: not [t for t in threading.enumerate() if t.name.startswith("dbos-executor")])
