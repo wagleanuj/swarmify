@@ -16,6 +16,7 @@ def test_a_run_s_notes_rebuild_the_graph_live_and_the_page_can_query_it(
 ) -> None:
     api = httpx.Client(base_url=base_url)
     world = api.post("/api/worlds", json={"name": "Video"}).json()
+    other = api.post("/api/worlds", json={"name": "Market research"}).json()
     try:
         page.goto(f"{base_url}/worlds/{world['id']}/graph")
         expect(page.get_by_test_id("rebuilt")).to_have_text("Not built yet")
@@ -35,5 +36,11 @@ def test_a_run_s_notes_rebuild_the_graph_live_and_the_page_can_query_it(
         page.get_by_role("button", name="Ask", exact=True).click()
         expect(page.get_by_test_id("answer")).to_contain_text("Short hooks", timeout=20000)
         assert (data_dir / "worlds" / world["id"] / "graphify-out/graph.json").exists()
+
+        # Only a world's own runs feed its graph (story 2).
+        page.goto(f"{base_url}/worlds/{other['id']}/graph")
+        expect(page.get_by_test_id("rebuilt")).to_have_text("Not built yet")
+        assert not (data_dir / "worlds" / other["id"] / "graphify-out").exists()
     finally:
         api.delete(f"/api/worlds/{world['id']}")
+        api.delete(f"/api/worlds/{other['id']}")

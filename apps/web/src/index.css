@@ -284,6 +284,7 @@ main.editor-page { max-width: 80rem; }
 .skill-list li { display: grid; gap: 2px; padding: 10px 14px; }
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 16px 24px; margin: 4px 0 8px; }
 .field { display: grid; gap: 6px; align-content: start; }
+.scroll-x { overflow-x: auto; }
 .scores { width: 100%; border-collapse: collapse; font-size: 14px; }
 .scores th, .scores td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .scores th { font-size: 12px; font-weight: 500; color: var(--muted); }

@@ -361,3 +361,19 @@ def test_an_invalid_workflow_suggestion_is_refused_and_nothing_is_decided(
     kept = running.post(f"/api/proposals/{proposal['id']}/decide", json={"approve": True})
     assert kept.status_code == 200 and kept.json()["status"] == "approved"
     until(lambda: get(running, proposal["run_id"])["status"] == "done")
+
+
+def test_a_done_run_with_a_retro_saves_as_a_workflow_without_it(
+    running: TestClient, script: Script
+) -> None:
+    script.scripts = [QUIET]
+    _, workflow = setup(running, "name: Check\nstages:\n  - gate: ok\n    ask: Fine?\n")
+    run = running.post(f"/api/workflows/{workflow}/runs", json={}).json()
+    assert [s["type"] for s in run["stages"]] == ["gate", "retro"]
+    at_gate(running, run["id"], "ok")
+    assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
+    until(lambda: get(running, run["id"])["status"] == "done")
+    saved = running.post(f"/api/runs/{run['id']}/workflow", json={})
+    assert saved.status_code == 201, saved.text
+    assert "retro" not in saved.json()["yaml"]
+    assert [s["type"] for s in saved.json()["model"]["stages"]] == ["gate"]

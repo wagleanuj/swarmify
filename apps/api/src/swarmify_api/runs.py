@@ -261,7 +261,9 @@ def router(
             raise HTTPException(404, "run not found")
         if run.status != "done":
             raise HTTPException(409, f"the run is {run.status}; only a done run becomes a workflow")
+        # The Retro is added to every run, never written in a workflow (with_retro).
         defs = [runner.storage.stage_def(run.id, s.index)[1] for s in run.stages]
+        defs = [d for d in defs if d.type != RETRO.type]
         yaml = dump_workflow(
             (body.name or run.name).strip() or run.name,
             [(d.type, d.name, d.config) for d in defs],
