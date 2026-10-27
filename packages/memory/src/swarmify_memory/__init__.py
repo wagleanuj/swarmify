@@ -172,25 +172,27 @@ class Memory:
 
     def copy_artifacts(
         self,
-        source: tuple[str, str],
+        source: tuple[str, str, list[str]],
         names: list[str],
         world_id: str,
         run_id: str,
         stage_id: str,
         author: str,
     ) -> list[str]:
-        """Copy the named artifacts of run `source` (world id, run id) into a stage, sidecars
-        included: how a workflow stage takes its child run's artifacts. Each file keeps its
-        frontmatter, which names the run that made it. When several stages of the source made
-        one name, the latest wins. Raises ValueError, copying nothing, when a name is missing.
+        """Copy the named artifacts of run `source` (world id, run id, stage ids in run order)
+        into a stage, sidecars included: how a workflow stage takes its child run's artifacts.
+        Each file keeps its frontmatter, which names the run that made it. When several stages
+        of the source made one name, the latest stage wins. Raises ValueError, copying nothing,
+        when a name is missing.
         """
         run = self.world_folder(source[0]) / "runs" / source[1]
         found: dict[str, Path] = {}
         for name in names:
-            matches = list(run.glob(f"*/artifacts/{name}")) if _NAME.match(name) else []
-            if not matches:
+            matches = [run / s / "artifacts" / name for s in reversed(source[2])]
+            path = next((p for p in matches if p.is_file()), None) if _NAME.match(name) else None
+            if path is None:
                 raise ValueError(f"the child run made no artifact named {name}")
-            found[name] = max(matches, key=lambda p: p.stat().st_mtime)
+            found[name] = path
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         out = []

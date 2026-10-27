@@ -242,10 +242,15 @@ class SqliteStorage:
 
     def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
         with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "UPDATE run_stages SET child_run_id = ? WHERE run_id = ? AND idx = ?",
                 (child_run_id, run_id, index),
             )
+            saved = self._read(conn, run_id)
+            if saved is not None:
+                append(conn, _updated(saved))
+            conn.execute("COMMIT")
 
     def remove_decision(self, decision_id: str) -> None:
         with self._conn() as conn:
