@@ -1,0 +1,203 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+import type { components } from "../api/schema";
+import { FakeEventSource, fakeFetch } from "../test/fakes";
+import { mountAt } from "../test/mount";
+
+type Item = components["schemas"]["LibraryItem"];
+
+const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
+const short = { id: "wf_1", world_id: "world_1", name: "Short", current_version: 2, created_at: video.created_at };
+const long = { id: "wf_2", world_id: "world_1", name: "Long form", current_version: 1, created_at: video.created_at };
+const version = {
+  id: "v_2",
+  workflow_id: "wf_1",
+  number: 2,
+  yaml: "",
+  created_at: video.created_at,
+  model: {
+    name: "Short",
+    stages: [
+      { name: "research", type: "swarm", goal: "", done_when: "" },
+      { name: "pick", type: "gate", ask: "" },
+      { name: "render", type: "connector", calls: "remotion_render" },
+    ],
+  },
+};
+
+function item(name: string, over: Partial<Item> = {}): Item {
+  return {
+    path: `runs/run_1/stage_0/artifacts/${name}`,
+    name,
+    type: "file",
+    title: name,
+    author: "worker-1",
+    created: "2026-10-26T10:00:00+00:00",
+    pinned: false,
+    body: "",
+    fields: {},
+    run_id: "run_1",
+    run_name: "Short",
+    workflow_id: "wf_1",
+    workflow_version: 2,
+    stage_index: 0,
+    stage_name: "research",
+    ...over,
+  };
+}
+
+const hook = item("idea-hook-first.md", { type: "idea", title: "Hook first" });
+const ideas = item("ideas.md");
+const decision = item("decision.md", {
+  path: "runs/run_1/02-pick/decision.md",
+  type: "decision",
+  stage_index: 1,
+  stage_name: "pick",
+  created: "2026-10-27T09:00:00+00:00",
+});
+const brief = item("brief.md", {
+  path: "runs/run_2/stage_7/artifacts/brief.md",
+  run_id: "run_2",
+  run_name: "Long form",
+  workflow_id: "wf_2",
+  workflow_version: 1,
+  stage_name: "brief",
+  created: "2026-10-20T09:00:00+00:00",
+});
+
+beforeEach(() => FakeEventSource.install());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+test("lists every artifact with where it came from and filters by type, workflow, stage, run and date", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short, long]),
+    "GET /api/worlds/world_1/library": () => Response.json([decision, hook, ideas, brief]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Library");
+  await expect.element(screen.getByTestId("count")).toHaveTextContent("4 of 4");
+  expect(screen.getByTestId("artifact").elements()).toHaveLength(4);
+  const card = screen.getByTestId("artifact").first();
+  await expect.element(card).toMatchTextContent(/decision\s*decision\.md\s*from Short · stage 2 pick · v2/);
+  await expect.element(card.getByRole("link", { name: "Short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+
+  const filters = screen.getByRole("form", { name: "Filters" });
+  await filters.getByLabelText(/^Type/).selectOptions("idea");
+  await expect.element(screen.getByTestId("count")).toHaveTextContent("1 of 4");
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^idea\s*Hook first/);
+  await filters.getByRole("button", { name: "Clear filters" }).click();
+  await expect.element(screen.getByTestId("count")).toHaveTextContent("4 of 4");
+
+  await filters.getByLabelText(/^Workflow/).selectOptions("Long form");
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
+  await filters.getByRole("button", { name: "Clear filters" }).click();
+
+  await filters.getByLabelText(/^Stage/).selectOptions("pick");
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^decision/);
+  await filters.getByRole("button", { name: "Clear filters" }).click();
+
+  await filters.getByLabelText(/^Run/).selectOptions("Long form run_2");
+  await expect.element(screen.getByTestId("count")).toHaveTextContent("1 of 4");
+  await filters.getByRole("button", { name: "Clear filters" }).click();
+
+  await filters.getByLabelText(/^From/).fill("2026-10-26");
+  await filters.getByLabelText(/^To/).fill("2026-10-26");
+  await expect.element(screen.getByTestId("count")).toHaveTextContent("2 of 4");
+  await filters.getByLabelText(/^To/).fill("2026-10-25");
+  await expect.element(screen.getByText("No artifact matches these filters.")).toBeVisible();
+});
+
+test("pinning flips the flag through the API and shows on the card", async () => {
+  const pins: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short]),
+    "GET /api/worlds/world_1/library": () => Response.json([hook]),
+    "POST /api/worlds/world_1/pins": async (req) => {
+      const body = (await req.json()) as { path: string; pinned: boolean };
+      pins.push(body);
+      return Response.json({ ...hook, pinned: body.pinned });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await screen.getByRole("button", { name: "Pin Hook first" }).click();
+  await expect.element(screen.getByTestId("artifact")).toHaveAttribute("data-pinned", "true");
+  await expect.element(screen.getByTestId("artifact")).toMatchTextContent(/pinned/);
+  await screen.getByRole("button", { name: "Unpin Hook first" }).click();
+  await expect.element(screen.getByTestId("artifact")).toHaveAttribute("data-pinned", "false");
+  expect(pins).toEqual([
+    { path: hook.path, pinned: true },
+    { path: hook.path, pinned: false },
+  ]);
+});
+
+test("promote starts the workflow at the chosen stage with the artifact and opens the run", async () => {
+  let promoted: unknown = null;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short, long]),
+    "GET /api/worlds/world_1/library": () => Response.json([ideas]),
+    "GET /api/workflows/wf_1/versions/2": () => Response.json(version),
+    "POST /api/workflows/wf_1/promote": async (req) => {
+      promoted = await req.json();
+      return Response.json({ id: "run_9" }, { status: 201 });
+    },
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/library");
+  await screen.getByRole("button", { name: "Promote ideas.md" }).click();
+  const form = screen.getByRole("form", { name: "Promote ideas.md" });
+  await expect.element(form.getByLabelText(/^Workflow/)).toHaveValue("wf_1");
+  await expect.element(form).toMatchTextContent(/ideas\.md stands in for the skipped stages' output/);
+  await form.getByLabelText(/^Start at/).selectOptions("2. render");
+  await form.getByRole("button", { name: "Start run" }).click();
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_9"));
+  expect(promoted).toEqual({ artifact: ideas.path, stage: 2 });
+});
+
+test("a refused promote shows the API's reason", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short]),
+    "GET /api/worlds/world_1/library": () => Response.json([ideas]),
+    "GET /api/workflows/wf_1/versions/2": () => Response.json(version),
+    "POST /api/workflows/wf_1/promote": () => Response.json({ detail: "artifact not found" }, { status: 404 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await screen.getByRole("button", { name: "Promote ideas.md" }).click();
+  await screen.getByRole("button", { name: "Start run" }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("artifact not found");
+});
+
+test("with nothing made yet it says what lands here and reloads when an artifact is created", async () => {
+  let listed: Item[] = [];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/library": () => Response.json(listed),
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await expect.element(screen.getByTestId("no-artifacts")).toMatchTextContent(/Nothing yet/);
+  await expect.element(screen.getByRole("link", { name: "See runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+  listed = [hook];
+  FakeEventSource.emit("artifact.created", { payload: { type: "idea", path: hook.path, author: "judge", stage_id: "stage_0" } });
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/Hook first/);
+});
+
+test("a load failure is an alert and the overview links here", async () => {
+  fakeFetch({ "GET /api/worlds/world_1/library": () => new Response("boom", { status: 500 }) });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load the library/);
+
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+  });
+  const overview = await mountAt("/worlds/world_1");
+  await expect
+    .element(overview.screen.getByRole("link", { name: "Open the library" }))
+    .toHaveAttribute("href", "/worlds/world_1/library");
+});

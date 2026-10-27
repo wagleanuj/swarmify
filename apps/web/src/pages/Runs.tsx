@@ -74,6 +74,7 @@ export function Runs() {
               </Link>
               <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
               {r.parent && <ChildOf parent={r.parent} />}
+              {r.forked_from && <RunRef label="fork of" run={r.forked_from} testId="fork-of" />}
               <span className="faint">{progress(r)}</span>
               <span className="faint">v{r.workflow_version}</span>
               <time className="faint" dateTime={r.created_at}>
@@ -89,11 +90,16 @@ export function Runs() {
 
 /** "child of <parent>", linking to the parent run, which may live in another world. */
 export function ChildOf({ parent }: { parent: RunLink }) {
+  return <RunRef label="child of" run={parent} testId="child-of" />;
+}
+
+/** "<label> <run>", linking to a related run. */
+export function RunRef({ label, run, testId }: { label: string; run: RunLink; testId?: string }) {
   return (
-    <span className="faint" data-testid="child-of">
-      child of{" "}
-      <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: parent.world_id, runId: parent.id }}>
-        {parent.name}
+    <span className="faint" data-testid={testId}>
+      {label}{" "}
+      <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: run.world_id, runId: run.id }}>
+        {run.name}
       </Link>
     </span>
   );

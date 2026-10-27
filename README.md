@@ -389,14 +389,42 @@ message carries a deep link: gates to `/gates`, everything else to the run timel
 - To get a webhook: create a Slack app at api.slack.com/apps, turn on Incoming Webhooks, add one
   to your channel and paste its URL into the settings page.
 
+## Library, pins, forks and promotes
+
+The Library is every artifact of a world across its runs, read from the files (ADR 0001): the
+typed artifacts the judge projected, the files workers and connectors left, every verdict and
+every gate decision. `GET /api/worlds/<id>/library` lists them newest first, each with its type,
+title, frontmatter fields, run, workflow version and stage; the page is `/worlds/<id>/library`,
+filterable by type, workflow, stage, run and date, and it reloads on `artifact.created`.
+
+- **Pin.** `POST /api/worlds/<id>/pins` (`{"path": "<path in the world folder>", "pinned": true}`)
+  marks an artifact as required reading; `pinned: false` clears it. The flag is `pinned: true` in
+  the markdown's frontmatter (a binary's in its sidecar), so it survives any database, and every
+  change appends `artifact.pinned`. The planner and the worker of every later swarm stage of the
+  world get the pinned paths in their prompts under "Pinned references, required reading"; the
+  judge does not, it judges the stage's own notes.
+- **Fork.** `POST /api/runs/<id>/fork` (`{"stage": n}`) starts a new run of the same workflow
+  version that copies the source up to stage `n` and runs on from there: the earlier stages'
+  rows keep their status and times, their folders (notes, artifacts, decisions) are copied under
+  the fork's own stage ids, and the fork never runs them again. Every stage before `n` must have
+  finished (409 otherwise). The fork carries `forked_from` and `fork_stage_index`; the source
+  lists it under `forks`. The run timeline offers "Fork from here" on every finished stage, so a
+  pick gate can be answered differently without redoing the research.
+- **Promote.** `POST /api/workflows/<id>/promote` (`{"artifact": "<path>", "stage": n, "version":
+  optional}`) starts a run at stage `n` with a Library artifact as its input: stages before `n`
+  are inserted `skipped`, the file (with its sidecar, frontmatter kept as provenance) lands in the
+  last skipped stage's `artifacts/` folder where later stages' `input` finds it, and the run
+  carries `promoted_from`. `n` must skip at least one stage and start before the last (422). The
+  Library's "Promote..." picks the workflow and the stage.
+
 ## Layout
 
 - `packages/kernel` shared kernel: ids, the event envelope and its append-only log, SQLite
   access and the migration runner. The only package other packages may import.
 - Migrations are numbered SQL files, `NNNN_name.sql`, applied in order and recorded in
   `PRAGMA user_version`. Numbers are global: each package ships its own `migrations/` folder
-  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008
-  and 0010, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
+  (kernel 0001, worlds 0002, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007, runs 0008,
+  0010 and 0013, swarm 0009, notifications 0016, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/swarm` also declares AgentRuntime, with the

@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
@@ -7,7 +7,7 @@ import { actOn, type Call, decisionLine, type Run, statusLine } from "../api/run
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { AgentLog, usd } from "./AgentLog";
-import { ChildOf } from "./Runs";
+import { ChildOf, RunRef } from "./Runs";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
@@ -23,6 +23,7 @@ function defaultSwarm(run: Run) {
 
 export function RunTimeline() {
   const { worldId, runId } = runRoute.useParams();
+  const router = useRouter();
   const [run, setRun] = useState<Run | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<Record<string, Call | null>>({});
@@ -146,6 +147,21 @@ export function RunTimeline() {
     if (refused) setError(refused);
   }
 
+  /** A Fork: a new run that keeps every stage before `index` and runs this one anew. */
+  async function fork(index: number) {
+    if (!run) return;
+    setError(null);
+    const { data, error, response } = await api.POST("/api/runs/{run_id}/fork", {
+      params: { path: { run_id: run.id } },
+      body: { stage: index },
+    });
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      return setError(typeof detail === "string" ? detail : `Could not fork the run (${response.status}).`);
+    }
+    void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
+  }
+
   const crumb = (
     <div className="crumb">
       <Link to="/">worlds</Link> /{" "}
@@ -175,6 +191,10 @@ export function RunTimeline() {
   const ended = ["done", "failed", "aborted"].includes(run.status);
   const decisionAt = (index: number) =>
     (run.decisions ?? []).filter((d) => d.stage_index === index).at(-1);
+  // A stage can be forked from once it and every stage before it have finished.
+  const forkable = (index: number) =>
+    run.stages.slice(0, index + 1).every((s) => s.status === "done" || s.status === "skipped") &&
+    run.stages[index]?.status === "done";
   return (
     <main>
       <header className="page">
@@ -187,6 +207,34 @@ export function RunTimeline() {
             <p className="sub">
               <ChildOf parent={run.parent} />. It spends that run's budget, and aborting that run
               aborts this one.
+            </p>
+          )}
+          {run.forked_from && (
+            <p className="sub lineage" data-testid="forked-from">
+              <RunRef label="Forked from" run={run.forked_from} />
+              {run.fork_stage_index != null && ` at stage ${run.fork_stage_index + 1}. The earlier stages were copied, not run again.`}
+            </p>
+          )}
+          {run.promoted_from && (
+            <p className="sub lineage" data-testid="promoted-from">
+              Promoted from <code>{run.promoted_from.split("/").pop()}</code> in the{" "}
+              <Link to="/worlds/$worldId/library" params={{ worldId }}>
+                library
+              </Link>
+              ; the skipped stages never ran.
+            </p>
+          )}
+          {(run.forks ?? []).length > 0 && (
+            <p className="sub lineage" data-testid="forks">
+              Forks:{" "}
+              {(run.forks ?? []).map((f, n) => (
+                <span key={f.id}>
+                  {n > 0 && ", "}
+                  <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: f.world_id, runId: f.id }}>
+                    {f.name}
+                  </Link>
+                </span>
+              ))}
             </p>
           )}
           <p className="sub" role="status" data-testid="status-line">
@@ -267,6 +315,17 @@ export function RunTimeline() {
                   onClick={() => setPicked(s.id)}
                 >
                   whiteboard
+                </button>
+              )}
+              {forkable(s.index) && (
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Fork the run from ${s.name}`}
+                  title="A new run that keeps everything before this stage and runs this one again"
+                  onClick={() => fork(s.index)}
+                >
+                  Fork from here
                 </button>
               )}
               {s.type === "connector" && (

@@ -28,6 +28,10 @@ const idea = (title: string, rank: number, sources: string[] = []): ArtifactFile
   title,
   fields: { type: "idea", title, rank, sources, hook: `${title} hook`, why: `${title} why` },
   body: `# ${title}`,
+  run_id: "run_1",
+  stage: "stage_0",
+  created: ts,
+  pinned: false,
 });
 
 beforeEach(() => FakeEventSource.install());
