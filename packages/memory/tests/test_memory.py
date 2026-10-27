@@ -183,7 +183,7 @@ def test_a_pin_lives_in_the_frontmatter_and_the_pinned_list_follows_it(memory: M
     text = (memory.world_folder("w1") / brief).read_text()
     assert "\npinned: true\n---\n\nBrief" in text and text.startswith('---\ntype: "file"')
     sidecar = memory.pin("w1", csv)  # a binary: its sidecar carries the flag
-    assert sidecar.path == f"{csv}.md" and sidecar.name == "ranks.csv"
+    assert sidecar.path == f"{csv}.md" and sidecar.name == sidecar.title == "ranks.csv"
     assert "pinned: true" in (memory.world_folder("w1") / f"{csv}.md").read_text()
     assert sorted(memory.pinned("w1")) == [brief, f"{csv}.md"]
     assert all(a.pinned for a in memory.stage_artifacts("w1", "r1", "s1"))

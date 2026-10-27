@@ -3,14 +3,20 @@ with real DBOS on SQLite behind the app, a fake connector and a fake notifier.""
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 from api_fakes import FakeNotifier, until
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from sse import sse_events
 from swarmify_api.main import create_app
+from swarmify_swarm import tool_id
+from swarmify_swarm.fake import LAST, Answer, Call, Script
+
+GRAPH = Call(tool_id("query_graph"), {"question": "What did we reject before?"})
 
 WEEKLY = """name: Weekly short
 stages:
@@ -197,3 +203,88 @@ def test_gate_and_end_events_stream_to_the_world(live_url: str) -> None:
                 assert data["payload"]["status"] == "done"
                 break
     assert seen == ["gate.opened", "run.ended"]
+
+
+IDEAS_THEN_PICK = """name: Weekly short
+stages:
+  - swarm: research
+    goal: Find ideas.
+    done_when: 2 ideas ranked
+    tools: [web_search]
+    output_type: list[idea]
+  - gate: pick
+    ask: Pick one idea.
+    kind: pick
+  - gate: review
+    ask: Read it. Approve or send back.
+    kind: approve
+"""
+
+
+def test_a_pick_gate_lists_the_earlier_stages_artifacts_and_records_the_chosen_one(
+    app: FastAPI, script: Script, tmp_path: Path
+) -> None:
+    """Stories 53 and 54: the judge's idea cards reach the gate, typed; the pick names one by
+    its artifact path and the decision file records it; the file itself is served for the
+    skin's in-place view."""
+    note = Call(tool_id("write_note"), {"title": "Trends", "body": "Hooks win."})
+
+    def passing(options: Any) -> dict:
+        folder = Path(options.cwd)
+        cite = {"note": f"runs/{folder.parent.name}/{folder.name}/notes/trends.md", "paragraph": 1}
+        ideas = [
+            {"title": "Chase", "body": "A chase.", "rank": 2, "sources": []},
+            {
+                "title": "Hooks",
+                "body": "Open on the hook.",
+                "rank": 1,
+                "sources": [cite],
+                "fields": {"hook": "Wait for it", "why": "Hooks win."},
+            },
+        ]
+        return {"passed": True, "reasons": ["Two ideas."], "items": ideas}
+
+    plan = Answer({"tasks": [{"title": "Find ideas."}]})
+    claim = Call(tool_id("claim_task"))
+    finish = Call(tool_id("finish_task"), {"task_id": LAST, "note": "Done."})
+    script.scripts = [[plan], [GRAPH, claim, note, finish], [Answer(passing)]]
+    with TestClient(app) as running:
+        world, run = start(running, IDEAS_THEN_PICK)
+        waiting_at(running, run["id"], "pick")
+        research = run["stages"][0]["id"]
+
+        before_gate = running.get(f"/api/runs/{run['id']}/artifacts", params={"before": 1})
+        assert before_gate.status_code == 200
+        ideas = [a for a in before_gate.json() if a["type"] == "idea"]
+        assert [(a["title"], a["fields"]["rank"], a["stage"]) for a in ideas] == [
+            ("Chase", 2, research),
+            ("Hooks", 1, research),
+        ]
+        hooks = next(a for a in ideas if a["title"] == "Hooks")
+        assert hooks["path"] == f"runs/{run['id']}/{research}/artifacts/idea-hooks.md"
+        assert hooks["fields"]["hook"] == "Wait for it" and hooks["fields"]["why"] == "Hooks win."
+        assert running.get(f"/api/runs/{run['id']}/artifacts", params={"before": 0}).json() == []
+        assert running.get("/api/runs/run_nope/artifacts").status_code == 404
+
+        raw = running.get(f"/api/worlds/{world}/files/{hooks['path']}")
+        assert raw.status_code == 200 and raw.text.startswith('---\ntype: "idea"')
+        assert running.get(f"/api/worlds/{world}/files/runs/../../swarmify.db").status_code == 404
+        assert running.get(f"/api/worlds/{world}/files/runs/{run['id']}").status_code == 404
+        assert running.get(f"/api/worlds/world_nope/files/{hooks['path']}").status_code == 404
+
+        url = f"/api/runs/{run['id']}/decision"
+        wrong = running.post(url, json={"artifact": "runs/other/x/artifacts/idea.md"})
+        assert wrong.status_code == 422 and "before this gate" in wrong.json()["detail"]
+        picked = running.post(url, json={"artifact": hooks["path"], "note": "Less text."})
+        assert picked.status_code == 200
+        (decision,) = picked.json()["decisions"]
+        assert (decision["choice"], decision["artifact"]) == ("Hooks", hooks["path"])
+        text = Path(decision["path"]).read_text()
+        assert f'artifact: "{hooks["path"]}"' in text and "Picked Hooks." in text
+
+        waiting_at(running, run["id"], "review")
+        under_review = running.get(f"/api/runs/{run['id']}/artifacts", params={"before": 2}).json()
+        assert {a["type"] for a in under_review} == {"idea", "verdict", "decision"}
+        own = running.post(url, json={"artifact": hooks["path"]})
+        assert own.status_code == 200, "an approve gate may name the artifact it approved"
+        assert own.json()["decisions"][-1]["artifact"] == hooks["path"]

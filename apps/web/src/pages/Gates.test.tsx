@@ -224,3 +224,85 @@ test("rejecting a skill proposal asks for the reason and records it", async () =
   );
   await expect.element(screen.getByRole("alert")).toHaveTextContent("the proposal was already approved");
 });
+
+const idea = (name: string, title: string, fields: Record<string, unknown>) => ({
+  name: `idea-${name}.md`,
+  path: `runs/run_1/stage_0/artifacts/idea-${name}.md`,
+  type: "idea",
+  author: "judge",
+  title,
+  fields,
+  body: `# ${title}\n\nOpen on it.`,
+  run_id: "run_1",
+  stage: "stage_0",
+  created: ts,
+  pinned: false,
+});
+const short = {
+  name: "short.mp4",
+  path: "runs/run_2/stage_2/artifacts/short.mp4.md",
+  type: "video",
+  author: "connector",
+  title: "short.mp4",
+  fields: { file: "short.mp4" },
+  body: "# short.mp4\n",
+  run_id: "run_2",
+  stage: "stage_2",
+  created: ts,
+  pinned: false,
+};
+
+test("a pick gate offers the earlier stage's cards and an approve gate plays the piece in place", async () => {
+  const bodies: Record<string, unknown> = {};
+  const queries: string[] = [];
+  const decision = (id: string) => async (req: Request) => {
+    bodies[id] = await req.json();
+    return Response.json(run("running", [], { id }));
+  };
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([inbox[1]!, inbox[2]!]),
+    "GET /api/runs/run_1/artifacts": (req) => {
+      queries.push(new URL(req.url).search);
+      return Response.json([
+        idea("chase", "The chase", { rank: 2, sources: [] }),
+        idea("hooks", "Hook first", { rank: 1, hook: "Wait for it", why: "Hooks win." }),
+        { ...idea("v", "Verdict 1: pass", {}), type: "verdict" },
+      ]);
+    },
+    "GET /api/runs/run_2/artifacts": () =>
+      Response.json([idea("hooks", "Hook first", { rank: 1 }), { ...idea("d", "Decision at pick", {}), type: "decision" }, short]),
+    "POST /api/runs/run_1/decision": decision("run_1"),
+    "POST /api/runs/run_2/decision": decision("run_2"),
+  });
+  const { screen } = await mountAt("/gates");
+
+  const pick = screen.getByTestId("gate-run_1");
+  const cards = pick.getByTestId("pick-card");
+  await expect.element(cards.first()).toMatchTextContent(/Erlich's #1 of 2.*Hook first.*Wait for it.*Why: Hooks win\./);
+  await expect.element(cards.nth(1)).toMatchTextContent(/#2 of 2.*The chase/);
+  await expect.element(pick.getByLabelText("Your pick")).not.toBeInTheDocument();
+  expect(queries).toEqual(["?before=1"]);
+  await pick.getByRole("radio", { name: /Hook first/ }).click();
+  await pick.getByLabelText("Note (optional)").fill("Less text on screen.");
+  await pick.getByRole("button", { name: "Continue with this pick" }).click();
+  await vi.waitFor(() =>
+    expect(bodies.run_1).toEqual({
+      choice: "Hook first",
+      artifact: "runs/run_1/stage_0/artifacts/idea-hooks.md",
+      note: "Less text on screen.",
+    }),
+  );
+
+  const approve = screen.getByTestId("gate-run_2");
+  const review = approve.getByRole("region", { name: "Under review" });
+  await expect.element(review.getByTestId("player")).toHaveAttribute(
+    "src",
+    "/api/worlds/world_1/files/runs/run_2/stage_2/artifacts/short.mp4",
+  );
+  await expect.element(review).not.toMatchTextContent(/Hook first/);
+  await approve.getByRole("button", { name: "Approve" }).click();
+  await vi.waitFor(() =>
+    expect(bodies.run_2).toEqual({ note: "", artifact: "runs/run_2/stage_2/artifacts/short.mp4.md" }),
+  );
+});

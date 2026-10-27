@@ -239,3 +239,45 @@ async def test_gate_tools_act_on_runs_the_api_process_hosts(tmp_path: Path) -> N
             assert (await client.call_tool("get_run", {"run_id": "run_nope"})).is_error
             assert (await client.call_tool("list_gates")).structured_content == {"result": []}
     control.close()
+
+
+PICK = (
+    "name: Pick loop\nstages:\n  - connector: research\n    calls: remotion_render\n"
+    "  - gate: pick\n    ask: Pick one.\n    kind: pick\n"
+)
+IDEA = '---\ntype: "idea"\ntitle: "Hooks"\nrank: 1\n---\n\n# Hooks\n\nOpen on the hook.\n'
+
+
+@pytest.mark.anyio
+async def test_a_pick_gate_takes_an_artifact_path_as_the_choice(tmp_path: Path) -> None:
+    """Story 53 over MCP: the choice is the chosen card's path; the decision records it and
+    takes the card's title; a path from outside the run's earlier stages is refused."""
+    from api_fakes import until
+    from fastapi.testclient import TestClient
+
+    worlds = world_service(tmp_path)
+    control = run_control(tmp_path)
+    with TestClient(create_app(tmp_path, connector=lambda *_: None, retro=False)) as http:
+        world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": PICK}).json()
+        run = http.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+        until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+        research, gate = (s["id"] for s in run["stages"])
+        card = tmp_path / "worlds" / world / "runs" / run["id"] / research / "artifacts"
+        card.mkdir(parents=True)
+        (card / "idea-hooks.md").write_text(IDEA)
+        path = f"runs/{run['id']}/{research}/artifacts/idea-hooks.md"
+
+        async with Client(
+            server(worlds, workflow_service(tmp_path), task_board(tmp_path), control)
+        ) as client:
+            wrong = {"run_id": run["id"], "artifact": f"runs/{run['id']}/{gate}/decision.md"}
+            assert (await client.call_tool("decide_gate", wrong)).is_error
+            assert (await client.call_tool("decide_gate", {"run_id": run["id"]})).is_error
+            picked = await client.call_tool("decide_gate", {"run_id": run["id"], "artifact": path})
+            assert not picked.is_error and picked.structured_content
+            (decision,) = picked.structured_content["decisions"]
+            assert (decision["choice"], decision["artifact"]) == ("Hooks", path)
+            assert 'artifact: "runs/' in Path(decision["path"]).read_text()
+            until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    control.close()

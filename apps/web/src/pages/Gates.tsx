@@ -2,8 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import type { ArtifactFile } from "../api/events";
 import { actOn, decide, type Gate, money, setBudget } from "../api/runs";
 import type { components } from "../api/schema";
+import { ArtifactCards, ArtifactView, choosable, underReview } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { LABEL } from "./Connectors";
 
@@ -109,6 +111,23 @@ function GateCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [sendBack, setSendBack] = useState(false);
+  // What the earlier stages made: the cards a pick chooses from, the piece an approve reviews
+  // (stories 53 and 54). null until loaded, so the pick's fallback field does not flash.
+  const [artifacts, setArtifacts] = useState<ArtifactFile[] | null>(null);
+  const shows = gate.kind === "pick" || gate.kind === "approve";
+
+  useEffect(() => {
+    if (!shows) return;
+    api
+      .GET("/api/runs/{run_id}/artifacts", {
+        params: { path: { run_id: gate.run_id }, query: { before: gate.stage_index } },
+      })
+      .then(({ data }) => setArtifacts(data ?? []))
+      .catch(() => setArtifacts([]));
+  }, [shows, gate.run_id, gate.stage_index, gate.send_backs_left]);
+
+  const cards = gate.kind === "pick" && artifacts ? choosable(artifacts) : [];
+  const reviewed = gate.kind === "approve" && artifacts ? underReview(artifacts) : [];
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -122,7 +141,13 @@ function GateCard({
     }
     const note = String(fields.get("note") ?? "").trim();
     const body: Parameters<typeof decide>[1] = { note };
-    if (gate.kind === "pick") body.choice = String(fields.get("choice") ?? "").trim();
+    if (gate.kind === "pick") {
+      const picked = cards.find((c) => c.path === fields.get("artifact"));
+      body.choice = picked ? picked.title : String(fields.get("choice") ?? "").trim();
+      if (picked) body.artifact = picked.path;
+    }
+    // An approval or send-back of one piece names it, so the record says which.
+    if (gate.kind === "approve" && reviewed.length === 1) body.artifact = reviewed[0]!.path;
     if (sendBack) body.send_back_to = String(fields.get("send_back_to") ?? "");
     setBusy(true);
     await onAnswer(gate, () => decide(gate.run_id, body));
@@ -156,6 +181,10 @@ function GateCard({
       </div>
       <p className="ask">{gate.ask}</p>
       {gate.publish && <WhatGoesOut preview={gate.publish} />}
+      {reviewed.length > 0 && <ArtifactView artifacts={reviewed} worldId={gate.world_id} />}
+      {gate.kind === "approve" && artifacts && reviewed.length === 0 && (
+        <p className="faint">The earlier stages left nothing to show here; their notes are on the run's timeline.</p>
+      )}
       {gate.kind === "skill" ? (
         <SkillGate gate={gate} onAnswer={onAnswer} />
       ) : (
@@ -188,14 +217,15 @@ function GateCard({
             </div>
           </>
         )}
-        {gate.kind === "pick" && (
+        {gate.kind === "pick" && cards.length > 0 && <ArtifactCards cards={cards} worldId={gate.world_id} />}
+        {gate.kind === "pick" && artifacts && cards.length === 0 && (
           <>
             <label>
               Your pick
               <input name="choice" required autoComplete="off" placeholder="idea 1" />
             </label>
             <span className="faint">
-              Idea cards arrive with the swarm; until then, name your pick.
+              No cards reached this gate, so name your pick; it is kept word for word.
             </span>
           </>
         )}
@@ -219,9 +249,14 @@ function GateCard({
         )}
         <div className="row gate-actions">
           {gate.kind === "pick" && (
-            <button type="submit" className="primary" disabled={busy}>
-              Continue with this pick
-            </button>
+            <>
+              <button type="submit" className="primary" disabled={busy || artifacts === null}>
+                Continue with this pick
+              </button>
+              {cards.length > 0 && (
+                <span className="faint">The ones you pass on stay in the library.</span>
+              )}
+            </>
           )}
           {gate.kind === "confirm" && (
             <>

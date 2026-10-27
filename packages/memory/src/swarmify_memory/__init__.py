@@ -249,6 +249,19 @@ class Memory:
         files = [p for p in folder.glob("[!.]*") if p.is_file()]  # dotfiles: connector state
         return self._artifacts(world_id, files)
 
+    def decisions(self, world_id: str, run_id: str, stage_id: str) -> list[ArtifactFile]:
+        """The gate decisions written in the stage's folder, oldest first."""
+        folder = self.world_folder(world_id) / "runs" / run_id / stage_id
+        return self._artifacts(world_id, [p for p in folder.glob("decision*.md") if p.is_file()])
+
+    def file(self, world_id: str, path: str) -> Path:
+        """The run file at `path` (relative to the world folder), for serving it as it is.
+        Raises ValueError when there is no such file under the world's runs."""
+        file = self._inside(world_id, path)
+        if not file.is_relative_to((self.world_folder(world_id) / "runs").resolve()):
+            raise ValueError(f"{path} is not a run file of this world")
+        return file
+
     def library(self, world_id: str) -> list[ArtifactFile]:
         """The Library: every artifact of the world across its runs, newest first, gate
         decisions included. A binary's sidecar stands in for it."""
@@ -310,7 +323,7 @@ class Memory:
                     str(p.relative_to(world)),
                     str(fields.get("type", "file")),
                     str(fields.get("author", "")),
-                    str(fields.get("title") or p.name),
+                    str(fields.get("title") or (p.name[:-3] if carried else p.name)),
                     fields,
                     body,
                     parts[1] if len(parts) > 2 else "",

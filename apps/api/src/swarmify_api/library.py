@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from swarmify_memory import ArtifactFile, Memory
@@ -83,6 +84,16 @@ def router(memory: Memory, worlds: Worlds, list_runs: Callable[[str], list[Run]]
         world_or_404(world_id)
         runs = {r.id: r for r in list_runs(world_id)}
         return [item(a, runs.get(a.run_id)) for a in memory.library(world_id)]
+
+    @api.get("/worlds/{world_id}/files/{path:path}", response_class=FileResponse)
+    def file(world_id: str, path: str) -> FileResponse:
+        """A run file as it is on disk, by its Library path: the video a gate plays, an image,
+        a note a card cites. Only files under the world's runs are served."""
+        world_or_404(world_id)
+        try:
+            return FileResponse(memory.file(world_id, path))
+        except ValueError as exc:
+            raise HTTPException(404, "file not found") from exc
 
     @api.post("/worlds/{world_id}/pins")
     def pin(world_id: str, body: PinBody) -> LibraryItem:

@@ -145,14 +145,23 @@ def server(
         return [asdict(g) for g in control.gates()]
 
     @mcp.tool(
-        description="Answer the gate a run waits at. A pick gate needs `choice`; an approve gate"
-        " may name `send_back_to`, an earlier stage that runs again with `note` in its context"
-        " (at most twice per run); a confirm gate takes neither. Writes a decision artifact."
+        description="Answer the gate a run waits at. A pick gate needs `choice` or `artifact`,"
+        " the chosen artifact's path in the world folder, `runs/<run>/<stage id>/artifacts/<name>`"
+        " as the API's `GET /api/runs/{run_id}/artifacts` lists it (the choice then takes its"
+        " title); an approve gate may name `send_back_to`, an earlier stage that runs again"
+        " with `note` in its context (at most twice per run); a confirm gate takes neither."
+        " Writes a decision artifact."
     )
     def decide_gate(
-        run_id: str, choice: str | None = None, note: str = "", send_back_to: str | None = None
+        run_id: str,
+        choice: str | None = None,
+        note: str = "",
+        send_back_to: str | None = None,
+        artifact: str | None = None,
     ) -> dict[str, Any]:
-        return run_or_fail(lambda: control.decide(run_id, choice, note, send_back_to))
+        return run_or_fail(
+            lambda: control.decide(run_id, choice, note, send_back_to, artifact=artifact)
+        )
 
     @mcp.tool(
         description="Set a run's Budget in US dollars, the total, not an increment. It covers the"
