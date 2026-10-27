@@ -65,26 +65,26 @@ export function Evals() {
             <thead>
               <tr>
                 <th>Arm</th>
-                <th>Trials</th>
-                <th>Accepted</th>
-                <th>pass@{latest.k}</th>
-                <th>pass^{latest.k}</th>
-                <th>Cost a trial (est.)</th>
-                <th>Time to accepted</th>
+                <th className="num">Trials</th>
+                <th className="num">Accepted</th>
+                <th className="num">pass@{latest.k}</th>
+                <th className="num">pass^{latest.k}</th>
+                <th className="num">Cost a trial (est.)</th>
+                <th className="num">Time to accepted</th>
               </tr>
             </thead>
             <tbody>
               {latest.arms.map((a) => (
                 <tr key={a.arm} data-testid="arm">
                   <td>{ARM_LABEL[a.arm] ?? a.arm}</td>
-                  <td>{a.trials}</td>
-                  <td>
+                  <td className="num">{a.trials}</td>
+                  <td className="num">
                     {pct(a.acceptance)} ({a.accepted})
                   </td>
-                  <td>{pct(a.pass_at_k)}</td>
-                  <td>{pct(a.pass_pow_k)}</td>
-                  <td>{money(a.cost_usd)}</td>
-                  <td>{a.duration_s === null ? "none accepted" : took(a.duration_s)}</td>
+                  <td className="num">{pct(a.pass_at_k)}</td>
+                  <td className="num">{pct(a.pass_pow_k)}</td>
+                  <td className="num">{money(a.cost_usd)}</td>
+                  <td className="num">{a.duration_s === null ? "none accepted" : took(a.duration_s)}</td>
                 </tr>
               ))}
             </tbody>
@@ -98,8 +98,8 @@ export function Evals() {
                   <th>Arm</th>
                   <th>Trial</th>
                   <th>Result</th>
-                  <th>Cost (est.)</th>
-                  <th>Duration</th>
+                  <th className="num">Cost (est.)</th>
+                  <th className="num">Duration</th>
                 </tr>
               </thead>
               <tbody>
@@ -117,8 +117,8 @@ export function Evals() {
                       )}
                     </td>
                     <td>{passed(t) ? "accepted" : (t.failed ?? []).join("; ") || t.status}</td>
-                    <td>{money(t.cost_usd)}</td>
-                    <td>{t.duration_s === null ? "none" : took(t.duration_s)}</td>
+                    <td className="num">{money(t.cost_usd)}</td>
+                    <td className="num">{t.duration_s === null ? "none" : took(t.duration_s)}</td>
                   </tr>
                 ))}
               </tbody>

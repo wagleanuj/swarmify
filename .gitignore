@@ -13,3 +13,4 @@ coverage.xml
 apps/web/openapi.json
 test-results/
 .vitest/
+.taste-skill/

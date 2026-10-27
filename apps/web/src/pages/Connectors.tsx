@@ -172,9 +172,6 @@ export function Connectors() {
           const s = status(c);
           return (
             <li key={c.id} data-name={c.name}>
-              <span className="mono-badge" aria-hidden>
-                {c.name.slice(0, 2)}
-              </span>
               <span className="connector-main">
                 <b>{LABEL[c.name] ?? c.name}</b>
                 <span className="faint mono">{where(c)}</span>
@@ -223,7 +220,7 @@ export function Connectors() {
             value={server}
             onChange={(e) => setServer(e.target.value)}
             required
-            placeholder="uvx fal-mcp   or   https://mcp.example.com/mcp"
+            placeholder="uvx fal-mcp   or   https://host/mcp"
             autoComplete="off"
             spellCheck={false}
           />

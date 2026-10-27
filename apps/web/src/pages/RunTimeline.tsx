@@ -197,7 +197,12 @@ export function RunTimeline() {
     </div>
   );
   if (run === undefined) {
-    return <main>{error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}</main>;
+    return (
+      <main>
+        {crumb}
+        {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
+      </main>
+    );
   }
   if (run === null) {
     return (

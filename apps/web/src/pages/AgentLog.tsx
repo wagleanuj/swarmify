@@ -33,8 +33,13 @@ export function AgentLog({ agents, log }: { agents: Agent[]; log: LogEntry[] }) 
               <span className="faint">
                 {" "}
                 · estimated {usd(a.cost_usd)} · skills: {(a.skills ?? []).join(", ") || "none"}
-                {a.session_id ? ` · session ${a.session_id}` : ""}
               </span>
+              {a.session_id && (
+                <span className="faint" title={a.session_id}>
+                  {" "}
+                  · session <code>{a.session_id.slice(-6)}</code>
+                </span>
+              )}
             </li>
           ))}
         </ul>

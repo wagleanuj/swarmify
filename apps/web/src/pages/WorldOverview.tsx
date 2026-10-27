@@ -10,6 +10,20 @@ type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["Workflow"];
 type Activity = { seq: number; type: string; ts: string };
 
+/** "run.updated" as "Run updated". */
+const inWords = (type: string) => type.replace(".", " ").replace(/^./, (c) => c.toUpperCase());
+
+/** The stream as rows: a run of the same event type collapses into its last one with a count. */
+export function collapse(activity: Activity[]): (Activity & { times: number })[] {
+  const rows: (Activity & { times: number })[] = [];
+  for (const a of activity) {
+    const last = rows.at(-1);
+    if (last && last.type === a.type) rows[rows.length - 1] = { ...a, times: last.times + 1 };
+    else rows.push({ ...a, times: 1 });
+  }
+  return rows;
+}
+
 export function WorldOverview() {
   const { worldId } = worldRoute.useParams();
   const router = useRouter();
@@ -137,6 +151,9 @@ export function WorldOverview() {
   if (world === undefined) {
     return (
       <main>
+        <div className="crumb">
+          <Link to="/">worlds</Link>
+        </div>
         {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
       </main>
     );
@@ -310,10 +327,11 @@ export function WorldOverview() {
       <section aria-label="Activity">
         <h2>Activity</h2>
         <ul className="activity" data-testid="activity">
-          {activity.map((a) => (
+          {collapse(activity).map((a) => (
             <li key={a.seq}>
               <time dateTime={a.ts}>{new Date(a.ts).toLocaleTimeString()}</time>
-              <span>{a.type}</span>
+              <span>{inWords(a.type)}</span>
+              {a.times > 1 && <span className="count">{a.times} times</span>}
             </li>
           ))}
         </ul>

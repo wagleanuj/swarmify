@@ -83,8 +83,10 @@ export function Worlds() {
             <span className="faint">created {new Date(w.created_at).toLocaleDateString()}</span>
           </article>
         ))}
-        <form className="card new" onSubmit={create} aria-label="New world">
-          <h3>New world</h3>
+      </section>
+      <form className="card new" onSubmit={create} aria-label="New world">
+        <h3>New world</h3>
+        <div className="fields">
           <label>
             Name
             <input name="name" required maxLength={120} placeholder="Video" autoComplete="off" />
@@ -98,11 +100,13 @@ export function Worlds() {
               autoComplete="off"
             />
           </label>
+        </div>
+        <div className="row">
           <button type="submit" className="primary" disabled={busy}>
             {busy ? "Creating..." : "Create world"}
           </button>
-        </form>
-      </section>
+        </div>
+      </form>
     </main>
   );
 }
