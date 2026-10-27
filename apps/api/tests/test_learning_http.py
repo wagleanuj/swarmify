@@ -150,6 +150,8 @@ def test_every_run_ends_with_a_retro_whose_proposal_waits_at_a_skill_gate(
     assert "worker-1" in {a["name"] for a in running.get(f"{url}/agents").json()}
 
     # A decision through the runs API alone would skip the skill: the proposal endpoint does both.
+    refused = running.post(f"{url}/decision", json={"choice": "approve"})
+    assert refused.status_code == 409 and "proposal" in refused.json()["detail"]
     edited = HOOKS.replace("Write the hook first.", "Write the hook in the first second.")
     body = {"approve": True, "content": edited, "note": "Tightened the wording"}
     decided = running.post(f"/api/proposals/{proposal['id']}/decide", json=body)
@@ -310,6 +312,12 @@ def test_the_same_send_back_in_three_runs_brings_a_workflow_suggestion_the_gate_
         json={"approve": True, "apply_workflow": True, "note": "Yes"},
     )
     assert applied.status_code == 200, applied.json()
+    assert running.get(f"/api/workflows/{workflow}").json()["current_version"] == 2
+    again = running.post(
+        f"/api/proposals/{proposal['id']}/decide",
+        json={"approve": True, "apply_workflow": True, "note": "Yes"},
+    )
+    assert again.status_code == 422, "a decided proposal is refused"
     assert running.get(f"/api/workflows/{workflow}").json()["current_version"] == 2
     v2 = running.get(f"/api/workflows/{workflow}/versions/2").json()
     assert "Find 5 short ideas with hooks." in v2["yaml"]

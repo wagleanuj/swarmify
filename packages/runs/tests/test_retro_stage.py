@@ -45,9 +45,11 @@ def test_a_proposal_waits_at_a_skill_gate_until_decided_and_a_quiet_retro_finish
     opened = [e for e in notifier.events if e.type == "gate.opened"]
     assert len(opened) == 1 and opened[0].payload["kind"] == "skill"
 
+    with pytest.raises(Illegal, match="deciding its proposal"):
+        runner.decide(run.id, choice="approve")
     with pytest.raises(Illegal, match="skill gate cannot send back"):
-        runner.decide(run.id, send_back_to="research")
-    decided = runner.decide(run.id, choice="approve", note="Tightened it.")
+        runner.decide(run.id, send_back_to="research", proposal=True)
+    decided = runner.decide(run.id, choice="approve", note="Tightened it.", proposal=True)
     (decision,) = decided.decisions
     assert (decision.kind, decision.choice, decision.note) == ("skill", "approve", "Tightened it.")
     assert "Skill proposal approve." in Path(decision.path).read_text()

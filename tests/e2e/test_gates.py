@@ -45,7 +45,7 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
 
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run.json()['id']}")
         expect(page.get_by_test_id("status-line")).to_have_text(
-            "Done. All 2 stages finished. Sent back 1 of 2 times.", timeout=15_000
+            "Done. All 3 stages finished. Sent back 1 of 2 times.", timeout=15_000
         )
         expect(page.get_by_test_id("timeline")).to_contain_text("Sent back with: Darker.")
         expect(page.get_by_test_id("timeline")).to_contain_text("You approved.")

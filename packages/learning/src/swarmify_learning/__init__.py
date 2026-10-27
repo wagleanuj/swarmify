@@ -259,7 +259,6 @@ class Learning:
                 self.retire_skill(proposal.world_id, skill.name, proposal.run_id, note)
             else:
                 text = content if content is not None else skill.content
-                check_skill(skill.name, text)
                 self.write_skill(proposal.world_id, skill.name, text, proposal.run_id, note)
         status = "approved" if approve else "rejected"
         event = Event.new(
@@ -272,11 +271,6 @@ class Learning:
         if decided is None:
             raise ValueError("the proposal was decided meanwhile")
         return decided
-
-    # Scorecard
-
-    def scorecard(self, events: list[Event], workflow_id: str) -> list[RunScore]:
-        return scorecard(events, workflow_id)
 
     def delete_world(self, world_id: str) -> None:
         self.storage.delete_world(world_id)

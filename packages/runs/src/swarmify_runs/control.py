@@ -176,8 +176,10 @@ class RunControl:
         choice: str | None = None,
         note: str = "",
         send_back_to: str | None = None,
+        proposal: bool = False,
     ) -> Run:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
+        A skill gate takes only the answer of its proposal (`proposal=True`, from Learning).
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
         send-back target is not an earlier stage, on the third send-back, or when someone
@@ -192,6 +194,8 @@ class RunControl:
             raise Illegal("the run is not waiting at a gate")
         _, stage = self.storage.stage_def(run_id, index)
         kind = stage.config.get("kind") or "approve"
+        if kind == "skill" and not proposal:
+            raise Illegal("a skill gate is answered by deciding its proposal")
         note = note.strip()
         if kind == "pick" and not (choice or "").strip():
             raise ValueError("a pick gate needs a choice")

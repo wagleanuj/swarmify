@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from swarmify_kernel import Event
 from swarmify_learning import Learning, Proposal, RunScore, Skill, SkillVersion
+from swarmify_learning import scorecard as scorecard_of
 from swarmify_runs import Illegal, RunControl
 from swarmify_workflows import Invalid, Workflows
 from swarmify_worlds import Worlds
@@ -106,20 +107,29 @@ def router(
         proposal = learning.proposal(proposal_id)
         if proposal is None:
             raise HTTPException(404, "proposal not found")
+        if proposal.status != "pending":
+            raise HTTPException(422, f"the proposal was already {proposal.status}")
+        workflow_id = None
         if body.approve and body.apply_workflow and proposal.workflow is not None:
             run = control.get(proposal.run_id)
             if run is None or run.workflow_id is None:
                 raise HTTPException(422, "the run has no workflow to version")
-            try:
-                workflows.save(proposal.world_id, proposal.workflow.yaml, run.workflow_id)
-            except Invalid as exc:
-                raise HTTPException(422, f"the suggested workflow is refused: {exc}") from exc
+            draft = workflows.check(proposal.world_id, proposal.workflow.yaml, run.workflow_id)
+            if draft.violations or draft.model is None:
+                detail = Invalid(draft.violations)
+                raise HTTPException(422, f"the suggested workflow is refused: {detail}")
+            workflow_id = run.workflow_id
         try:
             decided = learning.decide(proposal_id, body.approve, body.content, body.note)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        if workflow_id is not None and proposal.workflow is not None:
+            # Checked above and only the decision that won gets here, so this writes once.
+            workflows.save(proposal.world_id, proposal.workflow.yaml, workflow_id)
         try:
-            control.decide(proposal.run_id, "approve" if body.approve else "reject", body.note)
+            control.decide(
+                proposal.run_id, "approve" if body.approve else "reject", body.note, proposal=True
+            )
         except (KeyError, Illegal) as exc:
             # The skill is written as asked; only the run had already moved on.
             raise HTTPException(409, f"decided, but the run did not take it: {exc}") from exc
@@ -132,7 +142,7 @@ def router(
         workflow = workflows.get(workflow_id)
         if workflow is None:
             raise HTTPException(404, "workflow not found")
-        scores = learning.scorecard(events(workflow.world_id), workflow_id)
+        scores = scorecard_of(events(workflow.world_id), workflow_id)
         return Scorecard(workflow_id, workflow.world_id, workflow.name, scores)
 
     return api
