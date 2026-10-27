@@ -50,7 +50,7 @@ const video = artifact({
 
 test("a pick chooses among the typed cards, ranked, each with its hook, reason and source", async () => {
   expect(choosable([notes, chase, verdict, hooks]).map((a) => a.title)).toEqual(["Hook first", "The chase"]);
-  expect(choosable([notes, verdict]).map((a) => a.title)).toEqual(["ideas.md"]);
+  expect(choosable([notes, verdict])).toEqual([]); // a worker's plain file is not a choice
 
   const screen = await render(<ArtifactCards cards={[hooks, chase]} worldId="world_1" />);
   const cards = screen.getByTestId("pick-card");

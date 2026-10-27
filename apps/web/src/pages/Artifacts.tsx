@@ -19,12 +19,13 @@ const IMAGE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 const byRank = (a: ArtifactFile, b: ArtifactFile) =>
   Number(a.fields.rank ?? 1e9) - Number(b.fields.rank ?? 1e9);
 
-/** The cards a pick gate chooses from: the typed artifacts of the earlier stages (an idea per
- * card), the judge's rank first; plain files only when nothing typed was made. */
+/** The cards a pick gate chooses from: the typed artifacts the judge projected from the earlier
+ * stages (an idea per card), his rank first. A plain file is not a choice, so a stage with no
+ * declared output leaves the gate its free-text pick. */
 export function choosable(artifacts: ArtifactFile[]): ArtifactFile[] {
-  const work = artifacts.filter((a) => !RECORD.has(a.type) && !a.fields.deleted);
-  const typed = work.filter((a) => a.type !== "file");
-  return (typed.length ? typed : work).sort(byRank);
+  return artifacts
+    .filter((a) => !RECORD.has(a.type) && a.type !== "file" && !a.fields.deleted)
+    .sort(byRank);
 }
 
 /** What an approve gate reviews: the artifacts of the latest earlier stage that made any. */
