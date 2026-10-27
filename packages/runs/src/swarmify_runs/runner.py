@@ -503,10 +503,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     else:
         return
     runner.storage.record(event)
-    try:
-        runner.notifier.notify(event)
-    except Exception:  # a notifier outage (Slack) must not fail the run; the event is recorded
-        log.exception("notifier failed on %s for run %s", event.type, run_id)
+    runner.notify(event)
 
 
 @DBOS.step(name="swarmify.execute")

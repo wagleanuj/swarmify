@@ -24,7 +24,8 @@ def masked(url: str | None) -> str | None:
     if url is None:
         return None
     scheme, _, rest = url.partition("://")
-    return f"{scheme}://{rest.split('/')[0]}/...{url[-4:]}"
+    host, _, path = rest.partition("/")
+    return f"{scheme}://{host}/...{path[-4:]}"
 
 
 def router(notifications: Notifications, worlds: Worlds) -> APIRouter:
