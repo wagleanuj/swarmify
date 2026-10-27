@@ -1,5 +1,6 @@
-"""HTTP face of the Runs context: start a run of a workflow version, list runs, read one, act
-on one (decide at its gate, pause, resume, abort) and list every open gate."""
+"""HTTP face of the Runs context: start a run of a workflow version, fork a run or promote a
+Library artifact into one, list runs, read one, act on one (decide at its gate, pause, resume,
+abort) and list every open gate."""
 
 from collections.abc import Callable
 from dataclasses import asdict
@@ -25,6 +26,19 @@ class Decide(BaseModel):
     choice: str | None = Field(default=None, max_length=2_000)
     note: str = Field(default="", max_length=10_000)
     send_back_to: str | None = None
+
+
+class Fork(BaseModel):
+    stage: int = Field(ge=0)
+    """The first stage that runs anew; every stage before it is copied from the run."""
+
+
+class Promote(BaseModel):
+    artifact: str
+    """The Library artifact's path in the world folder; it becomes the run's input."""
+    stage: int = Field(ge=1)
+    """The stage the run starts at; the earlier ones are skipped."""
+    version: int | None = None
 
 
 ACTION_ERRORS: dict[int | str, dict[str, Any]] = {
@@ -79,6 +93,27 @@ def router(runner: Runner, workflows: Workflows, worlds: Worlds) -> APIRouter:
             what = "version" if workflows.get(workflow_id) else "workflow"
             raise HTTPException(404, f"{what} not found") from exc
         return runner.start(p.world_id, p.workflow_id, p.version, p.name, p.stages)
+
+    @api.post("/runs/{run_id}/fork", status_code=201, responses=ACTION_ERRORS)
+    def fork(run_id: str, body: Fork) -> Run:
+        """A new run of the same workflow version that copies this one, rows and files, up to
+        `stage` and runs on from there. Every earlier stage must have finished."""
+        return act(lambda: runner.fork(run_id, body.stage))
+
+    @api.post("/workflows/{workflow_id}/promote", status_code=201, responses={404: {}, 422: {}})
+    def promote(workflow_id: str, body: Promote) -> Run:
+        """A run that starts at `stage` with `artifact` as its input; the earlier stages are
+        skipped."""
+        try:
+            p = pin(workflow_id, body.version)
+        except KeyError as exc:
+            what = "version" if workflows.get(workflow_id) else "workflow"
+            raise HTTPException(404, f"{what} not found") from exc
+        folder = worlds.folder(p.world_id)
+        file = (folder / body.artifact).resolve()
+        if not file.is_relative_to((folder / "runs").resolve()) or not file.is_file():
+            raise HTTPException(404, "artifact not found")
+        return act(lambda: runner.promote(p, body.stage, file, body.artifact))
 
     @api.get("/worlds/{world_id}/runs")
     def list_runs(world_id: str) -> list[Run]:

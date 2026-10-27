@@ -9,6 +9,7 @@ is sent, so the record exists even if the run has moved on by the time the messa
 
 import json
 import re
+import shutil
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -48,10 +49,43 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def run_folder(data_dir: Path, run: Run) -> Path:
+    return data_dir / "worlds" / run.world_id / "runs" / run.id
+
+
 def stage_folder(data_dir: Path, run: Run, index: int) -> Path:
     """`<data>/worlds/<world>/runs/<run>/<nn>-<stage>`, readable in Obsidian (ADR 0001)."""
     name = re.sub(r"[^a-z0-9]+", "-", run.stages[index].name.lower()).strip("-") or "stage"
-    return data_dir / "worlds" / run.world_id / "runs" / run.id / f"{index + 1:02d}-{name}"
+    return run_folder(data_dir, run) / f"{index + 1:02d}-{name}"
+
+
+def copy_run_files(data_dir: Path, source: Run, run: Run, index: int) -> None:
+    """Copy the source run's folder into its fork's, leaving out the folders of the stages at
+    or past `index`. A stage has two: `<nn>-<name>` (its decisions, written here) and
+    `<stage id>` (its notes and artifacts, written by Memory); the latter is renamed to the
+    fork's stage id so the copied stage reads back under it (files are memory, ADR 0001)."""
+    src, dst = run_folder(data_dir, source), run_folder(data_dir, run)
+    if not src.is_dir():
+        return
+    renamed = {s.id: run.stages[s.index].id for s in source.stages}
+    later = range(index, len(source.stages))
+    skip = {source.stages[i].id for i in later}
+    skip |= {stage_folder(data_dir, source, i).name for i in later}
+    dst.mkdir(parents=True, exist_ok=True)
+    for child in src.iterdir():
+        if child.name in skip:
+            continue
+        target = dst / renamed.get(child.name, child.name)
+        if child.is_dir():
+            shutil.copytree(child, target, dirs_exist_ok=True)
+        else:
+            shutil.copyfile(child, target)
+
+
+def with_sidecar(path: Path) -> list[Path]:
+    """The file and its markdown sidecar, named either way round, when both exist."""
+    name = path.name[:-3] if path.suffix == ".md" else path.name + ".md"
+    return [path, path.with_name(name)] if name and path.with_name(name).exists() else [path]
 
 
 def state_of(run: Run) -> RunState:

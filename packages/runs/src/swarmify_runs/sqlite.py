@@ -28,35 +28,110 @@ class SqliteStorage:
     def _conn(self) -> closing[sqlite3.Connection]:
         return closing(connect(self.path))
 
-    def add_run(self, run: Run, stages: list[StageDef]) -> Run:
+    def add_run(self, run: Run, stages: list[StageDef], skipped: int = 0) -> Run:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                "INSERT INTO runs (id, world_id, workflow_id, workflow_version, name, status,"
-                " created_at, updated_at, parent_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    run.id,
-                    run.world_id,
-                    run.workflow_id,
-                    run.workflow_version,
-                    run.name,
-                    run.status,
-                    run.created_at,
-                    run.updated_at,
-                    run.parent_run_id,
-                ),
-            )
+            self._insert_run(conn, run)
             for i, stage in enumerate(stages):
                 conn.execute(
                     "INSERT INTO run_stages (id, run_id, idx, name, type, config, status)"
-                    " VALUES (?, ?, ?, ?, ?, ?, 'pending')",
-                    (new_id("stage"), run.id, i, stage.name, stage.type, json.dumps(stage.config)),
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        new_id("stage"),
+                        run.id,
+                        i,
+                        stage.name,
+                        stage.type,
+                        json.dumps(stage.config),
+                        "skipped" if i < skipped else "pending",
+                    ),
                 )
             saved = self._read(conn, run.id)
             assert saved is not None
             append(conn, _updated(saved))
             conn.execute("COMMIT")
             return saved
+
+    def fork(self, run: Run, source: Run, index: int) -> Run:
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self._insert_run(conn, run, source.id, index)
+            stages = conn.execute(
+                "SELECT * FROM run_stages WHERE run_id = ? ORDER BY idx", (source.id,)
+            ).fetchall()
+            for s in stages:
+                copied = s["idx"] < index
+                conn.execute(
+                    "INSERT INTO run_stages (id, run_id, idx, name, type, config, status,"
+                    " started_at, ended_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        new_id("stage"),
+                        run.id,
+                        s["idx"],
+                        s["name"],
+                        s["type"],
+                        s["config"],
+                        s["status"] if copied else "pending",
+                        s["started_at"] if copied else None,
+                        s["ended_at"] if copied else None,
+                        s["error"] if copied else None,
+                    ),
+                )
+            decisions = conn.execute(
+                "SELECT * FROM gate_decisions WHERE run_id = ? AND stage_index < ?"
+                " ORDER BY decided_at, id",
+                (source.id, index),
+            ).fetchall()
+            for d in decisions:
+                # The file was copied along with its stage folder; a copied visit is numbered
+                # below zero so it never collides with a visit the fork makes itself.
+                conn.execute(
+                    "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
+                    " note, send_back_to, path, decided_at, visit)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        new_id("dec"),
+                        run.id,
+                        d["stage_index"],
+                        d["stage_name"],
+                        d["kind"],
+                        d["choice"],
+                        d["note"],
+                        d["send_back_to"],
+                        d["path"].replace(source.id, run.id),
+                        d["decided_at"],
+                        -1 - d["visit"],
+                    ),
+                )
+            saved = self._read(conn, run.id)
+            assert saved is not None
+            append(conn, _updated(saved))
+            conn.execute("COMMIT")
+            return saved
+
+    @staticmethod
+    def _insert_run(
+        conn: sqlite3.Connection, run: Run, forked_from: str | None = None, index: int | None = None
+    ) -> None:
+        conn.execute(
+            "INSERT INTO runs (id, world_id, workflow_id, workflow_version, name, status,"
+            " created_at, updated_at, parent_run_id, forked_from_run_id, fork_stage_index,"
+            " promoted_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run.id,
+                run.world_id,
+                run.workflow_id,
+                run.workflow_version,
+                run.name,
+                run.status,
+                run.created_at,
+                run.updated_at,
+                run.parent_run_id,
+                forked_from,
+                index,
+                run.promoted_from,
+            ),
+        )
 
     def save_state(self, run_id: str, state: RunState, error: str | None = None) -> Run | None:
         with self._conn() as conn:
@@ -263,6 +338,17 @@ class SqliteStorage:
             row["parent_run_id"],
             decisions,
             _link(conn, row["parent_run_id"]),
+            _link(conn, row["forked_from_run_id"]),
+            row["fork_stage_index"],
+            [
+                RunLink(f["id"], f["world_id"], f["name"])
+                for f in conn.execute(
+                    "SELECT id, world_id, name FROM runs WHERE forked_from_run_id = ?"
+                    " ORDER BY created_at, id",
+                    (run_id,),
+                )
+            ],
+            row["promoted_from"],
         )
 
 

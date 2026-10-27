@@ -17,6 +17,7 @@ workflow waits for them; around a stage it drains what arrived meanwhile.
 """
 
 import logging
+import shutil
 import threading
 import time
 from collections.abc import Callable
@@ -28,7 +29,16 @@ from typing import Any
 from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID
 
 from swarmify_kernel import Event, new_id
-from swarmify_runs.control import CONTROL_TOPIC, Previews, RunControl, ended_event, no_previews
+from swarmify_runs.control import (
+    CONTROL_TOPIC,
+    Previews,
+    RunControl,
+    copy_run_files,
+    ended_event,
+    no_previews,
+    run_folder,
+    with_sidecar,
+)
 from swarmify_runs.machine import (
     TERMINAL,
     Aborted,
@@ -189,6 +199,58 @@ class Runner(RunControl):
             parent_run_id=parent_run_id,
         )  # fmt: skip
         run = self.storage.add_run(run, stages)
+        self._enqueue(run)
+        return run
+
+    def fork(self, run_id: str, index: int) -> Run:
+        """Start a Fork: a new run of the same workflow version that copies `run_id` (rows and
+        files) up to stage `index` and runs on from there. Raises KeyError for an unknown run,
+        ValueError for an index outside the run and Illegal when a stage before `index` has
+        not finished."""
+        source = self.storage.get_run(run_id)
+        if source is None:
+            raise KeyError(f"run not found: {run_id}")
+        if not 0 <= index < len(source.stages):
+            raise ValueError(f"stage {index} is not one of the run's {len(source.stages)} stages")
+        unfinished = [s for s in source.stages[:index] if s.status not in ("done", "skipped")]
+        if unfinished:
+            raise Illegal(
+                f"stage {unfinished[0].name} has not finished, so the run cannot fork from"
+                f" {source.stages[index].name}"
+            )
+        now = datetime.now(UTC).isoformat()
+        run = Run(
+            new_id("run"), source.world_id, source.workflow_id, source.workflow_version,
+            source.name, "queued", now, now, [],
+        )  # fmt: skip
+        run = self.storage.fork(run, source, index)
+        copy_run_files(self.data_dir, source, run, index)
+        self._enqueue(run)
+        return run
+
+    def promote(self, pinned: Pinned, index: int, artifact: Path, promoted_from: str) -> Run:
+        """Start a Promote: a run of `pinned` that starts at stage `index` with `artifact` as
+        its input. The earlier stages are skipped and the file (with its sidecar) stands in for
+        their output, in the last skipped stage's artifacts folder where later stages look for
+        inputs. `promoted_from` is the artifact's path in the world folder, kept as lineage.
+        Raises ValueError for an index that skips nothing or everything, or a missing file."""
+        if not 1 <= index < len(pinned.stages):
+            raise ValueError(
+                "a promote skips at least one stage and starts before the last; to run every"
+                " stage, start a run"
+            )
+        if not artifact.is_file():
+            raise ValueError(f"no artifact at {promoted_from}")
+        now = datetime.now(UTC).isoformat()
+        run = Run(
+            new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
+            "queued", now, now, [], promoted_from=promoted_from,
+        )  # fmt: skip
+        run = self.storage.add_run(run, pinned.stages, skipped=index)
+        folder = run_folder(self.data_dir, run) / run.stages[index - 1].id / "artifacts"
+        folder.mkdir(parents=True, exist_ok=True)
+        for file in with_sidecar(artifact):
+            shutil.copyfile(file, folder / file.name)
         self._enqueue(run)
         return run
 

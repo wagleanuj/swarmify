@@ -143,3 +143,61 @@ def test_notes_and_stage_artifacts_read_back_without_frontmatter(memory: Memory)
     )
     assert arts["brief.md"].body == "Brief" and arts["brief.md"].title == "brief.md"
     assert arts["hand.md"].fields == {"odd": "not json"} and arts["hand.md"].type == "file"
+
+
+def _decide(memory: Memory, run: str, created: str) -> None:
+    folder = memory.world_folder("w1") / "runs" / run / "02-pick"
+    folder.mkdir(parents=True)
+    front = f'type: "decision"\nrun: "{run}"\nstage: "pick"\ncreated: "{created}"'
+    (folder / "decision.md").write_text(f"---\n{front}\n---\n\nPicked 1.\n")
+
+
+def test_the_library_lists_every_artifact_of_the_world_across_runs_newest_first(
+    memory: Memory,
+) -> None:
+    memory.write_typed("w1", "r1", "s1", "judge", "idea-a.md", "idea", {"title": "A"}, "Body")
+    memory.write_artifact("w1", "r1", "s3", "worker-1", "clip.mp4", "bytes")
+    memory.write_note("w1", "r1", "s1", "worker-1", "Not an artifact", "x")
+    memory.write_artifact("w2", "r9", "s1", "worker-1", "other.md", "other world")
+    _decide(memory, "r1", "2026-10-26T10:00:00+00:00")
+    memory.write_artifact("w1", "r2", "s4", "worker-1", "script.md", "Script")
+
+    items = memory.library("w1")
+    assert items[0].name == "script.md", "newest first"
+    assert items[-1].type == "decision", "a hand-dated decision from before the others"
+    assert {(a.run_id, a.stage, a.name, a.type) for a in items} == {
+        ("r1", "s1", "idea-a.md", "idea"),
+        ("r1", "s3", "clip.mp4", "file"),
+        ("r1", "02-pick", "decision.md", "decision"),
+        ("r2", "s4", "script.md", "file"),
+    }
+    clip = next(a for a in items if a.name == "clip.mp4")
+    assert clip.path == "runs/r1/s3/artifacts/clip.mp4.md" and clip.created
+    assert not any(a.pinned for a in items) and memory.pinned("w1") == []
+    assert memory.library("w_none") == []
+
+
+def test_a_pin_lives_in_the_frontmatter_and_the_pinned_list_follows_it(memory: Memory) -> None:
+    brief = memory.write_artifact("w1", "r1", "s1", "worker-1", "brief.md", "Brief")
+    csv = memory.write_artifact("w1", "r1", "s1", "worker-1", "ranks.csv", "a,1")
+    pinned = memory.pin("w1", brief)
+    assert (pinned.pinned, pinned.path, pinned.run_id) == (True, brief, "r1")
+    text = (memory.world_folder("w1") / brief).read_text()
+    assert "\npinned: true\n---\n\nBrief" in text and text.startswith('---\ntype: "file"')
+    sidecar = memory.pin("w1", csv)  # a binary: its sidecar carries the flag
+    assert sidecar.path == f"{csv}.md" and sidecar.name == "ranks.csv"
+    assert "pinned: true" in (memory.world_folder("w1") / f"{csv}.md").read_text()
+    assert sorted(memory.pinned("w1")) == [brief, f"{csv}.md"]
+    assert all(a.pinned for a in memory.stage_artifacts("w1", "r1", "s1"))
+
+    unpinned = memory.pin("w1", brief, pinned=False)
+    assert not unpinned.pinned and "pinned" not in (memory.world_folder("w1") / brief).read_text()
+    assert memory.pinned("w1") == [f"{csv}.md"]
+    assert [e for e in _events(memory) if "pinned" in e] == [
+        {"type": "file", "path": brief, "pinned": True},
+        {"type": "file", "path": f"{csv}.md", "pinned": True},
+        {"type": "file", "path": brief, "pinned": False},
+    ]
+    for bad in ("runs/r1/s1/artifacts/missing.md", "../escape.md", "/etc/hosts", "runs/r1/s1"):
+        with pytest.raises(ValueError, match="no artifact at"):
+            memory.pin("w1", bad)

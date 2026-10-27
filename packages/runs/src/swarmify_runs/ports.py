@@ -9,8 +9,14 @@ from swarmify_runs.model import Decision, Gate, Run, StageDef
 
 
 class Storage(Protocol):
-    def add_run(self, run: Run, stages: list[StageDef]) -> Run:
-        """Insert a queued run, its stages and a `run.updated` event in one transaction."""
+    def add_run(self, run: Run, stages: list[StageDef], skipped: int = 0) -> Run:
+        """Insert a queued run, its stages and a `run.updated` event in one transaction. The
+        first `skipped` stages are inserted skipped (a promote), the rest pending."""
+        ...
+
+    def fork(self, run: Run, source: Run, index: int) -> Run:
+        """Insert `run` as a fork of `source`: the stages before `index` copied with their
+        status, times and decisions, the rest pending; the lineage recorded on the run."""
         ...
 
     def save_state(self, run_id: str, state: RunState, error: str | None = None) -> Run | None:

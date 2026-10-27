@@ -7,8 +7,10 @@ Layout: `<data_dir>/worlds/<world>/runs/<run>/<stage>/notes/<slug>.md` and
 Typed artifacts the judge projects (idea, verdict, ...) carry their type and fields in the
 frontmatter.
 
-The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read through
-the GraphIndex port.
+The Library is every artifact of a world across its runs, read from the files; a Pin marks one
+as required reading for later swarm stages and lives in its frontmatter, so it survives any
+database. The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read
+through the GraphIndex port.
 """
 
 import json
@@ -87,6 +89,11 @@ class ArtifactFile:
     title: str
     fields: dict[str, Any]
     body: str
+    run_id: str = ""
+    stage: str = ""
+    """The stage folder: a stage id for what agents wrote, `<nn>-<name>` for a gate decision."""
+    created: str = ""
+    pinned: bool = False
 
 
 class Memory:
@@ -230,23 +237,74 @@ class Memory:
     def stage_artifacts(self, world_id: str, run_id: str, stage_id: str) -> list[ArtifactFile]:
         """The stage's artifacts by name, sidecars standing in for their files."""
         folder = self.world_folder(world_id) / "runs" / run_id / stage_id / "artifacts"
+        files = [p for p in folder.glob("[!.]*") if p.is_file()]  # dotfiles: connector state
+        return self._artifacts(world_id, files)
+
+    def library(self, world_id: str) -> list[ArtifactFile]:
+        """The Library: every artifact of the world across its runs, newest first, gate
+        decisions included. A binary's sidecar stands in for it."""
+        # ponytail: a walk over the world's files per call; index them in a table when a world
+        # holds tens of thousands of artifacts.
         world = self.world_folder(world_id)
-        files = sorted(p for p in folder.glob("[!.]*") if p.is_file())  # dotfiles: connector state
-        names = {p.name for p in files}
+        files = [p for p in world.glob("runs/*/*/artifacts/[!.]*") if p.is_file()]
+        files += [p for p in world.glob("runs/*/*/decision*.md") if p.is_file()]
+        return sorted(self._artifacts(world_id, files), key=lambda a: a.created, reverse=True)
+
+    def pinned(self, world_id: str) -> list[str]:
+        """The pinned artifacts, as paths relative to the world folder, newest first."""
+        return [a.path for a in self.library(world_id) if a.pinned]
+
+    def pin(self, world_id: str, path: str, pinned: bool = True) -> ArtifactFile:
+        """Pin the artifact at `path` (relative to the world folder) as required reading for
+        later swarm stages, or unpin it. The flag lives in the markdown's frontmatter, a
+        binary's in its sidecar. Raises ValueError when there is no such artifact."""
+        world = self.world_folder(world_id)
+        runs = (world / "runs").resolve()
+        file = (world / path).resolve()
+        if file.suffix != ".md" and file.with_name(f"{file.name}.md").is_file():
+            file = file.with_name(f"{file.name}.md")
+        if not (file.is_relative_to(runs) and file.suffix == ".md" and file.is_file()):
+            raise ValueError(f"no artifact at {path}")
+        fields, body = _split(file.read_text(errors="replace"))
+        if pinned:
+            fields["pinned"] = True
+        else:
+            fields.pop("pinned", None)
+        file.write_text(_frontmatter(fields) + body)
+        (artifact,) = self._artifacts(world_id, [file])
+        event = Event.new(
+            "artifact.pinned",
+            world_id=world_id,
+            run_id=artifact.run_id or None,
+            payload={"type": artifact.type, "path": artifact.path, "pinned": pinned},
+        )
+        with closing(connect(self.db)) as conn:
+            append(conn, event)
+        return artifact
+
+    def _artifacts(self, world_id: str, files: list[Path]) -> list[ArtifactFile]:
+        """The files as artifacts, by path; a binary with a sidecar is read through it."""
+        world = self.world_folder(world_id)
         out = []
-        for p in files:
-            if not p.name.endswith(".md") and f"{p.name}.md" in names:
+        for p in sorted(files):
+            if p.suffix != ".md" and p.with_name(f"{p.name}.md").is_file():
                 continue  # its sidecar carries it
             fields, body = _split(p.read_text(errors="replace"))
+            carried = p.suffix == ".md" and p.with_name(p.name[:-3]).is_file()
+            parts = p.relative_to(world).parts  # runs, <run>, <stage>, ...
             out.append(
                 ArtifactFile(
-                    p.name.removesuffix(".md") if p.name[:-3] in names else p.name,
+                    p.name[:-3] if carried else p.name,
                     str(p.relative_to(world)),
                     str(fields.get("type", "file")),
                     str(fields.get("author", "")),
                     str(fields.get("title") or p.name),
                     fields,
                     body,
+                    parts[1] if len(parts) > 2 else "",
+                    parts[2] if len(parts) > 2 else "",
+                    str(fields.get("created") or ""),
+                    fields.get("pinned") is True,
                 )
             )
         return out

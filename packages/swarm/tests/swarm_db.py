@@ -23,6 +23,11 @@ class DiskFiles:
         self.root = root
         self.typed: list[tuple[str, str, dict[str, Any], str]] = []
         """Every typed artifact written: (name, type, fields, body)."""
+        self.pins: list[str] = []
+        """Paths relative to the world folder that `pinned` answers with."""
+
+    def pinned(self, world_id: str) -> list[str]:
+        return list(self.pins)
 
     def stage_folder(self, world_id: str, run_id: str, stage_id: str) -> Path:
         folder = self.root / world_id / "runs" / run_id / stage_id

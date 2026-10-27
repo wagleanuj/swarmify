@@ -72,6 +72,10 @@ class Files(Protocol):
         """Artifacts of the run so far, as paths relative to the run folder."""
         ...
 
+    def pinned(self, world_id: str) -> list[str]:
+        """The world's pinned artifacts, required reading, as paths relative to its folder."""
+        ...
+
     def write_note(
         self,
         world_id: str,
@@ -303,6 +307,7 @@ class Swarm:
                 f"Done when: {at.config.get('done_when', '')}",
                 _wants(at.config),
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
+                self._pins(at),
                 "Query the graph for what the world already knows, then answer with the tasks:"
                 " small, concrete, each one worker can finish alone. `after` lists the indexes"
                 " of earlier tasks in your list that must be done first.",
@@ -328,7 +333,7 @@ class Swarm:
 
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
-                system_prompt=self._system_prompt(at.world_id, at.run_id, at.stage_name, at.config),
+                system_prompt=self._system_prompt(at),
                 prompt=f"Work the whiteboard of stage {at.stage_name} until no task is ready.",
                 cwd=self.files.stage_folder(at.world_id, at.run_id, at.stage_id),
                 plugin=at.world_folder,
@@ -506,17 +511,26 @@ class Swarm:
         board.update_agent(at.stage_id, name, status="failed")
         raise StageError(f"{name} failed {SESSIONS} sessions in a row; see the stage log")
 
-    def _system_prompt(
-        self, world_id: str, run_id: str, stage_name: str, config: dict[str, Any]
-    ) -> str:
-        prior = self.files.artifacts(world_id, run_id)
+    def _pins(self, at: "_At") -> str:
+        """Pinned artifacts are required reading for the planner and the worker (Memory's Pin);
+        the judge judges the stage's own notes."""
+        pins = self.files.pinned(at.world_id)
+        if not pins:
+            return ""
+        paths = ", ".join(str(at.world_folder / p) for p in pins)
+        return f"Pinned references, required reading before you start (Read each): {paths}."
+
+    def _system_prompt(self, at: "_At") -> str:
+        config = at.config
+        prior = self.files.artifacts(at.world_id, at.run_id)
         return "\n".join(
             [
-                f"You are {WORKER}, a worker in a swarm. Stage: {stage_name}.",
+                f"You are {WORKER}, a worker in a swarm. Stage: {at.stage_name}.",
                 f"Goal: {config.get('goal', '')}",
                 f"Done when: {config.get('done_when', '')}",
                 _wants(config),
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
+                self._pins(at),
                 "How you work: call query_graph before your first claim and reuse what the world"
                 " knows. claim_task takes the next ready task. heartbeat at least every minute"
                 " while you hold one. Write what you learn with write_note and outputs with"
