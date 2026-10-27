@@ -217,6 +217,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/{workflow_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Workflow
+         * @description A new workflow in another world from this one's current version. Refused with the
+         *     violations when that world lacks a connector the workflow needs.
+         */
+        post: operations["copy_workflow_api_workflows__workflow_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows/{workflow_id}/versions/{number}": {
         parameters: {
             query?: never;
@@ -333,6 +354,27 @@ export interface paths {
          *     skipped.
          */
         post: operations["promote_api_workflows__workflow_id__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/workflow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save As Workflow
+         * @description A new workflow in the run's world from the stages the run actually ran, gates added
+         *     by hand included (an ad hoc run becomes repeatable). Only a run that is done.
+         */
+        post: operations["save_as_workflow_api_runs__run_id__workflow_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1021,6 +1063,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/planner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat
+         * @description One turn of the planner chat. 502 when the planner's session fails or does not
+         *     answer in the shape asked; send the message again to retry.
+         */
+        post: operations["chat_api_worlds__world_id__planner_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1336,6 +1399,11 @@ export interface components {
             /** Missing */
             missing: string[];
         };
+        /** CopyBody */
+        CopyBody: {
+            /** World Id */
+            world_id: string;
+        };
         /** CredentialValues */
         CredentialValues: {
             /** Credentials */
@@ -1593,6 +1661,17 @@ export interface components {
              */
             detail: string;
         };
+        /** Message */
+        Message: {
+            /** Message */
+            message: string;
+            /** Yaml */
+            yaml?: string | null;
+            /** Workflow Id */
+            workflow_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+        };
         /** NewConnector */
         NewConnector: {
             /** Name */
@@ -1807,14 +1886,27 @@ export interface components {
              */
             cost_usd: number;
         };
+        /** Reply */
+        Reply: {
+            /** Reply */
+            reply: string;
+            /** Yaml */
+            yaml: string | null;
+            /** Session Id */
+            session_id: string;
+            saved?: components["schemas"]["WorkflowVersion"] | null;
+        };
         /**
          * Report
-         * @description What the editor shows inline: every violation, plus the model when the shape parsed.
+         * @description What the editor shows inline: every violation, plus the model when the shape parsed and,
+         *     when it has a schedule, the next time DBOS would fire it.
          */
         Report: {
             /** Violations */
             violations: components["schemas"]["Violation"][];
             model?: components["schemas"]["WorkflowModel"] | null;
+            /** Next Run At */
+            next_run_at?: string | null;
         };
         /** Run */
         Run: {
@@ -1945,6 +2037,11 @@ export interface components {
             /** Notes */
             notes?: string[];
             child?: components["schemas"]["RunLink"] | null;
+        };
+        /** SaveAsWorkflow */
+        SaveAsWorkflow: {
+            /** Name */
+            name?: string | null;
         };
         /**
          * Scorecard
@@ -2856,6 +2953,41 @@ export interface operations {
             };
         };
     };
+    copy_workflow_api_workflows__workflow_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersion"];
+                };
+            };
+            /** @description The workflow breaks one or more rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+        };
+    };
     get_version_api_workflows__workflow_id__versions__number__get: {
         parameters: {
             query?: never;
@@ -3134,6 +3266,55 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    save_as_workflow_api_runs__run_id__workflow_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveAsWorkflow"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersion"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The workflow breaks one or more rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
             };
         };
     };
@@ -4500,6 +4681,55 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    chat_api_worlds__world_id__planner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Message"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reply"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -33,7 +33,9 @@ from dbos import DBOS, DBOSConfig, SetWorkflowID
 from swarmify_kernel import Event, new_id
 from swarmify_runs import budget
 from swarmify_runs.control import (
+    APP_NAME,
     CONTROL_TOPIC,
+    SCHEDULED_WORKFLOW,
     OverBudget,
     Previews,
     RunControl,
@@ -171,10 +173,11 @@ class Runner(RunControl):
         _runner = self
         _stopping.clear()
         config: DBOSConfig = {
-            "name": "swarmify",
+            "name": APP_NAME,
             "system_database_url": f"sqlite:///{self.system_db}",
             "application_version": APP_VERSION,
             "notification_listener_polling_interval_sec": min(self.poll_seconds, 1.0),
+            "scheduler_polling_interval_sec": max(self.poll_seconds, 1.0),
             "log_level": "WARNING",
         }
         DBOS(config=config)
@@ -192,16 +195,20 @@ class Runner(RunControl):
         """Release the waiting workflows, then stop DBOS. Interrupted runs resume on launch."""
         global _runner
         _stopping.set()
-        with _waiting_lock:
-            waiting = list(_waiting)
-        for run_id in waiting:
-            try:
-                DBOS.send(run_id, WAKE, topic=CONTROL_TOPIC)
-            except Exception:  # left by a launch that did not wind down in time; DBOS still stops
-                log.warning("could not wake run %s at shutdown", run_id)
         deadline = time.monotonic() + seconds
-        while _waiting and time.monotonic() < deadline:
-            time.sleep(0.01)
+        # Keep waking until nothing waits: a run that reaches its recv after one round of
+        # wakes (a scheduled run starting mid-shutdown) would otherwise hang the exit.
+        while time.monotonic() < deadline:
+            with _waiting_lock:
+                waiting = list(_waiting)
+            if not waiting:
+                break
+            for run_id in waiting:
+                try:
+                    DBOS.send(run_id, WAKE, topic=CONTROL_TOPIC)
+                except Exception:  # left by a launch that did not wind down in time
+                    log.warning("could not wake run %s at shutdown", run_id)
+            time.sleep(0.05)
         with _waiting_lock:
             _waiting.clear()  # anything still here belongs to this launch, which is ending
         self.close()
@@ -331,6 +338,41 @@ def queue_name(world_id: str) -> str:
 def _current() -> Runner:
     assert _runner is not None, "Runner.launch() was not called"
     return _runner
+
+
+@DBOS.workflow(name=SCHEDULED_WORKFLOW)
+def scheduled_run(scheduled_at: datetime, context: Any) -> str | None:
+    """What a workflow's cron fires: a run of its current version, as `start` would make one.
+    The schedule's context names the workflow. A workflow deleted since does nothing."""
+    started = _start_scheduled(str(context["workflow_id"]), scheduled_at.isoformat())
+    if started is None:
+        return None
+    run_id, world_id = started
+    runner = _current()
+    if world_id not in runner._caps:
+        runner.set_cap(world_id)
+    with SetWorkflowID(run_id):
+        DBOS.enqueue_workflow(queue_name(world_id), execute_run, run_id)
+    return run_id
+
+
+@DBOS.step(name="swarmify.start_scheduled")
+def _start_scheduled(workflow_id: str, fired_at: str) -> tuple[str, str] | None:
+    runner = _current()
+    if runner.pin is None:
+        raise NotImplementedError("scheduled runs need a pin to find their workflow")
+    try:
+        pinned = runner.pin(workflow_id)
+    except KeyError:
+        log.warning("schedule fired for %s at %s, but it no longer exists", workflow_id, fired_at)
+        return None
+    now = datetime.now(UTC).isoformat()
+    run = Run(
+        new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
+        "queued", now, now, [], budget_usd=pinned.budget_usd,
+    )  # fmt: skip
+    run = runner.storage.add_run(run, pinned.stages)
+    return run.id, run.world_id
 
 
 @DBOS.workflow(name="swarmify.run")

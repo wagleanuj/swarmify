@@ -195,3 +195,24 @@ select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); 
 .proposal textarea { font-size: 0.85rem; }
 .skill-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.5rem; }
 .skill-list li { display: grid; gap: 0.2rem; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; }
+
+/* Workflow editor: three views of one text */
+.views { display: flex; gap: 0.3rem; margin-bottom: 0.8rem; border-bottom: 1px solid var(--line); }
+.views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 0.5rem 0.8rem; margin-bottom: -1px; color: var(--muted); }
+.views button[aria-selected="true"] { color: inherit; border-bottom-color: CanvasText; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.8rem; margin-bottom: 1rem; }
+.fields label, .stage-card label { display: grid; gap: 0.25rem; margin: 0; }
+.stage-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.8rem; }
+.stage-card { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; display: grid; gap: 0.6rem; }
+.stage-card .row b { text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.04em; color: var(--muted); }
+.stage-card .row button { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+.stage-card .fields { margin: 0; }
+.add-stage { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.8rem; flex-wrap: wrap; }
+.chat { display: grid; gap: 0.8rem; }
+.chat-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; max-height: 28rem; overflow: auto; }
+.chat-log li { padding: 0.6rem 0.8rem; border-radius: 10px; border: 1px solid var(--line); max-width: 44rem; white-space: pre-wrap; }
+.chat-log li.you { justify-self: end; background: color-mix(in srgb, CanvasText 6%, transparent); }
+.chat-log li b { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.2rem; }
+.chat form { display: flex; gap: 0.6rem; align-items: start; }
+.chat form textarea { flex: 1; font: inherit; }
+.copy { display: grid; gap: 0.5rem; }

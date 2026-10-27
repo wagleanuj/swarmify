@@ -15,6 +15,7 @@ from swarmify_workflows.model import (
     WorkflowModel,
     WorkflowStage,
 )
+from swarmify_workflows.schedule import CRON_RULE, cron_problem
 
 TOP_FIELDS = {"name", "schedule", "budget_usd", "agents", "stages"}
 STAGE_FIELDS: dict[str, set[str]] = {
@@ -91,6 +92,8 @@ def parse_workflow(text: str) -> tuple[WorkflowModel | None, list[Violation]]:
     top = _Fields(doc, out, None)
     name = top.text("name", required=True)
     schedule = top.text("schedule")
+    if schedule is not None and (problem := cron_problem(schedule)) is not None:
+        out.append(Violation(CRON_RULE, problem))
     budget = top.number("budget_usd")
     agents = top.number("agents", integer=True)
     top.unknown(TOP_FIELDS)

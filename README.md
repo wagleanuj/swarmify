@@ -65,8 +65,37 @@ rule name: a publish connector must come right after a gate (ADR 0007); workflow
 form a cycle and may nest at most two deep (ADR 0013); every connector must exist in the world and
 allow the stage type; a connector's `input` must be produced by an earlier stage.
 `POST /api/worlds/<id>/workflows` creates, `POST /api/workflows/<id>/versions` appends,
-`POST /api/worlds/<id>/workflows/check` only reports. The MCP server exposes `save_workflow`,
-`check_workflow`, `list_workflows` and `get_workflow`.
+`POST /api/worlds/<id>/workflows/check` only reports (violations, the parsed model and, with a
+`schedule`, `next_run_at`). The MCP server exposes `save_workflow`, `check_workflow`,
+`list_workflows` and `get_workflow`.
+
+### Workflow editor
+
+The editor at `/worlds/<id>/workflows/new` (and `/<workflow id>`) has three views of one text:
+**Richard** (the planner chat), **Stages** (a visual list: workflow fields, one card per stage
+with its fields, move up and down, remove, add by type) and **YAML**. Every edit in any view
+rewrites the YAML, which the other views project, and the check runs on each change. The
+aside shows the stage rail, the schedule with its next run, the versions, and "Copy to another
+world".
+
+- **Planner chat.** `POST /api/worlds/<id>/planner` with `{"message", "yaml", "workflow_id",
+  "session_id"}` runs one turn of a Planner session on the AgentRuntime whose tools are the
+  swarmify MCP server's own `check_workflow`, `save_workflow`, `get_workflow` and
+  `list_workflows`, called in-process. It answers `{"reply", "yaml", "session_id", "saved"}`:
+  `yaml` is the whole draft after the planner's changes (the editor adopts it, unsaved),
+  `session_id` continues the conversation next turn, and `saved` is the version the planner
+  saved when asked to. A session that fails or answers off-schema is a 502; send again.
+- **Schedule.** `schedule` is a cron expression in UTC (five fields, or six with seconds
+  first), checked on save with the same parser DBOS uses. Saving a version registers (or
+  removes) a DBOS cron for the workflow; each fire starts an ordinary run of the current
+  version, which appears on the runs page like any other. At launch the API makes DBOS's
+  schedules match the workflows table, so a save from the MCP process while the API was down
+  is picked up then. Deleting a world removes its schedules.
+- **Save as workflow.** `POST /api/runs/<id>/workflow` (`{"name"}` optional) turns a done run's
+  stages, exactly as the run recorded them, into a new workflow in its world; the run timeline
+  has the button. An ad hoc run (T20) becomes repeatable the same way.
+- **Copy.** `POST /api/workflows/<id>/copy` with `{"world_id"}` saves the current version as a
+  new workflow in that world, refused with the violations when the world lacks a connector.
 
 ## Runs
 

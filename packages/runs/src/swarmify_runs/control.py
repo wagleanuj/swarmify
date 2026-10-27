@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from dbos import DBOSClient
+from sqlalchemy.exc import OperationalError
 
 from swarmify_kernel import Event, new_id
 from swarmify_runs import budget
@@ -35,11 +36,11 @@ from swarmify_runs.machine import (
 from swarmify_runs.model import Decision, Gate, PublishPreview, Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
 
+log = logging.getLogger(__name__)
 CONTROL_TOPIC = "control"
 Spend = Callable[[list[str]], float]
 """The estimated agent cost of the given runs, summed. The composition root reads it from the
 Swarm context, whose agents carry the cost."""
-log = logging.getLogger(__name__)
 
 
 class OverBudget(Exception):
@@ -50,6 +51,13 @@ class OverBudget(Exception):
 def no_spend(_run_ids: list[str]) -> float:
     return 0.0
 
+
+APP_NAME = "swarmify"
+"""The DBOS application: the API process launches it; the client acts on its behalf."""
+SCHEDULE_PREFIX = "wf-"
+SCHEDULED_WORKFLOW = "swarmify.scheduled"
+"""The DBOS workflow a schedule fires (registered in `runner`); it starts a run of the
+workflow named in the schedule's context."""
 
 Previews = Callable[[str, StageDef], PublishPreview | None]
 """What a stage of a world will publish, or None when it does not publish. Runs cannot tell a
@@ -332,8 +340,51 @@ class RunControl:
     @property
     def client(self) -> DBOSClient:
         if self._client is None:
-            self._client = DBOSClient(system_database_url=f"sqlite:///{self.system_db}", lazy=True)
+            self._client = DBOSClient(
+                system_database_url=f"sqlite:///{self.system_db}",
+                application_name=APP_NAME,
+                lazy=True,
+            )
         return self._client
+
+    def schedule(self, workflow_id: str, cron: str | None) -> None:
+        """Make DBOS start a run of the workflow's current version on `cron` (UTC; six fields
+        put seconds first), replacing any earlier schedule; None removes it. Takes effect
+        within the API's scheduler poll. Raises ValueError for a cron DBOS refuses."""
+        name = SCHEDULE_PREFIX + workflow_id
+        try:
+            self.client.delete_schedule(name)
+            if cron is not None:
+                self.client.create_schedule(
+                    schedule_name=name,
+                    workflow_name=SCHEDULED_WORKFLOW,
+                    schedule=cron,
+                    context={"workflow_id": workflow_id},
+                    application_name=APP_NAME,
+                )
+        except OperationalError as exc:
+            # DBOS has never launched here, so its tables are not there yet (a save from the
+            # MCP process before the API's first start). `sync_schedules` at launch catches up.
+            # Anything else (a busy database) raises: the cron would otherwise silently wait.
+            if "no such table" not in str(exc):
+                raise
+            log.info("DBOS is not launched; %s is scheduled at the next launch", workflow_id)
+        except Exception as exc:  # DBOSException: an invalid cron is the only cause left
+            raise ValueError(str(exc)) from exc
+
+    def schedules(self) -> dict[str, str]:
+        """Every workflow DBOS has a schedule for, to its cron expression."""
+        found = self.client.list_schedules(schedule_name_prefix=SCHEDULE_PREFIX)
+        return {s["schedule_name"][len(SCHEDULE_PREFIX) :]: s["schedule"] for s in found}
+
+    def sync_schedules(self, wanted: dict[str, str]) -> None:
+        """Make DBOS's schedules exactly `wanted` (workflow id to cron): the workflows table is
+        the source of truth, so a schedule edited while the API was down, or a workflow deleted
+        with its world, is reconciled at launch."""
+        current = self.schedules()
+        for workflow_id in set(current) | set(wanted):
+            if current.get(workflow_id) != wanted.get(workflow_id):
+                self.schedule(workflow_id, wanted.get(workflow_id))
 
     def close(self) -> None:
         if self._client is not None:

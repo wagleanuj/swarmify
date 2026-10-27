@@ -170,6 +170,24 @@ export function RunTimeline() {
     void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
+  /** A done run becomes a workflow: the stages it ran, gates added by hand included. */
+  async function saveAsWorkflow() {
+    if (!run) return;
+    setError(null);
+    const { data, error, response } = await api.POST("/api/runs/{run_id}/workflow", {
+      params: { path: { run_id: run.id } },
+      body: {},
+    });
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      return setError(typeof detail === "string" ? detail : `Could not save the run as a workflow (${response.status}).`);
+    }
+    void router.navigate({
+      to: "/worlds/$worldId/workflows/$workflowId",
+      params: { worldId, workflowId: data.workflow_id },
+    });
+  }
+
   const crumb = (
     <div className="crumb">
       <Link to="/">worlds</Link> /{" "}
@@ -257,6 +275,13 @@ export function RunTimeline() {
           )}
           <Measure run={run} baseline={baseline} />
         </div>
+        {run.status === "done" && (
+          <div className="row" data-testid="run-actions">
+            <button type="button" onClick={saveAsWorkflow}>
+              Save as workflow
+            </button>
+          </div>
+        )}
         {!ended && (
           <div className="row" data-testid="run-actions">
             {run.status === "waiting_gate" && (

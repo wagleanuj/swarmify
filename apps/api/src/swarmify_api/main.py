@@ -34,7 +34,9 @@ from swarmify_api import (
     graph,
     learning,
     library,
+    mcp,
     notifications,
+    planner,
     runs,
     tasks,
     upkeep,
@@ -86,7 +88,7 @@ from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
 from swarmify_swarm import AgentRuntime, CastEntry, SdkRuntime, Stopped, Swarm
 from swarmify_swarm import SqliteStorage as TaskStorage
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
-from swarmify_workflows import ConnectorRef, Workflows
+from swarmify_workflows import ConnectorRef, Workflows, WorkflowVersion
 from swarmify_workflows import SqliteStorage as WorkflowStorage
 from swarmify_worlds import MIGRATIONS as WORLDS_MIGRATIONS
 from swarmify_worlds import SqliteStorage, Worlds
@@ -133,8 +135,11 @@ def connector_service(
     )
 
 
-def workflow_service(root: Path, registry: Connectors | None = None) -> Workflows:
-    """Workflows learns what a world's connectors allow from the registry, by name."""
+def workflow_service(
+    root: Path, registry: Connectors | None = None, control: RunControl | None = None
+) -> Workflows:
+    """Workflows learns what a world's connectors allow from the registry, by name. With a
+    `control`, every saved version's `schedule` becomes (or removes) a DBOS cron for it."""
     registry = registry or connector_service(root)
 
     def refs(world_id: str) -> dict[str, ConnectorRef]:
@@ -143,7 +148,17 @@ def workflow_service(root: Path, registry: Connectors | None = None) -> Workflow
             for c in registry.list_all(world_id)
         }
 
-    return Workflows(WorkflowStorage(migrated_db(root)), refs)
+    def on_saved(version: WorkflowVersion) -> None:
+        if control is not None:
+            control.schedule(version.workflow_id, version.model.schedule)
+
+    return Workflows(WorkflowStorage(migrated_db(root)), refs, on_saved)
+
+
+def unschedule_world(workflows: Workflows, control: RunControl, world_id: str) -> None:
+    """Drop the DBOS schedules of a world's workflows; call before the workflows go."""
+    for workflow in workflows.list_all(world_id):
+        control.schedule(workflow.id, None)
 
 
 def base_url() -> str:
@@ -386,7 +401,6 @@ def create_app(
         world = world_svc.get(world_id)
         return getattr(world, name) if world else None
 
-    workflow_svc = workflow_service(root, registry)
     runner = Runner(
         run_storage(root),
         root / "dbos.sqlite",
@@ -394,7 +408,6 @@ def create_app(
         root,
         notifier or channels,
         swarm=run_swarm,
-        pin=runs.pinner(workflow_svc),
         take=take,
         previews=previews(registry),
         spend=spend,
@@ -402,6 +415,8 @@ def create_app(
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
         retro=run_retro,
     )
+    workflow_svc = workflow_service(root, registry, runner)
+    runner.pin = runs.pinner(workflow_svc)
 
     def swarm_tools(world_id: str) -> list[str]:
         """The world's connectors a swarm stage may use: an Ad Hoc Run's tools."""
@@ -434,6 +449,8 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # DBOS refuses its sync API on a running event loop, so launch and stop in a thread.
         await to_thread.run_sync(runner.launch)
+        # The workflows table decides what is scheduled; DBOS's schedules follow it.
+        await to_thread.run_sync(lambda: runner.sync_schedules(workflow_svc.scheduled()))
         sweeper = asyncio.create_task(sweep())
         upkeeper = asyncio.create_task(upkeep_loop())
         stop = threading.Event()
@@ -461,6 +478,7 @@ def create_app(
         return Health(version=VERSION)
 
     def on_delete(world_id: str) -> None:
+        unschedule_world(workflow_svc, runner, world_id)
         workflow_svc.delete_world(world_id)
         runner.delete_world(world_id)
         registry.delete_world(world_id)
@@ -481,6 +499,8 @@ def create_app(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
     app.include_router(evals.router(world_svc, memory))
+    tools = mcp.server(world_svc, workflow_svc, whiteboard, runner, on_delete)
+    app.include_router(planner.router(world_svc, swarm.runtime, tools))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     if password := os.environ.get("SWARMIFY_PASSWORD"):

@@ -51,8 +51,8 @@ def server(
     def delete_world(world_id: str) -> dict[str, Any]:
         if not worlds.delete(world_id):
             raise ValueError(f"world not found: {world_id}")
+        on_delete(world_id)  # first: it drops the schedules of workflows still listed
         workflows.delete_world(world_id)
-        on_delete(world_id)
         return {"deleted": world_id}
 
     @mcp.tool(
@@ -183,6 +183,7 @@ def main() -> None:
         data_dir,
         run_control,
         task_board,
+        unschedule_world,
         workflow_service,
         world_service,
     )
@@ -190,6 +191,7 @@ def main() -> None:
     root = data_dir()
     registry = connector_service(root)
     control, whiteboard = run_control(root), task_board(root)
+    workflows = workflow_service(root, registry, control)
 
     def on_delete(world_id: str) -> None:
         # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
@@ -198,6 +200,8 @@ def main() -> None:
         whiteboard.delete_world(world_id)
         registry.delete_world(world_id)
 
-    server(
-        world_service(root), workflow_service(root, registry), whiteboard, control, on_delete
-    ).run("stdio")
+    def delete_world(world_id: str) -> None:
+        unschedule_world(workflows, control, world_id)
+        on_delete(world_id)
+
+    server(world_service(root), workflows, whiteboard, control, delete_world).run("stdio")

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1798,12 +1798,14 @@ version = "0.1.0"
 source = { editable = "packages/runs" }
 dependencies = [
     { name = "dbos" },
+    { name = "sqlalchemy" },
     { name = "swarmify-kernel" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "dbos", specifier = ">=3.3" },
+    { name = "sqlalchemy", specifier = ">=2" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
 
@@ -1827,12 +1829,14 @@ name = "swarmify-workflows"
 version = "0.1.0"
 source = { editable = "packages/workflows" }
 dependencies = [
+    { name = "croniter" },
     { name = "pyyaml" },
     { name = "swarmify-kernel" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "croniter", specifier = ">=6.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]

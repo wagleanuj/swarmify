@@ -120,3 +120,33 @@ def test_stage_def_keeps_every_stage_field() -> None:
     assert stage_def(GateStage("pick", "Pick one.", "pick")) == StageDef(
         "pick", "gate", {"ask": "Pick one.", "kind": "pick"}
     )
+
+
+ONE_GATE = "name: Quick check\nstages:\n  - gate: ok\n    ask: Fine?\n    kind: confirm\n"
+
+
+def test_a_done_run_is_saved_as_a_workflow_from_the_stages_it_ran(running: TestClient) -> None:
+    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": ONE_GATE}).json()
+    run = running.post(f"/api/workflows/{wf['workflow_id']}/runs", json={"budget_usd": 3}).json()
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+    early = running.post(f"/api/runs/{run['id']}/workflow", json={})
+    assert early.status_code == 409 and "waiting_gate" in early.json()["detail"]
+
+    assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    saved = running.post(f"/api/runs/{run['id']}/workflow", json={"name": "Checked again"})
+    assert saved.status_code == 201, saved.text
+    version = saved.json()
+    assert version["number"] == 1 and version["workflow_id"] != wf["workflow_id"]
+    assert version["model"]["name"] == "Checked again"
+    assert version["model"]["stages"] == [
+        {"type": "gate", "name": "ok", "ask": "Fine?", "kind": "confirm"}
+    ]
+    assert (
+        version["yaml"] == "name: Checked again\nbudget_usd: 3.0\n"
+        "stages:\n- gate: ok\n  ask: Fine?\n  kind: confirm\n"
+    )
+    names = [w["name"] for w in running.get(f"/api/worlds/{world}/workflows").json()]
+    assert names == ["Quick check", "Checked again"]
+    assert running.post("/api/runs/run_nope/workflow", json={}).status_code == 404

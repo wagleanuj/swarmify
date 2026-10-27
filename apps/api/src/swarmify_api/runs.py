@@ -1,7 +1,8 @@
 """HTTP face of the Runs context: start a run of a workflow version or an Ad Hoc Run from a
 typed goal, fork a run or promote a Library artifact into one, list runs, read one, act on one
 (decide at its gate, pause, resume, abort, set its Budget), read the baseline it is measured
-against, the world's spend this month, and list every open gate."""
+against, the world's spend this month, list every open gate and save a finished run as a
+workflow."""
 
 from collections.abc import Callable
 from dataclasses import asdict, replace
@@ -9,10 +10,13 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
 
+from swarmify_api.workflows import INVALID, Report
 from swarmify_runs import Gate, Illegal, Pinned, Run, Runner, StageDef
-from swarmify_workflows import Stage, Workflows
+from swarmify_workflows import Invalid, Stage, Workflows, WorkflowVersion, dump_workflow
 from swarmify_worlds import Worlds
 
 DONE_WHEN = "The goal is met and what was found is written down as notes and artifacts."
@@ -84,6 +88,11 @@ class Promote(BaseModel):
     stage: int = Field(ge=1)
     """The stage the run starts at; the earlier ones are skipped."""
     version: int | None = None
+
+
+class SaveAsWorkflow(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    """The workflow's name; the run's name when left out."""
 
 
 ACTION_ERRORS: dict[int | str, dict[str, Any]] = {
@@ -237,6 +246,32 @@ def router(
             raise HTTPException(404, "artifact not found")
         pinned = replace(p, stages=stages(p.stages))
         return act(lambda: runner.promote(pinned, body.stage, file, body.artifact))
+
+    @api.post(
+        "/runs/{run_id}/workflow",
+        status_code=201,
+        responses={**ACTION_ERRORS, **INVALID},
+        response_model=WorkflowVersion,
+    )
+    def save_as_workflow(run_id: str, body: SaveAsWorkflow) -> WorkflowVersion | JSONResponse:
+        """A new workflow in the run's world from the stages the run actually ran, gates added
+        by hand included (an ad hoc run becomes repeatable). Only a run that is done."""
+        run = runner.get(run_id)
+        if run is None:
+            raise HTTPException(404, "run not found")
+        if run.status != "done":
+            raise HTTPException(409, f"the run is {run.status}; only a done run becomes a workflow")
+        defs = [runner.storage.stage_def(run.id, s.index)[1] for s in run.stages]
+        yaml = dump_workflow(
+            (body.name or run.name).strip() or run.name,
+            [(d.type, d.name, d.config) for d in defs],
+            budget_usd=run.budget_usd,
+        )
+        try:
+            return workflows.save(run.world_id, yaml)
+        except Invalid as exc:
+            report = Report(violations=exc.violations, model=None)
+            return JSONResponse(status_code=422, content=jsonable_encoder(report))
 
     @api.get("/worlds/{world_id}/runs")
     def list_runs(world_id: str) -> list[Run]:
