@@ -8,6 +8,7 @@ import {
 
 import { Cast } from "./pages/Cast";
 import { Connectors } from "./pages/Connectors";
+import { Evals } from "./pages/Evals";
 import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
 import { Library } from "./pages/Library";
@@ -31,6 +32,12 @@ export const gatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/gates",
   component: Gates,
+});
+
+export const evalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/evals",
+  component: Evals,
 });
 
 export const worldRoute = createRoute({
@@ -102,6 +109,7 @@ export const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   worldsRoute,
   gatesRoute,
+  evalsRoute,
   worldRoute,
   newWorkflowRoute,
   workflowRoute,

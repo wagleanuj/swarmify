@@ -996,6 +996,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/evals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Evals
+         * @description Every stored report, newest first.
+         */
+        get: operations["list_evals_api_evals_get"];
+        put?: never;
+        /**
+         * Save Eval
+         * @description Summarize the trials into a report (pass at k, pass to the k, cost, duration and
+         *     acceptance per arm) and store it as `report.md` in the eval world's Library.
+         */
+        post: operations["save_eval_api_evals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1062,6 +1087,25 @@ export interface components {
         Answer: {
             /** Answer */
             answer: string;
+        };
+        /** ArmSummary */
+        ArmSummary: {
+            /** Arm */
+            arm: string;
+            /** Trials */
+            trials: number;
+            /** Accepted */
+            accepted: number;
+            /** Acceptance */
+            acceptance: number;
+            /** Pass At K */
+            pass_at_k: number;
+            /** Pass Pow K */
+            pass_pow_k: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Duration S */
+            duration_s: number | null;
         };
         /**
          * ArtifactFile
@@ -1361,6 +1405,25 @@ export interface components {
             /** Decided At */
             decided_at: string;
         };
+        /** EvalReport */
+        EvalReport: {
+            /** Id */
+            id: string;
+            /** Created At */
+            created_at: string;
+            /** K */
+            k: number;
+            /** Tasks */
+            tasks: number;
+            /** Arms */
+            arms: components["schemas"]["ArmSummary"][];
+            /** Swarm Wins */
+            swarm_wins: boolean;
+            /** Verdict */
+            verdict: string;
+            /** Trials */
+            trials: components["schemas"]["Trial"][];
+        };
         /** Failure */
         Failure: {
             /** At */
@@ -1547,6 +1610,13 @@ export interface components {
             };
             /** Stage Types */
             stage_types: ("swarm" | "connector")[];
+        };
+        /** NewEval */
+        NewEval: {
+            /** K */
+            k: number;
+            /** Trials */
+            trials: components["schemas"]["Trial"][];
         };
         /**
          * NewSkill
@@ -2072,6 +2142,31 @@ export interface components {
             input_schema?: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * Trial
+         * @description One run of one arm on one task, in its own world. `cost_usd` is the runtime's estimate;
+         *     `duration_s` is None when the run never finished a stage.
+         */
+        Trial: {
+            /** Task Id */
+            task_id: string;
+            /** Arm */
+            arm: string;
+            /** Index */
+            index: number;
+            /** World Id */
+            world_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Status */
+            status: string;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Duration S */
+            duration_s: number | null;
+            /** Failed */
+            failed?: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -4358,6 +4453,57 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    list_evals_api_evals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalReport"][];
+                };
+            };
+        };
+    };
+    save_eval_api_evals_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewEval"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalReport"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

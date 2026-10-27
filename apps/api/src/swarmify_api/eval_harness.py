@@ -1,0 +1,159 @@
+"""`swarmify-eval`: run the weekly short as baseline and as swarm over the eval task set, against
+a running swarmify API (with the real model behind it), and store the report in the eval world.
+
+Each trial gets a fresh world, its own copy of the workflow and one run; the outputs it left
+(`ideas.md`, `script.md`) are graded, never the path it took. A retro proposal is rejected so
+the run can end, a budget gate or the timeout aborts the trial, which then fails.
+
+    uv run swarmify-eval --k 3                  # every task, 3 trials an arm
+    uv run swarmify-eval --tasks 2 --k 1        # a smoke run
+
+`SWARMIFY_PASSWORD` (and `SWARMIFY_USER`) are sent as basic auth when set.
+"""
+
+import argparse
+import os
+import sys
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
+from typing import Any
+
+import httpx2 as httpx
+
+from swarmify_learning.evals import ARMS, TASKS, EvalTask, Trial, grade, workflow_yaml
+from swarmify_learning.scorecard import duration
+
+ENDED = ("done", "failed", "aborted")
+
+
+@dataclass(frozen=True)
+class Settings:
+    budget_usd: float = 3.0
+    """Each trial's Budget; a trial that spends it is aborted."""
+    timeout_s: float = 45 * 60
+    poll_s: float = 5.0
+
+
+def _ok(response: httpx.Response) -> Any:
+    response.raise_for_status()
+    return response.json()
+
+
+def _settle(http: httpx.Client, run_id: str) -> None:
+    """A run at a gate: reject a retro proposal (the trial world is thrown away), abort anything
+    else, which is a budget gate since the eval workflow has no gate of its own."""
+    proposal = http.get(f"/api/runs/{run_id}/proposal")
+    if proposal.status_code == 200:
+        body = {"approve": False, "note": "eval trial"}
+        http.post(f"/api/proposals/{proposal.json()['id']}/decide", json=body)
+    else:
+        http.post(f"/api/runs/{run_id}/abort")
+
+
+def trial(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings) -> Trial:
+    world = _ok(http.post("/api/worlds", json={"name": f"Eval {task.id} {arm} {index + 1}"}))
+    yaml = workflow_yaml(task, s.budget_usd)
+    workflow = _ok(http.post(f"/api/worlds/{world['id']}/workflows", json={"yaml": yaml}))
+    start = {"baseline": arm == "baseline"}
+    run = _ok(http.post(f"/api/workflows/{workflow['workflow_id']}/runs", json=start))
+    deadline = time.monotonic() + s.timeout_s
+    timed_out = False
+    while run["status"] not in ENDED:
+        if run["status"] == "waiting_gate":
+            _settle(http, run["id"])
+        elif time.monotonic() > deadline and not timed_out:
+            timed_out = True
+            http.post(f"/api/runs/{run['id']}/abort")
+        time.sleep(s.poll_s)
+        run = _ok(http.get(f"/api/runs/{run['id']}"))
+    library = _ok(http.get(f"/api/worlds/{world['id']}/library"))
+    outputs = {i["name"]: i["body"] for i in library if i["run_id"] == run["id"]}
+    failed = grade(task, outputs) if run["status"] == "done" else [f"the run {run['status']}"]
+    if timed_out:
+        failed.insert(0, f"timed out after {s.timeout_s:.0f} s")
+    work = [st for st in run["stages"] if st["type"] != "retro"]  # the retro is not the work
+    return Trial(
+        task.id,
+        arm,
+        index,
+        world["id"],
+        run["id"],
+        run["status"],
+        float(run["spent_usd"]),
+        duration(work),
+        failed,
+    )
+
+
+def _safe(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings) -> Trial:
+    """A trial that broke on the API's side fails, it does not end the eval."""
+    try:
+        return trial(http, task, arm, index, s)
+    except httpx.HTTPError as exc:
+        return Trial(task.id, arm, index, "", "", "error", 0.0, None, [f"error: {exc}"])
+
+
+def run_eval(
+    http: httpx.Client,
+    tasks: list[EvalTask],
+    k: int,
+    settings: Settings | None = None,
+    parallel: int = 1,
+    clean: bool = False,
+    say: Callable[[str], None] = lambda _line: None,
+) -> dict[str, Any]:
+    """Every task k times on each arm, then the stored report. `clean` deletes trial worlds."""
+    s = settings or Settings()
+    jobs = [(t, arm, i) for t in tasks for i in range(k) for arm in ARMS]
+
+    def one(job: tuple[EvalTask, str, int]) -> Trial:
+        done = _safe(http, *job, s)
+        verdict = "accepted" if done.passed else "; ".join(done.failed)
+        say(f"{done.task_id} {done.arm} {done.index + 1}: {verdict}")
+        return done
+
+    if parallel > 1:
+        with ThreadPoolExecutor(parallel) as pool:
+            trials = list(pool.map(one, jobs))
+    else:
+        trials = [one(j) for j in jobs]
+    report = _ok(http.post("/api/evals", json={"k": k, "trials": [asdict(t) for t in trials]}))
+    if clean:
+        for t in trials:
+            if t.world_id:
+                http.delete(f"/api/worlds/{t.world_id}")
+    return report
+
+
+def main(argv: list[str] | None = None) -> None:
+    p = argparse.ArgumentParser(
+        prog="swarmify-eval", description="Run the eval: the weekly short as baseline and as swarm."
+    )
+    p.add_argument("--api", default=os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000"))
+    p.add_argument("--k", type=int, default=3, help="trials an arm per task (default 3)")
+    p.add_argument("--tasks", type=int, default=len(TASKS), help="the first N tasks (all)")
+    p.add_argument("--budget", type=float, default=Settings.budget_usd, help="USD a trial")
+    p.add_argument("--timeout", type=float, default=Settings.timeout_s, help="seconds a trial")
+    p.add_argument("--parallel", type=int, default=1, help="trials at once (default 1)")
+    p.add_argument("--clean", action="store_true", help="delete trial worlds afterwards")
+    a = p.parse_args(argv)
+    password = os.environ.get("SWARMIFY_PASSWORD")
+    auth = (os.environ.get("SWARMIFY_USER", "swarmify"), password) if password else None
+    with httpx.Client(base_url=a.api, auth=auth, timeout=60) as http:
+        report = run_eval(
+            http,
+            TASKS[: a.tasks],
+            a.k,
+            Settings(a.budget, a.timeout),
+            a.parallel,
+            a.clean,
+            say=lambda line: print(line, file=sys.stderr),
+        )
+    print(report["verdict"])
+    print(f"Stored in the {report['id']} report of the Evals world; see /evals.")
+
+
+if __name__ == "__main__":
+    main()

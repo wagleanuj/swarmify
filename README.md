@@ -25,6 +25,7 @@ behind a pipe, so the web tests silently never run.
 | `mise run test` | pytest with an 85 percent coverage gate, then Vitest (browser mode) |
 | `mise run e2e` | builds the web skin and runs Playwright against the real API |
 | `mise run gen-client` | regenerates `apps/web/src/api/schema.d.ts` from the OpenAPI schema |
+| `uv run swarmify-eval` | the baseline against swarm eval, against the running API with the real model (see Eval below) |
 | `uv run swarmify-mcp` | the swarmify MCP server over stdio (`claude mcp add swarmify -- uv run swarmify-mcp`) |
 
 Data lives in `SWARMIFY_DATA_DIR` (default `~/.swarmify`): `swarmify.db`, the DBOS system database
@@ -545,6 +546,45 @@ waits at a gate of kind `skill`; a quiet retro just finishes the run.
 - A child run a workflow stage starts has no Retro of its own, and the parent's Retro reads only
   the parent's verdicts, so a child's send-backs reach no retro yet.
 - `create_app(retro=False)` leaves the Retro stage out; tests that script no retro session use it.
+
+## Eval: baseline against swarm
+
+The V1 acceptance: does the swarm beat one agent alone? `swarmify-eval` runs the weekly short
+over 22 fixed tasks (niches such as home espresso or chess openings, in
+`swarmify_learning.evals`), each task k times as a baseline and k times as the swarm, following
+Anthropic's agent evaluation guidance. It is separate from the test suite and spends real model
+time, so it runs only when you ask:
+
+```sh
+mise run dev:api                       # the API with the real Agent SDK runtime, in one shell
+uv run swarmify-eval --k 3             # every task, 3 trials an arm; prints the verdict
+uv run swarmify-eval --tasks 2 --k 1   # a smoke run
+```
+
+Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, basic auth from
+`SWARMIFY_PASSWORD`), `--budget` (USD a trial, default 3), `--timeout` (seconds a trial, default
+2700), `--parallel` (trials at once, default 1) and `--clean` (delete the trial worlds afterwards).
+
+- Fresh world per trial: each trial creates its own world (`Eval <task> <arm> <n>`), saves the
+  eval workflow there and starts one run, `{"baseline": true}` for the baseline arm. The eval
+  workflow is the weekly short's research and script stages (`ideas.md`, `script.md`), with no
+  gate, render or publish, so a trial never posts anything.
+- Outputs are graded, not the path: `ideas.md` must rank at least 5 ideas as a numbered list, and
+  `script.md` must be 60 to 200 words and name the task's topic. A trial is accepted when its
+  run is done and every check passed. A retro proposal is rejected so the run can end; a spent
+  budget or the timeout aborts the trial, which then fails.
+- The report gives, per arm, acceptance, pass at k (any of a task's k trials passed) and pass to
+  the k (all k passed), averaged over tasks, the mean estimated cost a trial and the mean time to
+  an accepted output (the Retro stage left out). The swarm wins when it accepts at least as often
+  as the baseline and gets there faster; the verdict sentence says so with all three numbers.
+- `POST /api/evals` (`{"k", "trials"}`) summarizes and stores the report as `report.md` (type
+  `eval`, the whole report in its frontmatter, tables in its body) in the `Evals` world, made on
+  the first report, so it shows in that world's Library and graph. `GET /api/evals` lists the
+  reports newest first; the web skin shows them at `/evals`, linked from the worlds page, with
+  each trial linking to its run.
+
+Tests drive the harness against the real app with the scripted CLI behind the Agent SDK, so the
+suite checks the whole loop with no model.
 
 ## Deployment
 

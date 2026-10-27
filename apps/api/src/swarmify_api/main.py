@@ -30,6 +30,7 @@ from starlette.types import Scope
 from swarmify_api import (
     agents,
     connectors,
+    evals,
     graph,
     learning,
     library,
@@ -479,6 +480,7 @@ def create_app(
     app.include_router(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
+    app.include_router(evals.router(world_svc, memory))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     if password := os.environ.get("SWARMIFY_PASSWORD"):
