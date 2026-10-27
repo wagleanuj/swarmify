@@ -205,7 +205,7 @@ def test_a_parent_waiting_on_its_child_survives_a_restart_without_a_second_child
     pinned = Pinned("world_b", "wf_c", 1, "Child", [PICK])
 
     def runner() -> Runner:
-        r = Runner(storage, tmp_path / "dbos.sqlite", connector, poll_seconds=0.05)
+        r = Runner(storage, tmp_path / "dbos.sqlite", connector, tmp_path, poll_seconds=0.05)
         r.pin, r.take = (lambda _id: pinned), FakeTake()
         r.launch()
         return r

@@ -8,7 +8,7 @@ is sent, so the record exists even if the run has moved on by the time the messa
 """
 
 import json
-import re
+import logging
 import shutil
 from collections.abc import Callable
 from dataclasses import replace
@@ -35,6 +35,7 @@ from swarmify_runs.model import Decision, Gate, PublishPreview, Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
 
 CONTROL_TOPIC = "control"
+log = logging.getLogger(__name__)
 
 Previews = Callable[[str, StageDef], PublishPreview | None]
 """What a stage of a world will publish, or None when it does not publish. Runs cannot tell a
@@ -54,23 +55,20 @@ def run_folder(data_dir: Path, run: Run) -> Path:
 
 
 def stage_folder(data_dir: Path, run: Run, index: int) -> Path:
-    """`<data>/worlds/<world>/runs/<run>/<nn>-<stage>`, readable in Obsidian (ADR 0001)."""
-    name = re.sub(r"[^a-z0-9]+", "-", run.stages[index].name.lower()).strip("-") or "stage"
-    return run_folder(data_dir, run) / f"{index + 1:02d}-{name}"
+    """`<data>/worlds/<world>/runs/<run>/<stage id>`, the folder Memory keeps the stage's notes
+    and artifacts in, so the run's record sits together (ADR 0001)."""
+    return run_folder(data_dir, run) / run.stages[index].id
 
 
 def copy_run_files(data_dir: Path, source: Run, run: Run, index: int) -> None:
     """Copy the source run's folder into its fork's, leaving out the folders of the stages at
-    or past `index`. A stage has two: `<nn>-<name>` (its decisions, written here) and
-    `<stage id>` (its notes and artifacts, written by Memory); the latter is renamed to the
-    fork's stage id so the copied stage reads back under it (files are memory, ADR 0001)."""
+    or past `index`. Each copied stage folder (its notes, artifacts and decision) is renamed to
+    the fork's stage id so it reads back under it (files are memory, ADR 0001)."""
     src, dst = run_folder(data_dir, source), run_folder(data_dir, run)
     if not src.is_dir():
         return
     renamed = {s.id: run.stages[s.index].id for s in source.stages}
-    later = range(index, len(source.stages))
-    skip = {source.stages[i].id for i in later}
-    skip |= {stage_folder(data_dir, source, i).name for i in later}
+    skip = {source.stages[i].id for i in range(index, len(source.stages))}
     dst.mkdir(parents=True, exist_ok=True)
     for child in src.iterdir():
         if child.name in skip:
@@ -199,7 +197,11 @@ class RunControl:
 
         The run hears its abort before its child's end, so it ends aborted rather than failed.
         """
-        run = self._run(run_id)
+        try:
+            run = self._run(run_id)
+        except Illegal:
+            self._abort_children(run_id)  # a finished run's live descendants still stop
+            raise
         state, _ = transition(kinds_of(run), state_of(run), Aborted())
         if run.status == "queued":
             self.client.cancel_workflow(run_id)
@@ -208,19 +210,25 @@ class RunControl:
                 raise KeyError(f"run not found: {run_id}")
             event = ended_event(ended)
             self.storage.record(event)
-            self.notifier.notify(event)
+            try:
+                self.notifier.notify(event)
+            except Exception:  # the abort is saved and recorded; a notifier outage must not undo it
+                log.exception("notifier failed on %s for run %s", event.type, run_id)
             if ended.parent_run_id is not None:  # no workflow ran to tell the parent
                 message = {"action": "child", "child": run_id, "status": "aborted"}
                 self._send(ended.parent_run_id, message)
             run = ended
         else:
             self._send(run_id, {"action": "abort"})
+        self._abort_children(run_id)
+        return run
+
+    def _abort_children(self, run_id: str) -> None:
         for child in self.storage.child_run_ids(run_id):
             try:
                 self.abort(child)
             except Illegal:
-                pass  # the child already ended
-        return run
+                pass  # the child already ended; abort still walked its children
 
     def family(self, run_id: str) -> list[str]:
         """The run and every run below it: the runs whose spend counts against its Budget, since

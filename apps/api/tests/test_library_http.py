@@ -96,7 +96,7 @@ def test_the_library_lists_every_artifact_with_its_run_and_stage_and_pins_stick(
     assert (idea["run_id"], idea["run_name"], idea["workflow_id"]) == (run["id"], "Short", workflow)
     assert idea["workflow_version"] == 1 and idea["fields"]["rank"] == 1 and idea["created"]
     assert idea["path"] == f"runs/{run['id']}/{research['id']}/artifacts/idea-hook-first.md"
-    assert by_name["decision.md"]["path"] == f"runs/{run['id']}/02-pick/decision.md"
+    assert by_name["decision.md"]["path"] == f"runs/{run['id']}/{pick['id']}/decision.md"
     assert pick["name"] == "pick"
     assert not any(i["pinned"] for i in items)
     assert running.get("/api/worlds/world_nope/library").status_code == 404

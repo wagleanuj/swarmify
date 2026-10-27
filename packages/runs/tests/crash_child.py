@@ -25,7 +25,7 @@ def connector(run: Run, stage_id: str, stage: StageDef) -> None:
 
 
 storage = SqliteStorage(migrated(root))
-runner = Runner(storage, root / "dbos.sqlite", connector, poll_seconds=0.05)
+runner = Runner(storage, root / "dbos.sqlite", connector, root, poll_seconds=0.05)
 runner.launch()
 if mode == "start":
     stages = [StageDef("a", "connector"), StageDef("slow", "connector"), StageDef("pick", "gate")]

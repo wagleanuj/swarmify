@@ -304,7 +304,10 @@ def create_app(
 
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
         folder = world_svc.folder(run.world_id)
-        swarm.run_stage(run.world_id, run.id, stage_id, stage.name, stage.config, folder)
+        notes = next(s.notes for s in run.stages if s.id == stage_id)
+        swarm.run_stage(
+            run.world_id, run.id, stage_id, stage.name, stage.config, folder, notes, run.send_backs
+        )
 
     def take(child: Run, run: Run, stage_id: str, names: list[str]) -> None:
         stage = next(s.name for s in run.stages if s.id == stage_id)

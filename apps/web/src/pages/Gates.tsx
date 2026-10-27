@@ -46,8 +46,14 @@ export function Gates() {
   async function answer(gate: Gate, body: Parameters<typeof decide>[1]) {
     setError(null);
     const refused = await decide(gate.run_id, body);
-    if (refused) setError(refused);
-    load();
+    if (refused) {
+      setError(refused);
+      load();
+    } else {
+      // Hide the answered card now; the run's next run.updated refetches the inbox. Refetching
+      // here could beat the workflow to the message and show the answered gate again.
+      setGates((gs) => gs?.filter((g) => g.stage_id !== gate.stage_id) ?? gs);
+    }
   }
 
   const worldName = (id: string) => worlds.find((w) => w.id === id)?.name ?? id;

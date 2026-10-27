@@ -59,13 +59,15 @@ class SqliteStorage:
             stages = conn.execute(
                 "SELECT * FROM run_stages WHERE run_id = ? ORDER BY idx", (source.id,)
             ).fetchall()
+            renamed = {}
             for s in stages:
                 copied = s["idx"] < index
+                renamed[s["id"]] = new_id("stage")
                 conn.execute(
                     "INSERT INTO run_stages (id, run_id, idx, name, type, config, status,"
                     " started_at, ended_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        new_id("stage"),
+                        renamed[s["id"]],
                         run.id,
                         s["idx"],
                         s["name"],
@@ -83,8 +85,11 @@ class SqliteStorage:
                 (source.id, index),
             ).fetchall()
             for d in decisions:
-                # The file was copied along with its stage folder; a copied visit is numbered
-                # below zero so it never collides with a visit the fork makes itself.
+                # The file was copied along with its stage folder, renamed to the fork's stage
+                # id; a copied visit is numbered below zero so it never collides with a visit
+                # the fork makes itself.
+                old_stage = stages[d["stage_index"]]["id"]
+                path = d["path"].replace(source.id, run.id).replace(old_stage, renamed[old_stage])
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
                     " note, send_back_to, path, decided_at, visit)"
@@ -98,7 +103,7 @@ class SqliteStorage:
                         d["choice"],
                         d["note"],
                         d["send_back_to"],
-                        d["path"].replace(source.id, run.id),
+                        path,
                         d["decided_at"],
                         -1 - d["visit"],
                     ),

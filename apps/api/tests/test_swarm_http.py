@@ -234,3 +234,36 @@ def test_a_fourth_failed_verdict_fails_the_run(
     stage = ended["stages"][0]["id"]
     verdicts = running.get(f"/api/runs/{run['id']}/stages/{stage}/verdicts").json()
     assert [v["passed"] for v in verdicts] == [False] * 4
+
+
+def test_a_send_back_reworks_the_swarm_stage_with_the_note(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    script.scripts = [PLAN, [GRAPH, CLAIM, FINISH], PASS, [CLAIM, FINISH], PASS]
+    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    yaml = RESEARCH + "  - gate: review\n    ask: Good?\n    kind: approve\n"
+    wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()
+    run = running.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+    url = f"/api/runs/{run['id']}"
+
+    def at_gate() -> bool:
+        return running.get(url).json()["status"] == "waiting_gate"
+
+    _until(at_gate)
+    sent = running.post(
+        f"{url}/decision", json={"note": "Fewer ideas.", "send_back_to": "research"}
+    )
+    assert sent.status_code == 200
+    _until(lambda: running.get(url).json()["send_backs"] == 1 and at_gate())
+
+    rework = script.sessions[3]
+    assert "Sent back to you with this note: Fewer ideas." in str(rework.system_prompt)
+    assert "sent the stage back with this note: Fewer ideas." in script.prompts[4]
+    stage = running.get(url).json()["stages"][0]["id"]
+    tasks = running.get(f"{url}/stages/{stage}/tasks").json()
+    assert [(t["title"], t["body"], t["status"]) for t in tasks][-1] == (
+        "Rework after send-back 1",
+        "Fewer ideas.",
+        "done",
+    )
+    assert len(running.get(f"{url}/stages/{stage}/verdicts").json()) == 2
