@@ -6,7 +6,6 @@ link into the web skin at `base_url`.
 port by shape, so this package imports nothing of Runs.
 """
 
-import logging
 from urllib.parse import urlparse
 
 from swarmify_kernel import Event
@@ -15,8 +14,6 @@ from swarmify_notifications.ports import Storage
 from swarmify_notifications.sqlite import MIGRATIONS, SqliteStorage
 
 __all__ = ["MIGRATIONS", "Notifications", "SqliteStorage", "Storage", "slack"]
-
-log = logging.getLogger("swarmify.notify")
 
 
 class Notifications:
@@ -29,12 +26,14 @@ class Notifications:
 
     def set_webhook(self, world_id: str, url: str | None) -> None:
         """Store the world's Slack webhook; None or blank removes it. Raises ValueError for
-        anything but an http(s) URL."""
+        anything but an http(s) URL. The host is deliberately not pinned to Slack (tests point
+        it at FakeSlack on localhost), so the server POSTs to whatever URL the operator stores;
+        acceptable for a single-operator LAN app."""
         url = (url or "").strip() or None
         if url is not None:
             parsed = urlparse(url)
             if parsed.scheme not in ("http", "https") or not parsed.netloc:
-                raise ValueError("the webhook must be an https URL from Slack")
+                raise ValueError("the webhook must be an http or https URL")
         self.storage.set_webhook(world_id, url)
 
     def notify(self, event: Event) -> None:
@@ -43,7 +42,6 @@ class Notifications:
         text = slack.message(event, self.base_url)
         if text is None:
             return
-        log.info("%s %s", event.type, event.payload)
         webhook = self.storage.get_webhook(event.world_id)
         if webhook:
             slack.post(webhook, text)

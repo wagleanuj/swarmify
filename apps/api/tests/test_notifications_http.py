@@ -114,3 +114,22 @@ def test_a_slack_outage_does_not_fail_the_run_and_deleting_the_world_drops_its_c
     assert running.delete(f"/api/worlds/{video}").status_code == 204
     with closing(sqlite3.connect(tmp_path / "swarmify.db")) as conn:
         assert conn.execute("SELECT count(*) FROM channels").fetchone() == (0,)
+
+
+def test_aborting_a_queued_run_during_a_slack_outage_still_aborts_it(
+    running: TestClient, slack: FakeSlack
+) -> None:
+    video = world(running)
+    running.put(f"/api/worlds/{video}/notifications", json={"slack_webhook": slack.url})
+    slack.status = 500
+    waiting = [start(running, video, QUICK) for _ in range(2)]  # DEFAULT_CAP is 2
+    for run in waiting:
+        until(lambda run=run: running.get(f"/api/runs/{run}").json()["status"] == "waiting_gate")
+    queued = start(running, video, QUICK)
+    until(lambda: len(slack.posts) == 2)
+    assert running.get(f"/api/runs/{queued}").json()["status"] == "queued"
+
+    aborted = running.post(f"/api/runs/{queued}/abort")
+    assert aborted.status_code == 200
+    assert running.get(f"/api/runs/{queued}").json()["status"] == "aborted"
+    assert len(slack.posts) == 3, "the run.ended post was tried"

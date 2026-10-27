@@ -12,6 +12,10 @@ workspace), one monorepo. Domain docs live in the Obsidian vault, see `CONTEXT.m
 2. `mise install` installs the toolchains.
 3. `mise run install` installs Python and web dependencies and Playwright's Chromium.
 
+Run pnpm through mise (`mise run ...` or `mise x -- pnpm ...`). A bare `pnpm` may resolve to
+corepack, which cannot download the pinned pnpm and exits with an error that is easy to miss
+behind a pipe, so the web tests silently never run.
+
 ## Tasks
 
 | Task | What it does |

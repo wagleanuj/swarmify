@@ -137,6 +137,14 @@ class RunControl:
         self.spend = spend
         self._client: DBOSClient | None = None
 
+    def notify(self, event: Event) -> None:
+        """Hand a recorded event to the Notifier. A notifier outage (Slack) is logged and never
+        fails the caller: the run is already saved and the event recorded."""
+        try:
+            self.notifier.notify(event)
+        except Exception:
+            log.exception("notifier failed on %s for run %s", event.type, event.run_id)
+
     def get(self, run_id: str) -> Run | None:
         return self.storage.get_run(run_id)
 
@@ -238,10 +246,7 @@ class RunControl:
                 raise KeyError(f"run not found: {run_id}")
             event = ended_event(ended)
             self.storage.record(event)
-            try:
-                self.notifier.notify(event)
-            except Exception:  # the abort is saved and recorded; a notifier outage must not undo it
-                log.exception("notifier failed on %s for run %s", event.type, run_id)
+            self.notify(event)
             if ended.parent_run_id is not None:  # no workflow ran to tell the parent
                 message = {"action": "child", "child": run_id, "status": "aborted"}
                 self._send(ended.parent_run_id, message)
@@ -293,10 +298,7 @@ class RunControl:
                 "budget.warning", world_id=top.world_id, run_id=top.id, payload=payload
             )
             self.storage.record(event)
-            try:
-                self.notifier.notify(event)
-            except Exception:  # a notifier outage must not stop the agents; the event is kept
-                log.exception("notifier failed on budget.warning for run %s", top.id)
+            self.notify(event)  # a notifier outage must not stop the agents
         if level == "spent":
             return f"The run's budget of ${top.budget_usd:.2f} is spent."
         return None

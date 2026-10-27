@@ -52,7 +52,7 @@ test("shows why Slack refused the test and why a webhook was rejected", async ()
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: shown }),
     "PUT /api/worlds/world_1/notifications": () =>
-      Response.json({ detail: "the webhook must be an https URL from Slack" }, { status: 422 }),
+      Response.json({ detail: "the webhook must be an http or https URL" }, { status: 422 }),
     "POST /api/worlds/world_1/notifications/test": () =>
       Response.json({ detail: "Slack did not take the message: HTTP Error 404" }, { status: 502 }),
   });
@@ -66,7 +66,7 @@ test("shows why Slack refused the test and why a webhook was rejected", async ()
     .fill("http://x.test/hook");
   await screen.getByRole("button", { name: "Save webhook" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent(
-    "Not saved: the webhook must be an https URL from Slack.",
+    "Not saved: the webhook must be an http or https URL.",
   );
   await expect.element(screen.getByTestId("slack-state")).toHaveTextContent(`Posting to ${shown}`);
 });
