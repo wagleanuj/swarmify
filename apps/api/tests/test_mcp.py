@@ -89,7 +89,9 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
         )
         assert not refused.is_error and refused.structured_content
         assert [v["rule"] for v in refused.structured_content["violations"]] == [
-            "publish_without_gate"
+            "publish_without_gate",
+            "connector_params",
+            "connector_params",
         ]
         assert (
             await client.call_tool("list_workflows", {"world_id": world.id})
@@ -174,8 +176,10 @@ async def test_task_tools_add_and_list_on_a_swarm_stage(tmp_path: Path) -> None:
 
 REVIEW = (
     "name: Review loop\nstages:\n  - connector: render\n    calls: remotion_render\n"
+    "    output: short.mp4\n    params: {project: /tmp, composition: Short}\n"
     "  - gate: review\n    ask: Watch it.\n    kind: approve\n  - gate: publish_ok\n"
     "    ask: Publish?\n    kind: confirm\n  - connector: youtube\n    calls: youtube\n"
+    "    input: short.mp4\n    params: {title: Hooks}\n"
 )
 
 
@@ -243,6 +247,7 @@ async def test_gate_tools_act_on_runs_the_api_process_hosts(tmp_path: Path) -> N
 
 PICK = (
     "name: Pick loop\nstages:\n  - connector: research\n    calls: remotion_render\n"
+    "    params: {project: /tmp, composition: Short}\n"
     "  - gate: pick\n    ask: Pick one.\n    kind: pick\n"
 )
 IDEA = '---\ntype: "idea"\ntitle: "Hooks"\nrank: 1\n---\n\n# Hooks\n\nOpen on the hook.\n'

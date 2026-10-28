@@ -125,7 +125,7 @@ stages:
   - connector: render
     calls: remotion_render
     output: short.mp4
-    params: {project: /x, composition: Short}
+    params: {project: /tmp, composition: Short}
 """
     workflow = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml}).json()
     run = running.post(f"/api/workflows/{workflow['workflow_id']}/runs", json={}).json()

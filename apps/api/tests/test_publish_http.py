@@ -166,13 +166,14 @@ def test_upload_post_schedules_through_its_own_tool(
 def test_a_gate_before_a_broken_publish_stage_refuses_to_go_on(
     running: TestClient, transport: FakeTransport, tmp_path: Path, kind: str
 ) -> None:
-    yaml = weekly("upload_post").replace("kind: confirm", f"kind: {kind}")
+    # the metadata file is missing only at run time; the check on save cannot see that
+    yaml = weekly(extra="\n      metadata: script.md").replace("kind: confirm", f"kind: {kind}")
     world, workflow = setup(running, yaml)
     run = at_gate(running, tmp_path, world, workflow)
     shown = running.get("/api/gates").json()[0]["publish"]
-    assert any("needs params.user" in p for p in shown["problems"])
+    assert any("script.md" in p for p in shown["problems"])
     refused = running.post(f"/api/runs/{run['id']}/decision", json={})
-    assert refused.status_code == 409 and "needs params.user" in refused.json()["detail"]
+    assert refused.status_code == 409 and "script.md" in refused.json()["detail"]
     assert running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate"
     assert [c[0] for c in transport.calls] == ["maker"]
 
@@ -246,7 +247,7 @@ def test_the_editor_refuses_a_publish_stage_without_a_gate(client: TestClient, c
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
     yaml = f"name: Sneaky\nstages:\n  - connector: publish\n    calls: {calls}\n"
     checked = client.post(f"/api/worlds/{world}/workflows/check", json={"yaml": yaml}).json()
-    assert [v["rule"] for v in checked["violations"]] == ["publish_without_gate"]
+    assert [v["rule"] for v in checked["violations"]][0] == "publish_without_gate"
     saved = client.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml})
     assert saved.status_code == 422
 

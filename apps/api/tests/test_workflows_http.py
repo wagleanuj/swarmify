@@ -27,10 +27,12 @@ stages:
     calls: remotion_render
     input: script.md
     output: short.mp4
+    params: {project: /tmp, composition: Short}
   - gate: review
     ask: Approve?
   - connector: youtube
     input: short.mp4
+    params: {title: Five hooks}
 """
 
 
@@ -67,7 +69,7 @@ def test_save_creates_versions_that_can_be_listed_and_fetched(client: TestClient
         "calls": "remotion_render",
         "input": "script.md",
         "output": "short.mp4",
-        "params": {},
+        "params": {"project": "/tmp", "composition": "Short"},
     }
 
     wf = v1["workflow_id"]
@@ -92,7 +94,10 @@ def test_an_invalid_workflow_is_a_422_naming_every_violation_and_saves_nothing(
     client: TestClient,
 ) -> None:
     world_id = _world(client)
-    bad = "name: Bad\nstages:\n  - connector: youtube\n    input: short.mp4\n"
+    bad = (
+        "name: Bad\nstages:\n  - connector: youtube\n    input: short.mp4\n"
+        "    params: {title: Hooks}\n"
+    )
     refused = client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": bad})
     assert refused.status_code == 422
     assert refused.json() == {
@@ -296,3 +301,43 @@ def test_a_saved_schedule_starts_runs_on_dbos_cron_until_the_next_version_drops_
                 r["workflow_id"] == wf2 for r in third.get(f"/api/worlds/{world}/runs").json()
             )
         )
+
+
+def test_check_reports_what_would_stop_a_stage_only_after_spending(client: TestClient) -> None:
+    world_id = _world(client)
+    url = f"/api/worlds/{world_id}/workflows/check"
+    kids = """name: Kids clickbait short
+stages:
+  - swarm: build video
+    goal: Make the video.
+    done_when: video.mp4 exists
+    produces: [script.md, video.mp4]
+  - connector: render
+    calls: remotion_render
+    input: script.md
+    output: short.mp4
+    params:
+      project: /nowhere/at/all
+  - gate: review
+    ask: Approve?
+  - connector: publish
+    calls: youtube
+    input: short.mp4
+"""
+    found = client.post(url, json={"yaml": kids}).json()["violations"]
+    assert [(v["rule"], v["stage"], v["message"]) for v in found] == [
+        (
+            "swarm_binary",
+            "build video",
+            "only a connector stage can make video.mp4: swarm agents write text, so produce a"
+            " script here and render it in a remotion_render stage",
+        ),
+        ("connector_params", "render", "the Remotion project /nowhere/at/all does not exist"),
+        (
+            "connector_params",
+            "render",
+            "remotion_render needs params.composition, the composition ID",
+        ),
+        ("connector_params", "publish", "a publish stage needs params.title"),
+    ]
+    assert client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": kids}).status_code == 422

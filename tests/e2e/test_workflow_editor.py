@@ -3,7 +3,7 @@ import re
 import httpx
 from playwright.sync_api import Page, expect
 
-PUBLISH = "  - connector: youtube\n    input: short.mp4\n"
+PUBLISH = "  - connector: youtube\n    input: short.mp4\n    params: {title: Hooks}\n"
 GATE = "  - gate: pick\n"
 
 

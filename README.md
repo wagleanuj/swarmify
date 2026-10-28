@@ -55,6 +55,7 @@ stages:
     calls: remotion_render
     input: ideas.md
     output: short.mp4
+    params: {project: ~/videos/shorts, composition: Short}
   - workflow: trends       # runs: a workflow id; optional take: artifacts to copy from the child
     runs: wf_01HX...
     take: [brief.md]
@@ -63,7 +64,13 @@ stages:
 Rules checked on every save and by the editor as you type, each reported with its stage and a
 rule name: a publish connector must come right after a gate (ADR 0007); workflow stages may not
 form a cycle and may nest at most two deep (ADR 0013); every connector must exist in the world and
-allow the stage type; a connector's `input` must be produced by an earlier stage.
+allow the stage type; a connector's `input` must be produced by an earlier stage; a swarm stage may `produce` only text files (`video.mp4` comes from
+a connector stage such as `remotion_render`, since swarm agents write text); and a connector stage
+must pass its connector's own check (`connector_params`): a publish stage needs `title` or
+`metadata`, an `input` and valid params (the problems its gate would show), a `remotion_render`
+stage needs a `project` folder that exists and a `composition`. So a broken stage is caught when
+the workflow is saved, not after the stages before it spent the budget. The editor's planner is
+told each built-in connector's params.
 `POST /api/worlds/<id>/workflows` creates, `POST /api/workflows/<id>/versions` appends,
 `POST /api/worlds/<id>/workflows/check` only reports (violations, the parsed model and, with a
 `schedule`, `next_run_at`). The MCP server exposes `save_workflow`, `check_workflow`,

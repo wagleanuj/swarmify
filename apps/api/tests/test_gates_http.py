@@ -22,12 +22,14 @@ WEEKLY = """name: Weekly short
 stages:
   - connector: research
     calls: remotion_render
+    params: {project: /tmp, composition: Short}
   - gate: pick
     ask: Pick one idea.
     kind: pick
   - connector: script
     calls: remotion_render
     output: short.mp4
+    params: {project: /tmp, composition: Short}
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve

@@ -4,6 +4,7 @@ Pure: the caller supplies the connectors the world allows and, for every stored 
 workflow ids its current version runs. Every broken rule is returned, none raises.
 """
 
+import mimetypes
 from collections.abc import Mapping, Sequence
 
 from swarmify_workflows.model import (
@@ -17,6 +18,13 @@ from swarmify_workflows.model import (
 )
 
 MAX_DEPTH = 2
+TEXT_TYPES = ("application/json", "application/xml", "application/yaml", "image/svg+xml")
+
+
+def _binary(name: str) -> bool:
+    """Swarm agents write text only; an unknown extension gets the benefit of the doubt."""
+    kind = mimetypes.guess_type(name)[0]
+    return kind is not None and not kind.startswith("text/") and kind not in TEXT_TYPES
 
 
 def validate(
@@ -47,6 +55,15 @@ def validate(
         if isinstance(stage, SwarmStage):
             for tool in stage.tools:
                 check_connector(tool, "swarm", stage.name)
+            for name in filter(_binary, stage.produces):
+                out.append(
+                    Violation(
+                        "swarm_binary",
+                        f"only a connector stage can make {name}: swarm agents write text, so"
+                        " produce a script here and render it in a remotion_render stage",
+                        stage.name,
+                    )
+                )
             produced.update(stage.produces)
         elif isinstance(stage, ConnectorStage):
             ref = check_connector(stage.calls, "connector", stage.name)
@@ -67,6 +84,14 @@ def validate(
                         stage.name,
                     )
                 )
+            if ref is not None:
+                config = {
+                    "calls": stage.calls,
+                    "input": stage.input,
+                    "output": stage.output,
+                    "params": stage.params,
+                }
+                out += [Violation("connector_params", p, stage.name) for p in ref.problems(config)]
             if stage.output:
                 produced.add(stage.output)
         elif isinstance(stage, WorkflowStage):

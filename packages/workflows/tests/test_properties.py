@@ -71,6 +71,7 @@ def test_a_passing_workflow_satisfies_every_rule_restated(model: WorkflowModel, 
                 assert (ref is not None and "swarm" not in ref.stage_types) <= (
                     "connector_stage_type" in rules
                 )
+            assert ("short.mp4" not in stage.produces) or ("swarm_binary" in rules)
             produced |= set(stage.produces)
         elif isinstance(stage, ConnectorStage):
             ref = CONNECTORS.get(stage.calls)
@@ -101,6 +102,8 @@ def test_validation_is_deterministic_and_every_violation_names_a_known_rule(
         "connector_stage_type",
         "publish_without_gate",
         "input_not_produced",
+        "connector_params",
+        "swarm_binary",
         "unknown_workflow",
         "cycle",
         "depth",

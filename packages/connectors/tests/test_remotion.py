@@ -180,3 +180,20 @@ def test_a_real_render(tmp_path: Path, real: Connectors) -> None:
 
 def test_pid_zero_is_never_a_live_render() -> None:
     assert not alive(0) and alive(os.getpid())
+
+
+def test_a_saved_render_stage_names_its_project_and_composition(
+    tmp_path: Path, connectors: Connectors
+) -> None:
+    render = {"calls": "remotion_render", "input": "script.md", "output": "short.mp4"}
+    assert connectors.stage_problems(W, render) == [
+        "remotion_render needs params.project, the Remotion project folder",
+        "remotion_render needs params.composition, the composition ID",
+    ]
+    gone = tmp_path / "nope"
+    assert connectors.stage_problems(W, {**render, "params": {"project": str(gone)}}) == [
+        f"the Remotion project {gone} does not exist",
+        "remotion_render needs params.composition, the composition ID",
+    ]
+    ok = {"project": str(tmp_path), "composition": "Short"}
+    assert connectors.stage_problems(W, {**render, "params": ok}) == []

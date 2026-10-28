@@ -111,3 +111,21 @@ def test_the_planner_chat_runs_on_the_world_model(running: TestClient, script: S
     running.patch(f"/api/worlds/{world}", json={"model": "claude-sonnet-5-5"})
     assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
     assert [o.model for o in script.sessions] == ["claude-opus-5-5", "claude-sonnet-5-5"]
+
+
+def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
+    from swarmify_api.planner import SYSTEM
+    from swarmify_connectors import BUILTINS
+
+    params = {
+        "remotion_render": ["project", "composition", "entry", "codec", "frames", "props"],
+        "youtube": ["title", "metadata", "description", "visibility", "schedule", "made_for_kids"],
+        "upload_post": ["same params as youtube", "user", "platforms"],
+    }
+    stage_connectors = {c.name for c in BUILTINS if "connector" in c.stage_types}
+    assert stage_connectors == set(params)
+    for name, names in params.items():
+        entry = SYSTEM.split(f"- {name}:")[1].split("\n- ")[0]
+        for param in names:
+            assert param in entry, (name, param)
+    assert "remotion_render" in SYSTEM and "agents\nwrite text only" in SYSTEM

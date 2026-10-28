@@ -17,6 +17,7 @@ import sys
 import time
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from swarmify_connectors import publish
@@ -264,6 +265,31 @@ class Connectors:
         if connector is None or connector.kind != "publish":
             return None
         return publish.preview(connector.name, config)
+
+    def stage_problems(self, world_id: str, config: dict[str, Any]) -> list[str]:
+        """What would stop a connector stage, found when its workflow is checked rather than
+        after the stages before it have spent the run's budget."""
+        connector = self.find(world_id, str(config.get("calls", "")))
+        if connector is None:
+            return []
+        params = dict(config.get("params") or {})
+        if connector.kind == "publish":
+            if params.get("metadata") and not params.get("title"):
+                # the title comes from the metadata file's frontmatter at run time; the gate
+                # checks it then
+                params["title"] = "from metadata"
+            return publish.preview(connector.name, {**config, "params": params})["problems"]
+        if connector.builtin and connector.name == "remotion_render":
+            out = []
+            project = str(params.get("project") or "").strip()
+            if not project:
+                out.append("remotion_render needs params.project, the Remotion project folder")
+            elif not Path(project).expanduser().is_dir():
+                out.append(f"the Remotion project {project} does not exist")
+            if not str(params.get("composition") or "").strip():
+                out.append("remotion_render needs params.composition, the composition ID")
+            return out
+        return []
 
     def publish_result(self, call: Call) -> dict[str, Any]:
         """A finished publish call's links, normalized across connectors."""

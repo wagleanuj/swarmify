@@ -145,8 +145,11 @@ def workflow_service(
     registry = registry or connector_service(root)
 
     def refs(world_id: str) -> dict[str, ConnectorRef]:
+        def problems(config: dict[str, Any]) -> list[str]:
+            return registry.stage_problems(world_id, config)
+
         return {
-            c.name: ConnectorRef(c.name, c.kind, frozenset(c.stage_types))
+            c.name: ConnectorRef(c.name, c.kind, frozenset(c.stage_types), problems)
             for c in registry.list_all(world_id)
         }
 
