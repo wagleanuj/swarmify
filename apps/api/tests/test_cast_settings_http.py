@@ -362,3 +362,26 @@ def test_the_workflow_agents_and_a_start_override_set_how_many_workers_run(
     assert workers(RESEARCH.replace("Research", "Other"), {"agents": 1}) == ["worker-1"]
     too_many = running.post("/api/workflows/wf_nope/runs", json={"agents": 9})
     assert too_many.status_code == 422
+
+
+def test_a_saved_ad_hoc_run_keeps_the_tasks_added_by_hand_in_its_goal(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    """Story 21: a task the operator added to the goal stage is part of what the run did, so
+    the saved workflow's goal names it; tasks the agents added are theirs to plan again."""
+    from swarmify_api.main import task_board
+
+    script.scripts = [PLAN, WORK, PASS]
+    world = _world(running)
+    run = running.post(f"/api/worlds/{world}/runs", json={"goal": "Find hooks."}).json()
+    assert _ended(running, run["id"])["status"] == "done"
+    stage = run["stages"][0]["id"]
+    # Added while the run went (the HTTP add refuses an ended stage, so straight to the board).
+    task_board(tmp_path).add_task(
+        world, run["id"], stage, "Check the niche", added_by="operator", body="Shorts only."
+    )
+    saved = running.post(f"/api/runs/{run['id']}/workflow", json={})
+    assert saved.status_code == 201, saved.text
+    (goal,) = saved.json()["model"]["stages"]
+    assert goal["goal"] == "Find hooks.\n\nAlso do these tasks:\n- Check the niche: Shorts only."
+    assert "Find 5 ideas" not in goal["goal"]  # the planner's task

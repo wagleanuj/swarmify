@@ -31,7 +31,7 @@ from swarmify_worlds import Worlds
 
 log = logging.getLogger(__name__)
 PLANNER = "planner"
-TOOLS = ("check_workflow", "save_workflow", "get_workflow", "list_workflows")
+TOOLS = ("check_workflow", "save_workflow", "get_workflow", "list_workflows", "start_run")
 """The swarmify MCP tools the planner may call; the rest of the server stays out of reach."""
 MAX_TURNS = 30
 ANSWER_SCHEMA: dict[str, Any] = {
@@ -74,7 +74,8 @@ The built-in connector stages and their params:
 How you work: draft the whole YAML, call check_workflow with it and fix what it reports before
 you answer, then return the full YAML in `yaml` with a short reply. Ask about a detail only when
 it changes the shape of the workflow. Call save_workflow only when the operator asks you to
-save; pass workflow_id when editing an existing workflow."""
+save; pass workflow_id when editing an existing workflow. Call start_run only when the operator
+asks you to run a saved workflow."""
 
 
 class Message(BaseModel):

@@ -338,3 +338,66 @@ async def test_the_stdio_server_deletes_a_world_like_the_api_does(tmp_path: Path
             assert conn.execute("SELECT count(*) FROM skill_proposals").fetchone() == (0,)
             assert conn.execute("SELECT count(*) FROM runs").fetchone() == (0,)
     control.close()
+
+
+@pytest.mark.anyio
+async def test_mcp_starts_a_run_lists_its_artifacts_and_forks_it(tmp_path: Path) -> None:
+    """Story 89 from the MCP process, which hosts no DBOS: it records the run queued and the
+    API process adopts it on its next sweep."""
+    from api_fakes import until
+    from fastapi.testclient import TestClient
+
+    control = run_control(tmp_path)
+    app = create_app(tmp_path, connector=lambda *_: None, retro=False, sweep_seconds=0.05)
+    with TestClient(app) as http:
+        world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": PICK}).json()
+        status = lambda r: http.get(f"/api/runs/{r}").json()["status"]  # noqa: E731
+
+        async with Client(
+            server(
+                world_service(tmp_path),
+                workflow_service(tmp_path),
+                task_board(tmp_path),
+                control,
+                retro=False,
+            )
+        ) as client:
+            names = {t.name for t in (await client.list_tools()).tools}
+            assert {"start_run", "list_artifacts", "fork_run"} <= names
+
+            started = await client.call_tool(
+                "start_run", {"workflow_id": wf["workflow_id"], "budget_usd": 3}
+            )
+            run = started.structured_content
+            assert not started.is_error and run
+            assert (run["status"], run["budget_usd"]) == ("queued", 3)
+            assert [s["name"] for s in run["stages"]] == ["research", "pick"]
+            until(lambda: status(run["id"]) == "waiting_gate")
+
+            research = run["stages"][0]["id"]
+            card = tmp_path / "worlds" / world / "runs" / run["id"] / research / "artifacts"
+            card.mkdir(parents=True)
+            (card / "idea-hooks.md").write_text(IDEA)
+            path = f"runs/{run['id']}/{research}/artifacts/idea-hooks.md"
+            listed = await client.call_tool("list_artifacts", {"run_id": run["id"]})
+            assert listed.structured_content
+            assert [(a["path"], a["title"]) for a in listed.structured_content["result"]] == [
+                (path, "Hooks")
+            ]
+            await client.call_tool("decide_gate", {"run_id": run["id"], "artifact": path})
+            until(lambda: status(run["id"]) == "done")
+
+            forked = await client.call_tool("fork_run", {"run_id": run["id"], "stage": 1})
+            fork = forked.structured_content
+            assert not forked.is_error and fork and fork["id"] != run["id"]
+            until(lambda: status(fork["id"]) == "waiting_gate")
+            copied = await client.call_tool("list_artifacts", {"run_id": fork["id"]})
+            assert copied.structured_content
+            assert [a["title"] for a in copied.structured_content["result"]] == ["Hooks"]
+
+            assert (await client.call_tool("start_run", {"workflow_id": "wf_nope"})).is_error
+            assert (await client.call_tool("fork_run", {"run_id": "run_nope", "stage": 1})).is_error
+            assert (await client.call_tool("fork_run", {"run_id": run["id"], "stage": 9})).is_error
+            assert (await client.call_tool("list_artifacts", {"run_id": "run_nope"})).is_error
+    control.close()

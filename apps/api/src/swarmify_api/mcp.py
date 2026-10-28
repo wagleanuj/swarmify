@@ -12,10 +12,13 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from swarmify_api import tasks
+from swarmify_api.agents import run_artifacts
+from swarmify_api.runs import pinner, start_pinned
+from swarmify_memory import Memory
 from swarmify_runs import Illegal, RunControl
 from swarmify_swarm import OPERATOR, Refused, Storage
 from swarmify_workflows import Invalid, Workflows
-from swarmify_worlds import Worlds
+from swarmify_worlds import MAX_AGENTS, Worlds
 
 
 def server(
@@ -24,14 +27,21 @@ def server(
     whiteboard: Storage,
     control: RunControl,
     delete: Callable[[str], bool] | None = None,
+    memory: Memory | None = None,
+    retro: bool = True,
 ) -> MCPServer:
-    """`control` acts on runs hosted by the API process; `delete` is the composition root's
-    world delete (`main.world_deleter`), the world's row and folder only when not given."""
+    """`control` acts on runs hosted by the API process, and records the runs it starts queued
+    for that process to adopt; `delete` is the composition root's world delete
+    (`main.world_deleter`), the world's row and folder only when not given. With `retro`, a
+    started run ends with the Retro stage, as over HTTP."""
     delete = delete or worlds.delete
+    root = control.data_dir
+    memory = memory or Memory(root / "swarmify.db", root)
+    pin = pinner(workflows)
     mcp = MCPServer(
         "swarmify",
-        instructions="Drive swarmify: worlds, workflows, swarm stage whiteboards, and the gates"
-        " runs wait at.",
+        instructions="Drive swarmify: worlds, workflows, runs (start, fork, artifacts), swarm stage"
+        " whiteboards, and the gates runs wait at.",
     )
 
     @mcp.tool(description="Create a world: one long-lived memory with its own folder and stream.")
@@ -132,6 +142,48 @@ def server(
             return asdict(action())
         except (KeyError, Illegal) as exc:
             raise ValueError(str(exc)) from exc
+
+    @mcp.tool(
+        description="Start a run of a workflow version, the current one by default. budget_usd"
+        " overrides the workflow's Budget; agents (1 to 8) its workers per swarm stage; baseline"
+        " runs every swarm stage with one agent and no graph. The run starts queued; the API"
+        " process picks it up within its sweep (15 seconds)."
+    )
+    def start_run(
+        workflow_id: str,
+        version: int | None = None,
+        budget_usd: float | None = None,
+        agents: int | None = None,
+        baseline: bool = False,
+    ) -> dict[str, Any]:
+        if budget_usd is not None and not budget_usd > 0:
+            raise ValueError("budget_usd must be above 0")
+        if agents is not None and not 1 <= agents <= MAX_AGENTS:
+            raise ValueError(f"agents must be 1 to {MAX_AGENTS}")
+        try:
+            p = pin(workflow_id, version)
+        except KeyError as exc:
+            raise ValueError(str(exc)) from exc
+        return run_or_fail(lambda: start_pinned(control, p, retro, budget_usd, agents, baseline))
+
+    @mcp.tool(
+        description="Fork a run: a new run of the same workflow version that copies it, notes"
+        " and artifacts included, up to stage `stage` (0-based) and runs on from there. Every"
+        " earlier stage must have finished."
+    )
+    def fork_run(run_id: str, stage: int) -> dict[str, Any]:
+        return run_or_fail(lambda: control.fork(run_id, stage))
+
+    @mcp.tool(
+        description="List a run's artifacts in stage order, gate decisions included, each with"
+        " its path in the world folder (what decide_gate takes as `artifact`), type, title and"
+        " body. With `before`, only those of the stages before that index."
+    )
+    def list_artifacts(run_id: str, before: int | None = None) -> list[dict[str, Any]]:
+        run = control.get(run_id)
+        if run is None:
+            raise ValueError(f"run not found: {run_id}")
+        return [asdict(a) for a in run_artifacts(memory, run, before)]
 
     @mcp.tool(description="Get a run with its stages and gate decisions.")
     def get_run(run_id: str) -> dict[str, Any]:

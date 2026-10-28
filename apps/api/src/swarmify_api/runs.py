@@ -15,7 +15,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from swarmify_api.workflows import INVALID, Report
-from swarmify_runs import Gate, Illegal, Pinned, Run, Runner, StageDef
+from swarmify_runs import Gate, Illegal, Pinned, Run, RunControl, Runner, StageDef
+from swarmify_swarm import OPERATOR, Task
 from swarmify_workflows import Invalid, Stage, Workflows, WorkflowVersion, dump_workflow
 from swarmify_worlds import MAX_AGENTS, Worlds
 
@@ -32,6 +33,8 @@ RETRO = StageDef(
 """The stage every run ends with (ADR 0008): the Retro, whose proposal waits at a skill gate."""
 ToolsFor = Callable[[str], list[str]]
 """(world id) to the names of the world's connectors a swarm stage may use."""
+TasksOf = Callable[[str], list[Task]]
+"""(stage id) to the tasks on the swarm stage's whiteboard."""
 
 
 class StartRun(BaseModel):
@@ -160,6 +163,39 @@ def with_retro(stages: list[StageDef], baseline: bool = False) -> list[StageDef]
     return stages if baseline else [*stages, RETRO]
 
 
+def with_hand_tasks(stage: StageDef, tasks: list[Task]) -> StageDef:
+    """A swarm stage whose goal also names the tasks the operator added by hand, so the saved
+    workflow's planner seeds them again. The agents' own tasks are theirs to plan anew."""
+    lines = [f"- {t.title}: {t.body}" if t.body else f"- {t.title}" for t in tasks]
+    if stage.type != "swarm" or not lines:
+        return stage
+    goal = f"{stage.config['goal']}\n\nAlso do these tasks:\n" + "\n".join(lines)
+    return replace(stage, config={**stage.config, "goal": goal})
+
+
+def start_pinned(
+    control: RunControl,
+    p: Pinned,
+    retro: bool = True,
+    budget_usd: float | None = None,
+    agents: int | None = None,
+    baseline: bool = False,
+) -> Run:
+    """Start a run of the pinned version as `POST /workflows/{id}/runs` does, for HTTP and MCP:
+    `agents` workers per swarm stage, ending with the Retro when `retro` and not `baseline`."""
+    stages = with_agents(p.stages, agents)
+    return control.start(
+        p.world_id,
+        p.workflow_id,
+        p.version,
+        p.name,
+        with_retro(stages, baseline) if retro else stages,
+        budget_usd=budget_usd,
+        workflow_budget_usd=p.budget_usd,
+        baseline=baseline,
+    )
+
+
 def act(action: Callable[[], Run]) -> Run:
     """The control layer's refusals as HTTP: unknown run 404, wrong moment 409 (a spent Monthly
     Budget too), bad input 422."""
@@ -179,9 +215,11 @@ def router(
     worlds: Worlds,
     tools_for: ToolsFor = lambda _world_id: [],
     retro: bool = True,
+    tasks_of: TasksOf = lambda _stage_id: [],
 ) -> APIRouter:
     """`tools_for` names the world's connectors an Ad Hoc Run's stage gets as its tools. With
-    `retro`, every run but a baseline ends with the Retro stage."""
+    `retro`, every run but a baseline ends with the Retro stage. `tasks_of` reads a swarm
+    stage's whiteboard, whose hand-added tasks a run saved as a workflow keeps."""
     api = APIRouter(prefix="/api", tags=["runs"])
     pin = pinner(workflows)
 
@@ -197,16 +235,7 @@ def router(
             what = "version" if workflows.get(workflow_id) else "workflow"
             raise HTTPException(404, f"{what} not found") from exc
         return act(
-            lambda: runner.start(
-                p.world_id,
-                p.workflow_id,
-                p.version,
-                p.name,
-                stages(with_agents(p.stages, body.agents), body.baseline),
-                budget_usd=body.budget_usd,
-                workflow_budget_usd=p.budget_usd,
-                baseline=body.baseline,
-            )
+            lambda: start_pinned(runner, p, retro, body.budget_usd, body.agents, body.baseline)
         )
 
     @api.post("/worlds/{world_id}/runs", status_code=201, responses={404: {}, 409: {}})
@@ -280,15 +309,22 @@ def router(
         response_model=WorkflowVersion,
     )
     def save_as_workflow(run_id: str, body: SaveAsWorkflow) -> WorkflowVersion | JSONResponse:
-        """A new workflow in the run's world from the stages the run actually ran, gates added
-        by hand included (an ad hoc run becomes repeatable). Only a run that is done."""
+        """A new workflow in the run's world from the stages the run actually ran (an ad hoc run
+        becomes repeatable); each swarm stage's goal also names the tasks added to it by hand.
+        Only a run that is done."""
         run = runner.get(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
         if run.status != "done":
             raise HTTPException(409, f"the run is {run.status}; only a done run becomes a workflow")
         # The Retro is added to every run, never written in a workflow (with_retro).
-        defs = [runner.storage.stage_def(run.id, s.index)[1] for s in run.stages]
+        defs = [
+            with_hand_tasks(
+                runner.storage.stage_def(run.id, s.index)[1],
+                [t for t in tasks_of(s.id) if t.added_by == OPERATOR],
+            )
+            for s in run.stages
+        ]
         defs = [d for d in defs if d.type != RETRO.type]
         # The worker count each swarm stage carries (with_agents) is the workflow's `agents`.
         agents = next((d.config["agents"] for d in defs if d.config.get("agents")), None)

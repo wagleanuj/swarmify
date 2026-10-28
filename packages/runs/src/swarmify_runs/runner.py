@@ -37,11 +37,11 @@ from swarmify_runs.control import (
     CONTROL_TOPIC,
     SCHEDULED_WORKFLOW,
     WAKE,
+    Monthly,
     OverBudget,
     Previews,
     RunControl,
     Spend,
-    copy_run_files,
     ended_event,
     no_previews,
     no_spend,
@@ -74,9 +74,6 @@ from swarmify_runs.ports import Notifier, Storage
 
 CHILD_QUEUE = "child-runs"
 DEFAULT_CAP = 2
-Monthly = Callable[[str], float | None]
-"""(world id) to the world's Monthly Budget, None for no ceiling. The composition root reads
-it from the Worlds context."""
 CapFor = Callable[[str], int]
 """(world id) to how many of the world's runs execute at once."""
 MAX_DEPTH = 2
@@ -160,14 +157,15 @@ class Runner(RunControl):
         """`pin` and `take` serve workflow stages; without `pin` they fail the run. `spend` sums
         the agents' estimated cost of runs, for the Budget. `monthly` is each world's Monthly
         Budget and `cap_for` its run cap (`cap` for every world when left out)."""
-        super().__init__(storage, system_db, data_dir, notifier or LogNotifier(), previews, spend)
+        super().__init__(
+            storage, system_db, data_dir, notifier or LogNotifier(), previews, spend, monthly
+        )
         self.connector = connector
         self.swarm = swarm
         self.retro = retro
         self.pin = pin
         self.take = take
         self.cap_for = cap_for or (lambda _world_id: cap)
-        self.monthly = monthly
         self.poll_seconds = poll_seconds
         self._caps: dict[str, int] = {}
         """The cap each world's queue was last registered with."""
@@ -191,10 +189,7 @@ class Runner(RunControl):
         DBOS.register_queue(
             CHILD_QUEUE, polling_interval_sec=self.poll_seconds, on_conflict="always_update"
         )
-        for run_id in self.storage.queued_run_ids():
-            run = self.storage.get_run(run_id)
-            if run is not None:
-                self._enqueue(run)
+        self.adopt()
 
     def shutdown(self, seconds: float = 5.0) -> None:
         """Release the waiting workflows, then stop DBOS. Interrupted runs resume on launch."""
@@ -219,84 +214,6 @@ class Runner(RunControl):
         self.close()
         DBOS.destroy()
         _runner = None
-
-    def start(
-        self,
-        world_id: str,
-        workflow_id: str | None,
-        version: int | None,
-        name: str,
-        stages: list[StageDef],
-        parent_run_id: str | None = None,
-        budget_usd: float | None = None,
-        baseline: bool = False,
-        workflow_budget_usd: float | None = None,
-    ) -> Run:
-        """Record a queued run pinned to `version` and enqueue it. Its Budget follows
-        `budget_for`: `budget_usd` typed at the start, else the workflow's
-        `workflow_budget_usd`. `baseline` runs every swarm stage with one agent and no graph. An
-        Ad Hoc Run has no workflow: `workflow_id` and `version` are None."""
-        budget_usd = self.budget_for(world_id, budget_usd, workflow_budget_usd, parent_run_id)
-        now = datetime.now(UTC).isoformat()
-        run = Run(
-            new_id("run"), world_id, workflow_id, version, name, "queued", now, now, [],
-            parent_run_id=parent_run_id, budget_usd=budget_usd, baseline=baseline,
-        )  # fmt: skip
-        run = self.storage.add_run(run, stages)
-        self._enqueue(run)
-        return run
-
-    def budget_for(
-        self,
-        world_id: str,
-        explicit: float | None = None,
-        workflow: float | None = None,
-        parent_run_id: str | None = None,
-    ) -> float | None:
-        """The one budget rule for every way a run starts (start, ad hoc, fork, promote,
-        schedule, child): `budget.rule` under the world's Monthly Budget this month. Raises
-        MonthSpent when nothing is left. A child run gets None: it spends the Budget of the top
-        run of its family (ADR 0013)."""
-        if parent_run_id is not None:
-            return None
-        month = datetime.now(UTC).strftime("%Y-%m")
-        try:
-            return budget.rule(
-                explicit,
-                workflow,
-                self.monthly(world_id),
-                self.storage.spent_in_month(world_id, month),
-            )
-        except ValueError as exc:
-            raise MonthSpent(str(exc)) from exc
-
-    def fork(self, run_id: str, index: int) -> Run:
-        """Start a Fork: a new run of the same workflow version that copies `run_id` (rows and
-        files) up to stage `index` and runs on from there. Raises KeyError for an unknown run,
-        ValueError for an index outside the run and Illegal when a stage before `index` has
-        not finished."""
-        source = self.storage.get_run(run_id)
-        if source is None:
-            raise KeyError(f"run not found: {run_id}")
-        if not 0 <= index < len(source.stages):
-            raise ValueError(f"stage {index} is not one of the run's {len(source.stages)} stages")
-        unfinished = [s for s in source.stages[:index] if s.status not in ("done", "skipped")]
-        if unfinished:
-            raise Illegal(
-                f"stage {unfinished[0].name} has not finished, so the run cannot fork from"
-                f" {source.stages[index].name}"
-            )
-        # A fork copies the run, its Budget included, as the workflow's default.
-        budget_usd = self.budget_for(source.world_id, workflow=source.budget_usd)
-        now = datetime.now(UTC).isoformat()
-        run = Run(
-            new_id("run"), source.world_id, source.workflow_id, source.workflow_version,
-            source.name, "queued", now, now, [], budget_usd=budget_usd,
-        )  # fmt: skip
-        run = self.storage.fork(run, source, index)
-        copy_run_files(self.data_dir, source, run, index)
-        self._enqueue(run)
-        return run
 
     def promote(self, pinned: Pinned, index: int, artifact: Path, promoted_from: str) -> Run:
         """Start a Promote: a run of `pinned` that starts at stage `index` with `artifact` as
@@ -346,6 +263,14 @@ class Runner(RunControl):
             on_conflict="always_update",
         )
         self._caps[world_id] = cap
+
+    def adopt(self) -> None:
+        """Enqueue every queued run, such as one the MCP process recorded (`RunControl._enqueue`).
+        Idempotent: a run already enqueued attaches to its own workflow."""
+        for run_id in self.storage.queued_run_ids():
+            run = self.storage.get_run(run_id)
+            if run is not None:
+                self._enqueue(run)
 
     def _enqueue(self, run: Run) -> None:
         # The run id is the workflow id, so enqueueing twice attaches to the same workflow.

@@ -32,7 +32,18 @@ from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
 from swarmify_memory.fake import FakeGraphIndex
 from swarmify_memory.graph import McpGraphIndex
-from swarmify_memory.ports import EMPTY, GRAPH_OUT, GRAPH_TOOLS, GodNode, GraphIndex, graph_size
+from swarmify_memory.ports import (
+    EMPTY,
+    GRAPH_OUT,
+    GRAPH_TOOLS,
+    Community,
+    GodNode,
+    GraphIndex,
+    GraphNode,
+    Surprise,
+    graph_map,
+    graph_size,
+)
 from swarmify_memory.writer import (
     DEBOUNCE,
     GraphWriter,
@@ -48,13 +59,17 @@ __all__ = [
     "GRAPH_OUT",
     "GRAPH_TOOLS",
     "FakeGraphIndex",
+    "Community",
     "GodNode",
+    "GraphNode",
+    "Surprise",
     "GraphIndex",
     "GraphWriter",
     "McpGraphIndex",
     "Memory",
     "ShrinkRefused",
     "extract_command",
+    "graph_map",
     "graph_size",
     "run_graphify",
 ]

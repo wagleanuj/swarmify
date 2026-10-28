@@ -27,6 +27,7 @@ from swarmify_runs.machine import (
     Aborted,
     GateAnswered,
     Illegal,
+    MonthSpent,
     Paused,
     Resumed,
     RunEvent,
@@ -43,6 +44,11 @@ WAKE = {"swarmify": "wake"}
 Spend = Callable[[list[str]], float]
 """The estimated agent cost of the given runs, summed. The composition root reads it from the
 Swarm context, whose agents carry the cost."""
+
+
+Monthly = Callable[[str], float | None]
+"""(world id) to the world's Monthly Budget, None for no ceiling. The composition root reads
+it from the Worlds context."""
 
 
 class OverBudget(Exception):
@@ -139,14 +145,98 @@ class RunControl:
         notifier: Notifier,
         previews: Previews = no_previews,
         spend: Spend = no_spend,
+        monthly: Monthly = lambda _world_id: None,
     ) -> None:
         self.storage = storage
+        self.monthly = monthly
         self.system_db = system_db
         self.data_dir = data_dir
         self.notifier = notifier
         self.previews = previews
         self.spend = spend
         self._client: DBOSClient | None = None
+
+    def start(
+        self,
+        world_id: str,
+        workflow_id: str | None,
+        version: int | None,
+        name: str,
+        stages: list[StageDef],
+        parent_run_id: str | None = None,
+        budget_usd: float | None = None,
+        baseline: bool = False,
+        workflow_budget_usd: float | None = None,
+    ) -> Run:
+        """Record a queued run pinned to `version` and enqueue it. Its Budget follows
+        `budget_for`: `budget_usd` typed at the start, else the workflow's
+        `workflow_budget_usd`. `baseline` runs every swarm stage with one agent and no graph. An
+        Ad Hoc Run has no workflow: `workflow_id` and `version` are None."""
+        budget_usd = self.budget_for(world_id, budget_usd, workflow_budget_usd, parent_run_id)
+        now = datetime.now(UTC).isoformat()
+        run = Run(
+            new_id("run"), world_id, workflow_id, version, name, "queued", now, now, [],
+            parent_run_id=parent_run_id, budget_usd=budget_usd, baseline=baseline,
+        )  # fmt: skip
+        run = self.storage.add_run(run, stages)
+        self._enqueue(run)
+        return run
+
+    def budget_for(
+        self,
+        world_id: str,
+        explicit: float | None = None,
+        workflow: float | None = None,
+        parent_run_id: str | None = None,
+    ) -> float | None:
+        """The one budget rule for every way a run starts (start, ad hoc, fork, promote,
+        schedule, child): `budget.rule` under the world's Monthly Budget this month. Raises
+        MonthSpent when nothing is left. A child run gets None: it spends the Budget of the top
+        run of its family (ADR 0013)."""
+        if parent_run_id is not None:
+            return None
+        month = datetime.now(UTC).strftime("%Y-%m")
+        try:
+            return budget.rule(
+                explicit,
+                workflow,
+                self.monthly(world_id),
+                self.storage.spent_in_month(world_id, month),
+            )
+        except ValueError as exc:
+            raise MonthSpent(str(exc)) from exc
+
+    def fork(self, run_id: str, index: int) -> Run:
+        """Start a Fork: a new run of the same workflow version that copies `run_id` (rows and
+        files) up to stage `index` and runs on from there. Raises KeyError for an unknown run,
+        ValueError for an index outside the run and Illegal when a stage before `index` has
+        not finished."""
+        source = self.storage.get_run(run_id)
+        if source is None:
+            raise KeyError(f"run not found: {run_id}")
+        if not 0 <= index < len(source.stages):
+            raise ValueError(f"stage {index} is not one of the run's {len(source.stages)} stages")
+        unfinished = [s for s in source.stages[:index] if s.status not in ("done", "skipped")]
+        if unfinished:
+            raise Illegal(
+                f"stage {unfinished[0].name} has not finished, so the run cannot fork from"
+                f" {source.stages[index].name}"
+            )
+        # A fork copies the run, its Budget included, as the workflow's default.
+        budget_usd = self.budget_for(source.world_id, workflow=source.budget_usd)
+        now = datetime.now(UTC).isoformat()
+        run = Run(
+            new_id("run"), source.world_id, source.workflow_id, source.workflow_version,
+            source.name, "queued", now, now, [], budget_usd=budget_usd,
+        )  # fmt: skip
+        run = self.storage.fork(run, source, index)
+        copy_run_files(self.data_dir, source, run, index)
+        self._enqueue(run)
+        return run
+
+    def _enqueue(self, run: Run) -> None:
+        """A process that does not host DBOS leaves the queued run to the API's `Runner.adopt`,
+        which enqueues it on the next sweep."""
 
     def notify(self, event: Event) -> None:
         """Hand a recorded event to the Notifier. A notifier outage (Slack) is logged and never

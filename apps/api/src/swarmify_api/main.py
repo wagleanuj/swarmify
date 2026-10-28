@@ -270,12 +270,19 @@ def previews(registry: Connectors, worlds: Worlds) -> Previews:
 
 def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
     """Act on runs from a process that does not host DBOS, such as the MCP server."""
+    worlds = world_service(root)
+
+    def monthly(world_id: str) -> float | None:
+        world = worlds.get(world_id)
+        return world.monthly_budget_usd if world else None
+
     return RunControl(
         run_storage(root),
         root / "dbos.sqlite",
         root,
         notifier or notification_service(root),
-        previews(connector_service(root), world_service(root)),
+        previews(connector_service(root), worlds),
+        monthly=monthly,
     )
 
 
@@ -515,8 +522,10 @@ def create_app(
         while True:
             try:
                 await to_thread.run_sync(lambda: whiteboard.expire(clock()))
+                # Runs the MCP process started wait queued for this process to enqueue them.
+                await to_thread.run_sync(runner.adopt)
             except Exception:
-                log.exception("whiteboard sweep failed, retrying next tick")
+                log.exception("sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
 
     def upkeep_once() -> None:
@@ -579,7 +588,9 @@ def create_app(
     app.include_router(worlds.router(world_svc, delete, lambda w: runner.set_cap(w.id)))
     app.include_router(worlds.events_router(world_svc))
     app.include_router(workflows.router(workflow_svc, world_svc))
-    app.include_router(runs.router(runner, workflow_svc, world_svc, swarm_tools, retro))
+    app.include_router(
+        runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)
+    )
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
@@ -590,7 +601,9 @@ def create_app(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
     app.include_router(evals.router(world_svc, memory, swarm.runtime))
-    tools = mcp.server(world_svc, workflow_svc, whiteboard, runner, delete)
+    tools = mcp.server(
+        world_svc, workflow_svc, whiteboard, runner, delete, memory=memory, retro=retro
+    )
     app.include_router(planner.router(world_svc, swarm.runtime, tools))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")

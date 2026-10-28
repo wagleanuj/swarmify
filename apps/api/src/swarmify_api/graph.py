@@ -1,4 +1,5 @@
-"""HTTP face of a world's Graph: its size, god nodes, last rebuild and a plain-English query box.
+"""HTTP face of a world's Graph: its size, god nodes, communities, surprising connections (each
+node naming the run and note it came from), last rebuild and a plain-English query box.
 Rebuilds stream as `graph.rebuilt` and `graph.failed` on the world's events (ADR 0002). A rebuild
 graphify's shrink guard refused can be accepted, which reruns it over the guard; what extraction
 spent is priced like an agent's tokens.
@@ -13,7 +14,15 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, StringConstraints
 
-from swarmify_memory import GodNode, GraphIndex, GraphWriter, graph_size
+from swarmify_memory import (
+    Community,
+    GodNode,
+    GraphIndex,
+    GraphWriter,
+    Surprise,
+    graph_map,
+    graph_size,
+)
 from swarmify_swarm.sdk import price
 from swarmify_worlds import Worlds
 
@@ -70,6 +79,10 @@ class GraphView(BaseModel):
     nodes: int
     edges: int
     god_nodes: list[GodNode]
+    communities: list[Community] = []
+    """The largest clusters, most connected nodes first."""
+    surprises: list[Surprise] = []
+    """Connections graphify finds non-obvious, across files or communities."""
     rebuilt: Rebuild | None
     """The last successful rebuild."""
     failed: Failure | None
@@ -137,6 +150,7 @@ def router(worlds: Worlds, index: GraphIndex, writer: GraphWriter) -> APIRouter:
         view = history(world_id)
         view.nodes, view.edges = graph_size(where)
         view.god_nodes = index.god_nodes(where)
+        view.communities, view.surprises = graph_map(where)
         return view
 
     @api.post("/accept-shrink", status_code=202)

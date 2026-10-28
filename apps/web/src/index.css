@@ -277,6 +277,9 @@ main.editor-page { max-width: 80rem; }
 .key-check { flex-basis: 100%; font-size: 13px; }
 
 /* Graph */
+.communities, .surprises { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.communities .gods li { justify-content: flex-start; }
+.surprises li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
 .graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 24px; align-items: start; }
 .ask-row { display: flex; gap: 8px; }
 .ask-row input { flex: 1; min-width: 0; }
