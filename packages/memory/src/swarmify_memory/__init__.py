@@ -97,7 +97,7 @@ class ArtifactFile:
     body: str
     run_id: str = ""
     stage: str = ""
-    """The stage folder: a stage id for what agents wrote, `<nn>-<name>` for a gate decision."""
+    """The stage folder, `stage_<id>`, for what agents wrote and for a gate decision alike."""
     created: str = ""
     pinned: bool = False
 
