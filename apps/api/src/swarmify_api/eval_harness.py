@@ -2,8 +2,10 @@
 a running swarmify API (with the real model behind it), and store the report in the eval world.
 
 Each trial gets a fresh world, its own copy of the workflow and one run; the outputs it left
-(`ideas.md`, `script.md`) are graded, never the path it took. A retro proposal is rejected so
-the run can end, a budget gate or the timeout aborts the trial, which then fails.
+(`ideas.md`, `script.md`) are graded, never the path it took, and each pair of trials (one an
+arm, same task and number) goes to the API's blind judge, which picks the better pair. A retro
+proposal is rejected so the run can end, a budget gate or the timeout aborts the trial, which
+then fails.
 
     uv run swarmify-eval --k 3                  # every task, 3 trials an arm
     uv run swarmify-eval --tasks 2 --k 1        # a smoke run
@@ -101,6 +103,23 @@ def _safe(http: httpx.Client, task: EvalTask, arm: str, index: int, s: Settings)
         return Trial(task.id, arm, index, world_id, "", "error", 0.0, None, [f"error: {exc}"])
 
 
+def _judge(http: httpx.Client, base: Trial, swarm: Trial) -> dict[str, Any] | None:
+    """The blind judge's pick for the pair, or None when a side never got a run or the judge
+    failed: that pair is left undecided rather than ending the eval."""
+    if not (base.run_id and swarm.run_id):
+        return None
+    pair = {
+        "task_id": base.task_id,
+        "index": base.index,
+        "baseline": {"world_id": base.world_id, "run_id": base.run_id},
+        "swarm": {"world_id": swarm.world_id, "run_id": swarm.run_id},
+    }
+    try:
+        return _ok(http.post("/api/evals/judge", json=pair))
+    except httpx.HTTPError:
+        return None
+
+
 def run_eval(
     http: httpx.Client,
     tasks: list[EvalTask],
@@ -109,17 +128,25 @@ def run_eval(
     clean: bool = False,
     say: Callable[[str], None] = lambda _line: None,
 ) -> dict[str, Any]:
-    """Every task k times on each arm, then the stored report. `clean` deletes trial worlds."""
+    """Every task k times on each arm, each pair judged blind, then the stored report. `clean`
+    deletes trial worlds."""
     s = settings or Settings()
     jobs = [(t, arm, i) for t in tasks for i in range(k) for arm in ARMS]
 
-    trials = []
+    trials, judgements = [], []
     for job in jobs:
         done = _safe(http, *job, s)
         verdict = "accepted" if done.passed else "; ".join(done.failed)
         say(f"{done.task_id} {done.arm} {done.index + 1}: {verdict}")
         trials.append(done)
-    report = _ok(http.post("/api/evals", json={"k": k, "trials": [asdict(t) for t in trials]}))
+        if done.arm == ARMS[-1]:  # the pair is complete: baseline then swarm
+            pick = _judge(http, trials[-2], done)
+            judged = "undecided" if pick is None else f"{pick['winner'] or 'tie'}: {pick['reason']}"
+            say(f"{done.task_id} {done.index + 1} judged: {judged}")
+            if pick is not None:
+                judgements.append(pick)
+    body = {"k": k, "trials": [asdict(t) for t in trials], "judgements": judgements}
+    report = _ok(http.post("/api/evals", json=body))
     if clean:
         for t in trials:
             if t.world_id:
@@ -140,7 +167,9 @@ def main(argv: list[str] | None = None) -> None:
     a = p.parse_args(argv)
     password = os.environ.get("SWARMIFY_PASSWORD")
     auth = (os.environ.get("SWARMIFY_USER", "swarmify"), password) if password else None
-    with httpx.Client(base_url=a.api, auth=auth, timeout=60) as http:
+    # a judge session answers within minutes; every other call within seconds
+    timeout = httpx.Timeout(60, read=600)
+    with httpx.Client(base_url=a.api, auth=auth, timeout=timeout) as http:
         report = run_eval(
             http,
             TASKS[: a.tasks],

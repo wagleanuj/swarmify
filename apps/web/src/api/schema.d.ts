@@ -1103,6 +1103,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/evals/judge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Judge
+         * @description One blind judge session over the pair's `ideas.md` and `script.md`: the arm labels
+         *     removed, the order shuffled per task. 502 when the session fails or answers in another
+         *     shape; post again to retry.
+         */
+        post: operations["judge_api_evals_judge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evals": {
         parameters: {
             query?: never;
@@ -1118,8 +1140,9 @@ export interface paths {
         put?: never;
         /**
          * Save Eval
-         * @description Summarize the trials into a report (pass at k, pass to the k, cost, duration and
-         *     acceptance per arm) and store it as `report.md` in the eval world's Library.
+         * @description Summarize the trials and the judge's picks into a report (pass at k, pass to the k,
+         *     cost, duration, acceptance, wins, losses, ties and cost a win per arm) and store it as
+         *     `report.md` in the eval world's Library.
          */
         post: operations["save_eval_api_evals_post"];
         delete?: never;
@@ -1234,6 +1257,23 @@ export interface components {
             cost_usd: number;
             /** Duration S */
             duration_s: number | null;
+            /**
+             * Wins
+             * @default 0
+             */
+            wins: number;
+            /**
+             * Losses
+             * @default 0
+             */
+            losses: number;
+            /**
+             * Ties
+             * @default 0
+             */
+            ties: number;
+            /** Cost Per Win */
+            cost_per_win?: number | null;
         };
         /**
          * ArtifactFile
@@ -1561,6 +1601,8 @@ export interface components {
             verdict: string;
             /** Trials */
             trials: components["schemas"]["Trial"][];
+            /** Judgements */
+            judgements?: components["schemas"]["Judgement"][];
         };
         /** Failure */
         Failure: {
@@ -1661,6 +1703,21 @@ export interface components {
         Health: {
             /** Version */
             version: string;
+        };
+        /**
+         * Judgement
+         * @description The blind judge's pick between the two arms' trials `index` of one task. `winner` is
+         *     the better arm, None for a tie.
+         */
+        Judgement: {
+            /** Task Id */
+            task_id: string;
+            /** Index */
+            index: number;
+            /** Winner */
+            winner: string | null;
+            /** Reason */
+            reason: string;
         };
         /**
          * LibraryItem
@@ -1766,6 +1823,11 @@ export interface components {
             k: number;
             /** Trials */
             trials: components["schemas"]["Trial"][];
+            /**
+             * Judgements
+             * @default []
+             */
+            judgements: components["schemas"]["Judgement"][];
         };
         /**
          * NewSkill
@@ -1823,6 +1885,21 @@ export interface components {
             body: string;
             /** Ts */
             ts: string;
+        };
+        /**
+         * Pair
+         * @description One task's trial `index` on each arm, for the blind judge.
+         */
+        Pair: {
+            /** Task Id */
+            task_id: string;
+            /**
+             * Index
+             * @default 0
+             */
+            index: number;
+            baseline: components["schemas"]["Side"];
+            swarm: components["schemas"]["Side"];
         };
         /** PinBody */
         PinBody: {
@@ -2136,6 +2213,13 @@ export interface components {
         SetBudget: {
             /** Budget Usd */
             budget_usd: number;
+        };
+        /** Side */
+        Side: {
+            /** World Id */
+            world_id: string;
+            /** Run Id */
+            run_id: string;
         };
         /**
          * Skill
@@ -4796,6 +4880,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    judge_api_evals_judge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Pair"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Judgement"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

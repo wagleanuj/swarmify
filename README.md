@@ -605,15 +605,23 @@ Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, basic 
   `script.md` must be 60 to 200 words and name the task's topic. A trial is accepted when its
   run is done and every check passed. A retro proposal is rejected so the run can end; a spent
   budget or the timeout aborts the trial, which then fails.
-- The report gives, per arm, acceptance, pass at k (any of a task's k trials passed) and pass to
-  the k (all k passed), averaged over tasks, the mean estimated cost a trial and the mean time to
-  an accepted output (the Retro stage left out). The swarm wins when it accepts at least as often
-  as the baseline and gets there faster; the verdict sentence says so with all three numbers.
-- `POST /api/evals` (`{"k", "trials"}`) summarizes and stores the report as `report.md` (type
+- A blind pairwise judge then decides quality, since both arms usually pass every check: after
+  each pair of trials (the same task and trial number on each arm) the harness calls
+  `POST /api/evals/judge` (`{"task_id", "index", "baseline": {"world_id", "run_id"}, "swarm":
+  {...}}`), and one judge session sees both pairs' `ideas.md` and `script.md` as A and B, arm
+  labels removed and the order shuffled per task (seeded by the task id, so it is the same every
+  run). It answers A, B or tie with a reason; a pair it fails to judge is left undecided.
+- The report gives, per arm, first-try acceptance, pass at k (any of a task's k trials passed)
+  and pass to the k (all k passed), averaged over tasks, the mean estimated cost a trial, the mean
+  time to an accepted output (the Retro stage left out), and the judge's wins, losses and ties
+  with the cost a win (the arm's whole cost over its wins). The swarm beats the baseline when the
+  judge prefers it in more than half of the decided pairs (ties left out); the verdict sentence
+  says so with the wins, the cost a win, acceptance, time and cost a trial.
+- `POST /api/evals` (`{"k", "trials", "judgements"}`) summarizes and stores the report as `report.md` (type
   `eval`, the whole report in its frontmatter, tables in its body) in the `Evals` world, made on
   the first report, so it shows in that world's Library and graph. `GET /api/evals` lists the
   reports newest first; the web skin shows them at `/evals`, linked from the worlds page, with
-  each trial linking to its run.
+  the judge's picks and reasons, and each trial linking to its run.
 
 Tests drive the harness against the real app with the scripted CLI behind the Agent SDK, so the
 suite checks the whole loop with no model.

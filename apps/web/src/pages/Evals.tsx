@@ -39,7 +39,8 @@ export function Evals() {
           <h1>Evals: Hooli baseline against the swarm</h1>
           <p className="sub">
             Each task runs as the weekly short in a fresh world, k times one agent alone and k times the swarm. Only
-            what the run produced is graded. Cost is the runtime's estimate, not billing.
+            what the run produced is graded, then a blind judge picks the better of each pair without knowing which
+            arm made it. Cost is the runtime's estimate, not billing.
           </p>
         </div>
       </header>
@@ -71,6 +72,10 @@ export function Evals() {
                 <th className="num">pass^{latest.k}</th>
                 <th className="num">Cost a trial (est.)</th>
                 <th className="num">Time to accepted</th>
+                <th className="num">Wins</th>
+                <th className="num">Losses</th>
+                <th className="num">Ties</th>
+                <th className="num">Cost a win (est.)</th>
               </tr>
             </thead>
             <tbody>
@@ -85,10 +90,37 @@ export function Evals() {
                   <td className="num">{pct(a.pass_pow_k)}</td>
                   <td className="num">{money(a.cost_usd)}</td>
                   <td className="num">{a.duration_s === null ? "none accepted" : took(a.duration_s)}</td>
+                  <td className="num">{a.wins}</td>
+                  <td className="num">{a.losses}</td>
+                  <td className="num">{a.ties}</td>
+                  <td className="num">{a.cost_per_win == null ? "no win" : money(a.cost_per_win)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <details>
+            <summary>The judge's picks ({(latest.judgements ?? []).length})</summary>
+            <table className="scores" data-testid="judgements">
+              <thead>
+                <tr>
+                  <th>Task</th>
+                  <th>Trial</th>
+                  <th>Preferred</th>
+                  <th>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(latest.judgements ?? []).map((j) => (
+                  <tr key={`${j.task_id}-${j.index}`} data-testid="judgement">
+                    <td>{j.task_id}</td>
+                    <td>{j.index + 1}</td>
+                    <td>{j.winner ? (ARM_LABEL[j.winner] ?? j.winner) : "tie"}</td>
+                    <td>{j.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
           <details>
             <summary>Every trial ({latest.trials.length})</summary>
             <table className="scores" data-testid="trials">

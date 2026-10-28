@@ -1,5 +1,5 @@
-"""The Eval's pure parts: the task set, the output grader, pass at k and pass to the k, and the
-report that says whether the swarm wins."""
+"""The Eval's pure parts: the task set, the output grader, pass at k and pass to the k, the blind
+judge's prompt and pick, and the report that says whether the swarm wins."""
 
 from math import comb
 
@@ -9,9 +9,13 @@ from hypothesis import strategies as st
 
 from swarmify_learning.evals import (
     TASKS,
+    Judgement,
     Trial,
+    blind_order,
     grade,
+    judge_prompt,
     markdown,
+    parse_pick,
     pass_at_k,
     pass_pow_k,
     summarize,
@@ -70,18 +74,55 @@ def test_pass_to_the_k_never_exceeds_pass_at_k(nck: tuple[int, int, int]) -> Non
     assert pass_at_k(n, c, k) == pytest.approx(1 - comb(n - c, k) / comb(n, k))
 
 
-def test_the_report_compares_cost_duration_and_acceptance_and_names_the_winner() -> None:
-    trials = [
-        trial("a", "baseline", 0, True, 0.5, 600),
-        trial("a", "baseline", 1, False, 0.5, 600),
-        trial("b", "baseline", 0, False, 0.4, 500),
-        trial("b", "baseline", 1, False, 0.4, None),
-        trial("a", "swarm", 0, True, 1.5, 300),
-        trial("a", "swarm", 1, True, 1.5, 300),
-        trial("b", "swarm", 0, True, 1.0, 200),
-        trial("b", "swarm", 1, False, 1.0, 200),
-    ]
-    report = summarize(trials, 2, "eval_1", "2026-10-27T10:00:00+00:00")
+def test_the_blind_order_is_shuffled_per_task_and_stable() -> None:
+    orders = {t.id: blind_order(t.id) for t in TASKS}
+    assert {o for o in orders.values()} == {("baseline", "swarm"), ("swarm", "baseline")}
+    assert all(blind_order(t.id) == orders[t.id] for t in TASKS)
+
+
+def test_the_judge_sees_both_arms_unlabelled_in_the_task_order_and_its_pick_maps_back() -> None:
+    outputs = {
+        "baseline": {"ideas.md": "IDEAS-ONE", "script.md": "SCRIPT-ONE"},
+        "swarm": {"ideas.md": "IDEAS-TWO"},
+    }
+    prompt = judge_prompt(TASK, outputs)
+    assert "baseline" not in prompt.lower() and "swarm" not in prompt.lower()
+    first, second = blind_order(TASK.id)
+    mark = {"baseline": "IDEAS-ONE", "swarm": "IDEAS-TWO"}
+    a, b = prompt.index("## A: ideas.md"), prompt.index("## B: ideas.md")
+    assert a < prompt.index(mark[first]) < b < prompt.index(mark[second])
+    assert "## A: script.md" in prompt and "(missing)" in prompt and TASK.topic in prompt
+
+    pick = parse_pick(TASK.id, 1, {"better": "A", "reason": "Sharper hook."})
+    assert pick == Judgement(TASK.id, 1, first, "Sharper hook.")
+    assert parse_pick(TASK.id, 0, {"better": "B", "reason": "x"}).winner == second
+    assert parse_pick(TASK.id, 0, {"better": "tie", "reason": "Even."}).winner is None
+    for bad in ({"better": "C", "reason": "x"}, {"better": "A", "reason": " "}, "A"):
+        with pytest.raises(ValueError):
+            parse_pick(TASK.id, 0, bad)
+
+
+TRIALS = [
+    trial("a", "baseline", 0, True, 0.5, 600),
+    trial("a", "baseline", 1, False, 0.5, 600),
+    trial("b", "baseline", 0, False, 0.4, 500),
+    trial("b", "baseline", 1, False, 0.4, None),
+    trial("a", "swarm", 0, True, 1.5, 300),
+    trial("a", "swarm", 1, True, 1.5, 300),
+    trial("b", "swarm", 0, True, 1.0, 200),
+    trial("b", "swarm", 1, False, 1.0, 200),
+]
+
+
+def judged(*winners: str | None) -> list[Judgement]:
+    return [Judgement("ab"[i // 2], i % 2, w, f"Pick {i}") for i, w in enumerate(winners)]
+
+
+def test_the_report_keeps_acceptance_and_counts_the_judges_wins_losses_ties_and_cost_a_win() -> (
+    None
+):
+    picks = judged("swarm", "swarm", None, "baseline")
+    report = summarize(TRIALS, 2, "eval_1", "2026-10-27T10:00:00+00:00", picks)
     baseline, swarm = report.arms
     assert (baseline.arm, baseline.trials, baseline.accepted) == ("baseline", 4, 1)
     assert (baseline.pass_at_k, baseline.pass_pow_k) == (0.5, 0.0)
@@ -92,24 +133,36 @@ def test_the_report_compares_cost_duration_and_acceptance_and_names_the_winner()
         1,
         0.5,
     )
-    assert report.tasks == 2 and report.swarm_wins
+    assert (swarm.wins, swarm.losses, swarm.ties) == (2, 1, 1)
+    assert (baseline.wins, baseline.losses, baseline.ties) == (1, 2, 1)
+    assert swarm.cost_per_win == pytest.approx(2.5) and baseline.cost_per_win == pytest.approx(1.8)
+    assert report.tasks == 2 and report.swarm_wins and report.judgements == picks
     assert report.verdict == (
-        "The swarm wins: it accepted 75% of trials against 25% for the baseline, in 4 min an"
-        " accepted trial against 10 min, at $1.25 a trial against $0.45 (estimated)."
+        "The swarm wins: the blind judge preferred it in 2 of 3 decided pairs (1 tied), at $2.50"
+        " a win against $1.80 a win for the baseline. It accepted 75% of trials first try"
+        " against 25%, in 4 min an accepted trial against 10 min, at $1.25 a trial against"
+        " $0.45 (estimated)."
     )
     text = markdown(report)
-    assert report.verdict in text and "| swarm | 4 | 75% | 100% | 50% | $1.25 | 4 min |" in text
+    assert report.verdict in text
+    assert "| swarm | 4 | 75% | 100% | 50% | $1.25 | 4 min | 2 | 1 | 1 | $2.50 a win |" in text
     assert "| b | baseline | 2 | done | $0.40 | none | script.md is missing |" in text
+    assert "| b | 1 | tie | Pick 2 |" in text and "| a | 1 | swarm | Pick 0 |" in text
 
-    slower = [
-        t if t.arm == "baseline" else trial(t.task_id, "swarm", t.index, True, 1, 900)
-        for t in trials
-    ]
-    lost = summarize(slower, 2, "eval_2", "2026-10-27T10:00:00+00:00")
-    assert not lost.swarm_wins and lost.verdict.startswith("The swarm does not win: ")
 
-    never = [trial("a", "baseline", 0, False, 1, 100), trial("a", "swarm", 0, True, 1, 300)]
-    assert summarize(never, 1, "eval_3", "now").swarm_wins, "a baseline that never accepts loses"
+def test_the_swarm_wins_only_on_more_than_half_of_the_decided_pairs() -> None:
+    def wins(*winners: str | None) -> bool:
+        return summarize(TRIALS, 2, "eval_1", "now", judged(*winners)).swarm_wins
+
+    assert wins("swarm", None, None, None), "ties are left out"
+    assert not wins("swarm", "baseline", None, None), "half is not more than half"
+    assert not wins(None, None, None, None) and not wins()
+    assert not wins("baseline", "baseline", "swarm", None)
+    lost = summarize(TRIALS, 2, "eval_2", "now", judged("baseline"))
+    assert lost.verdict.startswith("The swarm does not win: the blind judge preferred it in 0 of 1")
+    assert "at no win against $1.80 a win" in lost.verdict
+    with pytest.raises(ValueError, match="unknown arm hooli"):
+        summarize(TRIALS, 2, "eval_3", "now", judged("hooli"))
 
 
 def test_a_report_needs_k_trials_of_each_arm_on_each_task() -> None:
