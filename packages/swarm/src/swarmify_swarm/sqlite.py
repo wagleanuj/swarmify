@@ -262,17 +262,20 @@ class SqliteStorage:
         session_id: str | None = None,
         cost_usd: float | None = None,
         skills: list[str] | None = None,
+        model: str | None = None,
     ) -> Agent:
         with self._write() as conn:
             found = conn.execute(
                 "UPDATE agents SET status = coalesce(?, status),"
                 " session_id = coalesce(?, session_id), cost_usd = cost_usd + coalesce(?, 0),"
-                " skills = coalesce(?, skills), updated_at = ? WHERE stage_id = ? AND name = ?",
+                " skills = coalesce(?, skills), model = coalesce(?, model), updated_at = ?"
+                " WHERE stage_id = ? AND name = ?",
                 (
                     status,
                     session_id,
                     cost_usd,
                     None if skills is None else json.dumps(skills),
+                    model,
                     _iso(None),
                     stage_id,
                     name,
@@ -409,6 +412,7 @@ def _agent(row: sqlite3.Row) -> Agent:
         row["created_at"],
         row["updated_at"],
         json.loads(row["skills"]),
+        row["model"],
     )
 
 

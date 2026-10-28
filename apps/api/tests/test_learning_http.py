@@ -400,3 +400,14 @@ def test_a_done_run_with_a_retro_saves_as_a_workflow_without_it(
     assert saved.status_code == 201, saved.text
     assert "retro" not in saved.json()["yaml"]
     assert [s["type"] for s in saved.json()["model"]["stages"]] == ["gate"]
+
+
+def test_the_retro_runs_on_the_casts_retro_model(running: TestClient, script: Script) -> None:
+    script.scripts = [PLAN, WORK, PASS, QUIET]
+    world, workflow = setup(running)
+    running.patch(f"/api/worlds/{world}", json={"retro_model": "claude-haiku-4-5"})
+    run = run_to_review(running, workflow)
+    settled(running, run["id"])
+    models = {a["name"]: a["model"] for a in running.get(f"/api/runs/{run['id']}/agents").json()}
+    assert models["retro"] == "claude-haiku-4-5"
+    assert models["worker-1"] == "claude-opus-5-5"  # the global default

@@ -303,3 +303,37 @@ def test_the_monthly_budget_caps_each_run_and_refuses_runs_once_spent(
     ad_hoc = running.post(f"/api/worlds/{world}/runs", json={"goal": "Anything"})
     assert ad_hoc.status_code == 409
     assert running.get("/api/worlds/world_nope/spend").status_code == 404
+
+
+def test_the_most_specific_model_wins_stage_then_role_then_world_then_global(
+    running: TestClient, script: Script
+) -> None:
+    world = _world(running)
+    models = running.get("/api/models").json()
+    assert models["default"] == "claude-opus-5-5"
+    assert "claude-sonnet-5-5" in models["models"] and "claude-haiku-4-5" in models["models"]
+
+    def ran(yaml: str = RESEARCH) -> dict[str, str]:
+        script.scripts = [PLAN, WORK, PASS]
+        script.sessions.clear()
+        run = _run_research(running, world, yaml)
+        assert _ended(running, run["id"])["status"] == "done"
+        assert len(script.sessions) == 3  # planner, worker, judge
+        agents = running.get(f"/api/runs/{run['id']}/agents").json()
+        return {a["name"]: a["model"] for a in agents}
+
+    assert ran() == dict.fromkeys(("planner", "worker-1", "judge"), "claude-opus-5-5")
+    assert running.patch(f"/api/worlds/{world}", json={"model": "claude-sonnet-5-5"}).is_success
+    assert ran() == dict.fromkeys(("planner", "worker-1", "judge"), "claude-sonnet-5-5")
+    roles = {"planner_model": "claude-haiku-4-5", "judge_model": "claude-opus-5-5"}
+    assert running.patch(f"/api/worlds/{world}", json=roles).is_success
+    assert ran() == {
+        "planner": "claude-haiku-4-5",
+        "worker-1": "claude-sonnet-5-5",
+        "judge": "claude-opus-5-5",
+    }
+    staged = ran(RESEARCH + "    model: claude-haiku-4-5\n")
+    assert staged == dict.fromkeys(("planner", "worker-1", "judge"), "claude-haiku-4-5")
+    assert [o.model for o in script.sessions] == ["claude-haiku-4-5"] * 3
+    bad = running.patch(f"/api/worlds/{world}", json={"model": "two words"})
+    assert bad.status_code == 422

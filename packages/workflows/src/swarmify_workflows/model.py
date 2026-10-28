@@ -18,6 +18,8 @@ class SwarmStage:
     graphs: list[str] = field(default_factory=list)
     output_type: str | None = None
     produces: list[str] = field(default_factory=list)
+    model: str | None = None
+    """The model the stage's agents run on, over the world's and the Cast's choice."""
     type: Literal["swarm"] = "swarm"
 
 

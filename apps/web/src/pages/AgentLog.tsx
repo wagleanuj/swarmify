@@ -32,7 +32,7 @@ export function AgentLog({ agents, log }: { agents: Agent[]; log: LogEntry[] }) 
               <b>{who(a.name)}</b> <span className={`status status-${a.status}`}>{a.status}</span>
               <span className="faint">
                 {" "}
-                · estimated {usd(a.cost_usd)} · skills: {(a.skills ?? []).join(", ") || "none"}
+                {a.model ? `· on ${a.model} ` : ""}· estimated {usd(a.cost_usd)} · skills: {(a.skills ?? []).join(", ") || "none"}
               </span>
               {a.session_id && (
                 <span className="faint" title={a.session_id}>

@@ -153,12 +153,14 @@ class NoGraphs:
 @dataclass(frozen=True)
 class CastEntry:
     """One agent of the world's Cast as the swarm runs it. `tools` narrows the stage's tools to
-    these names; None allows whatever the stage allows."""
+    these names; None allows whatever the stage allows. `model` is the model its sessions run
+    on; None leaves it to the runtime."""
 
     name: str
     role: AgentRole
     prompt: str = ""
     tools: list[str] | None = None
+    model: str | None = None
 
 
 DEFAULT_CAST = [
@@ -510,6 +512,7 @@ class Swarm:
                 servers=self.servers(at.world_id, servers),
                 resume=resume,
                 max_turns=MAX_TURNS,
+                model=entry.model,
             )
 
         self._session(at, entry.name, "worker", spec, allowed, lambda _: None)
@@ -604,13 +607,15 @@ class Swarm:
         prompt: str,
         schema: dict[str, Any],
         parse: Callable[[Any], T],
+        model: str | None = None,
     ) -> T:
         """One judge-style session outside a swarm stage, for another context's question (the
         Learning retro): the graph and the world folder to read, the world's skills loaded, a
         JSON answer that `parse` accepts. Logged, costed and budgeted like any agent of the
         stage, under `name`. Raises StageError when two sessions fail, Stopped when the run's
         Budget stopped it."""
-        at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder)
+        cast = (CastEntry(name, "judge", model=model),)
+        at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         return self._short(at, name, "judge", prompt, schema, parse, system)
 
     def _short(
@@ -634,8 +639,9 @@ class Swarm:
             system = (
                 f"You are the {role} of a swarm. Answer only with the JSON the schema asks for."
             )
-        if standing := at.entry(name, role).prompt:
-            system += f"\nYour standing instructions: {standing}"
+        entry = at.entry(name, role)
+        if entry.prompt:
+            system += f"\nYour standing instructions: {entry.prompt}"
 
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
@@ -648,6 +654,7 @@ class Swarm:
                 resume=resume,
                 max_turns=SHORT_TURNS,
                 output_schema=schema,
+                model=entry.model,
             )
 
         return self._session(at, name, role, spec, allowed, parse, fresh=True)
@@ -902,10 +909,15 @@ class _Hooks:
 
     def started(self, init: SessionInit) -> None:
         self.board.update_agent(
-            self.stage_id, self.agent, session_id=init.session_id, skills=init.skills
+            self.stage_id,
+            self.agent,
+            session_id=init.session_id,
+            skills=init.skills,
+            model=init.model or None,
         )
         detail = (
-            f"Session {init.session_id} started with skills: {', '.join(init.skills) or 'none'}."
+            f"Session {init.session_id} started on {init.model or 'the default model'}"
+            f" with skills: {', '.join(init.skills) or 'none'}."
         )
         if init.plugin_errors:
             detail += f" The skills plugin reported: {'; '.join(init.plugin_errors)}."

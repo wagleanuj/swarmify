@@ -19,6 +19,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   created_at: ts,
   updated_at: ts,
   skills: ["world_1:hooks"],
+  model: "claude-haiku-4-5",
   ...over,
 });
 const entry = (seq: number, over: Partial<LogEntry> = {}): LogEntry => ({
@@ -47,7 +48,7 @@ test("a swarm stage shows its agents, their estimated cost and a live log", asyn
     "GET /api/runs/run_1/stages/stage_0/tasks": () => Response.json([]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("agent")).toMatchTextContent(/Gilfoyle\s*working.*estimated \$0\.0123.*skills: world_1:hooks/);
+  await expect.element(screen.getByTestId("agent")).toMatchTextContent(/Gilfoyle\s*working.*on claude-haiku-4-5.*estimated \$0\.0123.*skills: world_1:hooks/);
   await expect.element(screen.getByTestId("run-cost")).toMatchTextContent(/\$0\.0123\. An estimate/);
   await expect.element(screen.getByTestId("log")).toMatchTextContent(/10:00:01 Gilfoyle used query_graph/);
 

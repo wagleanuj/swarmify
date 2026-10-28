@@ -13,10 +13,17 @@ from typing import Any
 from swarmify_kernel import Event
 from swarmify_kernel.events import append, read_after
 from swarmify_kernel.sqlite import connect
-from swarmify_worlds.model import CastEdit, World
+from swarmify_worlds.model import MODEL_ROLES, CastEdit, World
 
 MIGRATIONS = Path(__file__).parent / "migrations"
-SETTINGS = ("retention_days", "monthly_budget_usd", "run_cap", "agent_count")
+SETTINGS = (
+    "retention_days",
+    "monthly_budget_usd",
+    "run_cap",
+    "agent_count",
+    "model",
+    *(f"{role}_model" for role in MODEL_ROLES),
+)
 """The columns `update_settings` may write."""
 
 
@@ -30,6 +37,7 @@ def _world(row: sqlite3.Row) -> World:
         row["monthly_budget_usd"],
         row["run_cap"],
         row["agent_count"],
+        *(row[k] for k in SETTINGS[4:]),
     )
 
 

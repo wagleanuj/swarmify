@@ -64,6 +64,8 @@ class Agent:
     updated_at: str
     skills: list[str] = field(default_factory=list)
     """What the session's init message said loaded from the world's skills plugin."""
+    model: str | None = None
+    """The model its latest session ran on, as the session reported it."""
 
 
 @dataclass(frozen=True)

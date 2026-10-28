@@ -147,3 +147,30 @@ test("with no skills it says where the first one comes from", async () => {
   const { screen } = await mountAt("/worlds/world_1/cast");
   await expect.element(screen.getByTestId("no-skills")).toMatchTextContent(/approve a retro proposal or promote/);
 });
+
+test("each role may run on its own model, over the world's", async () => {
+  const bodies: unknown[] = [];
+  const world = { ...video, model: "claude-sonnet-5-5", judge_model: "claude-opus-5-5" };
+  fakeFetch({
+    "GET /api/models": () =>
+      Response.json({ default: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] }),
+    "GET /api/worlds/world_1": () => Response.json(world),
+    "GET /api/worlds/world_1/cast": () => Response.json(cast),
+    "PATCH /api/worlds/world_1": async (req) => {
+      const body = (await req.json()) as Record<string, unknown>;
+      bodies.push(body);
+      return Response.json({ ...world, ...body });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/cast");
+  const judge = screen.getByRole("combobox", { name: "Judge model" });
+  await expect.element(judge).toHaveDisplayValue("claude-opus-5-5");
+  await expect.element(screen.getByRole("combobox", { name: "Retro model" })).toHaveDisplayValue("World's: claude-sonnet-5-5");
+  await screen.getByRole("combobox", { name: "Planner model" }).selectOptions("claude-haiku-4-5");
+  await judge.selectOptions("World's: claude-sonnet-5-5");
+  await screen.getByRole("button", { name: "Save models" }).click();
+  await expect.element(screen.getByRole("status")).toMatchTextContent(/Models saved/);
+  expect(bodies).toEqual([
+    { planner_model: "claude-haiku-4-5", worker_model: null, judge_model: null, retro_model: null },
+  ]);
+});

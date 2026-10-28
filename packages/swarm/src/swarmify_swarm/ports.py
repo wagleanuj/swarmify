@@ -109,6 +109,7 @@ class Storage(Protocol):
         session_id: str | None = None,
         cost_usd: float | None = None,
         skills: list[str] | None = None,
+        model: str | None = None,
     ) -> Agent:
         """Change only the fields given. `cost_usd` is added to the agent's cost, so every
         session's estimate counts, a failed one's too."""
@@ -176,6 +177,8 @@ class SessionSpec:
     max_turns: int | None = None
     output_schema: dict[str, Any] | None = None
     """A JSON schema the session's final answer must follow (structured output)."""
+    model: str | None = None
+    """The model to run on; None leaves it to the runtime's default."""
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,8 @@ class SessionInit:
     session_id: str
     skills: list[str]
     plugin_errors: list[str]
+    model: str = ""
+    """The model the session runs on."""
 
 
 @dataclass(frozen=True)

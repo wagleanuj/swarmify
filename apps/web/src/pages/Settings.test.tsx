@@ -71,10 +71,13 @@ test("shows why Slack refused the test and why a webhook was rejected", async ()
   await expect.element(screen.getByTestId("slack-state")).toHaveTextContent(`Posting to ${shown}`);
 });
 
-test("the world card shows spend beside the budget and saves the four settings", async () => {
+const models = { default: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] };
+
+test("the world card shows spend beside the budget and saves the settings and the model", async () => {
   const bodies: unknown[] = [];
-  const world = { ...video, retention_days: 90, monthly_budget_usd: null, run_cap: 2, agent_count: 4 };
+  const world = { ...video, retention_days: 90, monthly_budget_usd: null, run_cap: 2, agent_count: 4, model: null };
   fakeFetch({
+    "GET /api/models": () => Response.json(models),
     "GET /api/worlds/world_1": () => Response.json(world),
     "GET /api/worlds/world_1/spend": () =>
       Response.json({ month: "2026-10", spent_usd: 1.5, monthly_budget_usd: null }),
@@ -91,9 +94,14 @@ test("the world card shows spend beside the budget and saves the four settings",
   await screen.getByRole("spinbutton", { name: "Runs at once" }).fill("1");
   await screen.getByRole("spinbutton", { name: "Keep videos and images for, days" }).fill("30");
   await screen.getByRole("spinbutton", { name: "Workers per stage" }).fill("2");
+  const model = screen.getByRole("combobox", { name: "Model" });
+  await expect.element(model).toHaveDisplayValue("Default: claude-opus-5-5");
+  await model.selectOptions("claude-sonnet-5-5");
   await screen.getByRole("button", { name: "Save settings" }).click();
   await expect.element(screen.getByRole("status")).toMatchTextContent(/Settings saved/);
-  expect(bodies).toEqual([{ monthly_budget_usd: 25, run_cap: 1, retention_days: 30, agent_count: 2 }]);
+  expect(bodies).toEqual([
+    { monthly_budget_usd: 25, run_cap: 1, retention_days: 30, agent_count: 2, model: "claude-sonnet-5-5" },
+  ]);
   await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate of $25.00.");
 });
 

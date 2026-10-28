@@ -104,16 +104,25 @@ def test_migration_9_keeps_agents_and_their_log(tmp_path: Path) -> None:
     old = tmp_path / "old"
     old.mkdir()
     for f in MIGRATIONS.glob("*.sql"):
-        if not f.name.startswith("0009"):
+        if int(f.name[:4]) < 9:
             (old / f.name).write_text(f.read_text())
     db = tmp_path / "swarmify.db"
     with closing(connect(db)) as conn:
         migrate(conn, KERNEL, old)
     board = SqliteStorage(db)
-    board.agent("world_1", "run_1", "stage_1", "worker-1", "worker")
-    board.log("stage_1", "worker-1", "tool", tool="Read")
+    with closing(connect(db)) as conn:  # rows as the schema before migration 9 held them
+        conn.execute(
+            "INSERT INTO agents (id, world_id, run_id, stage_id, name, role, status, created_at,"
+            " updated_at) VALUES ('agent_1', 'world_1', 'run_1', 'stage_1', 'worker-1', 'worker',"
+            " 'working', 'now', 'now')"
+        )
+        conn.execute(
+            "INSERT INTO agent_log (agent_id, stage_id, agent, kind, tool, ts)"
+            " VALUES ('agent_1', 'stage_1', 'worker-1', 'tool', 'Read', 'now')"
+        )
+        conn.commit()
     with closing(connect(db)) as conn:
-        assert migrate(conn, KERNEL, MIGRATIONS) == [9]
+        assert migrate(conn, KERNEL, MIGRATIONS) == [9, 26]
     assert [a.name for a in board.list_agents("run_1")] == ["worker-1"]
     assert [e.tool for e in board.list_log("stage_1")] == ["Read"]
     board.agent("world_1", "run_1", "stage_1", "judge", "judge")

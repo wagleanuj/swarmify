@@ -9,7 +9,8 @@ What it emulates of the CLI, and nothing more: the init message lists the skills
 each local plugin's `skills/<name>/SKILL.md` as `<plugin>:<name>`, where `<plugin>` is the
 manifest name or else the folder name (an assumption about the real CLI for a manifest-less
 plugin; the opt-in real-CLI smoke test is where it gets pinned) (plus `host-skill` when host
-settings are on, standing in for `~/.claude/skills` leaking in), `resume` keeps the session id,
+settings are on, standing in for `~/.claude/skills` leaking in), the session runs on the model the
+options name, `resume` keeps the session id,
 each tool call's step carries `usage` (one message id per step), and the result carries `cost`
 as the session's estimated total.
 """
@@ -198,7 +199,7 @@ class ScriptedTransport(Transport):
             "uuid": str(uuid.uuid4()),
             "session_id": sid,
             "cwd": str(self.options.cwd),
-            "model": "scripted",
+            "model": self.options.model or "scripted",
             "permissionMode": self.options.permission_mode,
             "tools": list(self.options.allowed_tools),
             "mcp_servers": [{"name": n, "status": "connected"} for n in self.options.mcp_servers],  # type: ignore[union-attr]
@@ -217,7 +218,7 @@ class ScriptedTransport(Transport):
                 continue
             if isinstance(step, Say):
                 last = step.text
-                yield _assistant(sid, {"type": "text", "text": step.text})
+                yield _assistant(sid, {"type": "text", "text": step.text}, model=self.options.model)
                 continue
             if LAST in step.input.values():
                 step = Call(
@@ -229,6 +230,7 @@ class ScriptedTransport(Transport):
                 sid,
                 {"type": "tool_use", "id": use_id, "name": step.tool, "input": step.input},
                 self.script.usage,
+                self.options.model,
             )
             denied: str | None = None
             for matcher in self._hooks.get("PreToolUse", []):
@@ -356,9 +358,16 @@ def _answer(request_id: str, response: dict[str, Any]) -> dict[str, Any]:
 
 
 def _assistant(
-    session_id: str, block: dict[str, Any], usage: dict[str, int] | None = None
+    session_id: str,
+    block: dict[str, Any],
+    usage: dict[str, int] | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": "assistant", "model": "scripted", "content": [block]}
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "model": model or "scripted",
+        "content": [block],
+    }
     if usage is not None:
         message |= {"id": f"msg_{uuid.uuid4()}", "usage": usage}
     return {
