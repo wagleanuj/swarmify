@@ -18,14 +18,26 @@ SESSION = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=u1"
 
 
 class FakeGoogle:
-    def __init__(self, upload_status: int = 200) -> None:
+    """`uploads` are the channel's videos, newest first, as `videos.list` part snippet answers."""
+
+    def __init__(self, upload_status: int = 200, uploads: list[dict] | None = None) -> None:
         self.requests: list[httpx.Request] = []
         self.upload_status = upload_status
+        self.uploads = uploads or []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if request.url.host == "oauth2.googleapis.com":
             return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path.endswith("/channels"):
+            playlists = {"relatedPlaylists": {"uploads": "UU1"}}
+            return httpx.Response(200, json={"items": [{"contentDetails": playlists}]})
+        if request.url.path.endswith("/playlistItems"):
+            items = [{"contentDetails": {"videoId": v["id"]}} for v in self.uploads]
+            return httpx.Response(200, json={"items": items})
+        if request.url.path == "/youtube/v3/videos":
+            ids = request.url.params["id"].split(",")
+            return httpx.Response(200, json={"items": [v for v in self.uploads if v["id"] in ids]})
         if request.method == "POST":
             return httpx.Response(200, headers={"location": SESSION})
         if self.upload_status != 200:
@@ -82,6 +94,29 @@ def test_made_for_kids_is_declared_to_youtube(video: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(google)) as http:
         publish(http, ENV, video, "t", made_for_kids=True)
     assert json.loads(google.requests[1].content)["status"]["selfDeclaredMadeForKids"] is True
+
+
+def test_a_retry_finds_the_video_already_uploaded_under_its_key(video: Path) -> None:
+    earlier = {"id": "vid0", "snippet": {"tags": ["swarmify-stage_1"]}}
+    other = {"id": "vidx", "snippet": {"title": "no tags"}}
+    google = FakeGoogle(uploads=[other, earlier])
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        out = publish(http, ENV, video, "t", idempotency_key="stage_1")
+    assert out == {"video_id": "vid0", "url": "https://youtu.be/vid0", "publish_at": None}
+    assert [r.method for r in google.requests] == ["POST", "GET", "GET", "GET"]
+    _, channels, items, videos = google.requests
+    assert channels.url.params["mine"] == "true"
+    assert items.url.params["playlistId"] == "UU1"
+    assert videos.url.params["id"] == "vidx,vid0" and videos.url.params["part"] == "snippet"
+
+
+def test_a_first_upload_is_tagged_with_its_key(video: Path) -> None:
+    google = FakeGoogle(uploads=[{"id": "vidx", "snippet": {"tags": ["swarmify-stage_2"]}}])
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        out = publish(http, ENV, video, "t", idempotency_key="stage_1")
+    assert out["video_id"] == "vid1"
+    start = next(r for r in google.requests if r.url.path.startswith("/upload"))
+    assert json.loads(start.content)["snippet"]["tags"] == ["swarmify-stage_1"]
 
 
 def test_google_errors_and_missing_inputs_are_tool_errors(video: Path, tmp_path: Path) -> None:
