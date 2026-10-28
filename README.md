@@ -191,7 +191,7 @@ it may send the run back to. The web skin shows it at `/gates` and renders each 
 
 `POST /api/runs/<id>/decision` with `{"choice", "note", "send_back_to"}` answers the gate. Every
 decision is a markdown artifact with frontmatter in the stage folder,
-`worlds/<world>/runs/<run>/<nn>-<stage>/decision.md`, and appears in the run's `decisions`.
+`worlds/<world>/runs/<run>/stage_<id>/decision.md`, and appears in the run's `decisions`.
 `POST /api/runs/<id>/pause`, `/resume` and `/abort` act on the run; a pause lands at once at a gate
 and otherwise when the current stage finishes; abort cascades to child runs. The MCP server
 exposes `list_gates`, `decide_gate`, `pause_run`, `resume_run`, `abort_run` and `get_run`; it acts
