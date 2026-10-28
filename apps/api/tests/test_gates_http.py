@@ -27,6 +27,7 @@ stages:
     kind: pick
   - connector: script
     calls: remotion_render
+    output: short.mp4
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve
@@ -35,6 +36,9 @@ stages:
     kind: confirm
   - connector: publish
     calls: youtube
+    input: short.mp4
+    params:
+      title: Five hooks that work
 """
 QUICK = "name: Quick\nstages:\n  - gate: ok\n    ask: Go?\n    kind: confirm\n"
 

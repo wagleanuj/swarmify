@@ -120,6 +120,11 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
           stage_id: "s2",
           publish: { ...preview, connector: "upload_post", schedule: null, platforms: ["tiktok"], problems: ["upload_post needs params.user, the Upload-Post profile to post as"] },
         }),
+        gate("approve", {
+          run_id: "run_3",
+          stage_id: "s3",
+          publish: { ...preview, problems: ["a publish stage needs params.title"] },
+        }),
       ]),
     "POST /api/runs/run_1/decision": async (req) => {
       bodies.push(await req.json());
@@ -152,6 +157,9 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   await expect.element(broken).toMatchTextContent(/Now, as soon as you confirm/);
   await expect.element(broken.getByRole("alert")).toMatchTextContent(/This will not post:.*needs params\.user/);
   await expect.element(broken.getByRole("button", { name: "Confirm and post" })).toBeDisabled();
+  const approve = screen.getByTestId("gate-run_3");
+  await expect.element(approve.getByRole("alert")).toMatchTextContent(/needs params\.title/);
+  await expect.element(approve.getByRole("button", { name: "Approve" })).toBeDisabled();
   await expect.element(card).not.toBeInTheDocument();
   expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });

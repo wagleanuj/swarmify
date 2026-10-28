@@ -162,17 +162,18 @@ def test_upload_post_schedules_through_its_own_tool(
     assert 'status: "scheduled"\n' in text and "upload_post job job_9" in text
 
 
-def test_a_gate_shows_the_problems_that_would_stop_the_post(
-    running: TestClient, transport: FakeTransport, tmp_path: Path
+@pytest.mark.parametrize("kind", ["confirm", "approve"])
+def test_a_gate_before_a_broken_publish_stage_refuses_to_go_on(
+    running: TestClient, transport: FakeTransport, tmp_path: Path, kind: str
 ) -> None:
-    world, workflow = setup(running, weekly("upload_post"))
+    yaml = weekly("upload_post").replace("kind: confirm", f"kind: {kind}")
+    world, workflow = setup(running, yaml)
     run = at_gate(running, tmp_path, world, workflow)
     shown = running.get("/api/gates").json()[0]["publish"]
     assert any("needs params.user" in p for p in shown["problems"])
-    running.post(f"/api/runs/{run['id']}/decision", json={})
-    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "failed")
-    failed = running.get(f"/api/runs/{run['id']}").json()["stages"][2]
-    assert "needs params.user" in failed["error"]
+    refused = running.post(f"/api/runs/{run['id']}/decision", json={})
+    assert refused.status_code == 409 and "needs params.user" in refused.json()["detail"]
+    assert running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate"
     assert [c[0] for c in transport.calls] == ["maker"]
 
 

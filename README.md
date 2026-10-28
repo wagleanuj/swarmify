@@ -316,8 +316,9 @@ children must set it.
 The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
 and the `gate.opened` event): connector, title, description, visibility, schedule, video,
 platforms, made_for_kids and any `problems` that would stop the post. The gates inbox shows it
-under the ask, with the title and description editable, and disables "Confirm and post" while
-there are problems. Answering the gate (`POST /api/runs/{id}/decision`, optionally with `title`,
+under the ask, with the title and description editable, and disables "Confirm and post" and
+"Approve" while there are problems; the server refuses those answers too (409 naming the
+problems), so a broken publish stage is sent back or aborted, never reached. Answering the gate (`POST /api/runs/{id}/decision`, optionally with `title`,
 `description` and the `schedule` it showed) records the title, description and resolved schedule
 in the decision (its `publish` field and `decision.md`), refusing an edit that would stop the post
 and a relative schedule that resolves to another time by now (shown at 08:58, `09:00` is today;
