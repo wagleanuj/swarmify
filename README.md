@@ -267,8 +267,13 @@ output file exists, an `artifact.created` event announces it, typed by its sidec
 ## Remotion render
 
 `remotion_render` is our stdio MCP wrapper over `npx remotion render`
-(`python -m swarmify_connectors.remotion`). It needs Node on `PATH` and a Remotion project with
-its dependencies installed; no credentials.
+(`python -m swarmify_connectors.remotion`). It needs Node on `PATH` and a Remotion project; no
+credentials. A relative `project` is a template by name under the data directory's `remotion/`
+folder (`~/.swarmify/remotion/shorts` natively, `/data/remotion/shorts` in Docker), so a workflow
+moves between hosts unchanged; an absolute or `~` path works too. A symlink there is followed, so
+a template can stay in its own folder: `ln -s ~/videos/shorts ~/.swarmify/remotion/shorts`. The
+workflow check reports a template that is not there. When the project has no `node_modules`, the
+first render runs `npm ci` (`npm install` without a lockfile) in it, its output in the render log.
 
 ```yaml
   - connector: render
@@ -276,7 +281,7 @@ its dependencies installed; no credentials.
     input: script.md          # the script artifact an earlier stage produced
     output: short.mp4
     params:
-      project: ~/videos/shorts  # the Remotion project folder
+      project: shorts           # a template in <data dir>/remotion/, or a folder path
       composition: Short        # the composition ID
       # optional: entry (src/index.ts), codec (h264), frames (0-29), props
 ```
@@ -286,7 +291,8 @@ The composition gets the script as input props, `{"script": <text>, "scriptPath"
 swarmify resumes polling it; progress comes from the CLI's `Rendered n/N` and `Encoded n/N` lines
 and shows on the timeline. On success the video gets a sidecar, `short.mp4.md`, with frontmatter
 (type video, author remotion_render, world, run, stage, created, source script, composition,
-bytes). On failure the stage fails with the last 40 lines of CLI output, shown under the timeline.
+bytes, and the template's git commit when the project is a git checkout). On failure the stage
+fails with the last 40 lines of CLI output, shown under the timeline.
 Tests use a fake `npx`; one real render runs when you opt in:
 `SWARMIFY_REMOTION_PROJECT=<project> SWARMIFY_REMOTION_COMPOSITION=<id> uv run pytest -k real_render`.
 
@@ -720,11 +726,11 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `docker run --rm -v swarmify_data:/data -v "$PWD":/out debian tar czf /out/data.tgz -C /data .`
   and the reverse `tar xzf` on the VM.
 - Connector keys live in the volume's `/data/.env`, set from the connectors page as natively.
-- A Remotion project for the render connector must be inside the container: put it under
-  `/data` (`docker compose cp ./shorts api:/data/remotion/shorts`, then
-  `docker compose exec api sh -c 'cd /data/remotion/shorts && npm ci'`) and give the stage
-  `project: /data/remotion/shorts`. When `chrome-headless-shell` is on `PATH`, as in the image,
-  the connector passes it to Remotion as `--browser-executable`; on the Mac Remotion uses its own.
+- A Remotion template for the render connector must be inside the container: copy it to
+  `/data/remotion` (`docker compose cp ./shorts api:/data/remotion/shorts`) and the stage's
+  `project: shorts` finds it, as natively. The first render installs its dependencies. When
+  `chrome-headless-shell` is on `PATH`, as in the image, the connector passes it to Remotion as
+  `--browser-executable`; on the Mac Remotion uses its own.
 - Basic auth works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same prompt.
   Unset, there is no auth, which is right only on `127.0.0.1`. For access from outside the house

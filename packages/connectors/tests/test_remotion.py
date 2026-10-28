@@ -3,6 +3,7 @@ fake Remotion CLI on PATH. `SWARMIFY_REMOTION_PROJECT` opts in to one real rende
 
 import json
 import os
+import subprocess
 import time
 from contextlib import closing
 from pathlib import Path
@@ -89,6 +90,50 @@ def test_a_headless_shell_on_path_is_the_browser_remotion_uses(
     shell.chmod(0o755)
     real.run_stage(W, "run_1", "stage_3", config)
     assert json.loads(Path(config["params"]["output_path"]).read_text())["browser"] == str(shell)
+
+
+def test_a_relative_project_is_a_template_under_the_data_directory(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    """`real` keeps its credentials in tmp_path, so tmp_path is the data directory. A symlink
+    there is followed, so a template can stay in its own folder."""
+    (tmp_path / "remotion").mkdir()
+    (tmp_path / "remotion" / "shorts").symlink_to(fake_npx)
+    config = stage(tmp_path, Path("shorts"))
+    assert real.run_stage(W, "run_1", "stage_2", config).status == "done"
+    assert json.loads(Path(config["params"]["output_path"]).read_text())["composition"] == "Short"
+
+
+@pytest.mark.parametrize(("lockfile", "command"), [(True, "ci"), (False, "install")])
+def test_a_template_without_node_modules_installs_them_once_before_rendering(
+    tmp_path: Path, real: Connectors, fake_npx: Path, lockfile: bool, command: str
+) -> None:
+    (fake_npx / "node_modules").rmdir()
+    if lockfile:
+        (fake_npx / "package-lock.json").write_text("{}")
+    config = stage(tmp_path, fake_npx)
+    log = Path(config["params"]["output_path"]).with_name(".short.mp4.log")
+    real.run_stage(W, "run_1", "stage_2", config)
+    assert f"fake npm {command}" in log.read_text() and "Encoded 3/3" in log.read_text()
+    assert (fake_npx / "node_modules").is_dir()
+    real.run_stage(W, "run_1", "stage_3", config)  # fake npm fails if node_modules exists
+    assert "fake npm" not in log.read_text() and "Encoded 3/3" in log.read_text()
+
+
+def test_the_sidecar_records_the_template_commit_of_a_git_checkout(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    config = stage(tmp_path, fake_npx)
+    sidecar = Path(config["params"]["output_path"]).with_name("short.mp4.md")
+    real.run_stage(W, "run_1", "stage_2", config)
+    assert "commit: " not in sidecar.read_text()
+
+    git = ["git", "-C", str(fake_npx), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "template"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    real.run_stage(W, "run_1", "stage_3", config)
+    assert f'commit: "{sha.stdout.strip()}"' in sidecar.read_text()
 
 
 def test_progress_reaches_the_call_while_it_renders(
@@ -197,3 +242,9 @@ def test_a_saved_render_stage_names_its_project_and_composition(
     ]
     ok = {"project": str(tmp_path), "composition": "Short"}
     assert connectors.stage_problems(W, {**render, "params": ok}) == []
+    named = {"project": "shorts", "composition": "Short"}
+    assert connectors.stage_problems(W, {**render, "params": named}) == [
+        f"the Remotion project shorts does not exist in {tmp_path / 'remotion'}"
+    ]
+    (tmp_path / "remotion" / "shorts").mkdir(parents=True)
+    assert connectors.stage_problems(W, {**render, "params": named}) == []
