@@ -298,7 +298,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
         _obj(task_id=_str("A task id; omit it to take the next ready task")),
     ),
     "heartbeat": (
-        "Keep your claim alive (at least every minute), optionally with partial notes.",
+        "Record partial progress on a task you hold as a note (your tool calls keep the claim).",
         _obj("task_id", task_id=_str("The task you hold"), note=_str("Progress so far")),
     ),
     "finish_task": (
@@ -680,6 +680,7 @@ class Swarm:
             at.world_folder,
             lambda: self.budget(at.run_id),
             graph_first=not at.baseline,
+            clock=self.clock,
         )
         for attempt in range(SESSIONS):
             stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
@@ -740,10 +741,10 @@ class Swarm:
                     if at.baseline
                     else "call query_graph before your first claim and reuse what the world knows. "
                 )
-                + "claim_task takes the next ready task. heartbeat at least every minute"
-                " while you hold one. Write what you learn with write_note and outputs with"
-                " write_artifact. finish_task with a short note. add_task for work you discover."
-                " Stop when no task is ready.",
+                + "claim_task takes the next ready task; your claim stays yours while you work."
+                " heartbeat with a note to record partial progress. Write what you learn with"
+                " write_note and outputs with write_artifact. finish_task with a short note."
+                " add_task for work you discover. Stop when no task is ready.",
             ]
         )
 
@@ -874,7 +875,9 @@ class Swarm:
 
 
 class _Hooks:
-    """The SessionHooks of one agent: the live log, the allowlist and the graph-first rule."""
+    """The SessionHooks of one agent: the live log, the allowlist, the graph-first rule and the
+    renewal of its claims on every tool call and model step, so a working agent keeps them
+    without heartbeating and a dead session's claims still expire."""
 
     def __init__(
         self,
@@ -885,8 +888,10 @@ class _Hooks:
         world_folder: Path,
         budget: Callable[[], str | None] = lambda: None,
         graph_first: bool = True,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.board = board
+        self.clock = clock
         self.stage_id = stage_id
         self.agent = agent
         self.allowed = allowed
@@ -909,6 +914,7 @@ class _Hooks:
         )
 
     def before_tool(self, tool: str, input: dict[str, Any]) -> str | None:
+        self._renew()
         reason = self._refusal(tool, input)
         kind = "denied" if reason else "tool"
         self.board.log(self.stage_id, self.agent, kind, reason or "", tool=tool, input=input)
@@ -917,8 +923,17 @@ class _Hooks:
     def cost(self, usd: float) -> str | None:
         """Add the estimate to the agent, then ask the Budget whether the session goes on."""
         self.board.update_agent(self.stage_id, self.agent, cost_usd=usd)
+        self._renew()
         self.stopped = self.budget()
         return self.stopped
+
+    def _renew(self) -> None:
+        for task in self.board.list_tasks(self.stage_id):
+            if task.status == "claimed" and task.owner == self.agent:
+                try:
+                    self.board.heartbeat(task.id, self.agent, now=self.clock())
+                except Refused:  # expired or finished since the listing
+                    pass
 
     def _refusal(self, tool: str, input: dict[str, Any]) -> str | None:
         if self.stopped:  # a call already on its way when the Budget ran out

@@ -4,6 +4,7 @@ whiteboard and the files, as the API would. A judge session that passes ends eve
 
 import json
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -665,3 +666,39 @@ def test_ask_runs_one_read_only_session_with_the_world_skills_and_the_run_budget
     dead = _swarm(board, tmp_path, Script([Die()]))
     with pytest.raises(StageError, match="retro failed 2 sessions"):
         dead.ask(W, R, "stage_r2", "retro", world, "retro", "s", "p", schema, parse)
+
+
+class _SlowGraphs(DiskGraphs):
+    """Each graph call takes 90 seconds, and the API's expiry sweep runs during it."""
+
+    def __init__(self, root: Path, board: SqliteStorage) -> None:
+        super().__init__(root)
+        self.board = board
+        self.now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def call(self, folder: Path, tool: str, args: dict[str, object]) -> str:
+        self.now += timedelta(seconds=90)
+        self.board.expire(self.now)
+        return super().call(folder, tool, args)
+
+
+def test_the_hooks_renew_the_claim_of_a_working_agent(board: SqliteStorage, tmp_path: Path) -> None:
+    """The agent never heartbeats itself; its tool calls keep its claim alive for six minutes."""
+    task_id = _seed(board)
+    graphs = _SlowGraphs(tmp_path, board)
+    script = Script([GRAPH, CLAIM, GRAPH, GRAPH, GRAPH, GRAPH, FINISH, Say("Done.")], PASS)
+    _run(_swarm(board, tmp_path, script, graphs=graphs, clock=lambda: graphs.now), tmp_path)
+
+    task = board.get_task(task_id)
+    assert task and task.status == "done" and task.owner == WORKER
+    assert [n.body for n in task.notes] == ["Done."]
+
+
+def test_a_dead_session_still_loses_its_claim(board: SqliteStorage, tmp_path: Path) -> None:
+    task_id = _seed(board)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    with pytest.raises(StageError):
+        _run(_swarm(board, tmp_path, Script([GRAPH, CLAIM, Die()]), clock=lambda: now), tmp_path)
+    assert board.expire(now + timedelta(minutes=2)) == []
+    (task,) = board.expire(now + timedelta(minutes=2, seconds=1))
+    assert task.id == task_id and task.status == "open"

@@ -374,8 +374,10 @@ Each swarm stage has a whiteboard of tasks after the beads model (ADR 0017): a t
 who added it. A task is claimable once every task it depends on is done. A claim is one
 `BEGIN IMMEDIATE` transaction updating the row only while it has no owner, so of any number of
 concurrent claims exactly one wins and the rest get a 409. The owner heartbeats, optionally with
-partial notes; a claim whose last heartbeat is older than two minutes returns to open with its
-notes kept and a note saying why (the API sweeps every 15 seconds). Every change appends a
+partial notes; a swarm agent's session hooks also renew its claims on every tool call and model
+step, so it need not heartbeat itself. A claim whose last heartbeat is older than two minutes
+returns to open with its notes kept and a note saying why (the API sweeps every 15 seconds), so a
+dead session's claims go back to the board. Every change appends a
 `task.updated` event carrying the whole task, which the run page's whiteboard renders live.
 
 | Action | HTTP | MCP |
