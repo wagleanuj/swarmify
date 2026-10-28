@@ -288,3 +288,71 @@ def test_a_pick_gate_lists_the_earlier_stages_artifacts_and_records_the_chosen_o
         own = running.post(url, json={"artifact": hooks["path"]})
         assert own.status_code == 200, "an approve gate may name the artifact it approved"
         assert own.json()["decisions"][-1]["artifact"] == hooks["path"]
+
+
+PICK_THEN_SCRIPT = """name: Weekly short
+stages:
+  - swarm: research
+    goal: Find ideas.
+    done_when: 2 ideas ranked
+    tools: [web_search]
+    output_type: list[idea]
+  - gate: pick
+    ask: Pick one idea.
+    kind: pick
+  - swarm: script
+    goal: Write the script of the picked idea.
+    done_when: A script
+    tools: []
+  - gate: review
+    ask: Read it. Approve or send back.
+    kind: approve
+"""
+
+
+def test_the_stages_after_a_pick_gate_get_its_choice_artifact_and_note_as_required_reading(
+    app: FastAPI, script: Script
+) -> None:
+    """Issue 59: the planner and the workers of the next swarm stage read the gate's decision
+    from their prompt, not from a stale graph; after a send-back, the newest decision."""
+    ideas = [
+        {"title": "Chase", "body": "A chase.", "rank": 2, "sources": []},
+        {"title": "Hooks", "body": "Open on the hook.", "rank": 1, "sources": []},
+    ]
+    plan = Answer({"tasks": [{"title": "Do it."}]})
+    claim = Call(tool_id("claim_task"))
+    finish = Call(tool_id("finish_task"), {"task_id": LAST, "note": "Done."})
+    passed = Answer({"passed": True, "reasons": ["Done."]})
+    script.scripts = [
+        [plan],
+        [GRAPH, claim, finish],
+        [Answer({"passed": True, "reasons": ["Two ideas."], "items": ideas})],
+        [plan],
+        [GRAPH, claim, finish],
+        [passed],
+        [GRAPH, claim, finish],
+        [passed],
+    ]
+    with TestClient(app) as running:
+        _, run = start(running, PICK_THEN_SCRIPT)
+        waiting_at(running, run["id"], "pick")
+        research = run["stages"][0]["id"]
+        path = f"runs/{run['id']}/{research}/artifacts/idea-%s.md"
+        url = f"/api/runs/{run['id']}/decision"
+        assert running.post(url, json={"artifact": path % "hooks", "note": "Less text."}).is_success
+
+        waiting_at(running, run["id"], "review")
+        planner, worker = script.prompts[3], str(script.sessions[4].system_prompt)
+        for prompt in (planner, worker):
+            assert "Picked Hooks." in prompt and "Note: Less text." in prompt
+            assert path % "hooks" in prompt and "required reading" in prompt
+
+        sent = running.post(url, json={"note": "Too slow.", "send_back_to": "pick"})
+        assert sent.is_success
+        waiting_at(running, run["id"], "pick")
+        assert running.post(url, json={"artifact": path % "chase", "note": "Shorter."}).is_success
+
+        waiting_at(running, run["id"], "review")
+        rework = str(script.sessions[6].system_prompt)
+        assert "Picked Chase." in rework and "Note: Shorter." in rework
+        assert path % "chase" in rework and "Hooks" not in rework
