@@ -231,3 +231,29 @@ def test_an_abort_mid_stage_stops_the_agents_and_ends_the_run(
     assert [s.status for s in aborted.stages] == ["failed", "pending"]
     time.sleep(0.3)
     assert swarm.visits == 1 and swarm.done == {aborted.stages[0].id: 1}
+
+
+def test_a_resume_before_a_mid_stage_pause_lands_does_not_undo_it(
+    budgeted: Runner, swarm: FakeSwarm
+) -> None:
+    run = held_mid_stage(budgeted, swarm)
+    budgeted.pause(run.id)
+    with pytest.raises(Illegal):
+        budgeted.resume(run.id)  # still running until the stage stops
+    swarm.release.set()
+    wait_for(lambda: fetch(budgeted, run.id).status == "paused")
+    time.sleep(0.3)
+    assert swarm.done == {fetch(budgeted, run.id).stages[0].id: 1}  # no step after the pause
+
+
+def test_a_resume_after_an_abort_keeps_the_agents_stopped(
+    budgeted: Runner, swarm: FakeSwarm, storage: SqliteStorage
+) -> None:
+    run = held_mid_stage(budgeted, swarm)
+    budgeted.pause(run.id)
+    budgeted.abort(run.id)
+    with pytest.raises(Illegal):
+        budgeted.resume(run.id)
+    assert storage.stop_of(run.id) == "abort"
+    swarm.release.set()
+    wait_for(lambda: fetch(budgeted, run.id).status == "aborted")

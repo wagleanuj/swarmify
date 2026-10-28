@@ -256,8 +256,14 @@ class RunControl:
         return run
 
     def resume(self, run_id: str) -> Run:
-        self.storage.set_stop(run_id, None)
-        return self._control(run_id, Resumed(), "resume")
+        run = self._run(run_id)
+        transition(kinds_of(run), state_of(run), Resumed())  # raises Illegal when it cannot apply
+        # Only a legal resume lifts a pause, and never an abort: an illegal one mid-stage would
+        # let the agents go on. Before the send, so the rerun stage does not stop at once.
+        if self.storage.stop_of(run_id) == "pause":
+            self.storage.set_stop(run_id, None)
+        self._send(run_id, {"action": "resume"})
+        return run
 
     def abort(self, run_id: str) -> Run:
         """Abort the run and every child run it started (ADR 0013).
