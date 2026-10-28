@@ -1345,7 +1345,8 @@ export interface components {
         /**
          * Call
          * @description One connector stage call, keyed by the stage id. `response` is the latest raw response:
-         *     the tool's result, or for a long job the last poll.
+         *     the tool's result, or for a long job the last poll. `visit` is the run's send-back count
+         *     when it was made; a later visit to the stage replaces it.
          */
         Call: {
             /** Idempotency Key */
@@ -1395,6 +1396,11 @@ export interface components {
              * @default 0
              */
             polls: number;
+            /**
+             * Visit
+             * @default 0
+             */
+            visit: number;
         };
         /**
          * CastChange

@@ -316,10 +316,16 @@ class Connectors:
     def call_for(self, stage_id: str) -> Call | None:
         return self.storage.get_call(stage_id)
 
-    def run_stage(self, world_id: str, run_id: str, stage_id: str, config: dict[str, Any]) -> Call:
-        """Call the stage's connector once per stage id. A finished call is returned as
-        recorded; a long job interrupted by a crash resumes polling instead of calling again."""
+    def run_stage(
+        self, world_id: str, run_id: str, stage_id: str, config: dict[str, Any], visit: int = 0
+    ) -> Call:
+        """Call the stage's connector once per visit to the stage, `visit` being the run's
+        send-back count. A finished call is returned as recorded; a long job interrupted by a
+        crash resumes polling instead of calling again. A call from an earlier visit is
+        replaced: the stage reruns after a send-back."""
         done = self.storage.get_call(stage_id)
+        if done is not None and done.visit != visit:
+            done = None
         if done is not None and done.status == "done":
             return done
         name = str(config.get("calls", ""))
@@ -343,7 +349,7 @@ class Connectors:
         env = self._env(connector)
         call = done
         if call is None or call.status != "polling":
-            call = self._call(connector, world_id, run_id, stage_id, config, env, call)
+            call = self._call(connector, world_id, run_id, stage_id, visit, config, env, call)
         while call.status == "polling":
             time.sleep(self.poll_seconds)
             call = self._poll(connector, call, env)
@@ -355,18 +361,24 @@ class Connectors:
         world_id: str,
         run_id: str,
         stage_id: str,
+        visit: int,
         config: dict[str, Any],
         env: dict[str, str],
         before: Call | None,
     ) -> Call:
         params = dict(config.get("params") or {})
         tool = str(params.pop("tool", connector.name))
-        request: dict[str, Any] = {**params, "idempotency_key": stage_id}
+        # a new key per visit, so a connector that dedupes on it does the rework
+        idempotency_key = f"{stage_id}.{visit}" if visit else stage_id
+        request: dict[str, Any] = {**params, "idempotency_key": idempotency_key}
         for key in ("input", "output"):
             if config.get(key):
                 request[key] = config[key]
         if connector.kind == "publish" and connector.builtin:
-            tool, request = publish.request(connector.name, config, stage_id) or (tool, request)
+            tool, request = publish.request(connector.name, config, idempotency_key) or (
+                tool,
+                request,
+            )
         now = _now()
         call = self.storage.save_call(
             Call(
@@ -380,6 +392,7 @@ class Connectors:
                 before.started_at if before else now,
                 now,
                 attempts=(before.attempts if before else 0) + 1,
+                visit=visit,
             )
         )
         try:

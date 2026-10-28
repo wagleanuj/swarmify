@@ -12,7 +12,7 @@ def script_writer(
     output_path: str, idempotency_key: str = "", frontmatter: dict | None = None
 ) -> dict[str, Any]:
     with open(output_path, "w") as f:
-        f.write("# Why the chase works\n\nHook, then the reveal.\n")
+        f.write(f"# Why the chase works\n\nHook, then the reveal.\n\n<!-- {idempotency_key} -->\n")
     return {"output": output_path}
 
 

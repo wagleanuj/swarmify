@@ -368,7 +368,7 @@ def create_app(
         if shown is None:
             folder = world_svc.folder(run.world_id)
             config = with_files(folder, run, stage_id, stage.config)
-            registry.run_stage(run.world_id, run.id, stage_id, config)
+            registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
             output = Path(config["params"].get("output_path") or "")
             if output.is_file():  # announce what the connector left as an artifact
                 memory.record(run.world_id, run.id, stage_id, str(stage.config["calls"]), output)
@@ -387,7 +387,7 @@ def create_app(
         if not shown["problems"]:  # else run_stage refuses, naming them
             name = str(stage.config.get("input") or "")
             config["params"]["input_path"] = str(run_file(folder, run, name))
-        call = registry.run_stage(run.world_id, run.id, stage_id, config)
+        call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
         out = registry.publish_result(call)
         keys = ("connector", "title", "description", "visibility", "schedule", "made_for_kids")
         fields = {k: shown[k] for k in keys}
