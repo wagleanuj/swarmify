@@ -81,3 +81,25 @@ def test_last_event_id_wins_over_since_now_so_reconnects_resume(live_url: str) -
 
 def test_since_must_be_now(client: TestClient) -> None:
     assert client.get("/api/events?since=later").status_code == 422
+
+
+def test_a_since_now_stream_first_names_its_head_so_an_early_reconnect_resumes(
+    live_url: str,
+) -> None:
+    """An id-only frame sets the browser's lastEventId without firing an event, so a stream
+    that drops before its first event still reconnects with a real Last-Event-ID."""
+    httpx.post(f"{live_url}/api/worlds", json={"name": "A"})
+    with httpx.stream("GET", f"{live_url}/api/events?since=now", timeout=5) as r:
+        lines = r.iter_lines()
+        assert (next(lines), next(lines)) == ("id: 1", "")
+
+
+def test_an_empty_database_still_resumes_from_head_zero(live_url: str) -> None:
+    with httpx.stream("GET", f"{live_url}/api/events?since=now", timeout=5) as r:
+        lines = r.iter_lines()
+        assert (next(lines), next(lines)) == ("id: 0", "")
+    a = httpx.post(f"{live_url}/api/worlds", json={"name": "A"}).json()
+    resume = {"Last-Event-ID": "0"}
+    with httpx.stream("GET", f"{live_url}/api/events?since=now", headers=resume, timeout=5) as r:
+        kind, seq, data = next(sse_events(r))
+        assert (kind, seq, data["world_id"]) == ("world.created", 1, a["id"])

@@ -2973,7 +2973,7 @@ export interface operations {
                 since?: "now" | null;
             };
             header?: {
-                "last-event-id"?: number;
+                "last-event-id"?: number | null;
             };
             path: {
                 world_id: string;
@@ -3006,7 +3006,7 @@ export interface operations {
                 since?: "now" | null;
             };
             header?: {
-                "last-event-id"?: number;
+                "last-event-id"?: number | null;
             };
             path?: never;
             cookie?: never;

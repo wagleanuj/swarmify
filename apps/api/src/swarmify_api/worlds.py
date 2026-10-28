@@ -145,7 +145,7 @@ def router(
 
     @api.get("/{world_id}/events", response_class=StreamingResponse)
     async def world_events(
-        world_id: str, last_event_id: Annotated[int, Header()] = 0, since: Since = None
+        world_id: str, last_event_id: Annotated[int | None, Header()] = None, since: Since = None
     ) -> StreamingResponse:
         """Server-sent events for one world. `Last-Event-ID` resumes after a reconnect;
         without it `?since=now` starts at the current head instead of replaying history.
@@ -169,7 +169,7 @@ def events_router(worlds: Worlds) -> APIRouter:
 
     @api.get("/events", response_class=StreamingResponse)
     async def all_events(
-        last_event_id: Annotated[int, Header()] = 0, since: Since = None
+        last_event_id: Annotated[int | None, Header()] = None, since: Since = None
     ) -> StreamingResponse:
         """Server-sent events for every world, for views that span worlds such as the gates
         inbox. One stream instead of one per world: browsers cap HTTP/1.1 connections per host
@@ -187,15 +187,20 @@ def events_router(worlds: Worlds) -> APIRouter:
 Since = Literal["now"] | None
 
 
-def _start(worlds: Worlds, last_event_id: int, since: Since) -> int:
-    """The seq a new stream starts after. A reconnect's Last-Event-ID always wins, so a view
-    opened with `?since=now` still resumes where it left off rather than skipping a gap."""
-    return last_event_id or (worlds.last_seq() if since == "now" else 0)
+def _start(worlds: Worlds, last_event_id: int | None, since: Since) -> int:
+    """The seq a new stream starts after. A reconnect's Last-Event-ID always wins, even 0, so a
+    view opened with `?since=now` still resumes where it left off rather than skipping a gap."""
+    if last_event_id is not None:
+        return last_event_id
+    return worlds.last_seq() if since == "now" else 0
 
 
 async def _stream(worlds: Worlds, world_id: str | None, after: int) -> AsyncIterator[str]:
     # ponytail: each open stream polls SQLite every 200 ms with a synchronous query on the event
     # loop. Fine for one operator; swap for an in-process notify when streams or latency grow.
+    # An id-only frame sets the browser's lastEventId without firing an event, so a stream that
+    # drops before its first event still reconnects with Last-Event-ID instead of a fresh head.
+    yield f"id: {after}\n\n"
     idle = 0.0
     while True:
         events = worlds.events_after(world_id, after)
