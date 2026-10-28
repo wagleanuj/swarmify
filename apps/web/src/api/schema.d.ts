@@ -644,7 +644,8 @@ export interface paths {
         get?: never;
         /**
          * Set Credentials
-         * @description Store a connector's keys in the credentials file; how built-ins get theirs.
+         * @description Store a connector's keys in the credentials file, shared by every world; how
+         *     built-ins get theirs. A built-in publish connector's keys are then checked live.
          */
         put: operations["set_credentials_api_connectors__connector_id__credentials_put"];
         post?: never;
@@ -1795,6 +1796,17 @@ export interface components {
             reason: string;
         };
         /**
+         * KeyCheck
+         * @description What a live check of a built-in's saved keys found: the account they sign in to, or why
+         *     they did not work.
+         */
+        KeyCheck: {
+            /** Ok */
+            ok: boolean;
+            /** Message */
+            message: string;
+        };
+        /**
          * LibraryItem
          * @description An artifact as the Library lists it: the file plus where it came from.
          */
@@ -2291,6 +2303,37 @@ export interface components {
         SaveAsWorkflow: {
             /** Name */
             name?: string | null;
+        };
+        /** SavedKeys */
+        SavedKeys: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "tool" | "stage" | "publish";
+            /** Command */
+            command: string[];
+            /** Url */
+            url: string | null;
+            /** Credentials */
+            credentials: string[];
+            /** Stage Types */
+            stage_types: string[];
+            /** Builtin */
+            builtin: boolean;
+            /** About */
+            about: string;
+            /** Created At */
+            created_at: string | null;
+            /** Missing */
+            missing: string[];
+            check: components["schemas"]["KeyCheck"] | null;
         };
         /**
          * Scorecard
@@ -4129,7 +4172,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConnectorView"];
+                    "application/json": components["schemas"]["SavedKeys"];
                 };
             };
             /** @description Validation Error */

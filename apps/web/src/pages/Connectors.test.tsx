@@ -152,7 +152,7 @@ test("a built-in publish connector takes its keys in place, and the list shows t
     "PUT /api/connectors/builtin_youtube/credentials": async (req) => {
       sent = await req.json();
       youtube = { ...youtube, missing: [] };
-      return Response.json(youtube);
+      return Response.json({ ...youtube, check: { ok: true, message: "Posts to the YouTube channel Hooks Daily." } });
     },
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
@@ -167,5 +167,27 @@ test("a built-in publish connector takes its keys in place, and the list shows t
     expect(sent).toEqual({ credentials: { YOUTUBE_CLIENT_ID: "id", YOUTUBE_CLIENT_SECRET: "", YOUTUBE_REFRESH_TOKEN: "r" } }),
   );
   await expect.element(row).toMatchTextContent(/ready/);
+  await expect.element(row.getByRole("status")).toHaveTextContent("Keys saved. Posts to the YouTube channel Hooks Daily.");
   await expect.element(row.getByRole("button", { name: "Set keys for youtube" })).toHaveTextContent("Change keys");
+});
+
+test("the page says keys are shared by every world, and a failing key check warns but saves", async () => {
+  const keys = ["UPLOAD_POST_API_KEY"];
+  const post = { ...builtins[2], id: "builtin_upload_post", name: "upload_post", command: ["npx"], credentials: keys, missing: keys };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json([post]),
+    "PUT /api/connectors/builtin_upload_post/credentials": () =>
+      Response.json({ ...post, missing: [], check: { ok: false, message: "Invalid API key" } }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await expect.element(screen.getByText(/shared by every world/)).toBeVisible();
+  const row = screen.getByTestId("connector-list").getByRole("listitem").first();
+  await row.getByRole("button", { name: "Set keys for upload_post" }).click();
+  await expect.element(row.getByText(/shared by every world/)).toBeVisible();
+  await row.getByLabelText("UPLOAD_POST_API_KEY").fill("k");
+  await row.getByRole("button", { name: "Save keys" }).click();
+  await expect.element(row.getByRole("alert")).toHaveTextContent(
+    "Keys saved, but the check failed: Invalid API key. Publishing fails until they work.",
+  );
 });

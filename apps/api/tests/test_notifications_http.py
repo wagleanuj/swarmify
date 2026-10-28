@@ -112,7 +112,7 @@ def test_a_slack_outage_does_not_fail_the_run_and_deleting_the_world_drops_its_c
     until(lambda: running.get(f"/api/runs/{run}").json()["status"] == "waiting_gate")
     running.post(f"/api/runs/{run}/decision", json={})
     until(lambda: running.get(f"/api/runs/{run}").json()["status"] == "done")
-    assert len(slack.posts) == 2, "both were tried"
+    until(lambda: len(slack.posts) == 2)  # both were tried; run.ended posts after done is saved
 
     assert running.delete(f"/api/worlds/{video}").status_code == 204
     with closing(sqlite3.connect(tmp_path / "swarmify.db")) as conn:

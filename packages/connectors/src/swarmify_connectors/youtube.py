@@ -1,10 +1,12 @@
 """The YouTube publish connector: a stdio MCP server over the YouTube Data API (ADR 0015).
 
-Two tools. `youtube` uploads a video with `videos.insert` (resumable upload, one request for the
+Three tools. `youtube` uploads a video with `videos.insert` (resumable upload, one request for the
 metadata and one for the bytes) and answers with its id and link. With a `schedule` the video is
 uploaded private with `publishAt`, and YouTube makes it public at that time: `publishAt` can be
 set only while the privacy status is private. `views` answers the view counts of up to 50
 videos with one `videos.list` call (part statistics, 1 quota unit): the outcome write-back.
+`channel` answers the title of the channel the keys post to (`channels.list` mine, 1 quota unit):
+the check run when the keys are saved.
 
 Credentials, from `~/.swarmify/.env`: YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET of a Google
 Cloud OAuth client (type Desktop app, YouTube Data API v3 enabled), and YOUTUBE_REFRESH_TOKEN,
@@ -221,6 +223,28 @@ def video_views(http: httpx.Client, env: Mapping[str, str], ids: list[str]) -> d
 def views(video_ids: list[str]) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as http:
         return {"views": video_views(http, os.environ, video_ids)}
+
+
+def channel_name(http: httpx.Client, env: Mapping[str, str]) -> str:
+    """The title of the channel these keys post to."""
+    token = access_token(http, env)
+    response = http.get(
+        CHANNELS_URL,
+        params={"part": "snippet", "mine": "true"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if response.status_code != 200:
+        raise _error(response, "reading the YouTube channel")
+    items = response.json().get("items", [])
+    if not items:
+        raise ToolError("these keys sign in to a Google account with no YouTube channel")
+    return str(items[0]["snippet"]["title"])
+
+
+@mcp.tool(description="The channel these keys post to, to check them.")
+def channel() -> dict[str, Any]:
+    with httpx.Client(timeout=30.0) as http:
+        return {"channel": channel_name(http, os.environ)}
 
 
 def consent_url(client_id: str, redirect: str, state: str) -> str:

@@ -11,7 +11,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from swarmify_connectors import BUILTINS, McpTransport
-from swarmify_connectors.youtube import consent_url, publish, video_views
+from swarmify_connectors.youtube import channel_name, consent_url, publish, video_views
 
 ENV = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
 SESSION = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=u1"
@@ -175,10 +175,43 @@ def test_view_counts_come_from_videos_list_in_batches_of_50() -> None:
             video_views(http, ENV, ["v1"])
 
 
-def test_the_builtin_server_starts_and_lists_its_two_tools() -> None:
+def test_the_key_check_names_the_channel_the_keys_post_to() -> None:
+    seen: list[httpx.Request] = []
+
+    def google(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "tok"})
+        return httpx.Response(200, json={"items": [{"snippet": {"title": "Hooks Daily"}}]})
+
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        assert channel_name(http, ENV) == "Hooks Daily"
+    _, channels = seen
+    assert channels.url.path == "/youtube/v3/channels"
+    assert (channels.url.params["part"], channels.url.params["mine"]) == ("snippet", "true")
+    assert channels.headers["authorization"] == "Bearer tok"
+
+    def expired(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    with httpx.Client(transport=httpx.MockTransport(expired)) as http:
+        with pytest.raises(ToolError, match=r"refreshing the YouTube token failed \(400\)"):
+            channel_name(http, ENV)
+
+    def no_channel(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "tok"})
+        return httpx.Response(200, json={"items": []})
+
+    with httpx.Client(transport=httpx.MockTransport(no_channel)) as http:
+        with pytest.raises(ToolError, match="no YouTube channel"):
+            channel_name(http, ENV)
+
+
+def test_the_builtin_server_starts_and_lists_its_three_tools() -> None:
     youtube = next(c for c in BUILTINS if c.name == "youtube")
     assert youtube.command[0] == sys.executable
-    tool, views = McpTransport().list_tools(youtube, {})
-    assert (tool.name, views.name) == ("youtube", "views")
+    tool, views, channel = McpTransport().list_tools(youtube, {})
+    assert (tool.name, views.name, channel.name) == ("youtube", "views", "channel")
     assert set(views.input_schema["properties"]) == {"video_ids"}
     assert {"input_path", "title", "visibility", "schedule"} <= set(tool.input_schema["properties"])

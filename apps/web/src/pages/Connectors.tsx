@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { connectorsRoute } from "../router";
 
 type Connector = components["schemas"]["ConnectorView"];
+type KeyCheck = components["schemas"]["KeyCheck"];
 type NewConnector = components["schemas"]["NewConnector"];
 type Tool = components["schemas"]["Tool"];
 type World = components["schemas"]["World"];
@@ -162,7 +163,8 @@ export function Connectors() {
           <h1>Connectors</h1>
           <p className="sub">
             Each connector is an MCP server, its keys, and which stage types may use it. Keys live
-            in your home directory and never inside a run or a shared workflow.
+            in ~/.swarmify/.env, never inside a run or a shared workflow, and are shared by every
+            world: changing a key here changes it for all your worlds.
           </p>
         </div>
       </header>
@@ -316,6 +318,7 @@ function SetKeys({
   onError: (message: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [check, setCheck] = useState<KeyCheck | null>(null);
   const label = LABEL[connector.name] ?? connector.name;
 
   async function save(e: FormEvent<HTMLFormElement>) {
@@ -323,7 +326,8 @@ function SetKeys({
     const fields = new FormData(e.currentTarget);
     const credentials = Object.fromEntries(connector.credentials.map((n) => [n, String(fields.get(n) ?? "").trim()]));
     onError(null);
-    const { error } = await api.PUT("/api/connectors/{connector_id}/credentials", {
+    setCheck(null);
+    const { data, error } = await api.PUT("/api/connectors/{connector_id}/credentials", {
       params: { path: { connector_id: connector.id } },
       body: { credentials },
     });
@@ -332,14 +336,27 @@ function SetKeys({
       return;
     }
     setOpen(false);
+    setCheck(data?.check ?? null);
     await onSaved();
   }
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} aria-label={`Set keys for ${connector.name}`}>
-        {connector.missing.length > 0 ? "Add keys" : "Change keys"}
-      </button>
+      <>
+        <button type="button" onClick={() => setOpen(true)} aria-label={`Set keys for ${connector.name}`}>
+          {connector.missing.length > 0 ? "Add keys" : "Change keys"}
+        </button>
+        {check?.ok && (
+          <span role="status" className="key-check">
+            Keys saved. {check.message}
+          </span>
+        )}
+        {check && !check.ok && (
+          <span role="alert" className="key-check">
+            Keys saved, but the check failed: {check.message.replace(/\.$/, "")}. Publishing fails until they work.
+          </span>
+        )}
+      </>
     );
   }
   return (
@@ -358,7 +375,9 @@ function SetKeys({
         <button type="button" onClick={() => setOpen(false)}>
           Cancel
         </button>
-        <span className="faint">Stored in ~/.swarmify/.env, mode 600. Never shown again.</span>
+        <span className="faint">
+          Stored in ~/.swarmify/.env, mode 600, shared by every world. Never shown again.
+        </span>
       </div>
     </form>
   );

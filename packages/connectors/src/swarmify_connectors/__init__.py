@@ -31,6 +31,7 @@ from swarmify_connectors.model import (
     Call,
     Connector,
     ConnectorError,
+    KeyCheck,
     Kind,
     Tool,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "Connectors",
     "Credentials",
     "FakeTransport",
+    "KeyCheck",
     "McpTransport",
     "SqliteStorage",
     "Storage",
@@ -107,6 +109,19 @@ BUILTINS = [
         ["UPLOAD_POST_API_KEY"],
     ),
 ]
+
+
+# The cheap read-only tool each built-in publish connector proves its keys with.
+KEY_CHECKS = {"youtube": "channel", "upload_post": "get_account_info"}
+
+
+def _account(connector: str, answer: dict[str, Any]) -> str:
+    if connector == "youtube" and answer.get("channel"):
+        return f"Posts to the YouTube channel {answer['channel']}."
+    account = answer.get("result")
+    if isinstance(account, dict) and account.get("email"):
+        return f"Signed in to Upload-Post as {account['email']}."
+    return "The keys work."
 
 
 def _now() -> str:
@@ -207,14 +222,24 @@ class Connectors:
     def delete(self, connector_id: str) -> bool:
         return self.storage.delete_connector(connector_id)
 
-    def set_credentials(self, connector: Connector, values: dict[str, str]) -> None:
-        """Merge values for the connector's own credential names; others are refused."""
+    def set_credentials(self, connector: Connector, values: dict[str, str]) -> KeyCheck | None:
+        """Merge values for the connector's own credential names; others are refused. Then, for
+        a built-in with a key check and all its keys saved, check them live: a failing check
+        keeps the keys and says why, so a bad token shows now rather than at publish."""
         foreign = sorted(set(values) - set(connector.credentials))
         if foreign:
             raise ValueError(f"{connector.name} does not use {', '.join(foreign)}")
         filled = {k: v for k, v in values.items() if v}
         if filled:
             self.credentials.set(filled)
+        tool = KEY_CHECKS.get(connector.name) if connector.builtin else None
+        if tool is None or self.missing(connector):
+            return None
+        try:
+            answer = self.transport.call(connector, tool, {}, self._env(connector))
+        except ConnectorError as exc:
+            return KeyCheck(False, str(exc))
+        return KeyCheck(True, _account(connector.name, answer))
 
     def missing(self, connector: Connector) -> list[str]:
         """Credential names the file does not hold yet."""

@@ -67,5 +67,14 @@ class Call:
     visit: int = 0
 
 
+@dataclass(frozen=True)
+class KeyCheck:
+    """What a live check of a built-in's saved keys found: the account they sign in to, or why
+    they did not work."""
+
+    ok: bool
+    message: str
+
+
 class ConnectorError(RuntimeError):
     """A connector could not start, refused a call, or reported a failed job."""

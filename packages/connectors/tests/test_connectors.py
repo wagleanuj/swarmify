@@ -7,7 +7,14 @@ from typing import Any
 
 import pytest
 
-from swarmify_connectors import Connector, ConnectorError, Connectors, FakeTransport, Tool
+from swarmify_connectors import (
+    Connector,
+    ConnectorError,
+    Connectors,
+    FakeTransport,
+    KeyCheck,
+    Tool,
+)
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
 
@@ -134,6 +141,46 @@ def test_missing_lists_what_the_file_lacks(connectors: Connectors) -> None:
     with pytest.raises(PermissionError):
         connectors.add(fal(connectors, name="other"), {})
     assert connectors.find(W, "other") is None
+
+
+YOUTUBE = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
+
+
+def test_saving_a_builtins_keys_checks_them_live_and_names_the_account(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    youtube, upload_post = connectors.get("builtin_youtube"), connectors.get("builtin_upload_post")
+    assert youtube and upload_post
+    transport.outputs["channel"] = [{"channel": "Hooks Daily"}]
+    transport.outputs["get_account_info"] = [{"result": {"email": "me@example.com"}}]
+    check = connectors.set_credentials(youtube, YOUTUBE)
+    assert check == KeyCheck(True, "Posts to the YouTube channel Hooks Daily.")
+    assert transport.calls[-1] == ("youtube", "channel", {}, YOUTUBE)
+    check = connectors.set_credentials(upload_post, {"UPLOAD_POST_API_KEY": "k"})
+    assert check == KeyCheck(True, "Signed in to Upload-Post as me@example.com.")
+    assert transport.calls[-1][1:] == ("get_account_info", {}, {"UPLOAD_POST_API_KEY": "k"})
+
+
+def test_a_failing_key_check_still_saves_and_says_why(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    youtube = connectors.get("builtin_youtube")
+    assert youtube
+    transport.outputs["channel"] = [ConnectorError("refreshing the YouTube token failed (400)")]
+    check = connectors.set_credentials(youtube, YOUTUBE)
+    assert check == KeyCheck(False, "refreshing the YouTube token failed (400)")
+    assert connectors.missing(youtube) == []
+
+
+def test_no_key_check_while_keys_are_missing_or_for_added_connectors(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    youtube = connectors.get("builtin_youtube")
+    assert youtube
+    assert connectors.set_credentials(youtube, {"YOUTUBE_CLIENT_ID": "id"}) is None
+    added = connectors.add(fal(connectors), {})
+    assert connectors.set_credentials(added, {"FAL_KEY": "k"}) is None
+    assert transport.calls == []
 
 
 STAGE = {"calls": "fal_video", "input": "script.md", "output": "clip.mp4", "params": {"len": 5}}
