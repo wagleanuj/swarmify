@@ -171,3 +171,6 @@ class Worlds:
 
     def events_after(self, world_id: str | None, after_seq: int = 0) -> list[Event]:
         return self.storage.events_after(world_id, after_seq)
+
+    def last_seq(self) -> int:
+        return self.storage.last_seq()

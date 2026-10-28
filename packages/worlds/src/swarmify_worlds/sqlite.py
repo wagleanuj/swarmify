@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from swarmify_kernel import Event
-from swarmify_kernel.events import append, read_after
+from swarmify_kernel.events import append, last_seq, read_after
 from swarmify_kernel.sqlite import connect
 from swarmify_worlds.model import MODEL_ROLES, CastEdit, World
 
@@ -131,3 +131,7 @@ class SqliteStorage:
     def events_after(self, world_id: str | None, after_seq: int) -> list[Event]:
         with self._conn() as conn:
             return read_after(conn, world_id, after_seq)
+
+    def last_seq(self) -> int:
+        with self._conn() as conn:
+            return last_seq(conn)

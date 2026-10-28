@@ -39,8 +39,9 @@ export function Gates() {
   // Gates live across worlds, so follow the one all-worlds stream and refetch the inbox
   // whenever a run moves (ADR 0002: skins render events, never tables). A stream per world
   // held all six of the browser's connections per host and queued every answer behind them.
+  // `since=now` skips history: replaying it refetched the inbox once per past run.updated.
   useEffect(() => {
-    const source = new EventSource("/api/events");
+    const source = new EventSource("/api/events?since=now");
     source.addEventListener("run.updated", load);
     return () => source.close();
   }, [load]);

@@ -207,7 +207,7 @@ def test_saving_appears_on_the_world_event_stream(client: TestClient) -> None:
         lines = []
         for line in r.iter_lines():
             lines.append(line)
-            if len(lines) >= 8:
+            if len(lines) >= 10:  # the id-only head frame, then two events
                 break
     assert "event: workflow.saved" in lines
     assert any(f'"workflow_id": "{wf}"' in line and '"version": 2' in line for line in lines)

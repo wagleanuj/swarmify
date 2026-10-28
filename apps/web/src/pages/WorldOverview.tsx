@@ -73,13 +73,17 @@ export function WorldOverview() {
 
   // Skins render events, they never poll tables (ADR 0002). Native EventSource, no library.
   useEffect(() => {
+    // The activity feed wants history, so this stream replays it. One gates refetch per burst,
+    // not per event, or opening a busy world fired one GET /api/gates per past run.updated.
     const source = new EventSource(`/api/worlds/${worldId}/events`);
+    let gatesTimer: number | undefined;
     const onEvent = (e: Event) => {
       const data = JSON.parse((e as MessageEvent<string>).data) as Activity & { payload?: Run };
       const run = data.payload;
       if (data.type === "run.updated" && run) {
         setRunIds((prev) => new Set(prev).add(run.id));
-        void loadGates();
+        clearTimeout(gatesTimer);
+        gatesTimer = window.setTimeout(() => void loadGates(), 100);
       }
       setActivity((prev) => (prev.some((a) => a.seq === data.seq) ? prev : [...prev, data]));
       if (data.type === "workflow.saved") {
@@ -94,7 +98,10 @@ export function WorldOverview() {
     for (const type of types) {
       source.addEventListener(type, onEvent);
     }
-    return () => source.close();
+    return () => {
+      clearTimeout(gatesTimer);
+      source.close();
+    };
   }, [worldId]);
 
   async function start(workflowId: string, baseline = false) {

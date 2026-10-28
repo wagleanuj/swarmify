@@ -35,3 +35,7 @@ class Storage(Protocol):
     def events_after(self, world_id: str | None, after_seq: int) -> list[Event]:
         """One world's events after `after_seq`, or every world's when `world_id` is None."""
         ...
+
+    def last_seq(self) -> int:
+        """The newest event's `seq` across every world, 0 when there are none."""
+        ...

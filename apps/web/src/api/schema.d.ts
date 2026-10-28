@@ -155,7 +155,8 @@ export interface paths {
         };
         /**
          * World Events
-         * @description Server-sent events for one world. `Last-Event-ID` resumes after a reconnect.
+         * @description Server-sent events for one world. `Last-Event-ID` resumes after a reconnect;
+         *     without it `?since=now` starts at the current head instead of replaying history.
          *
          *     A world that never existed is a 404. A deleted one still streams, so `world.deleted`
          *     reaches its subscribers.
@@ -2968,9 +2969,11 @@ export interface operations {
     };
     world_events_api_worlds__world_id__events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                since?: "now" | null;
+            };
             header?: {
-                "last-event-id"?: number;
+                "last-event-id"?: number | null;
             };
             path: {
                 world_id: string;
@@ -2999,9 +3002,11 @@ export interface operations {
     };
     all_events_api_events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                since?: "now" | null;
+            };
             header?: {
-                "last-event-id"?: number;
+                "last-event-id"?: number | null;
             };
             path?: never;
             cookie?: never;

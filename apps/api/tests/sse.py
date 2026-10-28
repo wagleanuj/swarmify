@@ -13,9 +13,9 @@ def sse_events(response: httpx.Response) -> Iterator[tuple[str, int, dict]]:
         if line.startswith(":"):
             continue
         if line == "":
-            if fields:
+            if "data" in fields:  # an id-only frame dispatches nothing, as in a browser
                 yield fields["event"], int(fields["id"]), json.loads(fields["data"])
-                fields = {}
+            fields = {}
             continue
         key, _, value = line.partition(": ")
         fields[key] = value

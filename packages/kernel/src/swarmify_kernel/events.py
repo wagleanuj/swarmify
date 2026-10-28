@@ -35,6 +35,11 @@ def append(conn: sqlite3.Connection, event: Event) -> Event:
     return replace(event, seq=cur.lastrowid)
 
 
+def last_seq(conn: sqlite3.Connection) -> int:
+    """The newest event's `seq` across every world, 0 when the log is empty."""
+    return int(conn.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0])
+
+
 def read_after(conn: sqlite3.Connection, world_id: str | None, after_seq: int) -> list[Event]:
     """Events after `after_seq` in order: one world's, or every world's when `world_id` is None.
     `seq` is one counter across worlds, so either stream resumes from a single Last-Event-ID."""
