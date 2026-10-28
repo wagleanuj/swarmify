@@ -42,6 +42,8 @@ def test_a_proposal_waits_at_a_skill_gate_until_decided_and_a_quiet_retro_finish
     (gate,) = runner.gates()
     assert (gate.run_id, gate.stage_name, gate.kind) == (run.id, "retro", "skill")
     assert gate.ask == "Approve, edit or reject the skill." and gate.earlier_stages == ["research"]
+    # the gate is notified just after its state is saved
+    wait_for(lambda: any(e.type == "gate.opened" for e in notifier.events))
     opened = [e for e in notifier.events if e.type == "gate.opened"]
     assert len(opened) == 1 and opened[0].payload["kind"] == "skill"
 

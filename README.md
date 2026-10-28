@@ -199,8 +199,11 @@ decision is a markdown artifact with frontmatter in the stage folder,
 The newest decision of each gate (its choice, the artifact it names and the note) is required
 reading in the planner's and every worker's prompt of each later swarm stage; a gate whose newest
 decision is a send-back is left out until it decides again.
-`POST /api/runs/<id>/pause`, `/resume` and `/abort` act on the run; a pause lands at once at a gate
-and otherwise when the current stage finishes; abort cascades to child runs. The MCP server
+`POST /api/runs/<id>/pause`, `/resume` and `/abort` act on the run; a pause lands at once at a gate.
+Mid swarm or retro stage, pause and abort stop every agent at its next step, like a spent Budget:
+a paused stage goes back to pending and runs again on resume, its agents resuming their sessions;
+an aborted one fails. A connector stage, or a stage waiting on a child run, is not stopped midway:
+the pause lands when it finishes. Abort cascades to child runs. The MCP server
 exposes `list_gates`, `decide_gate`, `pause_run`, `resume_run`, `abort_run` and `get_run`; it acts
 on the API process's runs through DBOS's system database, so it needs the API running.
 

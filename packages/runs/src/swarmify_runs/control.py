@@ -44,8 +44,8 @@ Swarm context, whose agents carry the cost."""
 
 
 class OverBudget(Exception):
-    """Raised by a stage call when the run's Budget stopped its agents. The stage waits at a
-    budget gate instead of failing."""
+    """Raised by a stage call when the stop check stopped its agents: the run's Budget is spent
+    (the stage waits at a budget gate instead of failing) or a pause or abort came mid-stage."""
 
 
 def no_spend(_run_ids: list[str]) -> float:
@@ -249,10 +249,14 @@ class RunControl:
         return self._run(run_id)
 
     def pause(self, run_id: str) -> Run:
-        """Pause takes effect at once at a gate, otherwise when the current stage finishes."""
-        return self._control(run_id, Paused(), "pause")
+        """Pause takes effect at once at a gate, otherwise at the running stage's next agent
+        step (`check_stop`); the stage runs again, its agents resuming, on resume."""
+        run = self._control(run_id, Paused(), "pause")
+        self.storage.set_stop(run_id, "pause")  # after the send: a stop with no pause would loop
+        return run
 
     def resume(self, run_id: str) -> Run:
+        self.storage.set_stop(run_id, None)
         return self._control(run_id, Resumed(), "resume")
 
     def abort(self, run_id: str) -> Run:
@@ -280,6 +284,7 @@ class RunControl:
             run = ended
         else:
             self._send(run_id, {"action": "abort"})
+            self.storage.set_stop(run_id, "abort")
         self._abort_children(run_id)
         return run
 
@@ -301,10 +306,20 @@ class RunControl:
             run = up
         return run
 
-    def check_budget(self, run_id: str) -> str | None:
+    def check_stop(self, run_id: str) -> str | None:
         """The cost hook calls this after every estimate. Refreshes the spend of the run and of
-        each run above it, warns once at 80 percent of the Budget (`budget.warning`) and, at 100
-        percent, returns why every agent must stop. None while they may go on."""
+        each run above it, warns once at 80 percent of the Budget (`budget.warning`) and returns
+        why every agent must stop: the run was paused or aborted, or the Budget is spent. None
+        while they may go on."""
+        reason = self._over_budget(run_id)
+        match self.storage.stop_of(run_id):
+            case "pause":
+                return "The run was paused. It resumes when the run is resumed."
+            case "abort":
+                return "The run was aborted."
+        return reason
+
+    def _over_budget(self, run_id: str) -> str | None:
         run, top = self.storage.get_run(run_id), None
         while run is not None:
             top = self.storage.set_spent(run.id, self.spend(self.family(run.id))) or run
@@ -327,7 +342,8 @@ class RunControl:
             self.storage.record(event)
             self.notify(event)  # a notifier outage must not stop the agents
         if level == "spent":
-            return f"The run's budget of ${top.budget_usd:.2f} is spent."
+            spent = f"The run's budget of ${top.budget_usd:.2f} is spent."
+            return f"{spent} It resumes once money is added."
         return None
 
     def set_budget(self, run_id: str, usd: float) -> Run:

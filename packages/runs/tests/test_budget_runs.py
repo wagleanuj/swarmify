@@ -1,6 +1,8 @@
 """The Budget at the runner's seam: real DBOS on SQLite, a fake swarm that spends a dollar per
 tool call and asks the Budget after each, as the worker's cost hook does, and a fake notifier."""
 
+import threading
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +27,10 @@ class FakeSwarm:
         self.done: dict[str, int] = {}
         self.visits = 0
         self.runner: RunControl | None = None
+        self.hold_at: int | None = None
+        """Hold after this many tool calls, so a test can act mid-stage."""
+        self.held = threading.Event()
+        self.release = threading.Event()
 
     def spend(self, run_ids: list[str]) -> float:
         return sum(self.cost.get(r, 0.0) for r in run_ids)
@@ -32,12 +38,15 @@ class FakeSwarm:
     def __call__(self, run: Run, stage_id: str, stage: StageDef) -> None:
         assert self.runner is not None
         self.visits += 1
-        if self.runner.check_budget(run.id):  # checked before a session starts
+        if self.runner.check_stop(run.id):  # checked before a session starts
             raise OverBudget()
         while self.done.get(stage_id, 0) < self.calls:
             self.done[stage_id] = self.done.get(stage_id, 0) + 1
             self.cost[run.id] = self.cost.get(run.id, 0.0) + 1.0
-            if self.runner.check_budget(run.id):
+            if sum(self.done.values()) == self.hold_at:
+                self.held.set()
+                self.release.wait(10)
+            if self.runner.check_stop(run.id):
                 raise OverBudget()
 
 
@@ -172,12 +181,53 @@ def test_a_child_run_spends_its_parents_budget(
         storage, tmp_path / "dbos.sqlite", tmp_path, notifier,
         spend=lambda ids: sum(cost.get(i, 0.0) for i in ids),
     )  # fmt: skip
-    assert control.check_budget(child.id) is None
+    assert control.check_stop(child.id) is None
     cost["run_c"] = 1.2
-    assert control.check_budget(child.id) is None
+    assert control.check_stop(child.id) is None
     assert types(notifier) == ["budget.warning"] and notifier.events[0].run_id == parent.id
     cost["run_c"] = 1.5
-    assert control.check_budget(child.id) == "The run's budget of $2.00 is spent."
+    assert control.check_stop(child.id) == (
+        "The run's budget of $2.00 is spent. It resumes once money is added."
+    )
     assert fetch(control, parent.id).spent_usd == 2.0
     assert fetch(control, child.id).spent_usd == 1.5
     assert types(notifier) == ["budget.warning"]  # once per budget
+
+
+def held_mid_stage(runner: Runner, swarm: FakeSwarm) -> Run:
+    swarm.hold_at = 1
+    run = runner.start("world_1", "wf_1", 1, "Research", [RESEARCH, PICK], budget_usd=100)
+    assert swarm.held.wait(10)
+    return run
+
+
+def test_a_pause_mid_stage_stops_the_agents_and_resume_resumes_their_sessions(
+    budgeted: Runner, swarm: FakeSwarm
+) -> None:
+    run = held_mid_stage(budgeted, swarm)
+    budgeted.pause(run.id)
+    swarm.release.set()
+    wait_for(lambda: fetch(budgeted, run.id).status == "paused")
+    paused = fetch(budgeted, run.id)
+    research = paused.stages[0].id
+    assert [s.status for s in paused.stages] == ["pending", "pending"]
+    time.sleep(0.3)
+    assert swarm.done == {research: 1}  # no model step after the pause
+
+    budgeted.resume(run.id)
+    wait_for(lambda: fetch(budgeted, run.id).status == "waiting_gate")
+    assert swarm.visits == 2 and swarm.done == {research: 4}  # carried on where it stopped
+
+
+def test_an_abort_mid_stage_stops_the_agents_and_ends_the_run(
+    budgeted: Runner, swarm: FakeSwarm, notifier: FakeNotifier
+) -> None:
+    run = held_mid_stage(budgeted, swarm)
+    budgeted.abort(run.id)
+    swarm.release.set()
+    wait_for(lambda: types(notifier) == ["run.ended"])
+    aborted = fetch(budgeted, run.id)
+    assert aborted.status == "aborted"
+    assert [s.status for s in aborted.stages] == ["failed", "pending"]
+    time.sleep(0.3)
+    assert swarm.visits == 1 and swarm.done == {aborted.stages[0].id: 1}

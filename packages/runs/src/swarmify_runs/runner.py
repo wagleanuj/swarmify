@@ -64,6 +64,7 @@ from swarmify_runs.machine import (
     SentBack,
     StageFailed,
     StageFinished,
+    StageStopped,
     Started,
     transition,
 )
@@ -126,6 +127,10 @@ class _ChildEnded:
 
     child_run_id: str
     status: str
+
+
+class _Halted(Exception):
+    """A pause or abort, not the Budget, stopped the stage's agents (`check_stop`)."""
 
 
 class _Shutdown(BaseException):
@@ -436,7 +441,9 @@ def execute_run(run_id: str) -> str:
         except Illegal:
             continue  # a stale message, e.g. a resume for a run that is not paused
         gate_opened = bool(commands and isinstance(commands[0], OpenGate))
-        outcome_next = events and isinstance(events[-1], StageFinished | StageFailed | BudgetSpent)
+        outcome_next = events and isinstance(
+            events[-1], StageFinished | StageFailed | BudgetSpent | StageStopped
+        )
         if outcome_next and not gate_opened and state.status not in TERMINAL:
             continue  # a pause sent mid-stage is saved with the stage's outcome, never before it
         _save(run_id, state, error, gate_opened)
@@ -464,12 +471,14 @@ def execute_run(run_id: str) -> str:
         try:
             raised = _execute(run_id, index)
             outcome: RunEvent = GateRaised(index) if raised else StageFinished(index)
+        except _Halted:  # a pause or abort stopped the agents; its message drains below
+            outcome = StageStopped(index)
         except OverBudget:  # the agents stopped; the stage waits at a budget gate
             outcome = BudgetSpent(index)
         except Exception as exc:  # a failed stage fails the run; the error lands on the stage
             outcome, error = StageFailed(index), f"{type(exc).__name__}: {exc}"
-        # ponytail: a pause or abort sent mid-stage lands once the stage finishes. Cancelling a
-        # stage midway arrives with long swarm stages (T07).
+        # ponytail: a connector stage or a running child run is not stopped midway; a pause or
+        # abort reaches it once it ends (abort still cascades to the child).
         events = [*_drain(run_id), outcome]
 
 
@@ -653,4 +662,9 @@ def _execute(run_id: str, index: int) -> bool:
                 f"'{stage.name}' calls a publish connector, so it runs only right after an answered"
                 " gate (ADR 0007)"
             )
-    return bool(call(run, stage_id, stage))
+    try:
+        return bool(call(run, stage_id, stage))
+    except OverBudget:
+        if runner.storage.stop_of(run_id):  # read in the step, so a replay sees the same answer
+            raise _Halted() from None
+        raise

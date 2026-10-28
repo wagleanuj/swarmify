@@ -8,11 +8,11 @@ every tool call to the stage's live log, deny tools outside the allowlist and a 
 agent's first graph query, and keep the agent's session id and estimated cost. A session that
 dies is replaced by one that resumes the stored session id.
 
-After every cost estimate the hooks ask the run's Budget (`budget`, from the composition root);
-once it is spent they stop the session and the stage raises Stopped, leaving the agent's session
-to resume when money is added. A baseline stage is one worker with no graph: no planner, no
-judge, no graph tools and no graph-first rule, the single-agent measure the swarm is compared
-against.
+After every cost estimate the hooks ask the run's stop check (`budget`, from the composition
+root); once the Budget is spent, or the run is paused or aborted, they stop the session and the
+stage raises Stopped, leaving the agent's session to resume when the run goes on. A baseline
+stage is one worker with no graph: no planner, no judge, no graph tools and no graph-first rule,
+the single-agent measure the swarm is compared against.
 
 Memory and the graph are other contexts, so the composition root hands in `Files` and `Graphs`.
 Graph tools are wrapped: an agent may name the graph of its own world or of a world the stage
@@ -173,8 +173,8 @@ class StageError(RuntimeError):
 
 
 class Stopped(Exception):
-    """The run's Budget stopped the stage's agents. Not a failure: the stage runs again, its
-    agents resuming their sessions, once money is added."""
+    """The run's stop check (its Budget, a pause or an abort) stopped the stage's agents. Not a
+    failure: the stage runs again, its agents resuming their sessions, once the run goes on."""
 
 
 def no_budget(_run_id: str) -> str | None:
@@ -693,8 +693,7 @@ class Swarm:
                 board.log(at.stage_id, name, "error", f"The session died: {exc}")
                 continue
             if end.stopped:
-                detail = f"Stopped: {end.stopped} It resumes once money is added."
-                board.log(at.stage_id, name, "session", detail)
+                board.log(at.stage_id, name, "session", f"Stopped: {end.stopped}")
                 raise Stopped(end.stopped)
             if end.is_error:
                 board.log(at.stage_id, name, "error", f"The session failed: {end.result}")

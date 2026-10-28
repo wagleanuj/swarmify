@@ -187,6 +187,15 @@ class SqliteStorage:
     def set_budget(self, run_id: str, usd: float) -> Run | None:
         return self._set(run_id, "budget_usd", usd)
 
+    def set_stop(self, run_id: str, stop: str | None) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE runs SET stop = ? WHERE id = ?", (stop, run_id))
+
+    def stop_of(self, run_id: str) -> str | None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT stop FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return row["stop"] if row else None
+
     def _set(self, run_id: str, column: str, usd: float) -> Run | None:
         """Write one money column; a change appends `run.updated`. None for an unknown run."""
         with self._conn() as conn:

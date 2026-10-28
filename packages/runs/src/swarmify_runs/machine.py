@@ -72,6 +72,14 @@ class BudgetSpent:
 
 
 @dataclass(frozen=True)
+class StageStopped:
+    """A pause or abort stopped the agents of the running stage at `index` mid-stage. The
+    stage runs again, its agents resuming their sessions, once the run goes on."""
+
+    index: int
+
+
+@dataclass(frozen=True)
 class GateRaised:
     """The running stage at `index` raised a gate of its own (a retro's proposal): it waits for
     a person, then GateAnswered moves the run on."""
@@ -106,6 +114,7 @@ RunEvent = (
     | GateAnswered
     | SentBack
     | BudgetSpent
+    | StageStopped
     | GateRaised
     | BudgetAdded
     | Paused
@@ -180,6 +189,10 @@ def transition(
             status = "paused" if state.status == "paused" else "waiting_gate"
             spent = replace(state, status=status, stages=tuple(stages), over_budget=True)
             return spent, [OpenGate(i)]
+        case StageStopped(i):
+            _require(_at(stages, i) == "running", f"stage {i} is not running")
+            stages[i] = "pending"
+            return _settle(kinds, state, stages)
         case GateRaised(i):
             _require(_at(stages, i) == "running", f"stage {i} is not running")
             stages[i] = "waiting"

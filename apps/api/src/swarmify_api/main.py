@@ -336,7 +336,7 @@ def create_app(
         graphs=graph.WorldGraphs(world_svc, index),
         servers=registry.agent_servers,
         clock=clock,
-        budget=lambda run_id: runner.check_budget(run_id),  # the Budget lives in Runs
+        budget=lambda run_id: runner.check_stop(run_id),  # the Budget, pause and abort live in Runs
     )
 
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
