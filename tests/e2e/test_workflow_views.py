@@ -45,6 +45,15 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
             expect(yaml).to_contain_text(line)
         expect(yaml).to_contain_text("kind: approve")
         expect(yaml).to_contain_text("connector: render")
+        # A render stage names its Remotion project and composition before it can be saved.
+        expect(page.get_by_test_id("problems")).to_contain_text("needs params.project")
+        yaml.fill(
+            re.sub(
+                r"( *)calls: remotion_render\n",
+                r"\g<0>\1params: {project: /tmp, composition: Short}\n",
+                yaml.input_value(),
+            )
+        )
         expect(page.get_by_test_id("problems")).to_contain_text("No problems")
         page.get_by_role("button", name="Save as version 1").click()
         expect(page.get_by_test_id("schedule")).to_contain_text("It starts on its own")

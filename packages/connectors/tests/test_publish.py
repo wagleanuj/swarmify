@@ -283,3 +283,20 @@ def test_view_counts_come_from_the_youtube_connector_with_its_keys(
     with pytest.raises(ConnectorError, match="without counts"):
         connectors.youtube_views(W, ["v1"])
     assert connectors.youtube_views(W, []) == {}
+
+
+def test_a_saved_publish_stage_is_checked_like_its_gate_will_be(connectors: Connectors) -> None:
+    bare = {"calls": "youtube", "input": "short.mp4", "params": {}}
+    assert connectors.stage_problems(W, bare) == ["a publish stage needs params.title"]
+    assert connectors.stage_problems(W, {**bare, "input": None}) == [
+        "a publish stage needs params.title",
+        "a publish stage needs an input: the video to post",
+    ]
+    # the title may come from the script's frontmatter at run time instead
+    assert connectors.stage_problems(W, {**bare, "params": {"metadata": "script.md"}}) == []
+    assert connectors.stage_problems(W, stage("upload_post")) == [
+        "upload_post needs params.user, the Upload-Post profile to post as"
+    ]
+    assert connectors.stage_problems(W, stage()) == []
+    assert connectors.stage_problems(W, {"calls": "web_search"}) == []
+    assert connectors.stage_problems(W, {"calls": "nope"}) == []

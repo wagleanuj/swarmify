@@ -83,6 +83,7 @@ stages:
     calls: remotion_render
     input: ideas.md
     output: short.mp4
+    params: {project: /tmp, composition: Short}
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve

@@ -1,7 +1,8 @@
 """The Workflows language: Workflow, Workflow Version, the four Stage types, and a Violation."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 STAGE_TYPES = ("swarm", "gate", "connector", "workflow")
 GATE_KINDS = ("pick", "approve", "confirm")
@@ -78,11 +79,16 @@ class Violation:
 
 @dataclass(frozen=True)
 class ConnectorRef:
-    """What Workflows needs to know about a connector: its kind and the stage types it allows."""
+    """What Workflows needs to know about a connector: its kind, the stage types it allows and
+    `problems`, the connector's own check of a connector stage's config (calls, input, output,
+    params), which names every problem that would stop the call."""
 
     name: str
     kind: str  # tool, stage or publish
     stage_types: frozenset[str]
+    problems: Callable[[dict[str, Any]], list[str]] = field(
+        default=lambda _: [], compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)

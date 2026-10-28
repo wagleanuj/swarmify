@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from runs_fakes import FakeConnector, FakeNotifier, wait_for
 from swarmify_runs import Pinned, Runner, SqliteStorage, StageDef
+from swarmify_runs.control import SCHEDULED_WORKFLOW
 
 PICK = StageDef("pick", "gate", {"ask": "Pick one.", "kind": "pick"})
 EVERY_SECOND = "* * * * * *"
@@ -47,7 +48,15 @@ def test_a_schedule_starts_runs_of_the_current_version_until_removed(runner: Run
 
     runner.schedule("wf_1", None)
     assert runner.schedules() == {}
-    time.sleep(1.5)
+    time.sleep(1.5)  # past DBOS's next scheduler poll, so the cron thread has stopped
+    # A tick enqueued before that still starts its run, later on a slow machine: let it land.
+    wait_for(
+        lambda: (
+            not runner.client.list_workflows(
+                name=SCHEDULED_WORKFLOW, status=["ENQUEUED", "PENDING"], load_input=False
+            )
+        )
+    )
     count = len(runner.list_all("world_1"))
     time.sleep(2.5)
     assert len(runner.list_all("world_1")) == count

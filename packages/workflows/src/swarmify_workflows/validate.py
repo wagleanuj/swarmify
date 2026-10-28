@@ -5,6 +5,7 @@ workflow ids its current version runs. Every broken rule is returned, none raise
 """
 
 from collections.abc import Mapping, Sequence
+from pathlib import PurePosixPath
 
 from swarmify_workflows.model import (
     ConnectorRef,
@@ -17,6 +18,17 @@ from swarmify_workflows.model import (
 )
 
 MAX_DEPTH = 2
+# Explicit, not mimetypes: that marks text like .srt, .ts and .sh as binary and reads the host's
+# /etc/mime.types, so the same workflow could pass on one machine and fail on another.
+BINARY_EXTENSIONS = frozenset(
+    "mp4 mov webm mkv avi m4v mp3 wav m4a aac ogg flac png jpg jpeg gif webp heic bmp tiff ico"
+    " pdf zip tar gz tgz 7z rar".split()
+)
+
+
+def _binary(name: str) -> bool:
+    """Swarm agents write text only; an unlisted extension gets the benefit of the doubt."""
+    return PurePosixPath(name).suffix[1:].lower() in BINARY_EXTENSIONS
 
 
 def validate(
@@ -47,6 +59,15 @@ def validate(
         if isinstance(stage, SwarmStage):
             for tool in stage.tools:
                 check_connector(tool, "swarm", stage.name)
+            for name in filter(_binary, stage.produces):
+                out.append(
+                    Violation(
+                        "swarm_binary",
+                        f"only a connector stage can make {name}: swarm agents write text, so"
+                        " produce a script here and render it in a remotion_render stage",
+                        stage.name,
+                    )
+                )
             produced.update(stage.produces)
         elif isinstance(stage, ConnectorStage):
             ref = check_connector(stage.calls, "connector", stage.name)
@@ -67,6 +88,14 @@ def validate(
                         stage.name,
                     )
                 )
+            if ref is not None:
+                config = {
+                    "calls": stage.calls,
+                    "input": stage.input,
+                    "output": stage.output,
+                    "params": stage.params,
+                }
+                out += [Violation("connector_params", p, stage.name) for p in ref.problems(config)]
             if stage.output:
                 produced.add(stage.output)
         elif isinstance(stage, WorkflowStage):

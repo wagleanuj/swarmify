@@ -15,7 +15,10 @@ from swarmify_notifications.fake import FakeSlack
 
 BASE = "http://swarmify.lan:8000"
 QUICK = "name: Quick\nstages:\n  - gate: ok\n    ask: Go?\n    kind: confirm\n"
-BOOM = "name: Boom\nstages:\n  - connector: explode\n    calls: remotion_render\n"
+BOOM = (
+    "name: Boom\nstages:\n  - connector: explode\n    calls: remotion_render\n"
+    "    params: {project: /tmp, composition: Short}\n"
+)
 
 
 @pytest.fixture
