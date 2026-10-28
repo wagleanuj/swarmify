@@ -130,6 +130,19 @@ def test_a_swarm_stage_cannot_promise_a_binary_file(name: str) -> None:
     assert "remotion_render" in found[0].message
 
 
-@pytest.mark.parametrize("name", ["script.md", "ideas.json", "notes.txt", "plan.yaml", "x.svg"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "script.md",
+        "ideas.json",
+        "notes.txt",
+        "plan.yaml",
+        "x.svg",
+        "captions.srt",
+        "comp.ts",
+        "run.sh",
+        "notes.rtf",
+    ],
+)
 def test_a_swarm_stage_may_produce_text(name: str) -> None:
     assert rules(WorkflowModel("w", [SwarmStage("s", "g", "d", produces=[name])])) == []

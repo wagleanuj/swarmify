@@ -4,8 +4,8 @@ Pure: the caller supplies the connectors the world allows and, for every stored 
 workflow ids its current version runs. Every broken rule is returned, none raises.
 """
 
-import mimetypes
 from collections.abc import Mapping, Sequence
+from pathlib import PurePosixPath
 
 from swarmify_workflows.model import (
     ConnectorRef,
@@ -18,13 +18,17 @@ from swarmify_workflows.model import (
 )
 
 MAX_DEPTH = 2
-TEXT_TYPES = ("application/json", "application/xml", "application/yaml", "image/svg+xml")
+# Explicit, not mimetypes: that marks text like .srt, .ts and .sh as binary and reads the host's
+# /etc/mime.types, so the same workflow could pass on one machine and fail on another.
+BINARY_EXTENSIONS = frozenset(
+    "mp4 mov webm mkv avi m4v mp3 wav m4a aac ogg flac png jpg jpeg gif webp heic bmp tiff ico"
+    " pdf zip tar gz tgz 7z rar".split()
+)
 
 
 def _binary(name: str) -> bool:
-    """Swarm agents write text only; an unknown extension gets the benefit of the doubt."""
-    kind = mimetypes.guess_type(name)[0]
-    return kind is not None and not kind.startswith("text/") and kind not in TEXT_TYPES
+    """Swarm agents write text only; an unlisted extension gets the benefit of the doubt."""
+    return PurePosixPath(name).suffix[1:].lower() in BINARY_EXTENSIONS
 
 
 def validate(
