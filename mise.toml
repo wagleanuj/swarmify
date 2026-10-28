@@ -17,7 +17,7 @@ run = [
 
 [tasks."dev:api"]
 description = "Run the API with reload on :8000"
-run = "uv run uvicorn --factory swarmify_api.main:create_app --reload --port 8000"
+run = "uv run uvicorn --factory swarmify_api.main:create_app --reload --port 8000 --timeout-graceful-shutdown 3"
 
 [tasks."dev:web"]
 description = "Run the Vite dev server on :5173, proxying /api to :8000"
