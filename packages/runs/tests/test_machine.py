@@ -78,7 +78,13 @@ class AnyEvents(RuleBasedStateMachine):
         settled = [i for i, s in enumerate(stages) if s != "pending"]
         if settled:
             last = settled[-1]
-            assert all(s == "done" for s in stages[:last])
+            # A failed stage is followed by skipped stages up to the retro, which still runs.
+            failed = stages.index("failed") if "failed" in stages[:last] else last
+            assert all(s == "done" for s in stages[:failed])
+            assert all(
+                s == "skipped" or self.kinds[i] == "retro"
+                for i, s in enumerate(stages[failed + 1 : last], failed + 1)
+            )
             assert all(s == "pending" for s in stages[last + 1 :])
 
     @invariant()
@@ -192,6 +198,24 @@ def test_failure_ends_the_run_and_leaves_later_stages_pending() -> None:
     assert state == RunState("failed", ("failed", "pending")) and cmds == []
     with pytest.raises(Illegal):
         transition(kinds, state, Resumed())
+
+
+def test_a_failed_run_still_runs_its_retro_then_ends_failed() -> None:
+    kinds = ("swarm", "gate", "connector", "retro")
+    state, _ = transition(kinds, RunState.new(4), Started())
+    state, cmds = transition(kinds, state, StageFailed(0))
+    assert state == RunState("running", ("failed", "skipped", "skipped", "running"))
+    assert cmds == [RunStage(3)]
+    with pytest.raises(Illegal, match="failed run"):
+        transition(kinds, transition(kinds, state, GateRaised(3))[0], SentBack(3, 1))
+    ended, cmds = transition(kinds, state, StageFinished(3))
+    assert ended == RunState("failed", ("failed", "skipped", "skipped", "done")) and cmds == []
+    waiting, cmds = transition(kinds, state, GateRaised(3))
+    assert waiting.status == "waiting_gate" and cmds == [OpenGate(3)]
+    assert transition(kinds, waiting, GateAnswered(3))[0] == ended
+    assert transition(kinds, state, StageFailed(3))[0] == RunState(
+        "failed", ("failed", "skipped", "skipped", "failed")
+    )
 
 
 def test_abort_fails_the_active_stage() -> None:

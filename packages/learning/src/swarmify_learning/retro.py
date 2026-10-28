@@ -3,7 +3,8 @@ the manual interventions that recur across runs of a workflow, the prompt a retr
 and the parse of its answer into zero or one Skill Proposal plus zero or one Workflow Suggestion.
 
 Learning reads events only (Context Map): `run.updated` carries the run with its stages and
-gate decisions, `verdict.created` the judge's verdicts, `task.updated` the tasks people added.
+gate decisions, `verdict.created` the judge's verdicts, `task.updated` the tasks people added,
+`agent.logged` each line of a stage's live log.
 """
 
 import re
@@ -18,6 +19,8 @@ from swarmify_learning.model import ACTIONS, SKILL_NAME, SkillChange, WorkflowSu
 RECURRENCE = 3
 """The same manual intervention in this many runs makes a Workflow Suggestion worth raising."""
 OPERATOR = "operator"
+LOG_TAIL = 30
+"""How many of a failed stage's last log lines the retro reads."""
 RETRO_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -88,6 +91,8 @@ class Evidence:
     verdicts: list[str] = field(default_factory=list)
     decisions: list[str] = field(default_factory=list)
     interventions: list[Intervention] = field(default_factory=list)
+    failure: list[str] = field(default_factory=list)
+    """The failed stage and its error, then the tail of its log. Empty when nothing failed."""
 
 
 @dataclass(frozen=True)
@@ -169,15 +174,31 @@ def evidence(events: list[Event], run_id: str) -> Evidence:
         note = f" with the note: {d['note'].strip()}" if (d.get("note") or "").strip() else ""
         decisions.append(f"at {d['stage_name']}: {what}{note}")
     tasks = _operator_tasks(events).get(run_id, [])
+    failure: list[str] = []
+    status = str(run.get("status") or "")
+    # The retro of a failed run runs before the run ends, so a failed stage says how it ends.
+    if failed := next((s for s in run.get("stages") or [] if s.get("status") == "failed"), None):
+        status = "failed"
+        failure.append(f"{failed['name']} failed: {failed.get('error') or 'no error recorded'}")
+        log = [
+            e.payload
+            for e in events
+            if e.type == "agent.logged" and e.payload.get("stage_id") == failed["id"]
+        ]
+        for p in log[-LOG_TAIL:]:
+            tool = f" {p['tool']}" if p.get("tool") else ""
+            detail = f": {p['detail']}" if p.get("detail") else ""
+            failure.append(f"{p['agent']} {p['kind']}{tool}{detail}")
     return Evidence(
         run_id,
         str(run.get("name") or run_id),
         run.get("workflow_id"),
-        str(run.get("status") or ""),
+        status,
         int(run.get("send_backs") or 0),
         verdicts,
         decisions,
         _interventions(run, tasks),
+        failure,
     )
 
 
@@ -216,8 +237,10 @@ def prompt(
         *(f"- {d}" for d in run.decisions or ["(no gate was answered)"]),
         "# Tasks people added by hand",
         *(f"- {i.stage}: {i.what}" for i in run.interventions if i.kind == "task"),
-        "# Skills the agents load now",
     ]
+    if run.failure:
+        lines += ["# The failure: the failed stage, then the last lines of its log", *run.failure]
+    lines.append("# Skills the agents load now")
     for name, content in skills or []:
         lines += [f"## {name}", content.strip()]
     if not skills:

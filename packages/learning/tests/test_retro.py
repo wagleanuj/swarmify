@@ -15,7 +15,7 @@ from swarmify_learning import (
     parse_retro,
     recurrences,
 )
-from swarmify_learning.retro import frontmatter, prompt
+from swarmify_learning.retro import LOG_TAIL, frontmatter, prompt
 
 SKILL = "---\nname: hooks\ndescription: Open on the hook.\n---\n\nWrite the hook first.\n"
 
@@ -247,3 +247,57 @@ def test_check_skill_wants_the_spec_frontmatter() -> None:
     ]:
         with pytest.raises(ValueError):
             check_skill(name, content)
+
+
+def test_a_failed_run_shows_the_retro_its_failure_and_the_failed_stages_log_tail() -> None:
+    stages = [
+        {"id": "s0", "name": "research", "type": "swarm", "status": "failed", "error": "Boom"},
+        {"id": "s1", "name": "retro", "type": "retro", "status": "running", "error": None},
+    ]
+    log = [
+        ev(
+            "agent.logged",
+            {
+                "stage_id": "s0",
+                "agent": "worker-1",
+                "kind": "tool",
+                "tool": "web_search",
+                "detail": "",
+            },
+            "run_1",
+        ),  # fmt: skip
+        *[
+            ev(
+                "agent.logged",
+                {
+                    "stage_id": "s0",
+                    "agent": "worker-1",
+                    "kind": "error",
+                    "tool": None,
+                    "detail": f"died {n}",
+                },
+                "run_1",
+            )  # fmt: skip
+            for n in range(LOG_TAIL)
+        ],
+        ev(
+            "agent.logged",
+            {
+                "stage_id": "s1",
+                "agent": "retro",
+                "kind": "session",
+                "tool": None,
+                "detail": "Started.",
+            },
+            "run_1",
+        ),  # fmt: skip
+    ]
+    events = [run_event("run_1", [], status="running", stages=stages), *log]
+    e = evidence(events, "run_1")
+    assert e.status == "failed"
+    assert e.failure[0] == "research failed: Boom"
+    assert e.failure[1:] == [f"worker-1 error: died {n}" for n in range(LOG_TAIL)]
+    text = prompt(e, [], [], [], None)
+    assert "which ended failed" in text and "# The failure" in text and "died 0" in text
+    quiet = evidence([run_event("run_2", [])], "run_2")
+    assert "# The failure" not in prompt(quiet, [], [], [], None)
