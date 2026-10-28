@@ -38,7 +38,7 @@ class StartRun(BaseModel):
     version: int | None = None
     """The workflow version to pin. The current one when left out."""
     budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
-    """The run's Budget, overriding the workflow's `budget_usd`. No budget: no ceiling."""
+    """The run's Budget, overriding the workflow's `budget_usd`; 5 USD when neither is set."""
     baseline: bool = False
     """Baseline mode: every swarm stage runs one agent with no graph, to measure the swarm."""
 
@@ -183,7 +183,8 @@ def router(
                 p.version,
                 p.name,
                 stages(p.stages, body.baseline),
-                budget_usd=body.budget_usd or p.budget_usd,
+                budget_usd=body.budget_usd,
+                workflow_budget_usd=p.budget_usd,
                 baseline=body.baseline,
             )
         )

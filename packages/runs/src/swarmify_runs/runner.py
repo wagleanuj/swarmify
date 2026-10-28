@@ -225,18 +225,14 @@ class Runner(RunControl):
         parent_run_id: str | None = None,
         budget_usd: float | None = None,
         baseline: bool = False,
+        workflow_budget_usd: float | None = None,
     ) -> Run:
-        """Record a queued run pinned to `version` and enqueue it. `budget_usd` is its Budget
-        (none: no ceiling), cut down to what is left of the world's Monthly Budget this month;
-        MonthSpent when nothing is left. `baseline` runs every swarm stage with one agent and no
-        graph. An Ad Hoc Run has no workflow: `workflow_id` and `version` are None."""
+        """Record a queued run pinned to `version` and enqueue it. Its Budget follows
+        `budget_for`: `budget_usd` typed at the start, else the workflow's
+        `workflow_budget_usd`. `baseline` runs every swarm stage with one agent and no graph. An
+        Ad Hoc Run has no workflow: `workflow_id` and `version` are None."""
+        budget_usd = self.budget_for(world_id, budget_usd, workflow_budget_usd, parent_run_id)
         now = datetime.now(UTC).isoformat()
-        try:
-            budget_usd = budget.monthly_cap(
-                budget_usd, self.monthly(world_id), self.storage.spent_in_month(world_id, now[:7])
-            )
-        except ValueError as exc:
-            raise MonthSpent(str(exc)) from exc
         run = Run(
             new_id("run"), world_id, workflow_id, version, name, "queued", now, now, [],
             parent_run_id=parent_run_id, budget_usd=budget_usd, baseline=baseline,
@@ -244,6 +240,30 @@ class Runner(RunControl):
         run = self.storage.add_run(run, stages)
         self._enqueue(run)
         return run
+
+    def budget_for(
+        self,
+        world_id: str,
+        explicit: float | None = None,
+        workflow: float | None = None,
+        parent_run_id: str | None = None,
+    ) -> float | None:
+        """The one budget rule for every way a run starts (start, ad hoc, fork, promote,
+        schedule, child): `budget.rule` under the world's Monthly Budget this month. Raises
+        MonthSpent when nothing is left. A child run gets None: it spends the Budget of the top
+        run of its family (ADR 0013)."""
+        if parent_run_id is not None:
+            return None
+        month = datetime.now(UTC).strftime("%Y-%m")
+        try:
+            return budget.rule(
+                explicit,
+                workflow,
+                self.monthly(world_id),
+                self.storage.spent_in_month(world_id, month),
+            )
+        except ValueError as exc:
+            raise MonthSpent(str(exc)) from exc
 
     def fork(self, run_id: str, index: int) -> Run:
         """Start a Fork: a new run of the same workflow version that copies `run_id` (rows and
@@ -261,10 +281,12 @@ class Runner(RunControl):
                 f"stage {unfinished[0].name} has not finished, so the run cannot fork from"
                 f" {source.stages[index].name}"
             )
+        # A fork copies the run, its Budget included, as the workflow's default.
+        budget_usd = self.budget_for(source.world_id, workflow=source.budget_usd)
         now = datetime.now(UTC).isoformat()
         run = Run(
             new_id("run"), source.world_id, source.workflow_id, source.workflow_version,
-            source.name, "queued", now, now, [],
+            source.name, "queued", now, now, [], budget_usd=budget_usd,
         )  # fmt: skip
         run = self.storage.fork(run, source, index)
         copy_run_files(self.data_dir, source, run, index)
@@ -284,10 +306,11 @@ class Runner(RunControl):
             )
         if not artifact.is_file():
             raise ValueError(f"no artifact at {promoted_from}")
+        budget_usd = self.budget_for(pinned.world_id, workflow=pinned.budget_usd)
         now = datetime.now(UTC).isoformat()
         run = Run(
             new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
-            "queued", now, now, [], promoted_from=promoted_from,
+            "queued", now, now, [], promoted_from=promoted_from, budget_usd=budget_usd,
         )  # fmt: skip
         run = self.storage.add_run(run, pinned.stages, skipped=index)
         folder = run_folder(self.data_dir, run) / run.stages[index - 1].id / "artifacts"
@@ -373,10 +396,17 @@ def _start_scheduled(workflow_id: str, fired_at: str) -> tuple[str, str] | None:
             "schedule fired for %s at %s, but its current version has none", workflow_id, fired_at
         )
         return None
+    try:
+        budget_usd = runner.budget_for(pinned.world_id, workflow=pinned.budget_usd)
+    except MonthSpent:
+        log.warning(
+            "schedule fired for %s at %s, but its world's month is spent", workflow_id, fired_at
+        )
+        return None
     now = datetime.now(UTC).isoformat()
     run = Run(
         new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
-        "queued", now, now, [], budget_usd=pinned.budget_usd,
+        "queued", now, now, [], budget_usd=budget_usd,
     )  # fmt: skip
     run = runner.storage.add_run(run, pinned.stages)
     return run.id, run.world_id
@@ -522,6 +552,7 @@ def _start_child(run_id: str, index: int) -> str:
     child = Run(
         new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,
         "queued", now, now, [], parent_run_id=run_id, baseline=run.baseline,
+        budget_usd=runner.budget_for(pinned.world_id, parent_run_id=run_id),
     )  # fmt: skip
     # ponytail: a crash between these two leaves an unlinked queued child that launch() runs
     # and whose end nobody reads; one storage call for both if that window ever bites
