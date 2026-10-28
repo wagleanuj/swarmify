@@ -302,7 +302,8 @@ class Runner(RunControl):
         """Start a Promote: a run of `pinned` that starts at stage `index` with `artifact` as
         its input. The earlier stages are skipped and the file (with its sidecar) stands in for
         their output, in the last skipped stage's artifacts folder where later stages look for
-        inputs. `promoted_from` is the artifact's path in the world folder, kept as lineage.
+        inputs, renamed to stage `index`'s `input` when it names one. `promoted_from` is the
+        artifact's path in the world folder, kept as lineage.
         Raises ValueError for an index that skips nothing or everything, or a missing file."""
         if not 1 <= index < len(pinned.stages):
             raise ValueError(
@@ -320,8 +321,14 @@ class Runner(RunControl):
         run = self.storage.add_run(run, pinned.stages, skipped=index)
         folder = run_folder(self.data_dir, run) / run.stages[index - 1].id / "artifacts"
         folder.mkdir(parents=True, exist_ok=True)
-        for file in with_sidecar(artifact):
-            shutil.copyfile(file, folder / file.name)
+        files = sorted(with_sidecar(artifact), key=lambda f: len(f.name))
+        # The stage finds its input by exact name, but a typed artifact is `<type>-<slug>.md`:
+        # the file goes in under the starting stage's `input`, its sidecar under that plus .md.
+        name = str(pinned.stages[index].config.get("input") or "")
+        if Path(name).name != name or name in ("", ".", ".."):
+            name = files[0].name
+        for file, target in zip(files, (name, name + ".md"), strict=False):
+            shutil.copyfile(file, folder / target)
         self._enqueue(run)
         return run
 

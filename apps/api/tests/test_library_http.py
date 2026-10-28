@@ -204,3 +204,25 @@ def test_a_promote_starts_at_the_chosen_stage_with_the_artifact_as_input(
     assert transport.calls[-1][2]["input"] == "ideas.md"
     folder = tmp_path / "worlds" / world / "runs" / run["id"] / run["stages"][1]["id"]
     assert (folder / "artifacts" / "ideas.md").read_text().endswith("2. Chase")
+
+
+def test_a_promoted_typed_artifact_lands_under_the_name_the_stage_takes(
+    running: TestClient, transport: FakeTransport, tmp_path: Path
+) -> None:
+    world, _ = setup(running)
+    scripted = SHORT.replace("ideas.md", "script.md")
+    created = running.post(f"/api/worlds/{world}/workflows", json={"yaml": scripted})
+    assert created.status_code == 201, created.json()
+    rel = "runs/run_old/stage_x/artifacts/script-the-chase.md"
+    (tmp_path / "worlds" / world / rel).parent.mkdir(parents=True)
+    (tmp_path / "worlds" / world / rel).write_text('---\ntype: "script"\n---\n\nThe chase.')
+
+    promoted = running.post(
+        f"/api/workflows/{created.json()['workflow_id']}/promote",
+        json={"artifact": rel, "stage": 2},
+    )
+    assert promoted.status_code == 201, promoted.json()
+    run = promoted.json()
+    until(lambda: get(running, run["id"])["status"] in ("done", "failed"))
+    assert get(running, run["id"])["status"] == "done", get(running, run["id"])
+    assert Path(transport.calls[-1][2]["input_path"]).read_text().endswith("The chase.")

@@ -127,6 +127,35 @@ def test_a_promote_skips_the_earlier_stages_and_places_the_artifact_as_input(
     assert done.stages[0].started_at is None
 
 
+def test_a_promote_places_the_artifact_under_the_stages_input_name(
+    runner: Runner, tmp_path: Path
+) -> None:
+    old = tmp_path / "worlds/world_a/runs/run_old/stage_x/artifacts"
+    old.mkdir(parents=True)
+    (old / "script-the-chase.md").write_text('---\ntype: "script"\n---\n\nA script.')
+    pinned = Pinned("world_a", "wf", 1, "Short", STAGES)
+    rel = "runs/run_old/stage_x/artifacts/script-the-chase.md"
+    run = runner.promote(pinned, 2, old / "script-the-chase.md", rel)
+    folder = run_folder(tmp_path, run) / run.stages[1].id / "artifacts"
+    assert [p.name for p in folder.iterdir()] == ["script.md"]
+    assert (folder / "script.md").read_text().endswith("A script.")
+
+
+def test_a_promoted_binary_keeps_its_sidecar_under_the_input_name(
+    runner: Runner, tmp_path: Path
+) -> None:
+    old = tmp_path / "worlds/world_a/runs/run_old/stage_x/artifacts"
+    old.mkdir(parents=True)
+    (old / "clip-1.mp4").write_bytes(b"mp4")
+    (old / "clip-1.mp4.md").write_text('---\ntype: "file"\n---\n\nSidecar.\n')
+    upload = StageDef("upload", "connector", {"calls": "youtube_upload", "input": "clip.mp4"})
+    pinned = Pinned("world_a", "wf", 1, "Short", [RESEARCH, upload])
+    run = runner.promote(pinned, 1, old / "clip-1.mp4.md", "runs/run_old/stage_x/artifacts/x")
+    folder = run_folder(tmp_path, run) / run.stages[0].id / "artifacts"
+    assert sorted(p.name for p in folder.iterdir()) == ["clip.mp4", "clip.mp4.md"]
+    assert (folder / "clip.mp4").read_bytes() == b"mp4"
+
+
 def test_a_promoted_binary_brings_its_sidecar(runner: Runner, tmp_path: Path) -> None:
     old = tmp_path / "worlds/world_a/runs/run_old/stage_x/artifacts"
     old.mkdir(parents=True)

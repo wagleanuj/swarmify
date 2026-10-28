@@ -589,8 +589,9 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
 - **Promote.** `POST /api/workflows/<id>/promote` (`{"artifact": "<path>", "stage": n, "version":
   optional}`) starts a run at stage `n` with a Library artifact as its input: stages before `n`
   are inserted `skipped`, the file (with its sidecar, frontmatter kept as provenance) lands in the
-  last skipped stage's `artifacts/` folder where later stages' `input` finds it, and the run
-  carries `promoted_from`. `n` must skip at least one stage and start at or before the last (422). The
+  last skipped stage's `artifacts/` folder where later stages' `input` finds it (renamed to stage
+  `n`'s `input` when it names one, so `script-the-chase.md` reaches a render that takes
+  `script.md`), and the run carries `promoted_from`. `n` must skip at least one stage and start at or before the last (422). The
   Library's "Promote..." picks the workflow and the stage.
 
 ## Learning: retro, skills, scorecard
