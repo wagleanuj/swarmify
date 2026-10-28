@@ -88,9 +88,12 @@ def test_eighty_percent_warns_once_and_the_run_goes_on(
     }  # fmt: skip
 
 
-def test_a_run_without_a_budget_never_stops(budgeted: Runner, notifier: FakeNotifier) -> None:
+def test_a_run_with_no_budget_typed_gets_the_default(
+    budgeted: Runner, notifier: FakeNotifier
+) -> None:
     run = budgeted.start("world_1", "wf_1", 1, "Research", [RESEARCH])
-    wait_for(lambda: types(notifier) == ["run.ended"])
+    assert run.budget_usd == 5.0
+    wait_for(lambda: types(notifier) == ["budget.warning", "run.ended"])
     assert fetch(budgeted, run.id).spent_usd == 4.0
 
 

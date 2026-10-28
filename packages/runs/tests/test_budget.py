@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from swarmify_runs.budget import level, monthly_cap
+from swarmify_runs.budget import DEFAULT_USD, level, monthly_cap, rule
 
 MONEY = st.floats(min_value=0, max_value=1e6, allow_nan=False)
 
@@ -32,3 +32,12 @@ def test_the_monthly_cap_cuts_a_run_budget_down_to_what_is_left_of_the_month() -
     assert monthly_cap(20.0, 10.0, 3.0) == 7.0
     with pytest.raises(ValueError, match="monthly budget of \\$10.00 is spent"):
         monthly_cap(2.0, 10.0, 10.0)
+
+
+def test_the_rule_takes_the_explicit_budget_else_the_workflows_else_the_default() -> None:
+    assert rule(2.0, 8.0, None, 0.0) == 2.0
+    assert rule(None, 8.0, None, 0.0) == 8.0
+    assert rule(None, None, None, 0.0) == DEFAULT_USD == 5.0
+    assert rule(None, None, 10.0, 7.0) == 3.0
+    with pytest.raises(ValueError, match="is spent"):
+        rule(2.0, None, 10.0, 10.0)

@@ -7,6 +7,8 @@ Spend is the Agent SDK's estimate, not billing (V1 spec). At 80 percent a warnin
 from typing import Literal
 
 WARN_AT = 0.8
+DEFAULT_USD = 5.0
+"""The Budget of a run started with none typed and none in its workflow."""
 Level = Literal["ok", "warning", "spent"]
 
 
@@ -30,6 +32,17 @@ def monthly_cap(requested: float | None, monthly: float | None, spent: float) ->
             " estimate); raise it in the world's settings or wait for next month"
         )
     return left if requested is None else min(requested, left)
+
+
+def rule(
+    explicit: float | None, workflow: float | None, monthly: float | None, spent: float
+) -> float:
+    """The Budget every new run gets: `explicit`, else the `workflow`'s, else DEFAULT_USD, cut
+    down to what is left of the world's `monthly` budget after `spent`. Raises ValueError when
+    the month is spent."""
+    budget = monthly_cap(explicit or workflow or DEFAULT_USD, monthly, spent)
+    assert budget is not None
+    return budget
 
 
 def ask(spent: float, budget: float) -> str:

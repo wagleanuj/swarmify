@@ -124,9 +124,12 @@ stages and decisions.
 
 ## Budget and baseline
 
-A run's Budget (Russ in the skin) is its spend ceiling in US dollars: the workflow's `budget_usd`,
-or `budget_usd` in the start body (`POST /api/workflows/<id>/runs`), which overrides it. No budget
-means no ceiling. Spend is the Agent SDK's estimate, not your bill.
+A run's Budget (Russ in the skin) is its spend ceiling in US dollars. One rule
+(`Runner.budget_for`) sets it for every way a run starts (start, ad hoc, fork, promote, schedule):
+`budget_usd` in the start body (`POST /api/workflows/<id>/runs` or `/api/worlds/<id>/runs`), else
+the workflow's `budget_usd` (a fork keeps its source run's Budget), else 5 USD
+(`budget.DEFAULT_USD`), then capped by the world's Monthly Budget (below). A child run spends its
+parent's. Spend is the Agent SDK's estimate, not your bill.
 
 - Cost hook: every model step of an agent session (one per tool call) adds an estimate priced
   from the step's token usage, and the session's result trues the sum up to the SDK's own total.
@@ -144,7 +147,8 @@ means no ceiling. Spend is the Agent SDK's estimate, not your bill.
 - Monthly Budget: a world setting (`monthly_budget_usd`, none by default). Every run that starts
   gets its Budget cut down to what is left of the calendar month (the sum of the world's top
   runs' `spent_usd` this month, `GET /api/worlds/<id>/spend`); once that is spent, starting a run
-  is refused with 409 until the budget is raised or the month turns.
+  is refused with 409 until the budget is raised or the month turns, and a scheduled tick starts
+  nothing.
 - Baseline (Hooli in the skin): `{"baseline": true}` in the start body runs every swarm stage with
   one worker and no graph: no planner (the goal is its one task), no judge (so no typed
   projection), no graph tools and no graph-first rule. `GET /api/runs/<id>/baseline`

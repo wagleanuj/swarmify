@@ -172,3 +172,19 @@ async def test_the_mcp_server_sets_a_budget(
         assert raised.structured_content and raised.structured_content["budget_usd"] == 5
     until(lambda: _run(running, run["id"])["status"] == "done")
     control.close()
+
+
+def test_an_ad_hoc_run_with_no_budget_typed_gets_the_default_under_the_monthly_cap(
+    running: TestClient, script: Script
+) -> None:
+    script.scripts = [PLAN, [GRAPH, CLAIM, Say("Done.")]]
+    world = running.post("/api/worlds", json={"name": "Kids"}).json()["id"]
+    run = running.post(f"/api/worlds/{world}/runs", json={"goal": "make good videos"}).json()
+    assert run["budget_usd"] == 5.0
+    running.post(f"/api/runs/{run['id']}/abort")
+    until(lambda: _run(running, run["id"])["status"] == "aborted")
+    running.patch(f"/api/worlds/{world}", json={"monthly_budget_usd": 2})
+    capped = running.post(f"/api/worlds/{world}/runs", json={"goal": "make good videos"}).json()
+    assert capped["budget_usd"] == 2.0
+    running.post(f"/api/runs/{capped['id']}/abort")
+    until(lambda: _run(running, capped["id"])["status"] == "aborted")
