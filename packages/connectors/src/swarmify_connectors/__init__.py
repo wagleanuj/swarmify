@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from swarmify_connectors import publish
+from swarmify_connectors import publish, remotion
 from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
@@ -132,6 +132,7 @@ class Connectors:
         self.transport = transport
         self.credentials = credentials
         self.poll_seconds = poll_seconds
+        self.data_dir = credentials.path.parent  # credentials live in `<data dir>/.env`
 
     # Registry
 
@@ -255,7 +256,10 @@ class Connectors:
             raise ConnectorError(
                 f"{connector.name} needs {', '.join(missing)} in {self.credentials.path}"
             )
-        return {n: values[n] for n in connector.credentials}
+        env = {n: values[n] for n in connector.credentials}
+        if connector.builtin and connector.name == "remotion_render":
+            env["SWARMIFY_DATA_DIR"] = str(self.data_dir)  # where its templates live
+        return env
 
     # Publish stages (ADR 0007)
 
@@ -284,8 +288,9 @@ class Connectors:
             project = str(params.get("project") or "").strip()
             if not project:
                 out.append("remotion_render needs params.project, the Remotion project folder")
-            elif not Path(project).expanduser().is_dir():
-                out.append(f"the Remotion project {project} does not exist")
+            elif not (folder := remotion.project_folder(project, self.data_dir)).is_dir():
+                where = "" if Path(project).expanduser().is_absolute() else f" in {folder.parent}"
+                out.append(f"the Remotion project {project} does not exist{where}")
             if not str(params.get("composition") or "").strip():
                 out.append("remotion_render needs params.composition, the composition ID")
             return out

@@ -30,13 +30,21 @@ def connectors(tmp_path: Path, db: Path, transport: FakeTransport) -> Connectors
 
 @pytest.fixture
 def fake_npx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Put a fake Remotion CLI first on PATH, as `npx`. Returns a ready Remotion project."""
+    """Put a fake Remotion CLI first on PATH, as `npx`, and a fake `npm` that prints its command
+    and makes `node_modules`. Returns a ready Remotion project, its dependencies installed."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     npx = bin_dir / "npx"
     npx.write_text(f"#!{sys.executable}\n" + (Path(__file__).parent / "fake_npx.py").read_text())
-    npx.chmod(0o755)
+    npm = bin_dir / "npm"
+    npm.write_text(
+        f"#!{sys.executable}\nimport os, sys\nprint('fake npm', *sys.argv[1:])\n"
+        "os.mkdir('node_modules')\n"
+    )
+    for tool in (npx, npm):
+        tool.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     project = tmp_path / "video"
     (project / "src").mkdir(parents=True)
+    (project / "node_modules").mkdir()
     return project

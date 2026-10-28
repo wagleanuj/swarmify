@@ -8,7 +8,11 @@ MCP session; its state, CLI log and input props live beside the output as hidden
 The composition receives the script as input props: `{"script": <text>, "scriptPath": <path>,
 ...props}`, read with `getInputProps()`. On success the video gets a markdown sidecar,
 `<output>.md`, with frontmatter (type video, world, run, stage, created) and a body that names
-the source script, so the graph sees it.
+the source script, so the graph sees it, and the template's git commit when it has one.
+
+A relative `project` names a template under `<data dir>/remotion/` (`SWARMIFY_DATA_DIR`, default
+`~/.swarmify`); a template without `node_modules` gets `npm ci` (`npm install` without a
+lockfile) once, in the render's log, before it renders.
 
 Coverage reports this module low: the server and the detached job run in subprocesses the
 coverage tool cannot see. The transport tests in tests/test_remotion.py exercise both.
@@ -36,6 +40,26 @@ mcp = MCPServer("remotion_render")
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def project_folder(project: str, data_dir: Path) -> Path:
+    """A relative project is a template by name under `<data dir>/remotion/`."""
+    path = Path(project).expanduser()
+    return path if path.is_absolute() else data_dir / "remotion" / path
+
+
+def _data_dir() -> Path:
+    return Path(os.environ.get("SWARMIFY_DATA_DIR", Path.home() / ".swarmify"))
+
+
+def _commit(folder: Path) -> str | None:
+    try:
+        git = subprocess.run(
+            ["git", "-C", str(folder), "rev-parse", "HEAD"], capture_output=True, text=True
+        )
+    except OSError:  # no git, as in a slim image
+        return None
+    return git.stdout.strip() if git.returncode == 0 else None
 
 
 def _hidden(output: Path, suffix: str) -> Path:
@@ -99,12 +123,14 @@ def remotion_render(
     props: dict[str, Any] | None = None,
     frontmatter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """`project` is the Remotion project folder, `entry` its entry point relative to it, and
-    `frames` an optional range like `0-29`. A second call with the same key returns the same
+    """`project` is the Remotion project folder, or a template's name under the data directory's
+    `remotion/` folder; `entry` its entry point relative to it, and `frames` an optional range
+    like `0-29`. A second call with the same key returns the same
     job unless it failed or its process died, which starts it again."""
     if not input_path:
         raise ToolError("the render stage needs an `input`: the script artifact to render")
-    output, script, folder = Path(output_path), Path(input_path), Path(project).expanduser()
+    output, script = Path(output_path), Path(input_path)
+    folder = project_folder(project, _data_dir())
     if not script.is_file():
         raise ToolError(f"the script {script} does not exist")
     if not folder.is_dir():
@@ -186,7 +212,7 @@ def remotion_render_status(job_id: str) -> dict[str, Any]:
 
 def _sidecar(state: dict[str, Any], size: int) -> Path:
     output, script = Path(state["output"]), Path(state["input"])
-    fields = {
+    fields: dict[str, Any] = {
         "type": "video",
         **state["frontmatter"],
         "created": _now(),
@@ -196,6 +222,8 @@ def _sidecar(state: dict[str, Any], size: int) -> Path:
         "composition": state["composition"],
         "bytes": size,
     }
+    if commit := _commit(Path(state["project"])):
+        fields["commit"] = commit
     head = "\n".join(f"{k}: {json.dumps(v)}" for k, v in fields.items())
     body = (
         f"# {output.name}\n\nVideo rendered by Remotion from the script `{script.name}` with"
@@ -210,19 +238,28 @@ def run_job(job: Path) -> None:
     """The detached render: run the CLI, then record done (with a sidecar) or failed."""
     state = _read(job)
     output = Path(state["output"])
+    project = Path(state["project"])
+    # ponytail: two first renders of one template at once both install; a lock if that bites.
+    lock = (project / "package-lock.json").is_file()
+    steps = [] if (project / "node_modules").is_dir() else [["npm", "ci" if lock else "install"]]
+    code = 0
     with open(state["log"], "w") as log:
-        try:
-            code = subprocess.run(
-                state["argv"], cwd=state["project"], stdout=log, stderr=subprocess.STDOUT
-            ).returncode
-        except OSError as exc:
-            code, state["error"] = -1, f"could not start the Remotion CLI: {exc}"
+        for argv in [*steps, state["argv"]]:
+            name = " ".join(argv[:2]) if argv[0] == "npm" else "remotion render"
+            try:
+                code = subprocess.run(
+                    argv, cwd=project, stdout=log, stderr=subprocess.STDOUT
+                ).returncode
+            except OSError as exc:
+                code, state["error"] = -1, f"could not start {name}: {exc}"
+            if code != 0:
+                state.setdefault("error", f"{name} exited with {code}")
+                break
     if code == 0 and output.is_file() and output.stat().st_size > 0:
         size = output.stat().st_size
         state = {**state, "status": "done", "bytes": size, "sidecar": str(_sidecar(state, size))}
     else:
-        reason = "it wrote no video" if code == 0 else f"exited with {code}"
-        state = {"error": f"remotion render {reason}", **state, "status": "failed"}
+        state = {"error": "remotion render wrote no video", **state, "status": "failed"}
     _write(job, {**state, "ended": _now()})
 
 

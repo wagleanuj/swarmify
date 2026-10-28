@@ -61,8 +61,9 @@ write text only, so a swarm stage produces text files (script.md, ideas.json), n
 or an image: a video comes from a remotion_render connector stage.
 
 The built-in connector stages and their params:
-- remotion_render: input is the script; params project (the Remotion project folder) and
-  composition (its ID), both required; optional entry, codec, frames, props.
+- remotion_render: input is the script; params project (a template's name under the data
+  directory's remotion folder, or a folder path) and composition (its ID), both required;
+  optional entry, codec, frames, props.
 - youtube: input is the video; params title (required unless metadata names a file an earlier
   stage produced whose frontmatter has title and description), description, visibility
   (public, unlisted or private), schedule (ISO 8601 with a timezone, or 09:00, or +1d 09:00;

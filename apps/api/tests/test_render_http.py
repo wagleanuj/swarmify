@@ -34,7 +34,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     npx.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
     npx.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    (tmp_path / "video").mkdir()
+    (tmp_path / "video" / "node_modules").mkdir(parents=True)
     return tmp_path / "video"
 
 
