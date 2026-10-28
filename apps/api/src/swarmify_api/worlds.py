@@ -64,10 +64,10 @@ class CastChange(BaseModel):
 
 def router(
     worlds: Worlds,
-    on_delete: Callable[[str], None],
+    delete: Callable[[str], bool],
     on_update: Callable[[World], None] = lambda _world: None,
 ) -> APIRouter:
-    """`on_delete` lets the composition root clear other contexts' rows for a deleted world;
+    """`delete` is the composition root's world delete, which clears every context's rows;
     `on_update` tells it a world's settings changed (the run cap reaches the Runner)."""
     api = APIRouter(prefix="/api/worlds", tags=["worlds"])
 
@@ -104,9 +104,8 @@ def router(
 
     @api.delete("/{world_id}", status_code=204)
     def delete_world(world_id: str) -> Response:
-        if not worlds.delete(world_id):
+        if not delete(world_id):
             raise HTTPException(404, "world not found")
-        on_delete(world_id)
         return Response(status_code=204)
 
     @api.get("/{world_id}/cast")

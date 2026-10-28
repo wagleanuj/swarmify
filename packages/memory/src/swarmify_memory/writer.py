@@ -5,10 +5,14 @@ excluded), waits until a world has been quiet for DEBOUNCE seconds after its las
 runs graphify's headless extract with the Claude CLI backend named explicitly. One thread does
 every rebuild in turn, so rebuilds are serialized per world and queued across worlds. Each
 rebuild appends `graph.rebuilt` (sizes and deltas) or `graph.failed` to the world's events;
-a failed rebuild waits for the next change.
+a failed rebuild waits for the next change. A deleted world (its `world.deleted` event) is
+dropped from the queue, and a rebuild it outlived records nothing and removes the folder
+graphify recreated.
 """
 
 import logging
+import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -96,11 +100,16 @@ class GraphWriter:
         events = []
         for world_id in due:
             del self._changed[world_id]
-            events.append(self.rebuild(world_id))
+            if (event := self.rebuild(world_id)) is not None:
+                events.append(event)
         return events
 
-    def rebuild(self, world_id: str) -> Event:
+    def rebuild(self, world_id: str) -> Event | None:
+        """Rebuild the world's graph and record it; None when the world is or gets deleted."""
         folder = self.worlds_dir / world_id
+        with closing(connect(self.db)) as conn:
+            if _deleted(conn, world_id):
+                return None
         nodes, edges = graph_size(folder)
         started = time.monotonic()
         try:
@@ -119,7 +128,15 @@ class GraphWriter:
             }
             event = Event.new("graph.rebuilt", world_id=world_id, payload=payload)
         with closing(connect(self.db)) as conn:
-            return append(conn, event)
+            # Under the write lock Worlds.delete takes too: either the delete comes after this
+            # event and removes the folder itself, or it came first and the folder goes here.
+            conn.execute("BEGIN IMMEDIATE")
+            deleted = _deleted(conn, world_id)
+            stored = None if deleted else append(conn, event)
+            conn.execute("COMMIT")
+        if deleted:
+            shutil.rmtree(folder, ignore_errors=True)
+        return stored
 
     def run(self, stop: threading.Event, poll: float = POLL) -> None:
         """Poll until `stop` is set. A failing poll is logged and retried next time."""
@@ -148,6 +165,13 @@ class GraphWriter:
             if stale:
                 self._changed[world_id] = now
             self._seen[world_id] = snap
+
+
+def _deleted(conn: sqlite3.Connection, world_id: str) -> bool:
+    found = conn.execute(
+        "SELECT 1 FROM events WHERE world_id = ? AND type = 'world.deleted'", (world_id,)
+    )
+    return found.fetchone() is not None
 
 
 def main() -> None:

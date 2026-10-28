@@ -6,6 +6,7 @@ world created here appears on the API's event stream.
 
 from collections.abc import Callable
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -22,10 +23,11 @@ def server(
     workflows: Workflows,
     whiteboard: Storage,
     control: RunControl,
-    on_delete: Callable[[str], None] = lambda _: None,
+    delete: Callable[[str], bool] | None = None,
 ) -> MCPServer:
-    """`control` acts on runs hosted by the API process; `on_delete` clears other contexts' rows
-    of a deleted world (runs and tasks, for now)."""
+    """`control` acts on runs hosted by the API process; `delete` is the composition root's
+    world delete (`main.world_deleter`), the world's row and folder only when not given."""
+    delete = delete or worlds.delete
     mcp = MCPServer(
         "swarmify",
         instructions="Drive swarmify: worlds, workflows, swarm stage whiteboards, and the gates"
@@ -49,10 +51,8 @@ def server(
 
     @mcp.tool(description="Delete a world, its folder and its rows. Irreversible.")
     def delete_world(world_id: str) -> dict[str, Any]:
-        if not worlds.delete(world_id):
+        if not delete(world_id):
             raise ValueError(f"world not found: {world_id}")
-        on_delete(world_id)  # first: it drops the schedules of workflows still listed
-        workflows.delete_world(world_id)
         return {"deleted": world_id}
 
     @mcp.tool(
@@ -186,31 +186,34 @@ def server(
     return mcp
 
 
-def main() -> None:
+def stdio_server(root: Path, control: RunControl) -> MCPServer:
+    """The server `swarmify-mcp` runs over `root`, deleting worlds as the API does."""
     from swarmify_api.main import (
         connector_service,
-        data_dir,
-        run_control,
+        learning_service,
+        notification_service,
         task_board,
-        unschedule_world,
         workflow_service,
+        world_deleter,
         world_service,
     )
 
-    root = data_dir()
-    registry = connector_service(root)
-    control, whiteboard = run_control(root), task_board(root)
+    worlds, registry, whiteboard = world_service(root), connector_service(root), task_board(root)
     workflows = workflow_service(root, registry, control)
+    delete = world_deleter(
+        worlds,
+        workflows,
+        control,
+        registry,
+        whiteboard,
+        notification_service(root),
+        learning_service(root),
+    )
+    return server(worlds, workflows, whiteboard, control, delete)
 
-    def on_delete(world_id: str) -> None:
-        # ponytail: deletes run rows only; a run in flight in the API process is not cancelled.
-        # Cancel through the control's DBOSClient when the MCP server starts runs too.
-        control.storage.delete_world(world_id)
-        whiteboard.delete_world(world_id)
-        registry.delete_world(world_id)
 
-    def delete_world(world_id: str) -> None:
-        unschedule_world(workflows, control, world_id)
-        on_delete(world_id)
+def main() -> None:
+    from swarmify_api.main import data_dir, run_control
 
-    server(world_service(root), workflows, whiteboard, control, delete_world).run("stdio")
+    root = data_dir()
+    stdio_server(root, run_control(root)).run("stdio")

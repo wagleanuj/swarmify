@@ -39,6 +39,7 @@ from swarmify_runs.ports import Notifier, Storage
 
 log = logging.getLogger(__name__)
 CONTROL_TOPIC = "control"
+WAKE = {"swarmify": "wake"}
 Spend = Callable[[list[str]], float]
 """The estimated agent cost of the given runs, summed. The composition root reads it from the
 Swarm context, whose agents carry the cost."""
@@ -323,6 +324,14 @@ class RunControl:
             self.storage.set_stop(run_id, "abort")
         self._abort_children(run_id)
         return run
+
+    def delete_world(self, world_id: str) -> None:
+        """Cancel the world's unfinished runs, then drop its rows. Through the DBOS client, so
+        it reaches runs hosted by another process too (the MCP server deleting a world)."""
+        for run_id in self.storage.active_run_ids(world_id):
+            self.client.cancel_workflow(run_id)
+            self._send(run_id, WAKE)  # a run blocked waiting for a message sees the cancel
+        self.storage.delete_world(world_id)
 
     def _abort_children(self, run_id: str) -> None:
         for child in self.storage.child_run_ids(run_id):

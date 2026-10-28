@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 from anyio import to_thread
@@ -164,6 +164,30 @@ def unschedule_world(workflows: Workflows, control: RunControl, world_id: str) -
     """Drop the DBOS schedules of a world's workflows; call before the workflows go."""
     for workflow in workflows.list_all(world_id):
         control.schedule(workflow.id, None)
+
+
+class WorldRows(Protocol):
+    def delete_world(self, world_id: str) -> None: ...
+
+
+def world_deleter(
+    worlds: Worlds, workflows: Workflows, control: RunControl, *contexts: WorldRows
+) -> Callable[[str], bool]:
+    """The one world delete, for HTTP and MCP alike: the world's row and folder, its
+    schedules, its live runs (cancelled through DBOS, wherever they run), then every other
+    context's rows. The delete returns False for an unknown world."""
+
+    def delete(world_id: str) -> bool:
+        if not worlds.delete(world_id):
+            return False
+        unschedule_world(workflows, control, world_id)  # before the workflows go
+        workflows.delete_world(world_id)
+        control.delete_world(world_id)
+        for context in contexts:
+            context.delete_world(world_id)
+        return True
+
+    return delete
 
 
 def base_url() -> str:
@@ -547,16 +571,10 @@ def create_app(
         expensive of these."""
         return Models(default=default_model(), models=list(PRICES))
 
-    def on_delete(world_id: str) -> None:
-        unschedule_world(workflow_svc, runner, world_id)
-        workflow_svc.delete_world(world_id)
-        runner.delete_world(world_id)
-        registry.delete_world(world_id)
-        whiteboard.delete_world(world_id)
-        channels.delete_world(world_id)
-        learning_svc.delete_world(world_id)
-
-    app.include_router(worlds.router(world_svc, on_delete, lambda w: runner.set_cap(w.id)))
+    delete = world_deleter(
+        world_svc, workflow_svc, runner, registry, whiteboard, channels, learning_svc
+    )
+    app.include_router(worlds.router(world_svc, delete, lambda w: runner.set_cap(w.id)))
     app.include_router(worlds.events_router(world_svc))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(runs.router(runner, workflow_svc, world_svc, swarm_tools, retro))
@@ -570,7 +588,7 @@ def create_app(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
     app.include_router(evals.router(world_svc, memory, swarm.runtime))
-    tools = mcp.server(world_svc, workflow_svc, whiteboard, runner, on_delete)
+    tools = mcp.server(world_svc, workflow_svc, whiteboard, runner, delete)
     app.include_router(planner.router(world_svc, swarm.runtime, tools))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
