@@ -33,7 +33,13 @@ from swarmify_kernel.sqlite import connect
 from swarmify_memory.fake import FakeGraphIndex
 from swarmify_memory.graph import McpGraphIndex
 from swarmify_memory.ports import EMPTY, GRAPH_OUT, GRAPH_TOOLS, GodNode, GraphIndex, graph_size
-from swarmify_memory.writer import DEBOUNCE, GraphWriter, extract_command, run_graphify
+from swarmify_memory.writer import (
+    DEBOUNCE,
+    GraphWriter,
+    ShrinkRefused,
+    extract_command,
+    run_graphify,
+)
 
 __all__ = [
     "DEBOUNCE",
@@ -47,6 +53,7 @@ __all__ = [
     "GraphWriter",
     "McpGraphIndex",
     "Memory",
+    "ShrinkRefused",
     "extract_command",
     "graph_size",
     "run_graphify",

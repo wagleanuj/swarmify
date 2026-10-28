@@ -881,6 +881,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/graph/accept-shrink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Shrink
+         * @description Rerun the world's rebuild once with graphify's `--allow-partial`. 409 unless its last
+         *     rebuild was refused by the shrink guard.
+         */
+        post: operations["accept_shrink_api_worlds__world_id__graph_accept_shrink_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/graph/query": {
         parameters: {
             query?: never;
@@ -1651,6 +1672,16 @@ export interface components {
             at: string;
             /** Error */
             error: string;
+            /**
+             * Shrink
+             * @default false
+             */
+            shrink: boolean;
+            /**
+             * Seconds
+             * @default 0
+             */
+            seconds: number;
         };
         /** Fork */
         Fork: {
@@ -1734,6 +1765,9 @@ export interface components {
             god_nodes: components["schemas"]["GodNode"][];
             rebuilt: components["schemas"]["Rebuild"] | null;
             failed: components["schemas"]["Failure"] | null;
+            /** Accepted */
+            accepted: boolean;
+            spent: components["schemas"]["Spent"];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2054,6 +2088,21 @@ export interface components {
             edges_added: number;
             /** Seconds */
             seconds: number;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
         };
         /**
          * Record
@@ -2352,6 +2401,18 @@ export interface components {
             spent_usd: number;
             /** Monthly Budget Usd */
             monthly_budget_usd: number | null;
+        };
+        /**
+         * Spent
+         * @description Every rebuild of the world so far, refused ones included.
+         */
+        Spent: {
+            /** Rebuilds */
+            rebuilds: number;
+            /** Seconds */
+            seconds: number;
+            /** Cost Usd */
+            cost_usd: number;
         };
         /** StartRun */
         StartRun: {
@@ -4493,6 +4554,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_shrink_api_worlds__world_id__graph_accept_shrink_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -2,6 +2,7 @@
 debounces, skips its own output folder, runs one rebuild at a time and records each one."""
 
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -13,7 +14,8 @@ import pytest
 from swarmify_kernel import MIGRATIONS, Event
 from swarmify_kernel.events import append, read_after
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_memory import GRAPH_OUT, GraphWriter, Memory, extract_command
+from swarmify_memory import GRAPH_OUT, GraphWriter, Memory, ShrinkRefused, extract_command
+from swarmify_memory import writer as writer_module
 
 GRAPH = Path(__file__).parent / "fixtures/graph/graph.json"
 
@@ -31,13 +33,16 @@ class Extract:
 
     def __init__(self, fail: bool = False, seconds: float = 0.0) -> None:
         self.fail = fail
+        self.shrink = False
         self.seconds = seconds
         self.folders: list[str] = []
+        self.allowed: list[bool] = []
         self.running = 0
         self.most = 0
         self.lock = threading.Lock()
 
-    def __call__(self, folder: Path) -> None:
+    def __call__(self, folder: Path, allow_shrink: bool = False) -> dict[str, int]:
+        self.allowed.append(allow_shrink)
         with self.lock:
             self.running += 1
             self.most = max(self.most, self.running)
@@ -47,9 +52,12 @@ class Extract:
             self.folders.append(folder.name)
         if self.fail:
             raise RuntimeError("claude is not logged in")
+        if self.shrink and not allow_shrink:
+            raise ShrinkRefused("unverified semantic shrink: 'a.md' (6 -> 5 nodes)")
         out = folder / GRAPH_OUT
         out.mkdir(exist_ok=True)
         shutil.copy(GRAPH, out / "graph.json")
+        return {"input_tokens": 1000, "output_tokens": 200}
 
 
 @pytest.fixture
@@ -154,7 +162,7 @@ def test_a_world_deleted_mid_rebuild_or_while_queued_leaves_nothing_behind(
         memory.write_note(world, "r1", "s1", "worker-1", "Hooks", "Short ones.")
     fake = Extract()
 
-    def extract(folder: Path) -> None:
+    def extract(folder: Path, allow_shrink: bool) -> None:
         for world in ("a", "b"):  # what Worlds.delete does, while graphify still runs
             with closing(connect(db)) as conn:
                 append(conn, Event.new("world.deleted", world_id=world, payload={"id": world}))
@@ -174,3 +182,94 @@ def test_the_extract_command_names_the_claude_cli_backend_and_skips_its_output()
     assert cmd[4] == "/data/worlds/w1"
     assert cmd[cmd.index("--backend") + 1] == "claude-cli"
     assert cmd[cmd.index("--exclude") + 1] == f"{GRAPH_OUT}/"
+    assert "--allow-partial" not in cmd
+    assert "--allow-partial" in extract_command(Path("/data/worlds/w1"), allow_shrink=True)
+
+
+def test_each_rebuild_records_its_extraction_time_and_tokens(db: Path, tmp_path: Path) -> None:
+    memory, extract = Memory(db, tmp_path), Extract()
+    memory.write_note("w1", "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    writer = GraphWriter(db, tmp_path / "worlds", extract, debounce=0)
+    (rebuilt,) = writer.tick()
+    assert rebuilt.payload["input_tokens"] == 1000 and rebuilt.payload["output_tokens"] == 200
+    assert rebuilt.payload["seconds"] >= 0
+
+    extract.fail = True
+    memory.write_note("w1", "r1", "s1", "worker-1", "Pacing", "Fast cuts.")
+    (failed,) = writer.tick()
+    assert failed.type == "graph.failed" and failed.payload["seconds"] >= 0
+    assert failed.payload["shrink"] is False
+
+
+def test_a_shrink_refusal_is_flagged_and_accepting_it_reruns_once_with_the_allow_flag(
+    db: Path, tmp_path: Path
+) -> None:
+    memory, clock, extract = Memory(db, tmp_path), Clock(), Extract()
+    extract.shrink = True
+    memory.write_note("w1", "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    writer = GraphWriter(db, tmp_path / "worlds", extract, debounce=30, clock=clock)
+    writer.tick()
+    clock.now += 30
+    (failed,) = writer.tick()
+    assert failed.type == "graph.failed" and failed.payload["shrink"] is True
+    assert "6 -> 5 nodes" in failed.payload["error"]
+
+    accepted = writer.accept_shrink("w1")
+    assert accepted.type == "graph.shrink_accepted"
+    (rebuilt,) = writer.tick()  # at once, no debounce: the user asked for it
+    assert rebuilt.type == "graph.rebuilt" and extract.allowed == [False, True]
+    clock.now += 60
+    assert writer.tick() == []  # the acceptance is spent
+
+    # A writer started after the click (the external process, a restart) still honours it.
+    extract.allowed.clear()
+    memory.write_note("w1", "r1", "s1", "worker-1", "Pacing", "Fast cuts.")
+    writer.tick()
+    clock.now += 30
+    assert [e.payload["shrink"] for e in writer.tick()] == [True]
+    writer.accept_shrink("w1")
+    fresh = GraphWriter(db, tmp_path / "worlds", extract, debounce=30, clock=clock)
+    assert [e.type for e in fresh.tick()] == ["graph.rebuilt"]
+    assert extract.allowed == [False, True]
+
+
+def test_changes_while_a_world_waits_its_turn_are_absorbed_by_its_pending_rebuild(
+    db: Path, tmp_path: Path
+) -> None:
+    memory, clock = Memory(db, tmp_path), Clock()
+    for world in ("a", "b"):
+        memory.write_note(world, "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    fake = Extract()
+
+    def extract(folder: Path, allow_shrink: bool = False) -> dict[str, int]:
+        if folder.name == "a":  # b changes while a rebuilds and b is still queued
+            memory.write_note("b", "r1", "s1", "worker-1", "Pacing", "Fast cuts.")
+        return fake(folder, allow_shrink)
+
+    writer = GraphWriter(db, tmp_path / "worlds", extract, debounce=30, clock=clock)
+    writer.tick()
+    clock.now += 30
+    assert [e.world_id for e in writer.tick()] == ["a", "b"]
+    writer.tick()
+    clock.now += 60
+    assert writer.tick() == [] and fake.folders == ["a", "b"]
+
+
+def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    done = subprocess.CompletedProcess([], 0, "[graphify extract] tokens: 12,345 in / 678 out", "")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: done)
+    assert writer_module.run_graphify(Path("/w")) == {"input_tokens": 12345, "output_tokens": 678}
+
+    done = subprocess.CompletedProcess([], 0, "wrote graph.json", "")
+    assert writer_module.run_graphify(Path("/w")) == {"input_tokens": 0, "output_tokens": 0}
+
+    refusal = "Refusing to overwrite a complete graph. pass --allow-partial to overwrite anyway."
+    done = subprocess.CompletedProcess([], 1, "", refusal)
+    with pytest.raises(ShrinkRefused, match="allow-partial"):
+        writer_module.run_graphify(Path("/w"))
+    done = subprocess.CompletedProcess([], 1, "", "claude: not logged in")
+    with pytest.raises(RuntimeError) as other:
+        writer_module.run_graphify(Path("/w"))
+    assert not isinstance(other.value, ShrinkRefused)

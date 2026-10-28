@@ -20,6 +20,8 @@ function ago(ts: string, now = Date.now()): string {
 }
 
 const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+const usd = (n: number) => `$${n.toFixed(2)}`;
+const took = (s: number) => (s < 90 ? `${Math.round(s)}s` : `${Math.round(s / 60)}m`);
 
 export function Graph() {
   const { worldId } = graphRoute.useParams();
@@ -53,6 +55,15 @@ export function Graph() {
     source.addEventListener("graph.failed", reload);
     return () => source.close();
   }, [worldId]);
+
+  async function acceptShrink() {
+    setError(null);
+    const { error } = await api.POST("/api/worlds/{world_id}/graph/accept-shrink", {
+      params: { path: { world_id: worldId } },
+    });
+    if (error) setError("Could not accept the shrink. Try again in a moment.");
+    void load().catch(() => undefined);
+  }
 
   async function ask(text: string) {
     const q = text.trim();
@@ -122,17 +133,38 @@ export function Graph() {
             <span className="pill">{view.edges.toLocaleString()} edges</span>
             <span className="pill dim" data-testid="rebuilt">
               {rebuilt
-                ? `${WRITER} rebuilt it ${ago(rebuilt.at)}: ${signed(rebuilt.nodes_added)} nodes, ${signed(rebuilt.edges_added)} edges in ${rebuilt.seconds}s`
+                ? `${WRITER} rebuilt it ${ago(rebuilt.at)}: ${signed(rebuilt.nodes_added)} nodes, ${signed(rebuilt.edges_added)} edges in ${rebuilt.seconds}s, est. ${usd(rebuilt.cost_usd)}`
                 : "Not built yet"}
             </span>
+            {view.spent.rebuilds > 0 && (
+              <span className="pill dim" data-testid="spent">
+                {`${view.spent.rebuilds} rebuild${view.spent.rebuilds === 1 ? "" : "s"} so far: ${took(view.spent.seconds)} of extraction, est. ${usd(view.spent.cost_usd)}`}
+              </span>
+            )}
           </div>
         )}
       </header>
-      {view?.failed && (
+      {view?.failed && !view.failed.shrink && (
         <p role="alert" data-testid="failed">
           {WRITER}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. The previous
           graph still answers; the next new note retries.
         </p>
+      )}
+      {view?.failed?.shrink && (
+        <div role="alert" data-testid="failed">
+          <p>
+            {WRITER}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. graphify
+            refused to write a smaller graph, and keeps refusing until you accept the shrink. The
+            previous graph still answers.
+          </p>
+          {view.accepted ? (
+            <p role="status">Rebuilding with the shrink accepted...</p>
+          ) : (
+            <button type="button" className="primary" onClick={() => void acceptShrink()}>
+              Accept the shrink
+            </button>
+          )}
+        </div>
       )}
       {error && <p role="alert">{error}</p>}
 

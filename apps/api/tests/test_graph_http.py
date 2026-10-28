@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from fake_graph import fake_extract
+from fake_graph import fake_extract, shrinking_extract
 from sse import sse_events
 from swarmify_api.main import create_app
 from swarmify_memory import EMPTY, FakeGraphIndex
@@ -75,6 +75,8 @@ def test_a_new_world_has_an_empty_graph(client: TestClient) -> None:
         "god_nodes": [],
         "rebuilt": None,
         "failed": None,
+        "accepted": False,
+        "spent": {"rebuilds": 0, "seconds": 0.0, "cost_usd": 0.0},
     }
     assert client.get("/api/worlds/world_nope/graph").status_code == 404
 
@@ -105,6 +107,9 @@ def test_notes_from_a_run_are_rebuilt_into_the_graph_and_streamed(
         "edges_added": 1,
     }
     assert view["nodes"] == 2 and view["edges"] == 1 and view["failed"] is None
+    # Unpriced model: Opus rates, 1M in at $4 and 100k out at $20 per million.
+    assert view["rebuilt"]["input_tokens"] == 1_000_000 and view["rebuilt"]["cost_usd"] == 6.0
+    assert view["spent"]["rebuilds"] == 1 and view["spent"]["cost_usd"] == 6.0
     assert view["god_nodes"][0] == {"label": "Short hooks", "degree": 1}
     assert (tmp_path / "worlds" / world / "graphify-out/graph.json").exists()
 
@@ -183,3 +188,32 @@ def test_agents_read_their_world_and_listed_worlds_only_and_write_only_their_own
     assert texts[:2] == [(False, "[world Market]"), (False, "[world Video]")]
     assert all(err and "not readable" in text for err, text in texts[2:4]), texts
     assert [err for err, _ in texts[5:10]] == [False, False, True, True, True], texts
+
+
+def test_a_shrink_refusal_shows_on_the_graph_and_accepting_it_rebuilds_with_the_allow_flag(
+    tmp_path: Path, script: Script, graph_index: FakeGraphIndex
+) -> None:
+    app = create_app(
+        tmp_path,
+        runtime=SdkRuntime(transport=script.transport),
+        graph_index=graph_index,
+        extract=shrinking_extract,
+        graph_debounce=0.1,
+        graph_poll=0.02,
+        retro=False,
+    )
+    with TestClient(app) as client:
+        world = client.post("/api/worlds", json={"name": "Kids"}).json()["id"]
+        url = f"/api/worlds/{world}/graph"
+        assert client.post(f"{url}/accept-shrink").status_code == 409  # nothing to accept
+        (tmp_path / "worlds" / world / "brief.md").write_text("# Brief\n\nShort hooks.\n")
+        _until(lambda: client.get(url).json()["failed"])
+        failed = client.get(url).json()["failed"]
+        assert failed["shrink"] is True and "6 -> 5 nodes" in failed["error"]
+
+        assert client.post(f"{url}/accept-shrink").status_code == 202
+        _until(lambda: client.get(url).json()["rebuilt"])
+        view = client.get(url).json()
+        assert client.post("/api/worlds/world_nope/graph/accept-shrink").status_code == 404
+    assert view["failed"] is None and view["accepted"] is False and view["nodes"] == 2
+    assert view["spent"]["rebuilds"] == 2  # the refused one counts too

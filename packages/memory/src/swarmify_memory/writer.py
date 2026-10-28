@@ -3,14 +3,19 @@
 It watches the world folders by polling a snapshot of their files (the graph output folder
 excluded), waits until a world has been quiet for DEBOUNCE seconds after its last change, then
 runs graphify's headless extract with the Claude CLI backend named explicitly. One thread does
-every rebuild in turn, so rebuilds are serialized per world and queued across worlds. Each
-rebuild appends `graph.rebuilt` (sizes and deltas) or `graph.failed` to the world's events;
-a failed rebuild waits for the next change. A deleted world (its `world.deleted` event) is
-dropped from the queue, and a rebuild it outlived records nothing and removes the folder
-graphify recreated.
+every rebuild in turn, so rebuilds are serialized per world and queued across worlds. A queued
+world's snapshot is taken as its rebuild starts, so changes made while it waited are absorbed by
+that one rebuild. Each rebuild appends `graph.rebuilt` (sizes, deltas, extraction seconds and
+tokens) or `graph.failed` (error, seconds, and whether graphify's shrink guard refused it) to the
+world's events; a failed rebuild waits for the next change. Accepting a shrink appends
+`graph.shrink_accepted`, which the writer polls for, so it works from another process too: the
+world is rebuilt at once with graphify's `--allow-partial`, that once. A deleted world (its
+`world.deleted` event) is dropped from the queue, and a rebuild it outlived records nothing and
+removes the folder graphify recreated.
 """
 
 import logging
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -34,10 +39,18 @@ POLL = 2.0
 EXTRACT_SECONDS = 3600.0
 
 Snapshot = dict[str, tuple[float, int]]
-Extract = Callable[[Path], None]
+Usage = dict[str, int]
+Extract = Callable[[Path, bool], Usage | None]
+"""Rebuild the graph of the world at the folder, overriding the shrink guard when told to.
+Returns the model tokens it spent."""
+_TOKENS = re.compile(r"tokens: ([\d,]+) in / ([\d,]+) out")
 
 
-def extract_command(folder: Path) -> list[str]:
+class ShrinkRefused(RuntimeError):
+    """graphify's shrink guard refused to write a graph smaller than the one it has."""
+
+
+def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
     """graphify never auto-detects the Claude CLI backend, so it is named here (research note on
     graphify internals). graphify also skips graphify-out itself; the explicit exclude keeps
     that true if its defaults change."""
@@ -51,16 +64,26 @@ def extract_command(folder: Path) -> list[str]:
         "claude-cli",
         "--exclude",
         f"{GRAPH_OUT}/",
+        *(["--allow-partial"] if allow_shrink else []),
     ]
 
 
-def run_graphify(folder: Path) -> None:
+def run_graphify(folder: Path, allow_shrink: bool = False) -> Usage:
     done = subprocess.run(
-        extract_command(folder), capture_output=True, text=True, timeout=EXTRACT_SECONDS
+        extract_command(folder, allow_shrink),
+        capture_output=True,
+        text=True,
+        timeout=EXTRACT_SECONDS,
     )
     if done.returncode != 0:
         tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
-        raise RuntimeError(f"graphify extract exited {done.returncode}: {' | '.join(tail)}")
+        message = f"graphify extract exited {done.returncode}: {' | '.join(tail)}"
+        # Every shrink guard refusal names the flag that overrides it.
+        shrunk = "--allow-partial" in done.stderr + done.stdout
+        raise (ShrinkRefused if shrunk else RuntimeError)(message)
+    found = _TOKENS.search(done.stdout)
+    tokens = [int(n.replace(",", "")) for n in found.groups()] if found else [0, 0]
+    return {"input_tokens": tokens[0], "output_tokens": tokens[1]}
 
 
 def snapshot(folder: Path) -> Snapshot:
@@ -91,10 +114,19 @@ class GraphWriter:
         self.clock = clock
         self._seen: dict[str, Snapshot] = {}
         self._changed: dict[str, float] = {}
+        self._allow: set[str] = set()
+        self._accepted_seq = 0
+
+    def accept_shrink(self, world_id: str) -> Event:
+        """Ask for the world to be rebuilt once over graphify's shrink guard."""
+        event = Event.new("graph.shrink_accepted", world_id=world_id, payload={})
+        with closing(connect(self.db)) as conn:
+            return append(conn, event)
 
     def tick(self) -> list[Event]:
         """One poll: note changed worlds, then rebuild every world quiet for `debounce`."""
         self._scan()
+        self._accepted()
         now = self.clock()
         due = sorted(w for w, at in self._changed.items() if now - at >= self.debounce)
         events = []
@@ -111,12 +143,21 @@ class GraphWriter:
             if _deleted(conn, world_id):
                 return None
         nodes, edges = graph_size(folder)
+        if folder.is_dir():  # what this rebuild reads; later changes need another
+            self._seen[world_id] = snapshot(folder)
+        allow = world_id in self._allow
+        self._allow.discard(world_id)
         started = time.monotonic()
         try:
-            self.extract(folder)
+            usage = self.extract(folder, allow) or {}
         except Exception as exc:
             log.warning("rebuild of %s failed: %s", world_id, exc)
-            event = Event.new("graph.failed", world_id=world_id, payload={"error": str(exc)})
+            payload = {
+                "error": str(exc),
+                "shrink": isinstance(exc, ShrinkRefused),
+                "seconds": round(time.monotonic() - started, 1),
+            }
+            event = Event.new("graph.failed", world_id=world_id, payload=payload)
         else:
             after_nodes, after_edges = graph_size(folder)
             payload = {
@@ -125,6 +166,8 @@ class GraphWriter:
                 "nodes_added": after_nodes - nodes,
                 "edges_added": after_edges - edges,
                 "seconds": round(time.monotonic() - started, 1),
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
             }
             event = Event.new("graph.rebuilt", world_id=world_id, payload=payload)
         with closing(connect(self.db)) as conn:
@@ -145,6 +188,22 @@ class GraphWriter:
                 self.tick()
             except Exception:
                 log.exception("graph writer poll failed, retrying")
+
+    def _accepted(self) -> None:
+        """Queue, due now, every world with a shrink acceptance no rebuild has followed yet."""
+        with closing(connect(self.db)) as conn:
+            rows = conn.execute(
+                "SELECT seq, world_id FROM events e WHERE seq > ?"
+                " AND type = 'graph.shrink_accepted' AND NOT EXISTS (SELECT 1 FROM events f"
+                " WHERE f.world_id = e.world_id AND f.seq > e.seq"
+                " AND f.type IN ('graph.rebuilt', 'graph.failed'))",
+                (self._accepted_seq,),
+            ).fetchall()
+        for seq, world_id in rows:
+            self._accepted_seq = max(self._accepted_seq, seq)
+            if (self.worlds_dir / world_id).is_dir():
+                self._allow.add(world_id)
+                self._changed[world_id] = self.clock() - self.debounce
 
     def _scan(self) -> None:
         now = self.clock()
