@@ -63,3 +63,40 @@ def test_the_fake_answers_from_the_graph_file(tmp_path: Path) -> None:
     assert graph_size(video) == (3, 2)
     with pytest.raises(ValueError):
         fake.call(video, "triage_prs", {})
+
+
+def test_the_graph_map_groups_communities_and_finds_surprises_linked_to_their_runs(
+    tmp_path: Path,
+) -> None:
+    """Story 63: graphify's communities, its surprising connections, and each node's run and
+    note, read from the graph file."""
+    import json
+
+    from swarmify_memory import Community, GraphNode, Surprise, graph_map
+
+    note = "runs/run_1/research/notes/{}.md".format
+    nodes = [
+        {"id": "hooks", "label": "Short hooks", "source_file": note("hooks"), "community": 0},
+        {"id": "open", "label": "Open fast", "source_file": note("hooks"), "community": 0},
+        {"id": "cliff", "label": "Retention cliff", "source_file": note("cliff"), "community": 1},
+        {"id": "brief", "label": "Brief", "source_file": "brief.md", "community": 1},
+    ]
+    links = [
+        {"source": "hooks", "target": "open", "relation": "needs", "confidence": "EXTRACTED"},
+        {"source": "hooks", "target": "cliff", "relation": "beats", "confidence": "INFERRED"},
+        {"source": "cliff", "target": "brief", "relation": "in", "confidence": "EXTRACTED"},
+    ]
+    folder = _world(tmp_path, "video", graph=False)
+    (folder / GRAPH_OUT / "graph.json").write_text(json.dumps({"nodes": nodes, "links": links}))
+
+    communities, surprises = graph_map(folder)
+    hooks = GraphNode("Short hooks", note("hooks"), "run_1")
+    cliff = GraphNode("Retention cliff", note("cliff"), "run_1")
+    assert communities == [
+        Community(0, "Community 0", 2, [hooks, GraphNode("Open fast", note("hooks"), "run_1")]),
+        Community(1, "Community 1", 2, [cliff, GraphNode("Brief", "brief.md", None)]),
+    ]
+    assert surprises[0].source == hooks and surprises[0].target == cliff
+    assert surprises[0].relation == "beats" and surprises[0].why
+    assert all(isinstance(s, Surprise) for s in surprises)
+    assert graph_map(_world(tmp_path, "empty", graph=False)) == ([], [])

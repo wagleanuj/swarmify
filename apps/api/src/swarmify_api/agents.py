@@ -12,6 +12,18 @@ from swarmify_runs import Run
 from swarmify_swarm import Agent, LogEntry, Storage, Verdict
 
 
+def run_artifacts(memory: Memory, run: Run, before: int | None = None) -> list[ArtifactFile]:
+    """Every artifact of the run in stage order, gate decisions included; with `before`, only
+    those of the stages before that index."""
+    stages = run.stages if before is None else [s for s in run.stages if s.index < before]
+    return [
+        a
+        for s in stages
+        for a in memory.stage_artifacts(run.world_id, run.id, s.id)
+        + memory.decisions(run.world_id, run.id, s.id)
+    ]
+
+
 def router(
     board: Storage,
     memory: Memory,
@@ -54,13 +66,7 @@ def router(
         run = get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
-        stages = run.stages if before is None else [s for s in run.stages if s.index < before]
-        return [
-            a
-            for s in stages
-            for a in memory.stage_artifacts(run.world_id, run_id, s.id)
-            + memory.decisions(run.world_id, run_id, s.id)
-        ]
+        return run_artifacts(memory, run, before)
 
     @api.get("/runs/{run_id}/stages/{stage_id}/artifacts")
     def get_artifacts(run_id: str, stage_id: str) -> list[ArtifactFile]:

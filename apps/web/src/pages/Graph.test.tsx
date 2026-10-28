@@ -5,7 +5,7 @@ import { mountAt } from "../test/mount";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
 const nothing = { rebuilds: 0, seconds: 0, cost_usd: 0 };
-const empty = { nodes: 0, edges: 0, god_nodes: [], rebuilt: null, failed: null, accepted: false, spent: nothing };
+const empty = { nodes: 0, edges: 0, god_nodes: [], communities: [], surprises: [], rebuilt: null, failed: null, accepted: false, spent: nothing };
 const built = {
   nodes: 1284,
   edges: 3901,
@@ -13,6 +13,8 @@ const built = {
     { label: "Hook pattern", degree: 71 },
     { label: "Retention cliff", degree: 64 },
   ],
+  communities: [],
+  surprises: [],
   rebuilt: {
     at: new Date().toISOString(),
     nodes: 1284,
@@ -123,4 +125,48 @@ test("a shrink the guard refused is shown with one click to accept it", async ()
   await expect.element(screen.getByTestId("failed")).toMatchTextContent(/Rebuilding with the shrink accepted/);
   expect(accepted).toEqual(["world_1"]);
   expect(screen.getByRole("button", { name: "Accept the shrink" }).elements()).toHaveLength(0);
+});
+
+test("communities and surprising connections link each node to its run and note", async () => {
+  const note = "runs/run_1/research/notes/hooks.md";
+  const hooks = { label: "Short hooks", source_file: note, run_id: "run_1" };
+  const brief = { label: "Brief", source_file: "brief.md", run_id: null };
+  const asked: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": () =>
+      Response.json({
+        ...built,
+        communities: [{ id: 0, name: "Hooks", size: 12, nodes: [hooks, brief] }],
+        surprises: [{ source: hooks, target: brief, relation: "contradicts", why: "crosses communities" }],
+      }),
+    "POST /api/worlds/world_1/graph/query": async (req) => {
+      asked.push(await req.json());
+      return Response.json({ answer: "ok" });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  const communities = screen.getByTestId("communities");
+  await expect.element(communities).toMatchTextContent(/Hooks\s*12 nodes/);
+  const runs = communities.getByRole("link", { name: "run" });
+  await expect.element(runs).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+  const notes = communities.getByRole("link", { name: "note" });
+  expect(notes.elements().map((a) => a.getAttribute("href"))).toEqual([
+    "/api/worlds/world_1/files/runs/run_1/research/notes/hooks.md",
+    "/api/worlds/world_1/files/brief.md",
+  ]);
+  await expect
+    .element(screen.getByTestId("surprises"))
+    .toMatchTextContent(/Short hooks.*contradicts.*Brief.*crosses communities/);
+  await communities.getByRole("button", { name: "Brief" }).click();
+  await expect.poll(() => asked).toEqual([{ question: "What do we know about Brief?" }]);
+});
+
+test("a graph with no communities yet says so", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": () => Response.json(built),
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect.element(screen.getByTestId("no-communities")).toBeVisible();
 });

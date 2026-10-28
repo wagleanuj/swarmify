@@ -73,6 +73,8 @@ def test_a_new_world_has_an_empty_graph(client: TestClient) -> None:
         "nodes": 0,
         "edges": 0,
         "god_nodes": [],
+        "communities": [],
+        "surprises": [],
         "rebuilt": None,
         "failed": None,
         "accepted": False,
@@ -217,3 +219,28 @@ def test_a_shrink_refusal_shows_on_the_graph_and_accepting_it_rebuilds_with_the_
         assert client.post("/api/worlds/world_nope/graph/accept-shrink").status_code == 404
     assert view["failed"] is None and view["accepted"] is False and view["nodes"] == 2
     assert view["spent"]["rebuilds"] == 2  # the refused one counts too
+
+
+def test_the_graph_shows_communities_and_surprises_linked_to_their_runs(
+    client: TestClient, tmp_path: Path
+) -> None:
+    import json
+
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    note = "runs/run_1/research/notes/hooks.md"
+    graph = {
+        "nodes": [
+            {"id": "a", "label": "Short hooks", "source_file": note, "community": 0},
+            {"id": "b", "label": "Retention cliff", "source_file": "brief.md", "community": 1},
+        ],
+        "links": [{"source": "a", "target": "b", "relation": "beats", "confidence": "INFERRED"}],
+    }
+    out = tmp_path / "worlds" / world / "graphify-out"
+    out.mkdir(parents=True)
+    (out / "graph.json").write_text(json.dumps(graph))
+    view = client.get(f"/api/worlds/{world}/graph").json()
+    hooks = {"label": "Short hooks", "source_file": note, "run_id": "run_1"}
+    assert view["communities"][0] == {"id": 0, "name": "Community 0", "size": 1, "nodes": [hooks]}
+    (surprise,) = view["surprises"]
+    assert surprise["source"] == hooks and surprise["target"]["run_id"] is None
+    assert surprise["relation"] == "beats"

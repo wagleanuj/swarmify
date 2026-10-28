@@ -129,3 +129,23 @@ def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
         for param in names:
             assert param in entry, (name, param)
     assert "remotion_render" in SYSTEM and "agents\nwrite text only" in SYSTEM
+
+
+def test_the_planner_starts_a_run_when_the_operator_asks(
+    running: TestClient, script: Script
+) -> None:
+    world = _world(running)
+    wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": DRAFT}).json()
+    script.scripts = [
+        [
+            Call(tool_id("start_run"), {"workflow_id": wf["workflow_id"], "budget_usd": 2}),
+            Answer({"reply": "Started.", "yaml": None}),
+        ],
+        [],  # the run's own planner session dies, failing the run: nothing else to script
+    ]
+    answered = running.post(f"/api/worlds/{world}/planner", json={"message": "Run it."})
+    assert answered.status_code == 200, answered.text
+    (started,) = script.outcomes
+    assert not started.is_error, started.text
+    (run,) = running.get(f"/api/worlds/{world}/runs").json()
+    assert (run["workflow_id"], run["budget_usd"]) == (wf["workflow_id"], 2)

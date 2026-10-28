@@ -7,6 +7,7 @@ import { graphRoute } from "../router";
 
 type World = components["schemas"]["World"];
 type View = components["schemas"]["GraphView"];
+type Node = components["schemas"]["GraphNode"];
 
 /** Pied Piper names belong to the skin (ADR 0004): the GraphWriter is Anton. */
 const WRITER = "Anton";
@@ -22,6 +23,25 @@ function ago(ts: string, now = Date.now()): string {
 const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const took = (s: number) => (s < 90 ? `${Math.round(s)}s` : `${Math.round(s / 60)}m`);
+
+/** Where a node came from: its run's timeline and the note itself. */
+function Sources({ node, worldId }: { node: Node; worldId: string }) {
+  const file = node.source_file.split("/").map(encodeURIComponent).join("/");
+  return (
+    <>
+      {node.run_id && (
+        <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: node.run_id }} className="faint">
+          run
+        </Link>
+      )}
+      {node.source_file && (
+        <a href={`/api/worlds/${worldId}/files/${file}`} target="_blank" rel="noreferrer" className="faint">
+          note
+        </a>
+      )}
+    </>
+  );
+}
 
 export function Graph() {
   const { worldId } = graphRoute.useParams();
@@ -80,6 +100,12 @@ export function Graph() {
       return;
     }
     setAnswer({ question: q, text: data.answer });
+  }
+
+  function askAbout(label: string) {
+    const q = `What do we know about ${label}?`;
+    setQuestion(q);
+    void ask(q);
   }
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -206,6 +232,58 @@ export function Graph() {
               </Link>
             </div>
           )}
+          {view && !empty && (
+            <section aria-label="Communities">
+              <h2>Communities</h2>
+              <p className="faint">
+                Clusters of what this world knows. Each node links to the run and the note it came from.
+              </p>
+              {view.communities.length > 0 ? (
+                <ul className="communities" data-testid="communities">
+                  {view.communities.map((c) => (
+                    <li key={c.id} className="card">
+                      <h3>
+                        {c.name} <span className="faint">{c.size} nodes</span>
+                      </h3>
+                      <ul className="gods">
+                        {c.nodes.map((n) => (
+                          <li key={`${n.label} ${n.source_file}`}>
+                            <button type="button" className="link" onClick={() => askAbout(n.label)}>
+                              {n.label}
+                            </button>
+                            <Sources node={n} worldId={worldId} />
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="faint" data-testid="no-communities">
+                  No communities yet. {WRITER} finds them when he rebuilds the graph.
+                </p>
+              )}
+              {view.surprises.length > 0 && (
+                <>
+                  <h2>Surprising connections</h2>
+                  <p className="faint">Links that cross notes or clusters. Worth a second look.</p>
+                  <ul className="surprises" data-testid="surprises">
+                    {view.surprises.map((x) => (
+                      <li key={`${x.source.label} ${x.relation} ${x.target.label}`}>
+                        <span>
+                          {x.source.label} <span className="faint">{x.relation || "links to"}</span>{" "}
+                          {x.target.label}
+                        </span>
+                        <Sources node={x.source} worldId={worldId} />
+                        <Sources node={x.target} worldId={worldId} />
+                        {x.why && <span className="faint">{x.why}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
+          )}
         </section>
         <aside aria-label="God nodes" className="card">
           <h2>God nodes</h2>
@@ -217,11 +295,7 @@ export function Graph() {
                   <button
                     type="button"
                     className="link"
-                    onClick={() => {
-                      const q = `What do we know about ${g.label}?`;
-                      setQuestion(q);
-                      void ask(q);
-                    }}
+                    onClick={() => askAbout(g.label)}
                   >
                     {g.label}
                   </button>

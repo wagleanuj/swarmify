@@ -1,8 +1,9 @@
 """Runs context: a Run executes one pinned Workflow Version stage by stage on DBOS (ADR 0014).
 
 Workflows is another context, so the composition root hands the pinned stages in as StageDefs.
-People act on a run (decide at a gate, pause, resume, abort) through RunControl, which works
-from any process; Runner is the RunControl that also hosts the DBOS workflows.
+People start, fork and act on a run (decide at a gate, pause, resume, abort) through RunControl,
+which works from any process; Runner is the RunControl that also hosts the DBOS workflows, and
+enqueues the runs another process recorded queued (`Runner.adopt`).
 """
 
 from swarmify_runs.control import OverBudget, Previews, RunControl, Spend, run_folder, stage_folder

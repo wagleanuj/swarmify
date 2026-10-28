@@ -416,8 +416,9 @@ export interface paths {
         put?: never;
         /**
          * Save As Workflow
-         * @description A new workflow in the run's world from the stages the run actually ran, gates added
-         *     by hand included (an ad hoc run becomes repeatable). Only a run that is done.
+         * @description A new workflow in the run's world from the stages the run actually ran (an ad hoc run
+         *     becomes repeatable); each swarm stage's goal also names the tasks added to it by hand.
+         *     Only a run that is done.
          */
         post: operations["save_as_workflow_api_runs__run_id__workflow_post"];
         delete?: never;
@@ -1503,6 +1504,20 @@ export interface components {
             agent: string;
         };
         /**
+         * Community
+         * @description A cluster graphify found, with its most connected nodes.
+         */
+        Community: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+            /** Nodes */
+            nodes: components["schemas"]["GraphNode"][];
+        };
+        /**
          * ConnectorStage
          * @description One idempotent call to connector `calls`, from `input` artifact to `output` artifact.
          */
@@ -1755,6 +1770,15 @@ export interface components {
             /** Degree */
             degree: number;
         };
+        /** GraphNode */
+        GraphNode: {
+            /** Label */
+            label: string;
+            /** Source File */
+            source_file: string;
+            /** Run Id */
+            run_id: string | null;
+        };
         /** GraphView */
         GraphView: {
             /** Nodes */
@@ -1763,6 +1787,16 @@ export interface components {
             edges: number;
             /** God Nodes */
             god_nodes: components["schemas"]["GodNode"][];
+            /**
+             * Communities
+             * @default []
+             */
+            communities: components["schemas"]["Community"][];
+            /**
+             * Surprises
+             * @default []
+             */
+            surprises: components["schemas"]["Surprise"][];
             rebuilt: components["schemas"]["Rebuild"] | null;
             failed: components["schemas"]["Failure"] | null;
             /** Accepted */
@@ -2427,6 +2461,18 @@ export interface components {
              * @default false
              */
             baseline: boolean;
+        };
+        /**
+         * Surprise
+         * @description A connection graphify finds non-obvious: across files or across communities.
+         */
+        Surprise: {
+            source: components["schemas"]["GraphNode"];
+            target: components["schemas"]["GraphNode"];
+            /** Relation */
+            relation: string;
+            /** Why */
+            why: string;
         };
         /**
          * SwarmStage

@@ -89,8 +89,8 @@ world".
 
 - **Planner chat.** `POST /api/worlds/<id>/planner` with `{"message", "yaml", "workflow_id",
   "session_id"}` runs one turn of a Planner session on the AgentRuntime whose tools are the
-  swarmify MCP server's own `check_workflow`, `save_workflow`, `get_workflow` and
-  `list_workflows`, called in-process. It answers `{"reply", "yaml", "session_id", "saved"}`:
+  swarmify MCP server's own `check_workflow`, `save_workflow`, `get_workflow`,
+  `list_workflows` and `start_run` (only when asked to run a saved workflow), called in-process. It answers `{"reply", "yaml", "session_id", "saved"}`:
   `yaml` is the whole draft after the planner's changes (the editor adopts it, unsaved),
   `session_id` continues the conversation next turn, and `saved` is the version the planner
   saved when asked to. A session that fails or answers off-schema is a 502; send again.
@@ -102,7 +102,9 @@ world".
   is picked up then. Deleting a world removes its schedules.
 - **Save as workflow.** `POST /api/runs/<id>/workflow` (`{"name"}` optional) turns a done run's
   stages, exactly as the run recorded them, into a new workflow in its world; the run timeline
-  has the button. An ad hoc run (T20) becomes repeatable the same way.
+  has the button. An ad hoc run (T20) becomes repeatable the same way. Tasks the operator added
+  to a swarm stage by hand (`added_by` `operator`) are kept: the saved stage's goal ends with
+  "Also do these tasks:" and one line per task, so the next run's planner seeds them again.
 - **Copy.** `POST /api/workflows/<id>/copy` with `{"world_id"}` saves the current version as a
   new workflow in that world, refused with the violations when the world lacks a connector.
 
@@ -223,7 +225,11 @@ a paused stage goes back to pending and runs again on resume, its agents resumin
 an aborted one fails. A connector stage, or a stage waiting on a child run, is not stopped midway:
 the pause lands when it finishes. Abort cascades to child runs. The MCP server
 exposes `list_gates`, `decide_gate`, `pause_run`, `resume_run`, `abort_run` and `get_run`; it acts
-on the API process's runs through DBOS's system database, so it needs the API running.
+on the API process's runs through DBOS's system database, so it needs the API running. It also
+has `start_run` (the start body's fields), `fork_run` (`run_id`, `stage`) and `list_artifacts`
+(`run_id`, optional `before`, as `GET /api/runs/<id>/artifacts`). The MCP process hosts no DBOS,
+so a run it starts or forks is recorded queued and the API enqueues it on its next sweep (every
+15 seconds, `Runner.adopt`).
 
 The Runs context has a `Notifier` port (ADR 0012). `gate.opened` and `run.ended` are appended to
 the world's event stream and handed to the notifier; the adapter logs a line until Slack ships
@@ -501,15 +507,20 @@ dependency of `packages/memory`) from the world's files.
 - Cross-world access is read-only by construction: the write tools (`write_note`,
   `write_artifact`, `add_task`) take no world and always land in the stage's own world, and
   Write, Edit and Bash are outside every allowlist.
-- `GET /api/worlds/<id>/graph` returns size, god nodes, the last rebuild (with its estimated
+- `GET /api/worlds/<id>/graph` returns size, god nodes, `communities` (graphify's largest
+  clusters, each with its most connected nodes) and `surprises` (graphify's surprising
+  connections, across notes or clusters), each node with the `source_file` it came from and the
+  `run_id` that wrote it, the last rebuild (with its estimated
   `cost_usd`) and the last failure, whether an accepted shrink is still rebuilding (`accepted`),
   and `spent`: every rebuild's count, seconds and estimated cost, refused ones included. Cost is
   priced from graphify's token counts at the rates of `GRAPHIFY_CLAUDE_CLI_MODEL` (the dearest
   model when unset), so it errs high; the Claude CLI backend itself bills the plan.
   `POST /api/worlds/<id>/graph/accept-shrink` accepts a shrink (202, or 409 when the last rebuild
   was not a shrink refusal). `POST /api/worlds/<id>/graph/query` (`{"question": ...}`) asks the
-  graph. The page is `/worlds/<id>/graph` (Middle-out), shows a shrink refusal with an "Accept the
-  shrink" button, and reloads on `graph.rebuilt` and `graph.failed`.
+  graph. The page is `/worlds/<id>/graph` (Middle-out): the query box, god nodes, communities
+  and surprising connections, each node a question to ask with links to its run and its note.
+  It shows a shrink refusal with an "Accept the shrink" button, and reloads on `graph.rebuilt`
+  and `graph.failed`.
 - Real graphify runs only in the opt-in test, which spends Claude subscription tokens:
   `SWARMIFY_GRAPHIFY=1 uv run pytest packages/memory/tests/test_graphify_live.py --no-cov`.
 
