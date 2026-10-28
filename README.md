@@ -471,9 +471,10 @@ dependency of `packages/memory`) from the world's files.
   rebuild rather than queueing another. Each rebuild appends `graph.rebuilt` (`nodes`, `edges`,
   `nodes_added`, `edges_added`, `seconds`, `input_tokens`, `output_tokens`) or `graph.failed`
   (`error`, `seconds`, `shrink`) to the world's stream. `shrink` means graphify's shrink guard
-  refused to write a smaller graph; it keeps refusing until the shrink is accepted, which appends
-  `graph.shrink_accepted` and reruns that world at once with `--allow-partial`, once. A deleted
-  world leaves the queue; a rebuild still running
+  refused a semantic shrink (a file re-extracted to fewer nodes than before). A refusal over failed
+  chunks is a plain failure, `shrink` false, since the next rebuild retries them. A shrink keeps
+  refusing until it is accepted, which appends `graph.shrink_accepted` and reruns that world at
+  once with `--allow-partial`, once. A deleted world leaves the queue; a rebuild still running
   when its world is deleted records nothing and removes the folder graphify recreated. It runs
   inside the API process; with
   `SWARMIFY_GRAPH_WRITER=external` the API leaves it to a `swarmify-graph-writer` process instead

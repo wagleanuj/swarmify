@@ -78,8 +78,9 @@ def run_graphify(folder: Path, allow_shrink: bool = False) -> Usage:
     if done.returncode != 0:
         tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
         message = f"graphify extract exited {done.returncode}: {' | '.join(tail)}"
-        # Every shrink guard refusal names the flag that overrides it.
-        shrunk = "--allow-partial" in done.stderr + done.stdout
+        # Only a semantic shrink is worth accepting. Failed chunks print the same --allow-partial
+        # hint, but a retry heals them, and accepting would drop their nodes for good.
+        shrunk = "unverified semantic shrink" in done.stderr + done.stdout
         raise (ShrinkRefused if shrunk else RuntimeError)(message)
     found = _TOKENS.search(done.stdout)
     tokens = [int(n.replace(",", "")) for n in found.groups()] if found else [0, 0]

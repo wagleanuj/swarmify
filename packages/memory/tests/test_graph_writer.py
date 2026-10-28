@@ -265,10 +265,32 @@ def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
     done = subprocess.CompletedProcess([], 0, "wrote graph.json", "")
     assert writer_module.run_graphify(Path("/w")) == {"input_tokens": 0, "output_tokens": 0}
 
-    refusal = "Refusing to overwrite a complete graph. pass --allow-partial to overwrite anyway."
+    # graphify's own wording: a semantic shrink, then the refusal it leads to.
+    refusal = (
+        "[graphify extract] semantic extraction is incomplete: unverified semantic shrink detected"
+        " for 'a.md' (6 -> 5 nodes). The shrink guard stays armed for this write; pass"
+        " --allow-partial to overwrite a larger existing graph anyway.\n"
+        "[graphify extract] error: extraction was incomplete (an AST/semantic pass failed) and the"
+        " resulting graph is smaller than the existing graph.json. Refusing to overwrite a complete"
+        " graph with a partial one. Re-run after fixing the failures, or pass --allow-partial to"
+        " overwrite anyway."
+    )
     done = subprocess.CompletedProcess([], 1, "", refusal)
     with pytest.raises(ShrinkRefused, match="allow-partial"):
         writer_module.run_graphify(Path("/w"))
+    # Failed chunks name the same flag, but a plain retry heals them; accepting would write the
+    # graph without those chunks' nodes.
+    incomplete = (
+        "[graphify extract] semantic extraction is incomplete: 0 dispatched file(s) produced no"
+        " nodes and 2 came back truncated or hollow. The shrink guard stays armed for this write;"
+        " pass --allow-partial to overwrite a larger existing graph anyway.\n"
+        + refusal.splitlines()[1]
+    )
+    for stderr in [incomplete, refusal.splitlines()[1]]:
+        done = subprocess.CompletedProcess([], 1, "", stderr)
+        with pytest.raises(RuntimeError) as partial:
+            writer_module.run_graphify(Path("/w"))
+        assert not isinstance(partial.value, ShrinkRefused)
     done = subprocess.CompletedProcess([], 1, "", "claude: not logged in")
     with pytest.raises(RuntimeError) as other:
         writer_module.run_graphify(Path("/w"))
