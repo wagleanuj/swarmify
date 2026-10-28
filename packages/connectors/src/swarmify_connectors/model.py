@@ -44,7 +44,8 @@ class Tool:
 @dataclass(frozen=True)
 class Call:
     """One connector stage call, keyed by the stage id. `response` is the latest raw response:
-    the tool's result, or for a long job the last poll."""
+    the tool's result, or for a long job the last poll. `visit` is the run's send-back count
+    when it was made; a later visit to the stage replaces it."""
 
     idempotency_key: str
     world_id: str
@@ -63,6 +64,7 @@ class Call:
     message: str | None = None
     attempts: int = 0
     polls: int = 0
+    visit: int = 0
 
 
 class ConnectorError(RuntimeError):

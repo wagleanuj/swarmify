@@ -44,7 +44,7 @@ def running(app: FastAPI) -> Iterator[TestClient]:
         yield client
 
 
-def render_run(client: TestClient, project: Path, composition: str) -> dict:
+def render_run(client: TestClient, project: Path, composition: str, review: str = "") -> dict:
     w = client.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
     server = shlex.join([sys.executable, str(HERE / "script_server.py")])
     added = client.post(
@@ -67,12 +67,18 @@ stages:
     input: script.md
     output: short.mp4
     params: {{project: "{project}", composition: {composition}}}
-"""
+{review}"""
     workflow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
     assert workflow.status_code == 201, workflow.text
     run = client.post(f"/api/workflows/{workflow.json()['workflow_id']}/runs", json={}).json()
+    return settled(client, run["id"])
+
+
+def settled(client: TestClient, run_id: str) -> dict:
+    """The run once it ends or waits at a gate."""
+    ends = ("done", "failed", "waiting_gate")
     deadline = time.monotonic() + 30
-    while (run := client.get(f"/api/runs/{run['id']}").json())["status"] not in ("done", "failed"):
+    while (run := client.get(f"/api/runs/{run_id}").json())["status"] not in ends:
         assert time.monotonic() < deadline, run
         time.sleep(0.05)
     return run
@@ -103,6 +109,30 @@ def test_a_script_artifact_renders_into_a_video_with_a_sidecar(
         "video",
         "remotion_render",
     )
+
+
+def test_a_send_back_past_the_render_renders_the_new_script(
+    running: TestClient, project: Path, tmp_path: Path
+) -> None:
+    review = "  - gate: review\n    ask: Watch it.\n    kind: approve\n"
+    run = render_run(running, project, "Short", review)
+    assert run["status"] == "waiting_gate", run
+    script_id, render_id = run["stages"][0]["id"], run["stages"][1]["id"]
+    sent = running.post(
+        f"/api/runs/{run['id']}/decision", json={"note": "Again.", "send_back_to": "script"}
+    )
+    assert sent.status_code == 200, sent.text
+    while (run := settled(running, run["id"]))["send_backs"] != 1:
+        time.sleep(0.05)
+    assert run["status"] == "waiting_gate", run
+
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    script = (folder / script_id / "artifacts/script.md").read_text()
+    assert script.endswith(f"<!-- {script_id}.1 -->\n")
+    rendered = json.loads((folder / render_id / "artifacts/short.mp4").read_text())
+    assert rendered["script"] == script
+    call = running.get(f"/api/stages/{render_id}/call").json()
+    assert call["visit"] == 1 and call["request"]["idempotency_key"] == f"{render_id}.1"
 
 
 def test_a_failed_render_puts_the_cli_output_on_the_timeline(

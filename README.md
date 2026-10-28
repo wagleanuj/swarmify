@@ -246,9 +246,10 @@ URL connector gets them as request headers of the same name.
   values into the file (an empty value means the file already has it). `DELETE
   /api/connectors/<id>` removes an added one.
 - A connector stage calls the tool named like its connector (or `params.tool`) with `params`, its
-  `input` and `output` artifact names and `idempotency_key` set to the stage id, through the
-  ConnectorTransport port. The call is recorded once per stage id: a finished call is never
-  repeated, and a crash mid-job resumes polling instead of calling again.
+  `input` and `output` artifact names and `idempotency_key` set to the stage id (`<stage id>.<n>`
+  on the run's nth send-back), through the ConnectorTransport port. The call is recorded once per
+  visit to the stage: a finished call is never repeated, a crash mid-job resumes polling instead
+  of calling again, and a send-back that reruns the stage calls the connector again.
 - A long job answers `{"job_id": ..., "poll": "<tool>"}`; swarmify calls that tool with
   `{"job_id": ...}` every 2 s until it answers `status: done` or `failed`, with optional `progress`
   (0 to 1) and `message`. A wrapper keeps job state outside its process, since every call and
@@ -334,14 +335,14 @@ problems), so a broken publish stage is sent back or aborted, never reached. Ans
 in the decision (its `publish` field and `decision.md`), refusing an edit that would stop the post
 and a relative schedule that resolves to another time by now (shown at 08:58, `09:00` is today;
 confirmed at 09:01 it would be tomorrow), which the inbox then shows again; the publish stage
-sends exactly those values. A publish call is attempted at most once per stage: a call
+sends exactly those values. A publish call is attempted at most once per visit to the stage: a call
 interrupted by a crash is never repeated, it fails the stage asking you to check the platform.
 After the call, `publish.md` (type `publish`, with `links`, `status` and the video or job `id` in
 its frontmatter and the links again in its body) lands in the stage's `artifacts/` folder.
 
 - `youtube` is our wrapper over the YouTube Data API (`swarmify_connectors.youtube`, stdio MCP).
   It uploads with `videos.insert`; with a schedule the video goes up private with `publishAt` and
-  YouTube makes it public at that time. Each upload is tagged `swarmify-<stage id>`, and before
+  YouTube makes it public at that time. Each upload is tagged `swarmify-<idempotency key>`, and before
   uploading the wrapper looks for that tag among the channel's latest 50 uploads (3 quota units),
   so retrying a failed publish stage answers the video an earlier attempt already put up instead
   of posting it twice. Setup, once: create a Google Cloud project, enable the
@@ -352,7 +353,7 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
   default quota is 10,000 units a day and an upload costs 1,600, so about six uploads a day.
 - `upload_post` is Upload-Post's official MCP (`npx -y @upload-post/mcp@0.11.4`, needs Node),
   adopted as is (ADR 0015) with `UPLOAD_POST_API_KEY` from app.upload-post.com. Swarmify calls its
-  `upload_video` tool with the stage id as Upload-Post's idempotency key. Posting now records
+  `upload_video` tool with the call's idempotency key. Posting now records
   each platform's link (a platform that failed is listed in the artifact; when none succeeded the
   stage fails). An upload over about 59 seconds moves to Upload-Post's background and answers a
   request id; the stage then polls `get_status` with it until the upload finishes and records the

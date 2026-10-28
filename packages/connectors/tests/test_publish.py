@@ -244,6 +244,33 @@ def test_an_interrupted_publish_call_is_never_repeated(
     assert transport.calls == []
 
 
+def test_an_interrupted_publish_is_never_repeated_within_its_visit(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    connectors.credentials.set(YOUTUBE_KEYS)
+    now = NOW.isoformat()
+    connectors.storage.save_call(
+        Call(
+            "stage_1",
+            W,
+            "run_1",
+            "youtube",
+            "youtube",
+            {},
+            "running",
+            now,
+            now,
+            attempts=1,
+            visit=1,
+        )
+    )
+    with pytest.raises(ConnectorError, match="interrupted and may have posted"):
+        connectors.run_stage(W, "run_1", "stage_1", stage(), visit=1)
+    assert transport.calls == []
+    connectors.run_stage(W, "run_1", "stage_1", stage(), visit=2)  # a send-back reruns it
+    assert transport.calls[0][2]["idempotency_key"] == "stage_1.2"
+
+
 def test_publish_previews_only_for_publish_connectors(connectors: Connectors) -> None:
     assert connectors.publish_preview(W, stage())["title"] == "Five hooks"  # type: ignore[index]
     assert connectors.publish_preview(W, {"calls": "remotion_render"}) is None
