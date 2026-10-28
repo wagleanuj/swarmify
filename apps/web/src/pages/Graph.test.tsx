@@ -32,6 +32,7 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
   await expect.element(screen.getByTestId("graph-empty")).toMatchTextContent(/Anton folds them in/);
   await expect.element(screen.getByTestId("rebuilt")).toHaveTextContent("Not built yet");
 
+  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events?since=now"]);
   view = built;
   FakeEventSource.emit("graph.rebuilt", { payload: built.rebuilt });
   await expect.element(screen.getByTestId("graph-size")).toMatchTextContent(/1,284 nodes\s*3,901 edges/);

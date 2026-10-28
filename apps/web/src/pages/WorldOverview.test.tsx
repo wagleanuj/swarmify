@@ -54,6 +54,21 @@ test("shows the world, its tiles and live activity from the world's event stream
   await expect.element(screen.getByTestId("activity")).toMatchTextContent(/World created/);
 });
 
+test("a replayed burst of run updates refetches the gates once, not once per event", async () => {
+  const calls = fakeFetch({ "GET /api/worlds/world_1": () => Response.json(video) });
+  const { screen } = await mountAt("/worlds/world_1");
+  await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1));
+  for (let seq = 1; seq <= 50; seq++) {
+    const payload = { id: `run_${seq}` };
+    FakeEventSource.emit("run.updated", { seq, type: "run.updated", ts: video.created_at, payload });
+  }
+  await expect.element(screen.getByTestId("activity")).toMatchTextContent(/Run updated/);
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 300));
+  expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2);
+});
+
 test("lists the world's workflows and refreshes the list when one is saved", async () => {
   const weekly = { id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: video.created_at };
   let listed = [weekly];

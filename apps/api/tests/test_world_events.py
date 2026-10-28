@@ -55,3 +55,29 @@ def test_a_bad_last_event_id_is_a_422_and_an_unknown_world_a_404(client: TestCli
     for bad in ["abc", "", "1.5"]:
         assert client.get(url, headers={"Last-Event-ID": bad}).status_code == 422, bad
     assert client.get("/api/worlds/world_nope/events").status_code == 404
+
+
+def test_since_now_skips_history_and_yields_only_later_events(live_url: str) -> None:
+    a = httpx.post(f"{live_url}/api/worlds", json={"name": "A"}).json()
+    with (
+        httpx.stream("GET", f"{live_url}/api/events?since=now", timeout=5) as every,
+        httpx.stream("GET", f"{live_url}/api/worlds/{a['id']}/events?since=now", timeout=5) as one,
+    ):
+        b = httpx.post(f"{live_url}/api/worlds", json={"name": "B"}).json()
+        httpx.delete(f"{live_url}/api/worlds/{a['id']}")
+        kind, seq, data = next(sse_events(every))
+        assert (kind, seq, data["world_id"]) == ("world.created", 2, b["id"])
+        kind, seq, data = next(sse_events(one))
+        assert (kind, seq, data["world_id"]) == ("world.deleted", 3, a["id"])
+
+
+def test_last_event_id_wins_over_since_now_so_reconnects_resume(live_url: str) -> None:
+    httpx.post(f"{live_url}/api/worlds", json={"name": "A"})
+    httpx.post(f"{live_url}/api/worlds", json={"name": "B"})
+    resume = {"Last-Event-ID": "1"}
+    with httpx.stream("GET", f"{live_url}/api/events?since=now", headers=resume, timeout=5) as r:
+        assert next(sse_events(r))[1] == 2
+
+
+def test_since_must_be_now(client: TestClient) -> None:
+    assert client.get("/api/events?since=later").status_code == 422

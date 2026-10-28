@@ -35,7 +35,7 @@ test("renders each gate kind with its own control and posts the decision", async
   const list = screen.getByTestId("gate-list");
   await expect.element(list).toMatchTextContent(/Publish it.*Weekly short.*Weekly short/);
   // One stream for every world: a stream per world exhausts the browser's six connections.
-  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events"]);
+  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events?since=now"]);
 
   const pick = screen.getByTestId("gate-run_1");
   await expect.element(pick).toMatchTextContent(/Pick one idea\./);

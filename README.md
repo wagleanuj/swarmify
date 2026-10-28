@@ -30,7 +30,8 @@ behind a pipe, so the web tests silently never run.
 
 Data lives in `SWARMIFY_DATA_DIR` (default `~/.swarmify`): `swarmify.db`, the DBOS system database
 `dbos.sqlite`, and one folder per world under `worlds/<id>/`. The API streams every world's events at `GET /api/worlds/<id>/events` (SSE,
-`Last-Event-ID` resumes); the MCP server writes to the same database, so its actions show up there.
+`Last-Event-ID` resumes, and without it `?since=now` starts at the current head instead of
+replaying history; `GET /api/events` takes the same for every world); the MCP server writes to the same database, so its actions show up there.
 
 ## Workflows
 

@@ -5,7 +5,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from dataclasses import asdict
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
@@ -145,9 +145,10 @@ def router(
 
     @api.get("/{world_id}/events", response_class=StreamingResponse)
     async def world_events(
-        world_id: str, last_event_id: Annotated[int, Header()] = 0
+        world_id: str, last_event_id: Annotated[int, Header()] = 0, since: Since = None
     ) -> StreamingResponse:
-        """Server-sent events for one world. `Last-Event-ID` resumes after a reconnect.
+        """Server-sent events for one world. `Last-Event-ID` resumes after a reconnect;
+        without it `?since=now` starts at the current head instead of replaying history.
 
         A world that never existed is a 404. A deleted one still streams, so `world.deleted`
         reaches its subscribers.
@@ -155,7 +156,7 @@ def router(
         if worlds.get(world_id) is None and not worlds.events_after(world_id, 0):
             raise HTTPException(404, "world not found")
         return StreamingResponse(
-            _stream(worlds, world_id, last_event_id),
+            _stream(worlds, world_id, _start(worlds, last_event_id, since)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -167,17 +168,29 @@ def events_router(worlds: Worlds) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["worlds"])
 
     @api.get("/events", response_class=StreamingResponse)
-    async def all_events(last_event_id: Annotated[int, Header()] = 0) -> StreamingResponse:
+    async def all_events(
+        last_event_id: Annotated[int, Header()] = 0, since: Since = None
+    ) -> StreamingResponse:
         """Server-sent events for every world, for views that span worlds such as the gates
         inbox. One stream instead of one per world: browsers cap HTTP/1.1 connections per host
         at six, and a stream per world held every slot once there were six worlds."""
         return StreamingResponse(
-            _stream(worlds, None, last_event_id),
+            _stream(worlds, None, _start(worlds, last_event_id, since)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     return api
+
+
+# EventSource cannot set headers on its first connect, so live-only views ask with `?since=now`.
+Since = Literal["now"] | None
+
+
+def _start(worlds: Worlds, last_event_id: int, since: Since) -> int:
+    """The seq a new stream starts after. A reconnect's Last-Event-ID always wins, so a view
+    opened with `?since=now` still resumes where it left off rather than skipping a gap."""
+    return last_event_id or (worlds.last_seq() if since == "now" else 0)
 
 
 async def _stream(worlds: Worlds, world_id: str | None, after: int) -> AsyncIterator[str]:

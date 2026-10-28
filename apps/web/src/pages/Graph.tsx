@@ -44,9 +44,10 @@ export function Graph() {
     void load().catch(() => undefined);
   }, [worldId]);
 
-  // Rebuilds arrive on the world's stream (ADR 0002); each one reloads the summary.
+  // Rebuilds arrive on the world's stream (ADR 0002); each one reloads the summary. Only new
+  // ones matter, so `since=now` skips replaying history.
   useEffect(() => {
-    const source = new EventSource(`/api/worlds/${worldId}/events`);
+    const source = new EventSource(`/api/worlds/${worldId}/events?since=now`);
     const reload = () => void load().catch(() => undefined);
     source.addEventListener("graph.rebuilt", reload);
     source.addEventListener("graph.failed", reload);
