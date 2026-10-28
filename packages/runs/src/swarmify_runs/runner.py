@@ -571,7 +571,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     if gate_opened:
         index = state.stages.index("waiting")
         _, stage = runner.storage.stage_def(run_id, index)
-        shown = runner.preview_after(run_id, index, run.world_id)
+        shown = runner.preview_after(run, index)
         kind, ask = stage.config.get("kind") or "approve", stage.config.get("ask") or ""
         if state.over_budget:
             top, shown = runner.top(run), None
@@ -614,7 +614,7 @@ def _execute(run_id: str, index: int) -> bool:
     run = runner.storage.get_run(run_id)
     if run is None:
         raise KeyError(f"run not found: {run_id}")
-    if stage.type == "connector" and runner.previews(run.world_id, stage) is not None:
+    if stage.type == "connector" and runner.previews(run, stage, {}) is not None:
         before = run.stages[index - 1] if index > 0 else None
         if before is None or before.type != "gate" or before.status != "done":
             # The editor refuses this too, but a connector can turn publish after the save.

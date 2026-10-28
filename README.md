@@ -285,17 +285,32 @@ publish after the workflow was saved. Every publish stage declares the same para
     params:
       title: Five hooks that work      # required, at most 100 characters
       description: optional
+      metadata: script.md              # optional: take title and description from its frontmatter
       visibility: public               # public, unlisted or private (default private)
-      schedule: "2026-11-03T09:00:00Z" # optional, ISO 8601 with a timezone; needs public
+      schedule: "+1d 09:00"            # optional, see below; needs public
+      made_for_kids: false             # YouTube's COPPA declaration (default false)
       user: my-profile                 # upload_post only: the Upload-Post profile
       platforms: [youtube, tiktok]     # upload_post only, default [youtube]
 ```
 
+`metadata` names a file an earlier stage of the run left (the newest of that name, like `input`);
+the `title` and `description` in its YAML frontmatter win over the params, which stay the
+fallback, so a daily workflow posts each video under its own script's title. A missing file is a
+problem the gate shows. `schedule` is ISO 8601 with a timezone, or relative: `09:00` (the next
+09:00), `+1d 09:00` (tomorrow at 09:00), either with an IANA timezone after it
+(`+1d 09:00 Europe/London`, UTC by default). A relative schedule is resolved when the gate is
+shown, so a scheduled workflow posts every run. `made_for_kids` goes to YouTube as
+`selfDeclaredMadeForKids` (to Upload-Post as `youtubeSelfDeclaredMadeForKids`); content made for
+children must set it.
+
 The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
-and the `gate.opened` event): connector, title, visibility, schedule, video, platforms and any
-`problems` that would stop the post. The gates inbox shows it under the ask and disables
-"Confirm and post" while there are problems. The values sent are exactly the previewed ones,
-pinned in the workflow version. A publish call is attempted at most once per stage: a call
+and the `gate.opened` event): connector, title, description, visibility, schedule, video,
+platforms, made_for_kids and any `problems` that would stop the post. The gates inbox shows it
+under the ask, with the title and description editable, and disables "Confirm and post" while
+there are problems. Answering the gate (`POST /api/runs/{id}/decision`, optionally with `title`
+and `description`) records the title, description and resolved schedule in the decision (its
+`publish` field and `decision.md`), refusing an edit that would stop the post; the publish stage
+sends exactly those values. A publish call is attempted at most once per stage: a call
 interrupted by a crash is never repeated, it fails the stage asking you to check the platform.
 After the call, `publish.md` (type `publish`, with `links`, `status` and the video or job `id` in
 its frontmatter and the links again in its body) lands in the stage's `artifacts/` folder.

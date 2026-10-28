@@ -201,6 +201,8 @@ p.ask { margin: 0; font-size: 18px; line-height: 1.35; max-width: 44rem; }
 .publish-preview dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
 .publish-preview dt { color: var(--muted); }
 .publish-preview dd { margin: 0; }
+.publish-preview dd input { width: 100%; }
+.publish-preview dt label { display: inline; margin: 0; font-weight: inherit; }
 .publish-problems { padding: 8px 12px; border-radius: var(--rc); background: var(--bad-dim); }
 .publish-problems p, .publish-problems ul { margin: 4px 0; }
 .pick-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 12px; align-items: start; }

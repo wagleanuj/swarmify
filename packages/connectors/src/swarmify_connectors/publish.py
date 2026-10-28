@@ -1,10 +1,12 @@
 """Publish stages: what will go out, the call that sends it, and what came back (ADR 0007).
 
 Every publish connector stage declares the same params: `title`, `description`, `visibility`
-(public, unlisted or private) and an optional `schedule` (ISO 8601 with a timezone). The confirm
-gate before it shows `preview`, and `request` sends exactly those values, so what goes out is
-what the person saw. A scheduled video stays private until its time, then goes public, so a
-schedule needs `visibility: public`.
+(public, unlisted or private), `made_for_kids` (YouTube's COPPA flag, false by default) and an
+optional `schedule`: ISO 8601 with a timezone, or relative, `HH:MM` (the next such time) or
+`+Nd HH:MM` (N days from now), either with an optional IANA timezone after it (UTC by default),
+resolved against `now`. The confirm gate before it shows `preview`, and `request` sends exactly
+those values, so what goes out is what the person saw. A scheduled video stays private until
+its time, then goes public, so a schedule needs `visibility: public`.
 
 `youtube` is our wrapper (`swarmify_connectors.youtube`); `upload_post` is Upload-Post's official
 MCP, adopted as is (ADR 0015), whose `upload_video` takes its own argument names and also needs
@@ -12,8 +14,9 @@ MCP, adopted as is (ADR 0015), whose `upload_video` takes its own argument names
 """
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VISIBILITIES = ("public", "unlisted", "private")
 TITLE_MAX = 100  # YouTube's limit, the tightest of the platforms we post to
@@ -23,14 +26,32 @@ def _params(config: dict[str, Any]) -> dict[str, Any]:
     return dict(config.get("params") or {})
 
 
-def _schedule(value: Any) -> tuple[str | None, str | None]:
+_RELATIVE = re.compile(r"^(?:\+(\d+)d\s+)?([01]?\d|2[0-3]):([0-5]\d)(?:\s+(\S+))?$")
+
+
+def _schedule(value: Any, now: datetime) -> tuple[str | None, str | None]:
     """(UTC ISO time, problem)."""
     if value in (None, ""):
         return None, None
+    if relative := _RELATIVE.match(str(value).strip()):
+        days, hour, minute, zone = relative.groups()
+        try:
+            local = now.astimezone(ZoneInfo(zone) if zone else UTC)
+        except (ZoneInfoNotFoundError, ValueError):
+            return None, f"schedule {value!r} names an unknown timezone {zone!r}"
+        when = (local + timedelta(days=int(days or 0))).replace(
+            hour=int(hour), minute=int(minute), second=0, microsecond=0
+        )
+        if days is None and when <= local:
+            when += timedelta(days=1)
+        return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), None
     try:
         when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
-        return None, f"schedule {value!r} is not an ISO 8601 time like 2026-11-03T09:00:00Z"
+        return None, (
+            f"schedule {value!r} is not an ISO 8601 time like 2026-11-03T09:00:00Z"
+            " or a time of day like 09:00 or +1d 09:00"
+        )
     if when.tzinfo is None:
         return None, f"schedule {value!r} needs a timezone, like 2026-11-03T09:00:00Z"
     return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), None
@@ -39,10 +60,14 @@ def _schedule(value: Any) -> tuple[str | None, str | None]:
 def preview(connector: str, config: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     """What the stage will publish, plus every problem that would stop it."""
     params = _params(config)
+    now = now or datetime.now(UTC)
     title = str(params.get("title") or "").strip()
     visibility = str(params.get("visibility") or "private")
-    schedule, bad_schedule = _schedule(params.get("schedule"))
+    made_for_kids = params.get("made_for_kids", False)
+    schedule, bad_schedule = _schedule(params.get("schedule"), now)
     problems = [bad_schedule] if bad_schedule else []
+    if not isinstance(made_for_kids, bool):
+        problems.append(f"made_for_kids is true or false, got {made_for_kids!r}")
     if not title:
         problems.append("a publish stage needs params.title")
     elif len(title) > TITLE_MAX:
@@ -51,7 +76,7 @@ def preview(connector: str, config: dict[str, Any], now: datetime | None = None)
         problems.append(f"visibility is one of {', '.join(VISIBILITIES)}, got {visibility!r}")
     if schedule and visibility != "public":
         problems.append("a scheduled video goes public at its time; set visibility: public")
-    if schedule and schedule <= (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"):
+    if schedule and schedule <= now.strftime("%Y-%m-%dT%H:%M:%SZ"):
         problems.append(f"the schedule {schedule} has already passed")
     if not config.get("input"):
         problems.append("a publish stage needs an input: the video to post")
@@ -69,6 +94,7 @@ def preview(connector: str, config: dict[str, Any], now: datetime | None = None)
         "schedule": schedule,
         "video": config.get("input"),
         "platforms": platforms,
+        "made_for_kids": made_for_kids is True,
         "problems": problems,
     }
 
@@ -89,6 +115,7 @@ def request(
             "description": shown["description"],
             "visibility": shown["visibility"],
             "schedule": shown["schedule"] or "",
+            "made_for_kids": shown["made_for_kids"],
         }
     if connector == "upload_post":
         args: dict[str, Any] = {
@@ -102,6 +129,7 @@ def request(
             "platformOptions": {
                 "idempotencyKey": idempotency_key,
                 "youtubePrivacyStatus": shown["visibility"],
+                "youtubeSelfDeclaredMadeForKids": shown["made_for_kids"],
             },
         }
         if shown["schedule"]:

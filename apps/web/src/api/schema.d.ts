@@ -1494,6 +1494,10 @@ export interface components {
             send_back_to?: string | null;
             /** Artifact */
             artifact?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
         };
         /**
          * DecideProposal
@@ -1542,6 +1546,10 @@ export interface components {
             decided_at: string;
             /** Artifact */
             artifact?: string | null;
+            /** Publish */
+            publish?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** EvalReport */
         EvalReport: {
@@ -1902,6 +1910,11 @@ export interface components {
             video?: string | null;
             /** Platforms */
             platforms?: string[];
+            /**
+             * Made For Kids
+             * @default false
+             */
+            made_for_kids: boolean;
             /** Problems */
             problems?: string[];
         };

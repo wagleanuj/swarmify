@@ -73,7 +73,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     # The confirm gate shows exactly what goes out, and only then posts it.
     expect(card).to_contain_text("Post it?", timeout=20_000)
     out = card.get_by_label("What goes out")
-    expect(out).to_contain_text("Five hooks that work")
+    expect(out.get_by_label("Title")).to_have_value("Five hooks that work")
     expect(out).to_contain_text("unlisted")
     expect(out).to_contain_text("short.mp4")
     expect(out).to_contain_text("Now, as soon as you confirm")

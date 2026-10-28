@@ -79,6 +79,10 @@ class Decide(BaseModel):
     artifact: str | None = Field(default=None, max_length=2_000)
     """The chosen artifact's path in the world folder, as `GET /runs/{run_id}/artifacts` lists
     it: the card picked, or what was approved. A pick with no `choice` takes its title."""
+    title: str | None = Field(default=None, max_length=1_000)
+    description: str | None = Field(default=None, max_length=5_000)
+    """At a gate before a publish stage: the title and description to post instead of what the
+    gate showed. The values posted are recorded with the decision."""
 
 
 class Fork(BaseModel):
@@ -317,7 +321,13 @@ def router(
     def decide(run_id: str, body: Decide) -> Run:
         return act(
             lambda: runner.decide(
-                run_id, body.choice, body.note, body.send_back_to, artifact=body.artifact
+                run_id,
+                body.choice,
+                body.note,
+                body.send_back_to,
+                artifact=body.artifact,
+                title=body.title,
+                description=body.description,
             )
         )
 

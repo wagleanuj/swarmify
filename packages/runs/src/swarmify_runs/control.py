@@ -59,12 +59,13 @@ SCHEDULED_WORKFLOW = "swarmify.scheduled"
 """The DBOS workflow a schedule fires (registered in `runner`); it starts a run of the
 workflow named in the schedule's context."""
 
-Previews = Callable[[str, StageDef], PublishPreview | None]
-"""What a stage of a world will publish, or None when it does not publish. Runs cannot tell a
-publish connector from another; the Connectors registry can, through the composition root."""
+Previews = Callable[[Run, StageDef, dict[str, Any]], PublishPreview | None]
+"""What a stage of a run will publish, with the person's edits at the gate (title, description)
+over its own values, or None when it does not publish. Runs cannot tell a publish connector from
+another; the Connectors registry can, through the composition root."""
 
 
-def no_previews(_world_id: str, _stage: StageDef) -> PublishPreview | None:
+def no_previews(_run: Run, _stage: StageDef, _edits: dict[str, Any]) -> PublishPreview | None:
     return None
 
 
@@ -160,23 +161,27 @@ class RunControl:
         """Each with the publish preview of the stage after it, when that stage publishes, or
         with the Budget and spend of its top run when it waits for money."""
         return [
-            self._with_budget(g)
-            if g.kind == "budget"
-            else replace(g, publish=self.preview_after(g.run_id, g.stage_index, g.world_id))
+            self._with_budget(g) if g.kind == "budget" else replace(g, publish=self._preview(g))
             for g in self.storage.open_gates()
         ]
+
+    def _preview(self, gate: Gate) -> PublishPreview | None:
+        run = self.storage.get_run(gate.run_id)  # None only if deleted since the listing
+        return self.preview_after(run, gate.stage_index) if run else None
 
     def _with_budget(self, gate: Gate) -> Gate:
         top = self.top(self._run(gate.run_id))
         spent, limit = top.spent_usd, top.budget_usd or 0.0
         return replace(gate, ask=budget.ask(spent, limit), budget_usd=limit, spent_usd=spent)
 
-    def preview_after(self, run_id: str, index: int, world_id: str) -> PublishPreview | None:
+    def preview_after(
+        self, run: Run, index: int, edits: dict[str, Any] | None = None
+    ) -> PublishPreview | None:
         try:
-            _, after = self.storage.stage_def(run_id, index + 1)
+            _, after = self.storage.stage_def(run.id, index + 1)
         except KeyError:
             return None
-        return self.previews(world_id, after) if after.type == "connector" else None
+        return self.previews(run, after, edits or {}) if after.type == "connector" else None
 
     def decide(
         self,
@@ -186,16 +191,21 @@ class RunControl:
         send_back_to: str | None = None,
         proposal: bool = False,
         artifact: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
     ) -> Run:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
         A skill gate takes only the answer of its proposal (`proposal=True`, from Learning).
         `artifact` names the chosen or approved artifact by its path in the world folder; it
         must come from a stage before the gate, and a pick with no `choice` takes its title.
+        Before a publish stage, `title` and `description` replace what the gate showed, and the
+        values that will go out (the schedule resolved now) are recorded with the decision.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
         send-back target is not an earlier stage, on the third send-back, or when someone
         else already answered this gate, and ValueError when a pick gate gets no choice or
-        the artifact is not one of this run's before the gate.
+        the artifact is not one of this run's before the gate, or when an edited title or
+        description is refused (or the next stage does not publish).
         """
         run = self._run(run_id)
         if run.over_budget:
@@ -223,6 +233,12 @@ class RunControl:
         else:
             event = GateAnswered(index)
         transition(kinds_of(run), state_of(run), event)  # raises Illegal before anything is written
+        edits = {k: v for k, v in (("title", title), ("description", description)) if v is not None}
+        shown = None if send_back_to else self.preview_after(run, index, edits)
+        if edits and shown is None:
+            raise ValueError("only a gate before a publish stage takes a title or description")
+        if edits and shown and shown.problems:
+            raise ValueError("; ".join(shown.problems))
         decision = Decision(
             new_id("dec"),
             index,
@@ -234,6 +250,9 @@ class RunControl:
             "",
             _now(),
             artifact or None,
+            {"title": shown.title, "description": shown.description, "schedule": shown.schedule}
+            if shown
+            else None,
         )
         decision = self._write_decision(run, decision)
         message: dict[str, Any] = {"action": "decide", "index": index}
@@ -476,6 +495,7 @@ def decision_markdown(run: Run, decision: Decision) -> str:
         "choice": decision.choice,
         "artifact": decision.artifact,
         "send_back_to": decision.send_back_to,
+        "publish": decision.publish,
         "created": decision.decided_at,
     }
     lines = [f"{k}: {json.dumps(v)}" for k, v in front.items() if v is not None]
