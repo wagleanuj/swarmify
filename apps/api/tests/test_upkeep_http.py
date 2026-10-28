@@ -117,8 +117,9 @@ def test_retention_deletes_old_binaries_and_keeps_their_markdown(
             os.utime(f, (old.timestamp(), old.timestamp()))
 
     short, sidecar, script, fresh = files[video["id"]]
-    until(lambda: not short.exists())
+    # The sweep appends the event just after the unlink, so wait for the event, not the file.
+    until(lambda: "artifact.pruned" in _types(tmp_path, video["id"]))
+    assert not short.exists()
     assert sidecar.exists() and script.exists() and fresh.exists()
     assert "short.mp4 was deleted by retention" in sidecar.read_text()
-    assert "artifact.pruned" in _types(tmp_path, video["id"])
     assert all(f.exists() for f in files[keep["id"]])  # 0 keeps files forever
