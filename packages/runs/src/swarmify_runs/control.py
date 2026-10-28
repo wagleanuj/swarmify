@@ -206,8 +206,9 @@ class RunControl:
         differently by now is refused, so what posts is what was confirmed.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
-        send-back target is not an earlier stage, on the third send-back, or when someone
-        else already answered this gate, and ValueError when a pick gate gets no choice or
+        send-back target is not an earlier stage, on the third send-back, when someone
+        else already answered this gate, or when the publish stage after it has problems
+        (send back or abort instead), and ValueError when a pick gate gets no choice or
         the artifact is not one of this run's before the gate, or when an edited title or
         description is refused (or the next stage does not publish), or the schedule moved.
         """
@@ -241,8 +242,9 @@ class RunControl:
         shown = None if send_back_to else self.preview_after(run, index, edits)
         if edits and shown is None:
             raise ValueError("only a gate before a publish stage takes a title or description")
-        if edits and shown and shown.problems:
-            raise ValueError("; ".join(shown.problems))
+        if shown and shown.problems:
+            # Going on would only fail at publish: an edit is bad input, else the stage is broken.
+            raise (ValueError if edits else Illegal)("; ".join(shown.problems))
         if shown and schedule is not ... and schedule != shown.schedule:
             raise ValueError(
                 f"the schedule changed since the gate was shown, to {shown.schedule or 'now'}:"

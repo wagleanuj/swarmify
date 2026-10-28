@@ -278,7 +278,7 @@ function GateCard({
           )}
           {gate.kind === "approve" && !sendBack && (
             <>
-              <button type="submit" className="primary" disabled={busy}>
+              <button type="submit" className="primary" disabled={busy || blocked}>
                 Approve
               </button>
               {gate.send_backs_left > 0 && gate.earlier_stages.length > 0 ? (

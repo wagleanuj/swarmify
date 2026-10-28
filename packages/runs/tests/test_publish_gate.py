@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from runs_fakes import FakeConnector, FakeNotifier, wait_for
-from swarmify_runs import PublishPreview, Run, Runner, SqliteStorage, StageDef
+from swarmify_runs import Illegal, PublishPreview, Run, Runner, SqliteStorage, StageDef
 
 CONFIRM = StageDef("confirm", "gate", {"ask": "Post it?", "kind": "confirm"})
 PUBLISH = StageDef("publish", "connector", {"calls": "youtube", "params": {"title": "Hooks"}})
@@ -134,4 +134,22 @@ def test_the_runner_refuses_a_publish_stage_no_gate_precedes(
     assert failed is not None
     error = failed.stages[-1].error or ""
     assert "calls a publish connector, so it runs only right after an answered gate" in error
+    assert "publish" not in [name for _, name in connector.calls]
+
+
+@pytest.mark.parametrize("kind", ["approve", "confirm"])
+def test_a_gate_before_a_broken_publish_stage_refuses_to_go_on(
+    runner: Runner, connector: FakeConnector, kind: str
+) -> None:
+    gate = StageDef("check", "gate", {"ask": "Good?", "kind": kind})
+    broken = StageDef("publish", "connector", {"calls": "youtube", "params": {"title": ""}})
+    run = runner.start("world_1", "wf_1", 1, "Weekly short", [RENDER, gate, broken])
+    wait_for(lambda: status(runner, run.id) == "waiting_gate")
+    with pytest.raises(Illegal, match="needs params.title"):
+        runner.decide(run.id)
+    assert status(runner, run.id) == "waiting_gate"
+    assert runner.get(run.id).decisions == []  # type: ignore[union-attr]
+    if kind == "approve":  # sending back still works: the earlier stage can fix it
+        runner.decide(run.id, send_back_to="render")
+        wait_for(lambda: status(runner, run.id) == "waiting_gate")
     assert "publish" not in [name for _, name in connector.calls]
