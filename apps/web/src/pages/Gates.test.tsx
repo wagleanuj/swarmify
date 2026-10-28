@@ -142,7 +142,9 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   await out.getByLabelText("Description").fill("Edited.");
   await card.getByRole("button", { name: "Confirm and post" }).click();
   await vi.waitFor(() =>
-    expect(bodies).toEqual([{ note: "", title: "Five better hooks", description: "Edited." }]),
+    expect(bodies).toEqual([
+      { note: "", title: "Five better hooks", description: "Edited.", schedule: "2099-01-01T09:00:00Z" },
+    ]),
   );
 
   const broken = screen.getByTestId("gate-run_2");

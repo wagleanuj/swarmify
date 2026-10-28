@@ -307,9 +307,11 @@ The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `
 and the `gate.opened` event): connector, title, description, visibility, schedule, video,
 platforms, made_for_kids and any `problems` that would stop the post. The gates inbox shows it
 under the ask, with the title and description editable, and disables "Confirm and post" while
-there are problems. Answering the gate (`POST /api/runs/{id}/decision`, optionally with `title`
-and `description`) records the title, description and resolved schedule in the decision (its
-`publish` field and `decision.md`), refusing an edit that would stop the post; the publish stage
+there are problems. Answering the gate (`POST /api/runs/{id}/decision`, optionally with `title`,
+`description` and the `schedule` it showed) records the title, description and resolved schedule
+in the decision (its `publish` field and `decision.md`), refusing an edit that would stop the post
+and a relative schedule that resolves to another time by now (shown at 08:58, `09:00` is today;
+confirmed at 09:01 it would be tomorrow), which the inbox then shows again; the publish stage
 sends exactly those values. A publish call is attempted at most once per stage: a call
 interrupted by a crash is never repeated, it fails the stage asking you to check the platform.
 After the call, `publish.md` (type `publish`, with `links`, `status` and the video or job `id` in

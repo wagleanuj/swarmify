@@ -210,7 +210,9 @@ def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_
     assert refused.status_code == 422 and "the limit is 100" in refused.json()["detail"]
     transport.outputs["youtube"] = [{"video_id": "v", "url": "https://youtu.be/v"}]
     edited = {"title": "Owls, explained", "description": "Edited."}
-    assert running.post(url, json=edited).status_code == 200
+    moved = running.post(url, json={**edited, "schedule": "2099-01-01T09:00:00Z"})
+    assert moved.status_code == 422 and "the schedule changed" in moved.json()["detail"]
+    assert running.post(url, json={**edited, "schedule": shown["schedule"]}).status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
 
     _, _, args, _ = transport.calls[-1]

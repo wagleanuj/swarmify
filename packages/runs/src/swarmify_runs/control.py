@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import EllipsisType
 from typing import Any
 
 from dbos import DBOSClient
@@ -193,6 +194,7 @@ class RunControl:
         artifact: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        schedule: str | None | EllipsisType = ...,
     ) -> Run:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
         A skill gate takes only the answer of its proposal (`proposal=True`, from Learning).
@@ -200,12 +202,14 @@ class RunControl:
         must come from a stage before the gate, and a pick with no `choice` takes its title.
         Before a publish stage, `title` and `description` replace what the gate showed, and the
         values that will go out (the schedule resolved now) are recorded with the decision.
+        `schedule` is the one the gate showed (None for now); a relative schedule that resolves
+        differently by now is refused, so what posts is what was confirmed.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
         send-back target is not an earlier stage, on the third send-back, or when someone
         else already answered this gate, and ValueError when a pick gate gets no choice or
         the artifact is not one of this run's before the gate, or when an edited title or
-        description is refused (or the next stage does not publish).
+        description is refused (or the next stage does not publish), or the schedule moved.
         """
         run = self._run(run_id)
         if run.over_budget:
@@ -239,6 +243,11 @@ class RunControl:
             raise ValueError("only a gate before a publish stage takes a title or description")
         if edits and shown and shown.problems:
             raise ValueError("; ".join(shown.problems))
+        if shown and schedule is not ... and schedule != shown.schedule:
+            raise ValueError(
+                f"the schedule changed since the gate was shown, to {shown.schedule or 'now'}:"
+                " check it and confirm again"
+            )
         decision = Decision(
             new_id("dec"),
             index,

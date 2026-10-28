@@ -152,6 +152,8 @@ function GateCard({
     if (gate.publish && !sendBack) {
       body.title = String(fields.get("title") ?? "");
       body.description = String(fields.get("description") ?? "");
+      // The schedule shown; a relative one that moved since is refused and shown again.
+      body.schedule = gate.publish.schedule ?? null;
     }
     setBusy(true);
     await onAnswer(gate, () => decide(gate.run_id, body));

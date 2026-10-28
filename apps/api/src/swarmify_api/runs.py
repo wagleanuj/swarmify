@@ -83,6 +83,9 @@ class Decide(BaseModel):
     description: str | None = Field(default=None, max_length=5_000)
     """At a gate before a publish stage: the title and description to post instead of what the
     gate showed. The values posted are recorded with the decision."""
+    schedule: str | None = Field(default=None, max_length=100)
+    """At a gate before a publish stage: the schedule the gate showed (null for now). When sent,
+    a relative schedule that resolves to another time by now is refused with 422."""
 
 
 class Fork(BaseModel):
@@ -328,6 +331,8 @@ def router(
                 artifact=body.artifact,
                 title=body.title,
                 description=body.description,
+                # Absent means unchecked; null is the "post now" the gate showed.
+                schedule=body.schedule if "schedule" in body.model_fields_set else ...,
             )
         )
 

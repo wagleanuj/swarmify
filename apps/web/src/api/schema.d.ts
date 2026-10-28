@@ -1498,6 +1498,8 @@ export interface components {
             title?: string | null;
             /** Description */
             description?: string | null;
+            /** Schedule */
+            schedule?: string | null;
         };
         /**
          * DecideProposal
