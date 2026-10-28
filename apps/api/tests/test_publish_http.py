@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from swarmify_connectors import FakeTransport
+from swarmify_connectors import ConnectorError, FakeTransport
 
 KEYS = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
 MAKER = {
@@ -85,12 +85,26 @@ def test_built_in_publish_connectors_take_their_keys_and_never_return_them(
     url = "/api/connectors/builtin_youtube/credentials"
     saved = client.put(url, json={"credentials": KEYS})
     assert saved.status_code == 200 and saved.json()["missing"] == []
-    assert set(saved.json()) == set(listed["youtube"])  # names and status, never values
+    assert set(saved.json()) == {*listed["youtube"], "check"}  # names and status, never values
     assert "YOUTUBE_REFRESH_TOKEN=r" in (tmp_path / ".env").read_text()
     foreign = client.put(url, json={"credentials": {"FAL_KEY": "k"}})
     assert foreign.status_code == 422 and "does not use FAL_KEY" in foreign.json()["detail"]
     unknown = client.put("/api/connectors/nope/credentials", json={"credentials": KEYS})
     assert unknown.status_code == 404
+
+
+def test_saving_a_builtins_keys_answers_its_live_check_and_a_failure_still_saves(
+    client: TestClient, transport: FakeTransport, tmp_path: Path
+) -> None:
+    url = "/api/connectors/builtin_youtube/credentials"
+    transport.outputs["channel"] = [{"channel": "Hooks Daily"}]
+    saved = client.put(url, json={"credentials": KEYS}).json()
+    assert saved["check"] == {"ok": True, "message": "Posts to the YouTube channel Hooks Daily."}
+    transport.outputs["channel"] = [ConnectorError("refreshing the YouTube token failed (400)")]
+    bad = {**KEYS, "YOUTUBE_REFRESH_TOKEN": "stale"}
+    saved = client.put(url, json={"credentials": bad}).json()
+    assert saved["check"] == {"ok": False, "message": "refreshing the YouTube token failed (400)"}
+    assert "YOUTUBE_REFRESH_TOKEN=stale" in (tmp_path / ".env").read_text()
 
 
 def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
@@ -113,7 +127,7 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
         "made_for_kids": False,
         "problems": [],
     }
-    assert [c[0] for c in transport.calls] == ["maker"]
+    assert [c[1] for c in transport.calls] == ["channel", "maker"]  # the key check, the render
 
     transport.outputs["youtube"] = [
         {"video_id": "vid1", "url": "https://youtu.be/vid1", "publish_at": "2099-01-01T09:00:00Z"}

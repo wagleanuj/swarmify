@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, StringConstraints
 
-from swarmify_connectors import Call, Connector, ConnectorError, Connectors, Tool
+from swarmify_connectors import Call, Connector, ConnectorError, Connectors, KeyCheck, Tool
 from swarmify_worlds import Worlds
 
 
@@ -37,6 +37,12 @@ class ConnectorView(BaseModel):
     created_at: str | None
     missing: list[str]
     """Credential names the credentials file does not hold yet."""
+
+
+class SavedKeys(ConnectorView):
+    check: KeyCheck | None
+    """The live check of a built-in's keys once all are saved (the account they sign in to, or
+    why they failed; the keys are saved either way). None for a connector without a check."""
 
 
 class Tested(BaseModel):
@@ -106,16 +112,17 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
         return Response(status_code=204)
 
     @api.put("/connectors/{connector_id}/credentials")
-    def set_credentials(connector_id: str, body: CredentialValues) -> ConnectorView:
-        """Store a connector's keys in the credentials file; how built-ins get theirs."""
+    def set_credentials(connector_id: str, body: CredentialValues) -> SavedKeys:
+        """Store a connector's keys in the credentials file, shared by every world; how
+        built-ins get theirs. A built-in publish connector's keys are then checked live."""
         found = connectors.get(connector_id)
         if found is None:
             raise HTTPException(404, "connector not found")
         try:
-            connectors.set_credentials(found, body.credentials)
+            check = connectors.set_credentials(found, body.credentials)
         except (ValueError, PermissionError) as exc:
             raise HTTPException(422, str(exc)) from exc
-        return view(found)
+        return SavedKeys(**view(found).model_dump(), check=check)
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

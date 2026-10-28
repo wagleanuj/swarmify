@@ -237,10 +237,19 @@ workflow or an API response. A command connector gets exactly its own credential
 environment, merged over the MCP SDK's safe defaults (HOME, PATH, USER, SHELL, TERM, LOGNAME); a
 URL connector gets them as request headers of the same name.
 
+The file is shared by every world: keys saved on one world's connectors page are the keys every
+world uses, so two worlds cannot post to different YouTube channels yet, and the page says so.
+
 - `GET /api/worlds/<id>/connectors` lists built-ins first, each with the credential names still
   `missing` from the file. `PUT /api/connectors/<id>/credentials` (`{"credentials": {NAME:
   value}}`) stores keys for a connector's own names, which is how built-ins get theirs; the
-  connectors page has an "Add keys" form per connector.
+  connectors page has an "Add keys" form per connector. Once all of `youtube`'s or
+  `upload_post`'s keys are saved, the same request checks them live and answers `check`
+  (`{"ok": ..., "message": ...}`): `youtube` refreshes its token and reads `channels.list`
+  (mine, 1 quota unit) through its `channel` tool, naming the channel; `upload_post` calls
+  Upload-Post's `get_account_info`, naming the account. A failing check still saves the keys and
+  the page warns, so a bad refresh token shows then rather than at publish. `check` is null for
+  any other connector.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors` saves it and merges the given credential
   values into the file (an empty value means the file already has it). `DELETE
