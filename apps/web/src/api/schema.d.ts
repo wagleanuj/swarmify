@@ -147,6 +147,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * All Events
+         * @description Server-sent events for every world, for views that span worlds such as the gates
+         *     inbox. One stream instead of one per world: browsers cap HTTP/1.1 connections per host
+         *     at six, and a stream per world held every slot once there were six worlds.
+         */
+        get: operations["all_events_api_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/workflows": {
         parameters: {
             query?: never;
@@ -2781,6 +2803,35 @@ export interface operations {
             path: {
                 world_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    all_events_api_events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "last-event-id"?: number;
+            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
