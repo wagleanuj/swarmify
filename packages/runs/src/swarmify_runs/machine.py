@@ -172,6 +172,7 @@ def transition(
             _require(_at(stages, i) == "waiting", f"stage {i} is not waiting")
             _require(not state.over_budget, "the run waits for money, not a decision")
             _require(0 <= to < i, f"send back must name a stage before {i}")
+            _require("failed" not in stages, "a failed run cannot be sent back")
             _require(
                 state.send_backs < MAX_SEND_BACKS,
                 f"already sent back {MAX_SEND_BACKS} times; approve or abort",
@@ -182,7 +183,14 @@ def transition(
         case StageFailed(i):
             _require(_at(stages, i) == "running", f"stage {i} is not running")
             stages[i] = "failed"
-            return replace(state, status="failed", stages=tuple(stages)), []
+            retro = next((j for j in range(i + 1, len(kinds)) if kinds[j] == "retro"), None)
+            if retro is None:
+                return replace(state, status="failed", stages=tuple(stages)), []
+            # A failed run still gets its retro, failures having the most to teach; the stages
+            # in between are skipped and the run ends failed once the retro settles.
+            for j in range(i + 1, len(stages)):
+                stages[j] = "pending" if j == retro else "skipped"
+            return _settle(kinds, state, stages)
         case BudgetSpent(i):
             _require(_at(stages, i) == "running", f"stage {i} is not running")
             stages[i] = "waiting"
@@ -230,7 +238,7 @@ def _settle(
 def _advance(kinds: tuple[str, ...], state: RunState) -> tuple[RunState, list[Command]]:
     """Activate the first pending stage, or finish the run when none is left."""
     if "pending" not in state.stages:
-        return replace(state, status="done"), []
+        return replace(state, status="failed" if "failed" in state.stages else "done"), []
     i = state.stages.index("pending")
     stages = list(state.stages)
     if kinds[i] == "gate":

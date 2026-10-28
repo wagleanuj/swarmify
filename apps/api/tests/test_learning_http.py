@@ -15,7 +15,7 @@ from swarmify_api.main import create_app
 from swarmify_connectors import FakeTransport
 from swarmify_memory import FakeGraphIndex
 from swarmify_swarm import SdkRuntime, tool_id
-from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
+from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script
 
 RESEARCH = """name: Research
 stages:
@@ -235,6 +235,29 @@ def test_a_rejection_records_why_and_a_baseline_run_has_no_retro(
     ad_hoc = running.post(f"/api/worlds/{world}/runs", json={"goal": "Find hooks."}).json()
     assert [s["type"] for s in ad_hoc["stages"]] == ["swarm", "retro"]
     assert running.post(f"/api/runs/{ad_hoc['id']}/abort").status_code == 200
+
+
+def test_a_failed_run_still_runs_its_retro_which_sees_the_failure_and_can_propose(
+    running: TestClient, script: Script
+) -> None:
+    # The worker's session dies, and so does the one resuming it: the swarm stage fails.
+    script.scripts = [PLAN, [Call(tool_id("claim_task")), Die()], [Die()], [Answer(PROPOSAL)]]
+    _, workflow = setup(running)
+    run = running.post(f"/api/workflows/{workflow}/runs", json={}).json()
+    waiting = at_gate(running, run["id"], "retro")
+    assert [s["status"] for s in waiting["stages"]] == ["failed", "skipped", "waiting"]
+    error = waiting["stages"][0]["error"]
+    assert error, "the failure reason stays on the failed stage"
+    retro_prompt = script.prompts[-1]
+    assert "which ended failed" in retro_prompt and f"research failed: {error}" in retro_prompt
+    assert "worker-1 denied mcp__swarmify__claim_task: Query the graph first" in retro_prompt
+    assert "worker-1 error: The session died" in retro_prompt
+    proposal = running.get(f"/api/runs/{run['id']}/proposal").json()
+    assert proposal["skill"]["name"] == "hooks"
+    rejected = running.post(f"/api/proposals/{proposal['id']}/decide", json={"approve": False})
+    assert rejected.status_code == 200
+    until(lambda: get(running, run["id"])["status"] == "failed")
+    assert [s["status"] for s in get(running, run["id"])["stages"]] == ["failed", "skipped", "done"]
 
 
 def test_a_library_artifact_becomes_a_skill_draft_the_operator_saves(

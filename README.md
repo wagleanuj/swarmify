@@ -572,6 +572,11 @@ costed against the Budget and resumable like any agent (named `retro`). A propos
 `artifacts/proposal.md` of the retro stage (type `skill_proposal`, in the Library) and the stage
 waits at a gate of kind `skill`; a quiet retro just finishes the run.
 
+A run that fails (not one aborted) still runs its Retro, since failed runs have the most to teach:
+the stages between the failed one and the Retro are skipped, the Retro reads the failed stage's
+error and the last 30 lines of its log, and the run ends failed once the Retro finishes or its
+proposal is decided.
+
 - `GET /api/runs/<id>/proposal` is what the gate shows; `POST /api/proposals/<id>/decide` with
   `{"approve", "content", "apply_workflow", "note"}` approves it (writing `content`, the SKILL.md
   as edited, as the next version of the world's skill) or rejects it with `note` as why, then
