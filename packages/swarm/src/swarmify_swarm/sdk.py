@@ -49,6 +49,11 @@ def step_cost(usage: dict[str, Any] | None) -> float:
     return sum(float((usage or {}).get(k) or 0) * p for k, p in PRICE_PER_MTOK.items()) / 1e6
 
 
+HARNESS = ("StructuredOutput", "ToolSearch")
+"""CLI mechanics every session needs whatever its allowlist: StructuredOutput delivers an
+`output_format` answer and ToolSearch loads a deferred tool's schema. Denying either leaves the
+session with no usable answer."""
+
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
 """Builds the SDK `Transport` for a session from its options (the SDK's own test seam)."""
 
@@ -65,6 +70,8 @@ def _sdk_tool(spec: AgentTool) -> Any:
 
 def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) -> ClaudeAgentOptions:
     async def pre_tool(data: Any, _tool_use_id: str | None, _context: Any) -> Any:
+        if data["tool_name"] in HARNESS:
+            return {}
         reason = hooks.before_tool(data["tool_name"], data.get("tool_input") or {})
         if reason is None:
             return {}
@@ -84,7 +91,7 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
         system_prompt=spec.system_prompt,
         cwd=spec.cwd,
         mcp_servers=servers,
-        allowed_tools=list(spec.allowed),
+        allowed_tools=[*spec.allowed, *HARNESS],
         permission_mode="dontAsk",
         setting_sources=[],
         plugins=[{"type": "local", "path": str(spec.plugin)}],

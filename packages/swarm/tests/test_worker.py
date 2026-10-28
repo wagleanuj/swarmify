@@ -22,6 +22,7 @@ from swarmify_swarm import (
 )
 from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script, Step
 from swarmify_swarm.projection import PLAN_SCHEMA
+from swarmify_swarm.sdk import HARNESS
 
 W, R, S = "world_1", "run_1", "stage_1"
 STAGE = {"goal": "Find 5 ideas.", "done_when": "5 ideas ranked", "tools": []}
@@ -314,6 +315,7 @@ def test_tools_outside_the_stage_allowlist_are_denied(board: SqliteStorage, tmp_
     script = Script(
         [
             Call("Bash", {"command": "rm -rf /"}),
+            Call("ToolSearch", {"query": "select:mcp__swarmify__query_graph"}),
             Call("WebSearch", {"query": "shorts"}),
             Call("mcp__fal__run", {"prompt": "a cat"}),
             Call("mcp__youtube__upload", {}),
@@ -342,6 +344,8 @@ def test_tools_outside_the_stage_allowlist_are_denied(board: SqliteStorage, tmp_
     assert options.permission_mode == "dontAsk"
     judge = script.sessions[1]
     assert "WebSearch" not in judge.allowed_tools and "fal" not in judge.mcp_servers  # type: ignore[operator]
+    # CLI mechanics pass whatever the allowlist: denying them left planners with no answer.
+    assert all(t in judge.allowed_tools for t in HARNESS)
 
 
 def test_world_skills_load_as_a_plugin_without_host_settings(

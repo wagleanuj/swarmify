@@ -35,11 +35,21 @@ def append(conn: sqlite3.Connection, event: Event) -> Event:
     return replace(event, seq=cur.lastrowid)
 
 
-def read_after(conn: sqlite3.Connection, world_id: str, after_seq: int) -> list[Event]:
+def read_after(conn: sqlite3.Connection, world_id: str | None, after_seq: int) -> list[Event]:
+    """Events after `after_seq` in order: one world's, or every world's when `world_id` is None.
+    `seq` is one counter across worlds, so either stream resumes from a single Last-Event-ID."""
+    where, args = (
+        ("seq > ?", (after_seq,))
+        if world_id is None
+        else (
+            "world_id = ? AND seq > ?",
+            (world_id, after_seq),
+        )
+    )
     rows = conn.execute(
         "SELECT seq, id, world_id, run_id, ts, type, payload FROM events"
-        " WHERE world_id = ? AND seq > ? ORDER BY seq",
-        (world_id, after_seq),
+        f" WHERE {where} ORDER BY seq",
+        args,
     ).fetchall()
     return [
         Event(

@@ -15,9 +15,11 @@ EVERY_SECOND = "* * * * * *"
 
 
 def pin(workflow_id: str, number: int | None = None) -> Pinned:
-    if workflow_id != "wf_1":
+    if workflow_id not in ("wf_1", "wf_dropped"):
         raise KeyError(workflow_id)
-    return Pinned("world_1", "wf_1", 2, "Weekly short", [PICK], budget_usd=5.0)
+    # wf_dropped's current version no longer has a schedule, but DBOS still holds the old cron.
+    cron = None if workflow_id == "wf_dropped" else EVERY_SECOND
+    return Pinned("world_1", workflow_id, 2, "Weekly short", [PICK], budget_usd=5.0, schedule=cron)
 
 
 @pytest.fixture
@@ -53,6 +55,12 @@ def test_a_schedule_starts_runs_of_the_current_version_until_removed(runner: Run
 
 def test_a_fired_schedule_for_a_deleted_workflow_starts_nothing(runner: Runner) -> None:
     runner.schedule("wf_gone", EVERY_SECOND)
+    time.sleep(2.5)
+    assert runner.list_all("world_1") == []
+
+
+def test_a_tick_after_the_version_dropped_its_schedule_starts_nothing(runner: Runner) -> None:
+    runner.schedule("wf_dropped", EVERY_SECOND)
     time.sleep(2.5)
     assert runner.list_all("world_1") == []
 

@@ -366,6 +366,13 @@ def _start_scheduled(workflow_id: str, fired_at: str) -> tuple[str, str] | None:
     except KeyError:
         log.warning("schedule fired for %s at %s, but it no longer exists", workflow_id, fired_at)
         return None
+    if pinned.schedule is None:
+        # DBOS learns of a dropped schedule only at its next poll; a tick in that gap would
+        # start a run of a version that has no schedule.
+        log.info(
+            "schedule fired for %s at %s, but its current version has none", workflow_id, fired_at
+        )
+        return None
     now = datetime.now(UTC).isoformat()
     run = Run(
         new_id("run"), pinned.world_id, pinned.workflow_id, pinned.version, pinned.name,

@@ -36,6 +36,8 @@ class Pinned:
     stages: list[StageDef]
     budget_usd: float | None = None
     """The workflow's default Budget."""
+    schedule: str | None = None
+    """The version's cron, if any: a tick that fires after the schedule was dropped finds None."""
 
 
 @dataclass(frozen=True)

@@ -129,6 +129,7 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
             workflow.name,
             stages,
             version.model.budget_usd,
+            version.model.schedule,
         )
 
     return pin

@@ -160,5 +160,5 @@ class Worlds:
         self.storage.add_cast_edit(world_id, edit, event)
         return member
 
-    def events_after(self, world_id: str, after_seq: int = 0) -> list[Event]:
+    def events_after(self, world_id: str | None, after_seq: int = 0) -> list[Event]:
         return self.storage.events_after(world_id, after_seq)

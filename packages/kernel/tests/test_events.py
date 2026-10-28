@@ -25,3 +25,4 @@ def test_append_assigns_sequence_and_read_after_filters_by_world(tmp_path: Path)
     assert events[0] == a and events[1].run_id == "r1"
     assert read_after(conn, "w1", after_seq=1) == [b]
     assert read_after(conn, "w1", after_seq=2) == []
+    assert [e.seq for e in read_after(conn, None, after_seq=1)] == [2, 3]  # every world
