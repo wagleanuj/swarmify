@@ -64,12 +64,15 @@ def test_a_fail_always_names_gaps_and_a_pass_never_does() -> None:
                     "title": "T",
                     "body": "B",
                     "rank": "1",
+                    "reason": " Strongest hook. ",
                     "sources": [{"note": "n", "paragraph": "2"}, {"note": "n", "paragraph": 2}],
                 }
             ],
         }
     )
-    assert ok.gaps == [] and ok.items == [Item("T", "B", None, {}, [Source("n", 2)])]
+    assert ok.gaps == [] and ok.items == [
+        Item("T", "B", None, {}, [Source("n", 2)], "Strongest hook.")
+    ]
     for bad in (None, {"passed": "yes", "reasons": ["r"]}, {"passed": True, "reasons": []}):
         with pytest.raises(ValueError):
             parse_verdict(bad)
@@ -87,7 +90,12 @@ NOTES = [("runs/r/s/notes/a.md", "One.\n\nTwo."), ("runs/r/s/notes/b.md", "Three
 def test_projection_writes_typed_files_with_valid_sources_only() -> None:
     items = [
         Item(
-            "Same", "x", 2, {"hook": "h"}, [Source("runs/r/s/notes/a.md", 2), Source("nope.md", 1)]
+            "Same",
+            "x",
+            2,
+            {"hook": "h"},
+            [Source("runs/r/s/notes/a.md", 2), Source("nope.md", 1)],
+            "Second: a weaker hook.",
         ),
         Item(
             "Same", "y", 1, {}, [Source("runs/r/s/notes/b.md", 1), Source("runs/r/s/notes/b.md", 2)]
@@ -99,8 +107,10 @@ def test_projection_writes_typed_files_with_valid_sources_only() -> None:
         "hook": "h",
         "title": "Same",
         "rank": 2,
+        "reason": "Second: a weaker hook.",
         "sources": ["runs/r/s/notes/a.md#p2"],
     }
+    assert "reason" not in second.fields  # none given
     assert 'runs/r/s/notes/a.md paragraph 2: "Two."' in first.body and "**hook**: h" in first.body
     assert second.fields["sources"] == ["runs/r/s/notes/b.md#p1"]
     (only,) = project(OutputType("document", False), items, NOTES)

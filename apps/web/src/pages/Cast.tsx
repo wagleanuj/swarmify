@@ -12,6 +12,7 @@ type World = components["schemas"]["World"];
 type Member = components["schemas"]["CastMember"];
 type Version = components["schemas"]["CastEdit"];
 type Skill = components["schemas"]["Skill"];
+type SkillVersion = components["schemas"]["SkillVersion"];
 
 const ROLE: Record<string, string> = {
   planner: "seeds every whiteboard",
@@ -55,6 +56,7 @@ export function Cast() {
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[] | null | undefined>(undefined);
+  const [skillHistory, setSkillHistory] = useState<{ name: string; versions: SkillVersion[] } | null>(null);
   const models = useModels();
   const [roleModels, setRoleModels] = useState<Record<RoleModel, string>>({
     planner_model: "",
@@ -140,6 +142,34 @@ export function Cast() {
     }
     showWorld(data);
     setSaid("Models saved. They apply from the next stage on.");
+  }
+
+  async function showSkillHistory(name: string) {
+    const { data } = await api.GET("/api/worlds/{world_id}/skills/{name}/versions", {
+      params: { path: { world_id: worldId, name } },
+    });
+    if (data) setSkillHistory({ name, versions: data });
+  }
+
+  /** A rollback is a new version with the old content, so the history keeps every step. */
+  async function restore(v: SkillVersion, next: number) {
+    if (!window.confirm(`Restore v${v.number} of ${v.name} as v${next}? Every stage that starts from now on loads it.`)) return;
+    setBusy(true);
+    setError(null);
+    setSaid(null);
+    const { data, error } = await api.POST("/api/worlds/{world_id}/skills", {
+      ...path,
+      body: { name: v.name, content: v.content, note: `Restored v${v.number}.` },
+    });
+    setBusy(false);
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      setError(typeof detail === "string" ? `Not restored: ${detail}.` : "Not restored. Try again.");
+      return;
+    }
+    setSkills((prev) => (prev ?? []).map((sk) => (sk.name === data.name ? data : sk)));
+    setSaid(`Restored v${v.number} of ${v.name} as v${data.version ?? next}.`);
+    void showSkillHistory(v.name);
   }
 
   async function showHistory(name: string) {
@@ -330,6 +360,41 @@ export function Cast() {
                     </>
                   )}
                 </span>
+                {sk.source === "world" && sk.version !== null && (
+                  <span className="row">
+                    <button
+                      type="button"
+                      onClick={() => (skillHistory?.name === sk.name ? setSkillHistory(null) : void showSkillHistory(sk.name))}
+                      aria-label={`History of skill ${sk.name}`}
+                    >
+                      {skillHistory?.name === sk.name ? "Hide history" : "History"}
+                    </button>
+                  </span>
+                )}
+                {skillHistory?.name === sk.name && sk.version !== null && (
+                  <ol className="versions" data-testid="skill-history">
+                    {skillHistory.versions.map((v) => (
+                      <li key={v.number}>
+                        <span>
+                          v{v.number}, {new Date(v.created_at).toLocaleDateString()}
+                        </span>
+                        <span className="faint">
+                          {v.retired ? "retired" : v.run_id ? `from run ${v.run_id.slice(-6)}` : "written by you"}
+                          {v.note && ` · ${v.note}`}
+                        </span>
+                        {v.number === sk.version ? (
+                          <span className="chip">current</span>
+                        ) : (
+                          !v.retired && (
+                            <button type="button" disabled={busy} onClick={() => void restore(v, (skillHistory.versions.at(-1)?.number ?? 0) + 1)}>
+                              Restore v{v.number}
+                            </button>
+                          )
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </li>
             ))}
           </ul>

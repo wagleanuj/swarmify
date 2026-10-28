@@ -529,7 +529,8 @@ class Swarm:
             shape = f"items of type {kind.type}" if kind.many else f"exactly one {kind.type}"
             output = (
                 f"On pass, return the stage's output as {shape}, ranked from 1 (best), each"
-                " citing the note paragraphs it comes from by note path and paragraph number."
+                " with a short reason for its rank, citing the note paragraphs it comes from"
+                " by note path and paragraph number."
                 + (" Put an idea's hook and why in fields." if kind.type == "idea" else "")
             )
         prompt = "\n".join(
@@ -586,6 +587,7 @@ class Swarm:
                 i.get("rank"),
                 i.get("fields") or {},
                 [Source(s["note"], s["paragraph"]) for s in i.get("sources") or []],
+                i.get("reason") or "",
             )
             for i in verdict.items
         ]

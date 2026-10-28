@@ -53,3 +53,36 @@ test("a load failure is an alert", async () => {
   const { screen } = await mountAt("/worlds/world_1/runs");
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load runs/);
 });
+
+test("filters by workflow, ad hoc and status, and shows how long each run took", async () => {
+  const at = (minute: number) => `2026-10-26T10:0${minute}:00+00:00`;
+  const timed = shared(0, "s0", "swarm", "done", { started_at: at(0), ended_at: at(2) });
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () =>
+      Response.json([
+        { id: "wf_1", world_id: "world_1", name: "Render then pick", current_version: 2, created_at: ts },
+        { id: "wf_2", world_id: "world_1", name: "Weekly", current_version: 1, created_at: ts },
+      ]),
+    "GET /api/worlds/world_1/runs": () =>
+      Response.json([
+        run("running", [stage(0, "running")], { id: "run_3", name: "Weekly run", workflow_id: "wf_2" }),
+        run("failed", [stage(0, "failed")], { id: "run_2", name: "Hooks", workflow_id: null, workflow_version: null }),
+        run("done", [timed]),
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  const list = screen.getByTestId("run-list");
+  await expect.element(list).toMatchTextContent(/Render then pick\s*done.*took 2 min/);
+  const names = () => [...list.element().querySelectorAll("li > a")].map((a) => a.textContent);
+
+  await screen.getByRole("combobox", { name: "Workflow" }).selectOptions("Weekly");
+  await expect.poll(names).toEqual(["Weekly run"]);
+  await screen.getByRole("combobox", { name: "Workflow" }).selectOptions("Ad hoc");
+  await expect.poll(names).toEqual(["Hooks"]);
+  await screen.getByRole("combobox", { name: "Workflow" }).selectOptions("All workflows");
+  await screen.getByRole("combobox", { name: "Status" }).selectOptions("done");
+  await expect.poll(names).toEqual(["Render then pick"]);
+  await screen.getByRole("combobox", { name: "Workflow" }).selectOptions("Weekly");
+  await expect.element(screen.getByTestId("no-match")).toMatchTextContent(/No runs match/);
+});

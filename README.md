@@ -109,11 +109,17 @@ world".
 ## Runs
 
 `POST /api/workflows/<id>/runs` (body `{"version": n}` optional, the current version otherwise)
-starts a run pinned to that version. `POST /api/worlds/<id>/runs` with `{"goal": "..."}` (optional
+starts a run pinned to that version; optional `budget_usd` (see Budget and baseline) and `agents`
+(1 to 8 workers per swarm stage) override the workflow's. A run's worker count is `agents` in the
+start body, else the workflow's `agents`, else the world's agent count; each swarm stage carries it
+in its config, so forks and restarts keep it, and saving the run as a workflow writes it back as
+`agents`. The world overview starts a workflow's run with one click, taking the budget and worker
+fields above the list when filled. `POST /api/worlds/<id>/runs` with `{"goal": "..."}` (optional
 `done_when`, `budget_usd`, `baseline`) starts an Ad Hoc Run: one swarm stage on the typed goal
 with every connector of the world that swarm stages may use as its tools, no workflow pinned
 (`workflow_id` and `workflow_version` are null, the runs page says `ad hoc`), its notes feeding
-the world's graph like any run's. The world overview has the form. Each run is one DBOS workflow (ADR 0014) with the run id as
+the world's graph like any run's. The world overview has the form, its button "Run this goal"
+with an optional budget. Each run is one DBOS workflow (ADR 0014) with the run id as
 its workflow id and one DBOS step per side effect: load the run, save each new state, execute a
 stage. A crash or restart resumes at the last completed step, so a finished stage never runs again.
 Runs wait on their world's own DBOS queue, at most the world's run cap running at once (two by
@@ -129,7 +135,8 @@ A connector stage calls its connector (see Connectors below), a swarm stage runs
 Agents below), a gate waits for a person (see Gates below), and a workflow stage runs a child run
 (see Child runs below).
 `GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its
-stages and decisions.
+stages and decisions. The runs page filters by workflow (or ad hoc) and status, and shows each
+run's duration.
 
 ## Budget and baseline
 
@@ -528,7 +535,8 @@ session, replaced once like any other.
    Three gap loops are allowed: the fourth failed verdict fails the stage.
 4. **Project.** On a pass with an `output_type` (`idea`, or `list[idea]` for several), each item
    becomes `artifacts/<type>-<slug>.md` with frontmatter `type`, `author`, `run`, `stage`, `title`,
-   `rank`, its fields (an idea's `hook` and `why`) and `sources: ["<note path>#p<n>"]`, keeping only
+   `rank`, `reason` (why the judge ranked it so, shown on the pick card), its fields (an idea's
+   `hook` and `why`) and `sources: ["<note path>#p<n>"]`, keeping only
    references to a real paragraph of one of the stage's notes, quoted under Sources in the body
    (ADR 0011). A single type keeps the best ranked item.
 
@@ -639,7 +647,9 @@ proposal is decided.
   `source`, `version` and `run_id`; `GET .../skills/<name>/versions`). The shared folder
   `<data dir>/skills/<name>/SKILL.md` is read by every world: before agents start, each shared
   skill the world has not overridden is linked into the world's folder, so the plugin loads it
-  (ADR 0016) and a world skill of the same name wins. The cast page lists them.
+  (ADR 0016) and a world skill of the same name wins. The cast page lists them; a world skill's
+  History lists its versions, and Restore writes an older version's content as the next version
+  (`POST /api/worlds/<id>/skills` with note `Restored v<n>.`), so the rollback is in the history too.
 - Promote: the Library's "Make a skill..." turns any note or artifact into a SKILL.md draft
   (title as description, body as the procedure) you edit and save with
   `POST /api/worlds/<id>/skills` (`{"name", "content", "run_id", "note"}`), version 1 or the next.

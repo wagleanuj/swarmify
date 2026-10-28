@@ -337,3 +337,28 @@ def test_the_most_specific_model_wins_stage_then_role_then_world_then_global(
     assert [o.model for o in script.sessions] == ["claude-haiku-4-5"] * 3
     bad = running.patch(f"/api/worlds/{world}", json={"model": "two words"})
     assert bad.status_code == 422
+
+
+def test_the_workflow_agents_and_a_start_override_set_how_many_workers_run(
+    running: TestClient, script: Script
+) -> None:
+    world = _world(running)  # the world's cast has 4 workers
+    plan_two = [Answer({"tasks": [{"title": "Find hooks."}, {"title": "Find trends."}]})]
+    both = [GRAPH, CLAIM, NOTE, FINISH, CLAIM, FINISH, Say("Both done.")]
+
+    def workers(yaml: str, body: dict) -> list[str]:
+        script.scripts = [plan_two, both, PASS]
+        script.sessions.clear()
+        wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()
+        run = running.post(f"/api/workflows/{wf['workflow_id']}/runs", json=body).json()
+        assert _ended(running, run["id"])["status"] == "done"
+        # Saved as a workflow, the run's worker count is the workflow's `agents` again.
+        saved = running.post(f"/api/runs/{run['id']}/workflow", json={})
+        assert saved.status_code == 201 and saved.json()["model"]["agents"] == 1, saved.text
+        agents = running.get(f"/api/runs/{run['id']}/agents").json()
+        return sorted(a["name"] for a in agents if a["name"].startswith("worker"))
+
+    assert workers(RESEARCH.replace("stages:", "agents: 1\nstages:"), {}) == ["worker-1"]
+    assert workers(RESEARCH.replace("Research", "Other"), {"agents": 1}) == ["worker-1"]
+    too_many = running.post("/api/workflows/wf_nope/runs", json={"agents": 9})
+    assert too_many.status_code == 422
