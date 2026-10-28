@@ -499,7 +499,7 @@ def create_app(
     app.include_router(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
-    app.include_router(evals.router(world_svc, memory))
+    app.include_router(evals.router(world_svc, memory, swarm.runtime))
     tools = mcp.server(world_svc, workflow_svc, whiteboard, runner, on_delete)
     app.include_router(planner.router(world_svc, swarm.runtime, tools))
     if WEB_DIST.is_dir():

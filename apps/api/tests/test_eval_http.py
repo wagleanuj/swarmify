@@ -1,5 +1,6 @@
 """The eval harness at the API seam: real DBOS on SQLite, the real Agent SDK client with a
-scripted CLI behind its transport, fresh worlds per trial, and the report as an artifact."""
+scripted CLI behind its transport, fresh worlds per trial, the blind judge per pair, and the
+report as an artifact."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from swarmify_api.eval_harness import Settings, main, run_eval
 from swarmify_api.main import create_app
-from swarmify_learning.evals import TASKS
+from swarmify_learning.evals import TASKS, blind_order
 from swarmify_memory import FakeGraphIndex
 from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
@@ -35,6 +36,12 @@ PROPOSAL = {
     },
     "workflow": None,
 }
+
+
+def pick(arm: str | None, reason: str = "Sharper hook.") -> list:
+    """The judge's session, picking `arm` (None: a tie) by its blind label."""
+    better = "tie" if arm is None else "AB"[blind_order(TASK.id).index(arm)]
+    return [Answer({"better": better, "reason": reason})]
 
 
 def write(name: str, content: str) -> Call:
@@ -77,8 +84,16 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
     running: TestClient, script: Script
 ) -> None:
     assert running.get("/api/evals").json() == []
-    # trials in order: baseline 1, swarm 1, baseline 2 (its script is too short), swarm 2
-    script.scripts = [*baseline(), *swarm(), *baseline("Too short, espresso."), *swarm()]
+    # trials in order: baseline 1, swarm 1, the judge, baseline 2 (its script is too short),
+    # swarm 2, the judge
+    script.scripts = [
+        *baseline(),
+        *swarm(),
+        pick("swarm", "Fresher ideas."),
+        *baseline("Too short, espresso."),
+        *swarm(),
+        pick("baseline"),
+    ]
     script.cost = 0.1
     said: list[str] = []
     report = run_eval(running, [TASK], 2, FAST, say=said.append)
@@ -96,7 +111,17 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
     # two worker sessions a baseline; planner, worker and judge twice plus the retro a swarm
     assert [t["cost_usd"] for t in trials] == pytest.approx([0.2, 0.7, 0.2, 0.7])
     assert all(t["duration_s"] is not None for t in trials)
-    assert said[2] == f"{TASK.id} baseline 2: script.md is 3 words, not 60 to 200"
+    assert said[2] == f"{TASK.id} 1 judged: swarm: Fresher ideas."
+    assert said[3] == f"{TASK.id} baseline 2: script.md is 3 words, not 60 to 200"
+
+    # the judge saw both pairs' outputs, unlabelled; its A or B came back as the arm
+    judge_prompts = [p for p in script.prompts if "## A: ideas.md" in p]
+    assert len(judge_prompts) == 2 and "Too short, espresso." in judge_prompts[1]
+    assert all("baseline" not in p.lower() and "swarm" not in p.lower() for p in judge_prompts)
+    assert [(j["index"], j["winner"]) for j in report["judgements"]] == [
+        (0, "swarm"),
+        (1, "baseline"),
+    ]
 
     base, arm = report["arms"]
     assert (base["arm"], base["accepted"], base["pass_at_k"], base["pass_pow_k"]) == (
@@ -105,7 +130,11 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
     assert (arm["arm"], arm["accepted"], arm["pass_at_k"], arm["pass_pow_k"]) == (
         "swarm", 2, 1.0, 1.0,
     )  # fmt: skip
-    assert report["verdict"].startswith("The swarm ") and report["k"] == 2
+    assert (arm["wins"], arm["losses"], arm["ties"], base["wins"]) == (1, 1, 0, 1)
+    assert arm["cost_per_win"] == pytest.approx(1.4) and base["cost_per_win"] == pytest.approx(0.4)
+    assert not report["swarm_wins"], "one win of two decided pairs is not more than half"
+    assert report["verdict"].startswith("The swarm does not win: the blind judge preferred it in")
+    assert report["k"] == 2
 
     swarm_run = running.get(f"/api/runs/{trials[1]['run_id']}").json()
     assert [s["type"] for s in swarm_run["stages"]] == ["swarm", "swarm", "retro"]
@@ -119,13 +148,14 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
     (card,) = running.get(f"/api/worlds/{evals['id']}/library").json()
     assert (card["type"], card["name"], card["title"]) == ("eval", "report.md", report["verdict"])
     assert "| baseline | 2 | 50% | 100% | 0% | $0.20 |" in card["body"]
+    assert "| home-espresso | 1 | swarm | Fresher ideas. |" in card["body"]
 
 
 def test_a_spent_budget_aborts_the_trial_and_clean_removes_the_trial_worlds(
     running: TestClient, script: Script
 ) -> None:
     # every tool call's step costs $1.00 against a $0.50 Budget
-    script.scripts = [[CLAIM, write("ideas.md", IDEAS)], PLAN, [GRAPH, CLAIM]]
+    script.scripts = [[CLAIM, write("ideas.md", IDEAS)], PLAN, [GRAPH, CLAIM], pick(None)]
     script.usage, script.cost = {"input_tokens": 250_000}, 0.1
     cheap = Settings(budget_usd=0.5, timeout_s=30, poll_s=0.05)
     report = run_eval(running, [TASK], 1, cheap, clean=True)
@@ -133,7 +163,9 @@ def test_a_spent_budget_aborts_the_trial_and_clean_removes_the_trial_worlds(
         ("baseline", "aborted", ["the run aborted"]),
         ("swarm", "aborted", ["the run aborted"]),
     ]
-    assert not report["swarm_wins"]
+    # the judge still compares what the aborted runs left, and calls it even
+    assert [j["winner"] for j in report["judgements"]] == [None]
+    assert report["arms"][1]["ties"] == 1 and not report["swarm_wins"]
     assert [w["name"] for w in running.get("/api/worlds").json()] == ["Evals"]
 
 
@@ -197,3 +229,20 @@ def test_a_trial_the_api_refused_is_an_error_and_the_report_still_lands(
     assert all("422" in t["failed"][0] and t["world_id"] for t in trials)
     assert running.get("/api/evals").json() == [report]
     assert [w["name"] for w in running.get("/api/worlds").json()] == ["Evals"]
+
+
+def test_a_pair_the_judge_cannot_decide_is_left_out_and_the_judge_route_checks_its_input(
+    running: TestClient, script: Script
+) -> None:
+    script.scripts = [*baseline(), *swarm(), [Say("Both are fine.")]]  # no structured answer
+    said: list[str] = []
+    report = run_eval(running, [TASK], 1, FAST, say=said.append)
+    assert report["judgements"] == [] and f"{TASK.id} 1 judged: undecided" in said
+    assert report["arms"][1]["wins"] == 0 and not report["swarm_wins"]
+
+    side = {"world_id": report["trials"][0]["world_id"], "run_id": "run_1"}
+    pair = {"task_id": "no-such-task", "baseline": side, "swarm": side}
+    assert running.post("/api/evals/judge", json=pair).status_code == 404
+    gone = {"world_id": "world_gone", "run_id": "run_1"}
+    pair = {"task_id": TASK.id, "baseline": side, "swarm": gone}
+    assert running.post("/api/evals/judge", json=pair).status_code == 404

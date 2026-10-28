@@ -1,6 +1,8 @@
-"""HTTP face of the Eval (Learning context): store a finished eval's trials as a report artifact
-in the eval world, and list the reports. `swarmify-eval` (eval_harness) runs the trials."""
+"""HTTP face of the Eval (Learning context): judge a task's two trials blind, store a finished
+eval's trials and judgements as a report artifact in the eval world, and list the reports.
+`swarmify-eval` (eval_harness) runs the trials."""
 
+import logging
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -9,37 +11,119 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from swarmify_kernel import new_id
-from swarmify_learning.evals import EvalReport, Trial, markdown, summarize
+from swarmify_learning.evals import (
+    IDEAS,
+    JUDGE_SYSTEM,
+    PICK_SCHEMA,
+    SCRIPT,
+    TASKS,
+    EvalReport,
+    Judgement,
+    Trial,
+    judge_prompt,
+    markdown,
+    parse_pick,
+    summarize,
+)
 from swarmify_memory import Memory
+from swarmify_swarm import AgentRuntime, SessionInit, SessionSpec
 from swarmify_worlds import World, Worlds
 
 EVAL_WORLD = "Evals"
 """The world the reports land in, made on the first report. Trials each get a fresh world."""
+DESCRIPTION = "Eval reports: the baseline against the swarm."
+JUDGE_TURNS = 10
+log = logging.getLogger(__name__)
 
 
 class NewEval(BaseModel):
     k: int = Field(ge=1, le=20)
     trials: list[Trial] = Field(min_length=2, max_length=5_000)
+    judgements: list[Judgement] = Field(default=[], max_length=2_500)
 
 
-def router(worlds: Worlds, memory: Memory) -> APIRouter:
+class Side(BaseModel):
+    world_id: str
+    run_id: str
+
+
+class Pair(BaseModel):
+    """One task's trial `index` on each arm, for the blind judge."""
+
+    task_id: str
+    index: int = Field(default=0, ge=0)
+    baseline: Side
+    swarm: Side
+
+
+class _NoTools:
+    """The judge reads only what its prompt shows."""
+
+    def started(self, init: SessionInit) -> None: ...
+
+    def before_tool(self, tool: str, input: dict[str, Any]) -> str | None:
+        return "The judge decides from the prompt alone."
+
+    def cost(self, usd: float) -> str | None:
+        return None
+
+
+def router(worlds: Worlds, memory: Memory, runtime: AgentRuntime) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["evals"])
 
     def eval_world() -> World | None:
         return next((w for w in worlds.list_all() if w.name == EVAL_WORLD), None)
 
+    def outputs(side: Side) -> dict[str, str]:
+        return {
+            a.name: a.body
+            for a in memory.library(side.world_id)
+            if a.run_id == side.run_id and a.name in (IDEAS, SCRIPT)
+        }
+
+    @api.post("/evals/judge", responses={404: {}, 502: {}})
+    async def judge(body: Pair) -> Judgement:
+        """One blind judge session over the pair's `ideas.md` and `script.md`: the arm labels
+        removed, the order shuffled per task. 502 when the session fails or answers in another
+        shape; post again to retry."""
+        task = next((t for t in TASKS if t.id == body.task_id), None)
+        if task is None:
+            raise HTTPException(404, "no such eval task")
+        if worlds.get(body.baseline.world_id) is None or worlds.get(body.swarm.world_id) is None:
+            raise HTTPException(404, "world not found")
+        shown = {"baseline": outputs(body.baseline), "swarm": outputs(body.swarm)}
+        world = eval_world() or worlds.create(EVAL_WORLD, DESCRIPTION)
+        folder = worlds.folder(world.id)
+        spec = SessionSpec(
+            system_prompt=JUDGE_SYSTEM,
+            prompt=judge_prompt(task, shown),
+            cwd=folder,
+            plugin=folder,
+            tools=[],
+            allowed=[],
+            max_turns=JUDGE_TURNS,
+            output_schema=PICK_SCHEMA,
+        )
+        try:
+            end = await runtime.run(spec, _NoTools())
+            if end.is_error:
+                raise RuntimeError(end.result or "the session failed")
+            return parse_pick(task.id, body.index, end.output)
+        except Exception as exc:
+            log.warning("eval judge failed on %s %d: %s", task.id, body.index, exc)
+            raise HTTPException(502, f"The judge did not answer: {exc}") from exc
+
     @api.post("/evals", status_code=201, responses={422: {}})
     def save_eval(body: NewEval) -> EvalReport:
-        """Summarize the trials into a report (pass at k, pass to the k, cost, duration and
-        acceptance per arm) and store it as `report.md` in the eval world's Library."""
+        """Summarize the trials and the judge's picks into a report (pass at k, pass to the k,
+        cost, duration, acceptance, wins, losses, ties and cost a win per arm) and store it as
+        `report.md` in the eval world's Library."""
         now = datetime.now(UTC).isoformat()
         try:
-            report = summarize(body.trials, body.k, new_id("eval"), now)
+            report = summarize(body.trials, body.k, new_id("eval"), now, body.judgements)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        world = eval_world() or worlds.create(
-            EVAL_WORLD, "Eval reports: the baseline against the swarm."
-        )
+        world = eval_world() or worlds.create(EVAL_WORLD, DESCRIPTION)
         memory.write_artifact(
             world.id,
             report.id,

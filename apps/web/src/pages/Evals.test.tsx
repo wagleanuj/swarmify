@@ -26,8 +26,12 @@ const report = (id: string, created: string, verdict: string): Report => ({
   swarm_wins: true,
   verdict,
   arms: [
-    { arm: "baseline", trials: 2, accepted: 1, acceptance: 0.5, pass_at_k: 1, pass_pow_k: 0, cost_usd: 0.4, duration_s: 600 },
-    { arm: "swarm", trials: 2, accepted: 2, acceptance: 1, pass_at_k: 1, pass_pow_k: 1, cost_usd: 1.2, duration_s: 240 },
+    { arm: "baseline", trials: 2, accepted: 1, acceptance: 0.5, pass_at_k: 1, pass_pow_k: 0, cost_usd: 0.4, duration_s: 600, wins: 0, losses: 1, ties: 1, cost_per_win: null },
+    { arm: "swarm", trials: 2, accepted: 2, acceptance: 1, pass_at_k: 1, pass_pow_k: 1, cost_usd: 1.2, duration_s: 240, wins: 1, losses: 0, ties: 1, cost_per_win: 2.4 },
+  ],
+  judgements: [
+    { task_id: "home-espresso", index: 0, winner: "swarm", reason: "Fresher ideas, sharper hook." },
+    { task_id: "home-espresso", index: 1, winner: null, reason: "Both equally good." },
   ],
   trials: [trial("baseline", 0), trial("swarm", 0), trial("baseline", 1, ["script.md is missing"]), trial("swarm", 1)],
 });
@@ -49,8 +53,12 @@ test("the newest report says whether the swarm wins and compares the arms; earli
   const { screen } = await mountAt("/evals");
   await expect.element(screen.getByTestId("verdict")).toHaveTextContent("The swarm wins: it accepted 100% of trials.");
   const arms = screen.getByTestId("arm");
-  await expect.element(arms.first()).toMatchTextContent(/Hooli baseline.*2.*50% \(1\).*100%.*0%.*\$0\.40.*10 min/);
-  await expect.element(arms.nth(1)).toMatchTextContent(/Swarm.*2.*100% \(2\).*100%.*100%.*\$1\.20.*4 min/);
+  await expect.element(arms.first()).toMatchTextContent(/Hooli baseline.*2.*50% \(1\).*100%.*0%.*\$0\.40.*10 min011no win/);
+  await expect.element(arms.nth(1)).toMatchTextContent(/Swarm.*2.*100% \(2\).*100%.*100%.*\$1\.20.*4 min101\$2\.40/);
+  await screen.getByText("The judge's picks (2)").click();
+  const picks = screen.getByTestId("judgement");
+  await expect.element(picks.first()).toMatchTextContent(/home-espresso.*1.*Swarm.*Fresher ideas, sharper hook\./);
+  await expect.element(picks.nth(1)).toMatchTextContent(/home-espresso.*2.*tie.*Both equally good\./);
   await screen.getByText("Every trial (4)").click();
   const trials = screen.getByTestId("trial");
   expect(trials.elements()).toHaveLength(4);
