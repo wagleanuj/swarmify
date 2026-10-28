@@ -341,7 +341,10 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
 
 - `youtube` is our wrapper over the YouTube Data API (`swarmify_connectors.youtube`, stdio MCP).
   It uploads with `videos.insert`; with a schedule the video goes up private with `publishAt` and
-  YouTube makes it public at that time. Setup, once: create a Google Cloud project, enable the
+  YouTube makes it public at that time. Each upload is tagged `swarmify-<stage id>`, and before
+  uploading the wrapper looks for that tag among the channel's latest 50 uploads (3 quota units),
+  so retrying a failed publish stage answers the video an earlier attempt already put up instead
+  of posting it twice. Setup, once: create a Google Cloud project, enable the
   YouTube Data API v3, create an OAuth client of type Desktop app, then run
   `YOUTUBE_CLIENT_ID=... YOUTUBE_CLIENT_SECRET=... uv run python -m swarmify_connectors.youtube authorize`,
   allow the upload and read-only scopes in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
@@ -351,7 +354,9 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
   adopted as is (ADR 0015) with `UPLOAD_POST_API_KEY` from app.upload-post.com. Swarmify calls its
   `upload_video` tool with the stage id as Upload-Post's idempotency key. Posting now records
   each platform's link (a platform that failed is listed in the artifact; when none succeeded the
-  stage fails). A scheduled post records the Upload-Post job id; its links appear only once it
+  stage fails). An upload over about 59 seconds moves to Upload-Post's background and answers a
+  request id; the stage then polls `get_status` with it until the upload finishes and records the
+  links the same way; a request id Upload-Post no longer knows fails the stage. A scheduled post records the Upload-Post job id; its links appear only once it
   goes out; reading those links back is not built yet.
 
 ### Outcomes

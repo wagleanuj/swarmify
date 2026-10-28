@@ -11,8 +11,11 @@ Cloud OAuth client (type Desktop app, YouTube Data API v3 enabled), and YOUTUBE_
 which `uv run python -m swarmify_connectors.youtube authorize` prints after a browser consent
 (upload and read-only scopes; a token from before view counts needs authorizing again).
 
-The swarmify side never repeats a publish call whose outcome is unknown, so this wrapper keeps
-no state of its own; `idempotency_key` is accepted and ignored.
+A retried publish stage calls again with the same `idempotency_key` (the stage id), and the
+first call may have uploaded before it failed. So an upload is tagged `swarmify-<key>`, and
+before uploading the wrapper reads the channel's latest 50 uploads (`channels.list` mine, then
+`playlistItems.list` and `videos.list`, 3 quota units) and answers the tagged video if there is
+one.
 """
 
 import os
@@ -33,6 +36,8 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
 VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
+CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
+PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems"
 SCOPE = (
     "https://www.googleapis.com/auth/youtube.upload"
     " https://www.googleapis.com/auth/youtube.readonly"
@@ -70,6 +75,40 @@ def access_token(http: httpx.Client, env: Mapping[str, str]) -> str:
     return response.json()["access_token"]
 
 
+def uploaded_under(http: httpx.Client, token: str, tag: str) -> str | None:
+    """The id of the channel's video tagged `tag`, among its latest 50 uploads."""
+    # ponytail: only the latest 50 uploads; a retry comes soon after the call it repeats.
+
+    def items(url: str, what: str, **params: str) -> list[dict[str, Any]]:
+        response = http.get(url, params=params, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 404:  # a channel with no uploads has no uploads playlist
+            return []
+        if response.status_code != 200:
+            raise _error(response, what)
+        return response.json().get("items", [])
+
+    channels = items(
+        CHANNELS_URL, "finding the channel's uploads", part="contentDetails", mine="true"
+    )
+    if not channels:
+        return None
+    playlist = channels[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    latest = items(
+        PLAYLIST_ITEMS_URL,
+        "listing the channel's uploads",
+        part="contentDetails",
+        playlistId=playlist,
+        maxResults=str(MAX_IDS),
+    )
+    ids = [i["contentDetails"]["videoId"] for i in latest]
+    if not ids:
+        return None
+    for video in items(VIDEOS_URL, "reading upload tags", part="snippet", id=",".join(ids)):
+        if tag in video.get("snippet", {}).get("tags", []):
+            return str(video["id"])
+    return None
+
+
 def publish(
     http: httpx.Client,
     env: Mapping[str, str],
@@ -79,6 +118,7 @@ def publish(
     visibility: str = "private",
     schedule: str = "",
     made_for_kids: bool = False,
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
     if not video.is_file():
         raise ToolError(f"the video {video} does not exist")
@@ -86,6 +126,16 @@ def publish(
     if schedule:
         status = {**status, "privacyStatus": "private", "publishAt": schedule}
     token = access_token(http, env)
+    snippet: dict[str, Any] = {"title": title, "description": description}
+    if idempotency_key:
+        tag = f"swarmify-{idempotency_key}"
+        if done := uploaded_under(http, token, tag):
+            return {
+                "video_id": done,
+                "url": f"https://youtu.be/{done}",
+                "publish_at": schedule or None,
+            }
+        snippet["tags"] = [tag]
     size = video.stat().st_size
     started = http.post(
         UPLOAD_URL,
@@ -95,7 +145,7 @@ def publish(
             "X-Upload-Content-Type": "video/*",
             "X-Upload-Content-Length": str(size),
         },
-        json={"snippet": {"title": title, "description": description}, "status": status},
+        json={"snippet": snippet, "status": status},
     )
     if started.status_code != 200 or "location" not in started.headers:
         raise _error(started, "starting the YouTube upload")
@@ -144,6 +194,7 @@ def youtube(
             visibility,
             schedule,
             made_for_kids,
+            idempotency_key,
         )
 
 

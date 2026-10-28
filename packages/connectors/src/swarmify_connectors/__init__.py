@@ -404,23 +404,25 @@ class Connectors:
         if connector.kind == "publish":
             out = publish.result(connector.name, response)
             if out["status"] == "pending":
-                # ponytail: no polling of the status tool; add it if long uploads are common.
-                error = (
-                    f"the upload went on in the background, so its links are not known; check"
-                    f" {connector.name} status for request {out['id']}"
+                # Upload-Post moved it to the background: poll its status for the links.
+                return self.storage.save_call(
+                    replace(call, status="polling", job_id=out["id"], poll_tool="get_status")
                 )
-                self._fail(call, error)
-                raise ConnectorError(f"{connector.name}: {error}")
-            if not out["links"] and out["status"] != "scheduled" and out["failed"]:
-                error = "; ".join(f"{p}: {e}" for p, e in out["failed"].items())
-                self._fail(call, error)
-                raise ConnectorError(f"{connector.name}: nothing was posted. {error}")
+            self._check_posted(connector, call, out)
         return self.storage.save_call(replace(call, status="done", progress=1.0))
+
+    def _check_posted(self, connector: Connector, call: Call, out: dict[str, Any]) -> None:
+        if not out["links"] and out["status"] != "scheduled" and out["failed"]:
+            error = "; ".join(f"{p}: {e}" for p, e in out["failed"].items())
+            self._fail(call, error)
+            raise ConnectorError(f"{connector.name}: nothing was posted. {error}")
 
     def _poll(self, connector: Connector, call: Call, env: dict[str, str]) -> Call:
         assert call.poll_tool is not None and call.job_id is not None
+        background = connector.name == "upload_post"  # an upload Upload-Post moved off
+        args = {"requestId": call.job_id} if background else {"job_id": call.job_id}
         try:
-            answer = self.transport.call(connector, call.poll_tool, {"job_id": call.job_id}, env)
+            answer = self.transport.call(connector, call.poll_tool, args, env)
         except Exception as exc:
             self._fail(call, str(exc))
             raise
@@ -432,6 +434,12 @@ class Connectors:
             message=answer.get("message", call.message),
             updated_at=_now(),
         )
+        if background:
+            out = publish.result(connector.name, answer)
+            if out["status"] == "pending":
+                return self.storage.save_call(call)
+            self._check_posted(connector, call, out)
+            return self.storage.save_call(replace(call, status="done", progress=1.0))
         status = answer.get("status")
         if status == "failed":
             error = str(answer.get("error") or "the job failed")

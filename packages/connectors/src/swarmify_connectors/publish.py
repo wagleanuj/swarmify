@@ -19,6 +19,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VISIBILITIES = ("public", "unlisted", "private")
+UNFINISHED = ("pending", "in_progress", "processing")  # get_status while it works
 TITLE_MAX = 100  # YouTube's limit, the tightest of the platforms we post to
 
 
@@ -142,20 +143,36 @@ def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
     """What came back, normalized: `status` (published, scheduled or pending), `links` (platform
     to URL), `id` (the video, scheduler job or background request) and `failed` (platform to
     error). Upload-Post moves an upload over 59 seconds to the background even when asked to
-    wait, answering a `request_id` and no results: that is `pending`, nothing is known yet."""
+    wait, answering a `request_id` and no results: that is `pending` until its `get_status`
+    answer is no longer pending or in progress. That answer lists `results` per platform, with
+    `post_url` and `message` where the upload answer has `url` and `error`. An answer with no
+    results that is `success: false` (an unknown or expired request) or a failed status is a
+    failure, never an empty success."""
     if connector == "upload_post":
         body = response.get("result", response)
         body = body if isinstance(body, dict) else {}
         if body.get("job_id"):
             return {"status": "scheduled", "links": {}, "id": str(body["job_id"]), "failed": {}}
         raw = body.get("results")
-        if body.get("request_id") and not raw:
-            return {"status": "pending", "links": {}, "id": str(body["request_id"]), "failed": {}}
+        status = body.get("status")
+        if status in UNFINISHED or body.get("request_id") and not raw and not status:
+            pending = str(body.get("request_id") or "") or None
+            return {"status": "pending", "links": {}, "id": pending, "failed": {}}
+        if isinstance(raw, list):
+            raw = {str(r.get("platform")): r for r in raw if isinstance(r, dict)}
         results: dict[str, Any] = raw if isinstance(raw, dict) else {}
-        links = {p: r["url"] for p, r in results.items() if r.get("success") and r.get("url")}
-        failed = {
-            p: str(r.get("error") or "failed") for p, r in results.items() if not r.get("success")
+        links = {
+            p: r.get("url") or r["post_url"]
+            for p, r in results.items()
+            if r.get("success") and (r.get("url") or r.get("post_url"))
         }
+        failed = {
+            p: str(r.get("error") or r.get("message") or "failed")
+            for p, r in results.items()
+            if not r.get("success")
+        }
+        if not results and (status in ("failed", "error") or body.get("success") is False):
+            failed = {"upload_post": str(body.get("message") or body.get("error") or status)}
         return {"status": "published", "links": links, "id": None, "failed": failed}
     url = response.get("url")
     return {

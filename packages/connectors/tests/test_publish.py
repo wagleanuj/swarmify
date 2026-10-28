@@ -181,17 +181,45 @@ def test_a_post_that_reached_no_platform_fails_the_stage(
     assert connectors.call_for("stage_1").status == "failed"  # type: ignore[union-attr]
 
 
-def test_an_upload_post_moved_to_the_background_fails_with_its_request_id(
+def test_an_upload_post_moved_to_the_background_is_polled_until_its_links_are_known(
     connectors: Connectors, transport: FakeTransport
 ) -> None:
     connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
     background = {"success": True, "message": "processing", "request_id": "req_9"}
     transport.outputs["upload_video"] = [{"result": {**background, "total_platforms": 1}}]
-    with pytest.raises(ConnectorError, match="status for request req_9"):
+    done = [{"platform": "youtube", "success": True, "post_url": "https://youtu.be/abc123"}]
+    transport.outputs["get_status"] = [
+        {"result": {"success": True, "status": "in_progress"}},
+        {"result": {"success": True, "status": "completed", "results": done}},
+    ]
+    call = connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
+    assert call.status == "done" and call.polls == 2
+    assert [c[1:3] for c in transport.calls[1:]] == [("get_status", {"requestId": "req_9"})] * 2
+    out = connectors.publish_result(call)
+    assert out["status"] == "published"
+    assert out["links"] == {"youtube": "https://youtu.be/abc123"}
+
+
+def test_a_background_upload_that_reached_no_platform_fails_the_stage(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
+    transport.outputs["upload_video"] = [{"result": {"success": True, "request_id": "req_9"}}]
+    failed = [{"platform": "youtube", "success": False, "message": "quota"}]
+    transport.outputs["get_status"] = [
+        {"result": {"success": True, "status": "completed", "results": failed}}
+    ]
+    with pytest.raises(ConnectorError, match="nothing was posted. youtube: quota"):
         connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
-    call = connectors.call_for("stage_1")
-    assert call is not None and call.status == "failed"
-    assert connectors.publish_result(call)["id"] == "req_9"
+    assert connectors.call_for("stage_1").status == "failed"  # type: ignore[union-attr]
+    gone = {"result": {"success": False, "status": "failed", "message": "file unreadable"}}
+    transport.outputs["get_status"] = [gone]
+    with pytest.raises(ConnectorError, match="nothing was posted. upload_post: file unreadable"):
+        connectors.run_stage(W, "run_1", "stage_2", stage("upload_post", user="me"))
+    unknown = {"result": {"success": False, "error": "Request not found"}}
+    transport.outputs["get_status"] = [unknown]
+    with pytest.raises(ConnectorError, match="nothing was posted. upload_post: Request not found"):
+        connectors.run_stage(W, "run_1", "stage_3", stage("upload_post", user="me"))
 
 
 def test_a_publish_stage_with_a_problem_never_calls(
