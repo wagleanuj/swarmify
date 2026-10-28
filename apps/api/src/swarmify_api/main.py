@@ -68,6 +68,7 @@ from swarmify_memory import (
     Memory,
     run_graphify,
 )
+from swarmify_memory.writer import Extract
 from swarmify_notifications import MIGRATIONS as NOTIFICATIONS_MIGRATIONS
 from swarmify_notifications import Notifications
 from swarmify_notifications import SqliteStorage as ChannelStorage
@@ -340,7 +341,7 @@ def create_app(
     sweep_seconds: float = SWEEP_SECONDS,
     runtime: AgentRuntime | None = None,
     graph_index: GraphIndex | None = None,
-    extract: Callable[[Path], None] = run_graphify,
+    extract: Extract = run_graphify,
     graph_debounce: float = DEBOUNCE,
     graph_poll: float = 2.0,
     notifier: Notifier | None = None,
@@ -581,7 +582,7 @@ def create_app(
     app.include_router(connectors.router(registry, world_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
-    app.include_router(graph.router(world_svc, index))
+    app.include_router(graph.router(world_svc, index, writer))
     app.include_router(library.router(memory, world_svc, runner.list_all))
     app.include_router(notifications.router(channels, world_svc))
     app.include_router(

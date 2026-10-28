@@ -45,7 +45,7 @@ def running(tmp_path: Path, script: Script, notifier: FakeNotifier) -> Iterator[
         runtime=SdkRuntime(transport=script.transport),
         graph_index=FakeGraphIndex(),
         notifier=notifier,
-        extract=lambda _: None,
+        extract=lambda *_: None,
         retro=False,
     )
     with TestClient(app) as client:

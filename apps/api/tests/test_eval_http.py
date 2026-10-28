@@ -74,7 +74,7 @@ def running(tmp_path: Path, script: Script) -> Iterator[TestClient]:
         tmp_path,
         runtime=SdkRuntime(transport=script.transport),
         graph_index=FakeGraphIndex(),
-        extract=lambda _: None,
+        extract=lambda *_: None,
     )
     with TestClient(app) as client:
         yield client

@@ -472,9 +472,15 @@ dependency of `packages/memory`) from the world's files.
 - GraphWriter (Anton in the skin, ADR 0003) is the only writer. It polls the world folders every
   2 s, waits until a world has been quiet for 30 s after its last change, then runs
   `python -m graphify extract <world> --backend claude-cli --exclude graphify-out/`. One thread
-  does every rebuild in turn: serialized per world, queued across worlds. Each rebuild appends
-  `graph.rebuilt` (`nodes`, `edges`, `nodes_added`, `edges_added`, `seconds`) or `graph.failed`
-  (`error`) to the world's stream. A deleted world leaves the queue; a rebuild still running
+  does every rebuild in turn: serialized per world, queued across worlds. A queued world is
+  snapshotted as its rebuild starts, so changes made while it waited are absorbed by that one
+  rebuild rather than queueing another. Each rebuild appends `graph.rebuilt` (`nodes`, `edges`,
+  `nodes_added`, `edges_added`, `seconds`, `input_tokens`, `output_tokens`) or `graph.failed`
+  (`error`, `seconds`, `shrink`) to the world's stream. `shrink` means graphify's shrink guard
+  refused a semantic shrink (a file re-extracted to fewer nodes than before). A refusal over failed
+  chunks is a plain failure, `shrink` false, since the next rebuild retries them. A shrink keeps
+  refusing until it is accepted, which appends `graph.shrink_accepted` and reruns that world at
+  once with `--allow-partial`, once. A deleted world leaves the queue; a rebuild still running
   when its world is deleted records nothing and removes the folder graphify recreated. It runs
   inside the API process; with
   `SWARMIFY_GRAPH_WRITER=external` the API leaves it to a `swarmify-graph-writer` process instead
@@ -488,9 +494,15 @@ dependency of `packages/memory`) from the world's files.
 - Cross-world access is read-only by construction: the write tools (`write_note`,
   `write_artifact`, `add_task`) take no world and always land in the stage's own world, and
   Write, Edit and Bash are outside every allowlist.
-- `GET /api/worlds/<id>/graph` returns size, god nodes, the last rebuild and the last failure;
-  `POST /api/worlds/<id>/graph/query` (`{"question": ...}`) asks the graph. The page is
-  `/worlds/<id>/graph` (Middle-out) and reloads on `graph.rebuilt` and `graph.failed`.
+- `GET /api/worlds/<id>/graph` returns size, god nodes, the last rebuild (with its estimated
+  `cost_usd`) and the last failure, whether an accepted shrink is still rebuilding (`accepted`),
+  and `spent`: every rebuild's count, seconds and estimated cost, refused ones included. Cost is
+  priced from graphify's token counts at the rates of `GRAPHIFY_CLAUDE_CLI_MODEL` (the dearest
+  model when unset), so it errs high; the Claude CLI backend itself bills the plan.
+  `POST /api/worlds/<id>/graph/accept-shrink` accepts a shrink (202, or 409 when the last rebuild
+  was not a shrink refusal). `POST /api/worlds/<id>/graph/query` (`{"question": ...}`) asks the
+  graph. The page is `/worlds/<id>/graph` (Middle-out), shows a shrink refusal with an "Accept the
+  shrink" button, and reloads on `graph.rebuilt` and `graph.failed`.
 - Real graphify runs only in the opt-in test, which spends Claude subscription tokens:
   `SWARMIFY_GRAPHIFY=1 uv run pytest packages/memory/tests/test_graphify_live.py --no-cov`.
 

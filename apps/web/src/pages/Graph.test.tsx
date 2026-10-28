@@ -4,7 +4,8 @@ import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
-const empty = { nodes: 0, edges: 0, god_nodes: [], rebuilt: null, failed: null };
+const nothing = { rebuilds: 0, seconds: 0, cost_usd: 0 };
+const empty = { nodes: 0, edges: 0, god_nodes: [], rebuilt: null, failed: null, accepted: false, spent: nothing };
 const built = {
   nodes: 1284,
   edges: 3901,
@@ -12,8 +13,20 @@ const built = {
     { label: "Hook pattern", degree: 71 },
     { label: "Retention cliff", degree: 64 },
   ],
-  rebuilt: { at: new Date().toISOString(), nodes: 1284, edges: 3901, nodes_added: 31, edges_added: 58, seconds: 12 },
+  rebuilt: {
+    at: new Date().toISOString(),
+    nodes: 1284,
+    edges: 3901,
+    nodes_added: 31,
+    edges_added: 58,
+    seconds: 12,
+    input_tokens: 90000,
+    output_tokens: 3000,
+    cost_usd: 0.42,
+  },
   failed: null,
+  accepted: false,
+  spent: { rebuilds: 18, seconds: 2700, cost_usd: 12.3 },
 };
 
 beforeEach(() => FakeEventSource.install());
@@ -38,7 +51,10 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
   await expect.element(screen.getByTestId("graph-size")).toMatchTextContent(/1,284 nodes\s*3,901 edges/);
   await expect
     .element(screen.getByTestId("rebuilt"))
-    .toHaveTextContent("Anton rebuilt it just now: +31 nodes, +58 edges in 12s");
+    .toHaveTextContent("Anton rebuilt it just now: +31 nodes, +58 edges in 12s, est. $0.42");
+  await expect
+    .element(screen.getByTestId("spent"))
+    .toHaveTextContent("18 rebuilds so far: 45m of extraction, est. $12.30");
   await expect.element(screen.getByTestId("god-nodes")).toMatchTextContent(/Hook pattern\s*71 links/);
   expect(screen.getByTestId("graph-empty").elements()).toHaveLength(0);
 });
@@ -79,4 +95,32 @@ test("a failed rebuild is shown with its reason", async () => {
   await expect
     .element(screen.getByTestId("failed"))
     .toMatchTextContent(/Anton's last rebuild failed just now: claude is not logged in\./);
+});
+
+test("a shrink the guard refused is shown with one click to accept it", async () => {
+  const shrink = {
+    at: new Date().toISOString(),
+    error: "unverified semantic shrink for 'remotion-scaffold.md' (6 -> 5 nodes)",
+    shrink: true,
+    seconds: 140,
+  };
+  let view: object = { ...built, failed: shrink };
+  const accepted: string[] = [];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": () => Response.json(view),
+    "POST /api/worlds/world_1/graph/accept-shrink": () => {
+      accepted.push("world_1");
+      view = { ...built, failed: shrink, accepted: true };
+      return new Response(null, { status: 202 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect
+    .element(screen.getByTestId("failed"))
+    .toMatchTextContent(/graphify refused to write a smaller graph/);
+  await screen.getByRole("button", { name: "Accept the shrink" }).click();
+  await expect.element(screen.getByTestId("failed")).toMatchTextContent(/Rebuilding with the shrink accepted/);
+  expect(accepted).toEqual(["world_1"]);
+  expect(screen.getByRole("button", { name: "Accept the shrink" }).elements()).toHaveLength(0);
 });

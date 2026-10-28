@@ -145,7 +145,7 @@ GRAPH = {
 }
 
 
-def extract(folder: Path) -> None:
+def extract(folder: Path, allow_shrink: bool = False) -> None:
     (folder / GRAPH_OUT).mkdir(exist_ok=True)
     (folder / GRAPH_OUT / "graph.json").write_text(json.dumps(GRAPH))
 
