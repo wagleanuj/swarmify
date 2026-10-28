@@ -206,6 +206,31 @@ class _At:
         return workers[:1] if self.baseline else workers
 
 
+def _decisions(world_folder: Path, run_id: str) -> list[str]:
+    """The newest decision of each gate of the run, as required reading. A gate whose newest
+    decision is a send-back is skipped: its note reaches the stage it named, and the gate asks
+    again before any later stage runs."""
+    newest: dict[str, tuple[str, Path, dict[str, Any], str]] = {}
+    for path in (world_folder / "runs" / run_id).glob("*/decision*.md"):
+        head, _, body = path.read_text(errors="replace").removeprefix("---\n").partition("\n---\n")
+        fields = {k: json.loads(v) for k, _, v in (ln.partition(": ") for ln in head.splitlines())}
+        created = str(fields.get("created", ""))
+        if path.parent.name not in newest or created > newest[path.parent.name][0]:
+            newest[path.parent.name] = (created, path, fields, body)
+    out = []
+    for _, path, fields, body in sorted(newest.values(), key=lambda d: d[0]):
+        if fields.get("send_back_to"):
+            continue
+        outcome = " ".join(ln for ln in body.splitlines()[1:] if ln.strip())
+        artifact = fields.get("artifact")
+        picked = f" The artifact it names (Read it): {world_folder / artifact}." if artifact else ""
+        out.append(
+            f"Decision at gate {fields.get('stage')}, required reading before you start:"
+            f" {outcome}{picked} The decision: {path}."
+        )
+    return out
+
+
 def _wants(config: dict[str, Any]) -> str:
     produces = ", ".join(str(p) for p in config.get("produces") or [])
     out = f"Write these artifacts: {produces}." if produces else ""
@@ -691,13 +716,12 @@ class Swarm:
         raise StageError(f"{name} failed {SESSIONS} sessions in a row; see the stage log")
 
     def _pins(self, at: "_At") -> str:
-        """Pinned artifacts are required reading for the planner and the worker (Memory's Pin);
-        the judge judges the stage's own notes."""
+        """Pinned artifacts and the run's gate decisions are required reading for the planner
+        and the worker (Memory's Pin); the judge judges the stage's own notes."""
         pins = self.files.pinned(at.world_id)
-        if not pins:
-            return ""
         paths = ", ".join(str(at.world_folder / p) for p in pins)
-        return f"Pinned references, required reading before you start (Read each): {paths}."
+        read = f"Pinned references, required reading before you start (Read each): {paths}."
+        return "\n".join(([read] if pins else []) + _decisions(at.world_folder, at.run_id))
 
     def _system_prompt(self, at: "_At", entry: CastEntry) -> str:
         prior = self.files.artifacts(at.world_id, at.run_id)
