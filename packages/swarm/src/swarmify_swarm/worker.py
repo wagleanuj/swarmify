@@ -64,8 +64,10 @@ SHORT_TOOLS = ("query_graph", "list_tasks")
 T = TypeVar("T")
 
 GRAPH, CLAIM = tool_id("query_graph"), tool_id("claim_task")
-BUILTIN = ["Skill", "Read"]
-"""Built-ins every worker may use. Read is limited to the world folder by the hooks."""
+BUILTIN = ["Skill", "Read", "StructuredOutput", "ToolSearch"]
+"""Built-ins every worker may use. Read is limited to the world folder by the hooks.
+StructuredOutput is how the CLI delivers an `output_format` answer and ToolSearch loads a
+deferred tool's schema; denying either leaves a session with no usable answer."""
 STAGE_TOOLS = {"web_search": ["WebSearch", "WebFetch"], "graph": []}
 """A stage's `tools` beyond the built-ins name connectors, allowed as `mcp__<name>__*`."""
 

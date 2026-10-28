@@ -307,7 +307,7 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
   `YOUTUBE_CLIENT_ID=... YOUTUBE_CLIENT_SECRET=... uv run python -m swarmify_connectors.youtube authorize`,
   allow the upload and read-only scopes in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
   `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. The
-  default quota allows 100 uploads a day.
+  default quota is 10,000 units a day and an upload costs 1,600, so about six uploads a day.
 - `upload_post` is Upload-Post's official MCP (`npx -y @upload-post/mcp@0.11.4`, needs Node),
   adopted as is (ADR 0015) with `UPLOAD_POST_API_KEY` from app.upload-post.com. Swarmify calls its
   `upload_video` tool with the stage id as Upload-Post's idempotency key. Posting now records
