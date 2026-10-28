@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 
 import { api } from "../api/client";
 import type { ArtifactFile } from "../api/events";
@@ -148,6 +148,13 @@ function GateCard({
     // An approval or send-back of one piece names it, so the record says which.
     if (gate.kind === "approve" && reviewed.length === 1) body.artifact = reviewed[0]!.path;
     if (sendBack) body.send_back_to = String(fields.get("send_back_to") ?? "");
+    // What goes out is what the form holds, edited or not; the decision records it.
+    if (gate.publish && !sendBack) {
+      body.title = String(fields.get("title") ?? "");
+      body.description = String(fields.get("description") ?? "");
+      // The schedule shown; a relative one that moved since is refused and shown again.
+      body.schedule = gate.publish.schedule ?? null;
+    }
     setBusy(true);
     await onAnswer(gate, () => decide(gate.run_id, body));
     setBusy(false);
@@ -179,7 +186,6 @@ function GateCard({
         {gate.parent && <RunRef label="child of" run={gate.parent} testId="child-of" />}
       </div>
       <p className="ask">{gate.ask}</p>
-      {gate.publish && <WhatGoesOut preview={gate.publish} />}
       {reviewed.length > 0 && <ArtifactView artifacts={reviewed} worldId={gate.world_id} />}
       {gate.kind === "approve" && artifacts && reviewed.length === 0 && (
         <p className="faint">The earlier stages left nothing to show here; their notes are on the run's timeline.</p>
@@ -188,6 +194,7 @@ function GateCard({
         <SkillGate gate={gate} onAnswer={onAnswer} />
       ) : (
       <form onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
+        {gate.publish && <WhatGoesOut preview={gate.publish} />}
         {gate.kind === "budget" && (
           <>
             <label>
@@ -432,16 +439,28 @@ function RejectButton({ busy, onReject }: { busy: boolean; onReject: (e: FormEve
   );
 }
 
-/** What the publish stage after this gate sends out: exactly these values (ADR 0007). */
+/** What the publish stage after this gate sends out: exactly these values (ADR 0007). Title and
+ * description are fields of the gate's form, so the person can edit them before confirming. */
 function WhatGoesOut({ preview }: { preview: PublishPreview }) {
+  const id = useId();
   const where = LABEL[preview.connector] ?? preview.connector;
   const platforms = preview.platforms?.length ? ` to ${preview.platforms.join(", ")}` : "";
   const problems = preview.problems ?? [];
   return (
     <section className="publish-preview" aria-label="What goes out">
       <dl>
-        <dt>Title</dt>
-        <dd>{preview.title || "none"}</dd>
+        <dt>
+          <label htmlFor={`${id}-title`}>Title</label>
+        </dt>
+        <dd>
+          <input id={`${id}-title`} name="title" required maxLength={100} defaultValue={preview.title} />
+        </dd>
+        <dt>
+          <label htmlFor={`${id}-description`}>Description</label>
+        </dt>
+        <dd>
+          <textarea id={`${id}-description`} name="description" rows={3} maxLength={5000} defaultValue={preview.description ?? ""} />
+        </dd>
         <dt>Where</dt>
         <dd>
           {where}
@@ -449,6 +468,8 @@ function WhatGoesOut({ preview }: { preview: PublishPreview }) {
         </dd>
         <dt>Visibility</dt>
         <dd>{preview.visibility}</dd>
+        <dt>Made for kids</dt>
+        <dd>{preview.made_for_kids ? "Yes" : "No"}</dd>
         <dt>When</dt>
         <dd>
           {preview.schedule ? (

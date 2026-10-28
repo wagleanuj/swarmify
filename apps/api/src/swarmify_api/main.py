@@ -19,6 +19,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+import yaml
 from anyio import to_thread
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -193,12 +194,47 @@ SWEEP_SECONDS = 15.0
 """How often silent claims are returned to open. Well under the two-minute heartbeat timeout."""
 
 
-def previews(registry: Connectors) -> Previews:
+def frontmatter(text: str) -> dict[str, Any]:
+    """The YAML between a markdown file's leading `---` fences; {} when there is none."""
+    if not text.startswith("---\n"):
+        return {}
+    try:
+        front = yaml.safe_load(text[4:].split("\n---", 1)[0])
+    except yaml.YAMLError:
+        return {}
+    return front if isinstance(front, dict) else {}
+
+
+def publish_config(
+    world_folder: Path, run: Run, stage: StageDef, edits: dict[str, Any]
+) -> tuple[dict[str, Any], str | None]:
+    """A publish stage's config as it goes out, and the problem finding its metadata, if any.
+    `params.metadata` names a file an earlier stage of the run left (like script.md) whose
+    frontmatter `title` and `description` win over the params; the edits made at the gate win
+    over both."""
+    params = dict(stage.config.get("params") or {})
+    name, problem = params.pop("metadata", None), None
+    if name:
+        try:
+            front = frontmatter(run_file(world_folder, run, str(name)).read_text(errors="replace"))
+            params.update({k: str(front[k]) for k in ("title", "description") if front.get(k)})
+        except ConnectorError as exc:
+            problem = f"params.metadata: {exc}"
+    return {**stage.config, "params": {**params, **edits}}, problem
+
+
+def previews(registry: Connectors, worlds: Worlds) -> Previews:
     """Runs learns what a stage will publish from the registry, which knows connector kinds."""
 
-    def preview(world_id: str, stage: StageDef) -> PublishPreview | None:
-        shown = registry.publish_preview(world_id, stage.config)
-        return PublishPreview(**shown) if shown else None
+    def preview(run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPreview | None:
+        if registry.publish_preview(run.world_id, stage.config) is None:
+            return None
+        config, problem = publish_config(worlds.folder(run.world_id), run, stage, edits)
+        shown = registry.publish_preview(run.world_id, config)
+        assert shown is not None  # the same connector as above
+        if problem:
+            shown["problems"].append(problem)
+        return PublishPreview(**shown)
 
     return preview
 
@@ -210,7 +246,7 @@ def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
         root / "dbos.sqlite",
         root,
         notifier or notification_service(root),
-        previews(connector_service(root)),
+        previews(connector_service(root), world_service(root)),
     )
 
 
@@ -304,15 +340,24 @@ def create_app(
             if output.is_file():  # announce what the connector left as an artifact
                 memory.record(run.world_id, run.id, stage_id, str(stage.config["calls"]), output)
             return
-        # A publish stage posts the input file, then records what went out as an artifact.
-        params = dict(stage.config.get("params") or {})
+        # A publish stage posts the input file with what was confirmed at the gate before it,
+        # then records what went out as an artifact.
+        index = next(s.index for s in run.stages if s.id == stage_id)
+        confirmed = next(
+            (d.publish for d in reversed(run.decisions) if d.stage_index == index - 1), None
+        )
+        folder = world_svc.folder(run.world_id)
+        config, problem = publish_config(folder, run, stage, confirmed or {})
+        if problem:
+            raise ConnectorError(problem)
+        shown = registry.publish_preview(run.world_id, config) or shown
         if not shown["problems"]:  # else run_stage refuses, naming them
             name = str(stage.config.get("input") or "")
-            params["input_path"] = str(run_file(world_svc.folder(run.world_id), run, name))
-        config = {**stage.config, "params": params}
+            config["params"]["input_path"] = str(run_file(folder, run, name))
         call = registry.run_stage(run.world_id, run.id, stage_id, config)
         out = registry.publish_result(call)
-        fields = {k: shown[k] for k in ("connector", "title", "visibility", "schedule")}
+        keys = ("connector", "title", "description", "visibility", "schedule", "made_for_kids")
+        fields = {k: shown[k] for k in keys}
         memory.write_artifact(
             run.world_id,
             run.id,
@@ -409,7 +454,7 @@ def create_app(
         notifier or channels,
         swarm=run_swarm,
         take=take,
-        previews=previews(registry),
+        previews=previews(registry, world_svc),
         spend=spend,
         monthly=lambda w: setting(w, "monthly_budget_usd"),
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,

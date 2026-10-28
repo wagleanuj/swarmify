@@ -77,6 +77,13 @@ def test_an_unscheduled_upload_takes_its_visibility_now(video: Path) -> None:
     assert status == {"privacyStatus": "unlisted", "selfDeclaredMadeForKids": False}
 
 
+def test_made_for_kids_is_declared_to_youtube(video: Path) -> None:
+    google = FakeGoogle()
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        publish(http, ENV, video, "t", made_for_kids=True)
+    assert json.loads(google.requests[1].content)["status"]["selfDeclaredMadeForKids"] is True
+
+
 def test_google_errors_and_missing_inputs_are_tool_errors(video: Path, tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(FakeGoogle(403))) as http:
         with pytest.raises(ToolError, match=r"uploading the video failed \(403\): quotaExceeded"):

@@ -110,6 +110,7 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
         "description": "",
         "video": "short.mp4",
         "platforms": [],
+        "made_for_kids": False,
         "problems": [],
     }
     assert [c[0] for c in transport.calls] == ["maker"]
@@ -173,6 +174,70 @@ def test_a_gate_shows_the_problems_that_would_stop_the_post(
     failed = running.get(f"/api/runs/{run['id']}").json()["stages"][2]
     assert "needs params.user" in failed["error"]
     assert [c[0] for c in transport.calls] == ["maker"]
+
+
+SCRIPT = """---
+title: "Why owls turn their heads"
+description: |
+  Owls cannot move their eyes.
+  So they turn their heads.
+---
+
+# Script
+"""
+
+
+def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_them(
+    running: TestClient, transport: FakeTransport, tmp_path: Path
+) -> None:
+    running.put("/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS})
+    extra = "\n      metadata: script.md\n      description: fallback\n      made_for_kids: true"
+    world, workflow = setup(
+        running, weekly(extra=extra).replace("2099-01-01T10:00:00+01:00", "+1d 09:00")
+    )
+    run = at_gate(running, tmp_path, world, workflow)
+    folder = tmp_path / "worlds" / world / "runs" / run["id"] / "01-render"
+    (folder / "script.md").write_text(SCRIPT)
+
+    shown = running.get("/api/gates").json()[0]["publish"]
+    assert shown["title"] == "Why owls turn their heads"
+    assert shown["description"] == "Owls cannot move their eyes.\nSo they turn their heads."
+    assert shown["made_for_kids"] is True and shown["problems"] == []
+    assert shown["schedule"].endswith("T09:00:00Z")
+
+    url = f"/api/runs/{run['id']}/decision"
+    refused = running.post(url, json={"title": "x" * 101})
+    assert refused.status_code == 422 and "the limit is 100" in refused.json()["detail"]
+    transport.outputs["youtube"] = [{"video_id": "v", "url": "https://youtu.be/v"}]
+    edited = {"title": "Owls, explained", "description": "Edited."}
+    moved = running.post(url, json={**edited, "schedule": "2099-01-01T09:00:00Z"})
+    assert moved.status_code == 422 and "the schedule changed" in moved.json()["detail"]
+    assert running.post(url, json={**edited, "schedule": shown["schedule"]}).status_code == 200
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+
+    _, _, args, _ = transport.calls[-1]
+    assert (args["title"], args["description"]) == ("Owls, explained", "Edited.")
+    assert (args["schedule"], args["made_for_kids"]) == (shown["schedule"], True)
+    (decision,) = running.get(f"/api/runs/{run['id']}").json()["decisions"]
+    assert decision["publish"] == {**edited, "schedule": shown["schedule"]}
+    stage_id = run["stages"][2]["id"]
+    artifact = tmp_path / "worlds" / world / "runs" / run["id"] / stage_id / "artifacts"
+    assert (
+        (artifact / "publish.md")
+        .read_text()
+        .split("\n---\n", 1)[1]
+        .startswith("\n# Owls, explained")
+    )
+
+
+def test_a_missing_metadata_artifact_is_a_problem_the_gate_shows(
+    running: TestClient, tmp_path: Path
+) -> None:
+    world, workflow = setup(running, weekly(extra="\n      metadata: script.md"))
+    at_gate(running, tmp_path, world, workflow)
+    shown = running.get("/api/gates").json()[0]["publish"]
+    assert shown["title"] == "Five hooks that work"
+    assert any("script.md" in p for p in shown["problems"])
 
 
 @pytest.mark.parametrize("calls", ["youtube", "upload_post"])

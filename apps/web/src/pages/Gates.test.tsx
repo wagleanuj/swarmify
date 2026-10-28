@@ -101,11 +101,12 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   const preview = {
     connector: "youtube",
     title: "Five hooks that work",
-    description: "",
+    description: "Hooks, ranked.",
     visibility: "public",
     schedule: "2099-01-01T09:00:00Z",
     video: "short.mp4",
     platforms: [],
+    made_for_kids: true,
     problems: [],
   };
   const bodies: unknown[] = [];
@@ -128,15 +129,23 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
   const out = card.getByRole("region", { name: "What goes out" });
-  await expect.element(out).toMatchTextContent(/Title\s*Five hooks that work/);
+  await expect.element(out.getByLabelText("Title")).toHaveValue("Five hooks that work");
+  await expect.element(out.getByLabelText("Description")).toHaveValue("Hooks, ranked.");
+  await expect.element(out).toMatchTextContent(/Made for kids\s*Yes/);
   await expect.element(out).toMatchTextContent(/Where\s*YouTube/);
   await expect.element(out).toMatchTextContent(/Visibility\s*public/);
   await expect.element(out).toMatchTextContent(/2099-01-01 09:00 UTC\)\. Private until then, then public\./);
   await expect.element(out).toMatchTextContent(/Video\s*short\.mp4/);
   await expect.element(out.getByRole("time")).toHaveAttribute("datetime", "2099-01-01T09:00:00Z");
   await expect.element(card).toMatchTextContent(/Posts exactly what is above\./);
+  await out.getByLabelText("Title").fill("Five better hooks");
+  await out.getByLabelText("Description").fill("Edited.");
   await card.getByRole("button", { name: "Confirm and post" }).click();
-  await vi.waitFor(() => expect(bodies).toEqual([{ note: "" }]));
+  await vi.waitFor(() =>
+    expect(bodies).toEqual([
+      { note: "", title: "Five better hooks", description: "Edited.", schedule: "2099-01-01T09:00:00Z" },
+    ]),
+  );
 
   const broken = screen.getByTestId("gate-run_2");
   await expect.element(broken).toMatchTextContent(/Upload-Post to tiktok/);

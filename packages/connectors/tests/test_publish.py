@@ -35,6 +35,7 @@ def test_the_preview_is_what_will_go_out() -> None:
         "schedule": "2026-11-03T09:00:00Z",
         "video": "short.mp4",
         "platforms": [],
+        "made_for_kids": False,
         "problems": [],
     }
     assert publish.preview("upload_post", stage("upload_post", user="me"), NOW)["platforms"] == [
@@ -49,6 +50,10 @@ def test_the_preview_is_what_will_go_out() -> None:
         (stage(title="x" * 101), "the limit is 100"),
         (stage(visibility="secret"), "visibility is one of"),
         (stage(schedule="next tuesday"), "not an ISO 8601 time"),
+        (stage(schedule="+1d 25:00"), "not an ISO 8601 time"),
+        (stage(schedule="09:00 Mars/Olympus"), "unknown timezone 'Mars/Olympus'"),
+        (stage(schedule="+0d 09:00"), "has already passed"),
+        (stage(made_for_kids="no"), "made_for_kids is true or false"),
         (stage(schedule="2026-11-03T09:00:00"), "needs a timezone"),
         (stage(schedule="2026-11-03T09:00:00Z", visibility="unlisted"), "set visibility: public"),
         (stage(schedule="2026-10-01T09:00:00Z"), "has already passed"),
@@ -59,6 +64,29 @@ def test_the_preview_is_what_will_go_out() -> None:
 def test_the_preview_names_every_problem(config: dict[str, Any], problem: str) -> None:
     connector = config["calls"]
     assert any(problem in p for p in publish.preview(connector, config, NOW)["problems"])
+
+
+@pytest.mark.parametrize(
+    ("relative", "resolved"),
+    [
+        ("13:30", "2026-10-26T13:30:00Z"),  # later today
+        ("09:00", "2026-10-27T09:00:00Z"),  # already past today, so tomorrow
+        ("+1d 09:00", "2026-10-27T09:00:00Z"),
+        ("+2d 09:00 America/New_York", "2026-10-28T13:00:00Z"),
+    ],
+)
+def test_a_relative_schedule_resolves_against_now(relative: str, resolved: str) -> None:
+    shown = publish.preview("youtube", stage(schedule=relative), NOW)
+    assert (shown["schedule"], shown["problems"]) == (resolved, [])
+
+
+def test_made_for_kids_reaches_youtube_and_upload_post() -> None:
+    assert publish.preview("youtube", stage(made_for_kids=True), NOW)["made_for_kids"] is True
+    _, args = publish.request("youtube", stage(made_for_kids=True), "k")  # type: ignore[misc]
+    assert args["made_for_kids"] is True
+    config = stage("upload_post", user="me", made_for_kids=True)
+    _, args = publish.request("upload_post", config, "k")  # type: ignore[misc]
+    assert args["platformOptions"]["youtubeSelfDeclaredMadeForKids"] is True
 
 
 def test_youtube_uploads_with_the_previewed_values(
@@ -78,6 +106,7 @@ def test_youtube_uploads_with_the_previewed_values(
         "description": "",
         "visibility": "public",
         "schedule": "2099-01-01T09:00:00Z",
+        "made_for_kids": False,
     }
     assert call.status == "done"
     assert connectors.publish_result(call) == {
@@ -108,7 +137,11 @@ def test_upload_post_gets_its_own_argument_names_and_an_idempotency_key(
         "title": "Five hooks",
         "description": "",
         "asyncUpload": False,
-        "platformOptions": {"idempotencyKey": "stage_1", "youtubePrivacyStatus": "public"},
+        "platformOptions": {
+            "idempotencyKey": "stage_1",
+            "youtubePrivacyStatus": "public",
+            "youtubeSelfDeclaredMadeForKids": False,
+        },
         "scheduledDate": "2099-01-01T09:00:00Z",
     }
     assert connectors.publish_result(call) == {

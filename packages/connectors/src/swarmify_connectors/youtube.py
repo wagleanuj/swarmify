@@ -78,10 +78,11 @@ def publish(
     description: str = "",
     visibility: str = "private",
     schedule: str = "",
+    made_for_kids: bool = False,
 ) -> dict[str, Any]:
     if not video.is_file():
         raise ToolError(f"the video {video} does not exist")
-    status: dict[str, Any] = {"privacyStatus": visibility, "selfDeclaredMadeForKids": False}
+    status: dict[str, Any] = {"privacyStatus": visibility, "selfDeclaredMadeForKids": made_for_kids}
     if schedule:
         status = {**status, "privacyStatus": "private", "publishAt": schedule}
     token = access_token(http, env)
@@ -122,7 +123,7 @@ def publish(
 
 @mcp.tool(
     description="Upload a video to YouTube. With `schedule` (ISO 8601) it stays private until"
-    " then and goes public at that time."
+    " then and goes public at that time. `made_for_kids` is YouTube's COPPA declaration."
 )
 def youtube(
     input_path: str,
@@ -131,6 +132,7 @@ def youtube(
     visibility: str = "private",
     schedule: str = "",
     idempotency_key: str = "",
+    made_for_kids: bool = False,
 ) -> dict[str, Any]:
     with httpx.Client(timeout=httpx.Timeout(60.0, write=None)) as http:
         return publish(
@@ -141,6 +143,7 @@ def youtube(
             description,
             visibility,
             schedule,
+            made_for_kids,
         )
 
 

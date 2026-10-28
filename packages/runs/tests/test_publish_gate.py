@@ -3,23 +3,30 @@ and the runner refuses to execute one that no answered gate precedes. Real DBOS 
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from runs_fakes import FakeConnector, FakeNotifier, wait_for
-from swarmify_runs import PublishPreview, Runner, SqliteStorage, StageDef
+from swarmify_runs import PublishPreview, Run, Runner, SqliteStorage, StageDef
 
 CONFIRM = StageDef("confirm", "gate", {"ask": "Post it?", "kind": "confirm"})
 PUBLISH = StageDef("publish", "connector", {"calls": "youtube", "params": {"title": "Hooks"}})
 RENDER = StageDef("render", "connector", {"calls": "remotion_render"})
+RESOLVED = {"schedule": "2099-01-01T09:00:00Z"}
+"""What the stage's relative schedule resolves to now; a test moves the clock by changing it."""
 
 
-def previews(_world: str, stage: StageDef) -> PublishPreview | None:
+def previews(_run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPreview | None:
     """Stands in for the Connectors registry: youtube publishes, nothing else does."""
     if stage.config.get("calls") != "youtube":
         return None
-    title = stage.config["params"]["title"]
-    return PublishPreview("youtube", title, "public", "2099-01-01T09:00:00Z")
+    params = {**stage.config["params"], **edits}
+    title, description = params["title"], params.get("description", "")
+    problems = [] if title else ["a publish stage needs params.title"]
+    return PublishPreview(
+        "youtube", title, "public", RESOLVED["schedule"], description, problems=problems
+    )
 
 
 @pytest.fixture
@@ -62,6 +69,51 @@ def test_the_gate_before_a_publish_stage_shows_what_goes_out(
     runner.decide(run.id)
     wait_for(lambda: status(runner, run.id) == "done")
     assert [name for _, name in connector.calls] == ["publish"]
+
+
+def test_the_confirmed_title_and_description_are_recorded_with_the_decision(
+    runner: Runner, connector: FakeConnector
+) -> None:
+    run = runner.start("world_1", "wf_1", 1, "Weekly short", [CONFIRM, PUBLISH])
+    wait_for(lambda: status(runner, run.id) == "waiting_gate")
+    with pytest.raises(ValueError, match="needs params.title"):
+        runner.decide(run.id, title="")
+
+    decided = runner.decide(run.id, title="Edited", description="Tonight")
+    (decision,) = decided.decisions
+    shown = {"title": "Edited", "description": "Tonight", "schedule": "2099-01-01T09:00:00Z"}
+    assert decision.publish == shown
+    assert '"title": "Edited"' in Path(decision.path).read_text()
+    wait_for(lambda: status(runner, run.id) == "done")
+    assert runner.get(run.id).decisions[0].publish == shown  # type: ignore[union-attr]
+
+
+def test_a_schedule_that_moved_since_the_gate_was_shown_is_refused(
+    runner: Runner, connector: FakeConnector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = runner.start("world_1", "wf_1", 1, "Weekly short", [CONFIRM, PUBLISH])
+    wait_for(lambda: status(runner, run.id) == "waiting_gate")
+    (gate,) = runner.gates()
+    assert gate.publish is not None
+    shown = gate.publish.schedule
+    # "09:00" shown at 08:58 as today; confirmed at 09:01 it resolves to tomorrow.
+    monkeypatch.setitem(RESOLVED, "schedule", "2099-01-02T09:00:00Z")
+    with pytest.raises(ValueError, match="schedule changed"):
+        runner.decide(run.id, title="Hooks", schedule=shown)
+    assert status(runner, run.id) == "waiting_gate"
+    assert runner.get(run.id).decisions == []  # type: ignore[union-attr]
+
+    decided = runner.decide(run.id, title="Hooks", schedule="2099-01-02T09:00:00Z")
+    assert decided.decisions[0].publish["schedule"] == "2099-01-02T09:00:00Z"  # type: ignore[index]
+    wait_for(lambda: status(runner, run.id) == "done")
+    assert [name for _, name in connector.calls] == ["publish"]
+
+
+def test_only_a_gate_before_a_publish_stage_takes_a_title(runner: Runner) -> None:
+    run = runner.start("world_1", "wf_1", 1, "Render", [CONFIRM, RENDER])
+    wait_for(lambda: status(runner, run.id) == "waiting_gate")
+    with pytest.raises(ValueError, match="only a gate before a publish stage"):
+        runner.decide(run.id, title="t")
 
 
 def test_a_gate_before_a_stage_that_does_not_publish_has_no_preview(runner: Runner) -> None:

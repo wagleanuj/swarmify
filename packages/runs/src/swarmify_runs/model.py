@@ -56,6 +56,9 @@ class Decision:
     artifact: str | None = None
     """The artifact the choice names, as a path in the world folder: the card picked at a pick
     gate, or what an approve gate approved (story 53)."""
+    publish: dict[str, Any] | None = None
+    """At a gate before a publish stage: the title, description and schedule (UTC ISO or None)
+    confirmed, which are what the stage posts."""
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,7 @@ class PublishPreview:
     description: str = ""
     video: str | None = None
     platforms: list[str] = field(default_factory=list)
+    made_for_kids: bool = False
     problems: list[str] = field(default_factory=list)
 
 
