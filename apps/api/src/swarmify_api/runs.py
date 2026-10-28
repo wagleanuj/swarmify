@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from swarmify_api.workflows import INVALID, Report
 from swarmify_runs import Gate, Illegal, Pinned, Run, Runner, StageDef
 from swarmify_workflows import Invalid, Stage, Workflows, WorkflowVersion, dump_workflow
-from swarmify_worlds import Worlds
+from swarmify_worlds import MAX_AGENTS, Worlds
 
 DONE_WHEN = "The goal is met and what was found is written down as notes and artifacts."
 """An Ad Hoc Run's done condition when none is typed."""
@@ -39,6 +39,8 @@ class StartRun(BaseModel):
     """The workflow version to pin. The current one when left out."""
     budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     """The run's Budget, overriding the workflow's `budget_usd`; 5 USD when neither is set."""
+    agents: int | None = Field(default=None, ge=1, le=MAX_AGENTS)
+    """Workers per swarm stage, overriding the workflow's `agents` and the world's agent count."""
     baseline: bool = False
     """Baseline mode: every swarm stage runs one agent with no graph, to measure the swarm."""
 
@@ -117,6 +119,17 @@ def stage_def(stage: Stage) -> StageDef:
     return StageDef(fields.pop("name"), fields.pop("type"), fields)
 
 
+def with_agents(stages: list[StageDef], agents: int | None) -> list[StageDef]:
+    """Each swarm stage carries the run's worker count in its config as `agents`, so a fork,
+    retry or restart keeps it. None leaves the stages as they are (the world's agent count)."""
+    if agents is None:
+        return stages
+    return [
+        replace(s, config={**s.config, "agents": agents}) if s.type == "swarm" else s
+        for s in stages
+    ]
+
+
 def pinner(workflows: Workflows) -> Callable[..., Pinned]:
     """A workflow version as Runs starts it: the given version, the current one by default.
     Raises KeyError for an unknown workflow or version."""
@@ -128,7 +141,7 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
         version = workflows.version(workflow_id, number or workflow.current_version)
         if version is None:
             raise KeyError(f"version not found: {workflow_id} v{number}")
-        stages = [stage_def(s) for s in version.model.stages]
+        stages = with_agents([stage_def(s) for s in version.model.stages], version.model.agents)
         return Pinned(
             workflow.world_id,
             workflow_id,
@@ -189,7 +202,7 @@ def router(
                 p.workflow_id,
                 p.version,
                 p.name,
-                stages(p.stages, body.baseline),
+                stages(with_agents(p.stages, body.agents), body.baseline),
                 budget_usd=body.budget_usd,
                 workflow_budget_usd=p.budget_usd,
                 baseline=body.baseline,
@@ -277,10 +290,13 @@ def router(
         # The Retro is added to every run, never written in a workflow (with_retro).
         defs = [runner.storage.stage_def(run.id, s.index)[1] for s in run.stages]
         defs = [d for d in defs if d.type != RETRO.type]
+        # The worker count each swarm stage carries (with_agents) is the workflow's `agents`.
+        agents = next((d.config["agents"] for d in defs if d.config.get("agents")), None)
         yaml = dump_workflow(
             (body.name or run.name).strip() or run.name,
-            [(d.type, d.name, d.config) for d in defs],
+            [(d.type, d.name, {k: v for k, v in d.config.items() if k != "agents"}) for d in defs],
             budget_usd=run.budget_usd,
+            agents=agents,
         )
         try:
             return workflows.save(run.world_id, yaml)

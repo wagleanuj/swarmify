@@ -63,7 +63,7 @@ export function ArtifactCards({ cards, worldId }: { cards: ArtifactFile[]; world
       {cards.map((a) => {
         const sources = (a.fields.sources as string[] | undefined) ?? [];
         const hook = typeof a.fields.hook === "string" ? a.fields.hook : summary(a.body);
-        const why = typeof a.fields.why === "string" ? a.fields.why : null;
+        const why = [a.fields.reason, a.fields.why].find((w) => typeof w === "string" && w) as string | undefined;
         return (
           <label key={a.path} className="card pick-card" data-testid="pick-card">
             <input type="radio" name="artifact" value={a.path} required />

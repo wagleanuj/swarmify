@@ -2420,6 +2420,8 @@ export interface components {
             version?: number | null;
             /** Budget Usd */
             budget_usd?: number | null;
+            /** Agents */
+            agents?: number | null;
             /**
              * Baseline
              * @default false

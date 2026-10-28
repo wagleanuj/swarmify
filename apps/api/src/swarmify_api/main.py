@@ -423,7 +423,8 @@ def create_app(
         learning_svc.sync(run.world_id)  # shared skills the world lacks load from its folder
         notes = next(s.notes for s in run.stages if s.id == stage_id)
         # The Cast as it stands when the stage starts: an edit reaches every later stage.
-        members = world_svc.cast(run.world_id) or []
+        # A run's own worker count (the workflow's `agents` or the start's) beats the world's.
+        members = world_svc.cast(run.world_id, stage.config.get("agents")) or []
         world = world_svc.get(run.world_id)
         staged = stage.config.get("model")  # the stage's model wins over the world's choice
 

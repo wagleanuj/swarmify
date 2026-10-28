@@ -36,6 +36,9 @@ export function WorldOverview() {
   const [error, setError] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
   const [doneWhen, setDoneWhen] = useState("");
+  const [goalBudget, setGoalBudget] = useState("");
+  const [runBudget, setRunBudget] = useState("");
+  const [agents, setAgents] = useState("");
 
   useEffect(() => {
     api
@@ -109,7 +112,12 @@ export function WorldOverview() {
     setError(null);
     const { data, error } = await api.POST("/api/workflows/{workflow_id}/runs", {
       params: { path: { workflow_id: workflowId } },
-      body: { baseline },
+      // Blank fields are left out: the workflow's budget and agents, else the world's, apply.
+      body: {
+        baseline,
+        ...(runBudget && { budget_usd: Number(runBudget) }),
+        ...(agents && !baseline && { agents: Number(agents) }),
+      },
     });
     setStarting(null);
     if (error || !data) {
@@ -128,7 +136,7 @@ export function WorldOverview() {
     setError(null);
     const { data, error, response } = await api.POST("/api/worlds/{world_id}/runs", {
       params: { path: { world_id: worldId } },
-      body: { goal, done_when: doneWhen, baseline: false },
+      body: { goal, done_when: doneWhen, baseline: false, ...(goalBudget && { budget_usd: Number(goalBudget) }) },
     });
     setStarting(null);
     if (error || !data) {
@@ -270,9 +278,20 @@ export function WorldOverview() {
             placeholder="The goal is met and the findings are written down."
           />
         </label>
+        <label>
+          Budget in USD (optional)
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={goalBudget}
+            onChange={(e) => setGoalBudget(e.target.value)}
+            placeholder="5"
+          />
+        </label>
         <div className="row">
           <button type="submit" className="primary" disabled={starting !== null}>
-            {starting === "ad-hoc" ? "Starting..." : "Start run"}
+            {starting === "ad-hoc" ? "Starting..." : "Run this goal"}
           </button>
         </div>
       </form>
@@ -289,46 +308,59 @@ export function WorldOverview() {
             publish. Write the first one in YAML and the editor checks every rule as you type.
           </p>
         ) : (
-          <ul className="workflow-list" data-testid="workflow-list">
-            {workflows.map((w) => (
-              <li key={w.id}>
-                <Link
-                  to="/worlds/$worldId/workflows/$workflowId"
-                  params={{ worldId, workflowId: w.id }}
-                >
-                  {w.name}
-                </Link>
-                <span className="actions">
-                  <span className="faint">v{w.current_version}</span>
+          <>
+            <fieldset aria-label="Overrides">
+              <legend className="faint">For the next run you start below; blank keeps the workflow's</legend>
+              <label>
+                Run budget in USD
+                <input type="number" min="0.01" step="0.01" value={runBudget} onChange={(e) => setRunBudget(e.target.value)} />
+              </label>
+              <label>
+                Workers per swarm stage
+                <input type="number" min="1" max="8" step="1" value={agents} onChange={(e) => setAgents(e.target.value)} />
+              </label>
+            </fieldset>
+            <ul className="workflow-list" data-testid="workflow-list">
+              {workflows.map((w) => (
+                <li key={w.id}>
                   <Link
-                    to="/worlds/$worldId/workflows/$workflowId/scorecard"
+                    to="/worlds/$worldId/workflows/$workflowId"
                     params={{ worldId, workflowId: w.id }}
-                    className="faint"
-                    aria-label={`Scorecard of ${w.name}`}
                   >
-                    Scorecard
+                    {w.name}
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => start(w.id)}
-                    disabled={starting !== null}
-                    aria-label={`Start a run of ${w.name}`}
-                  >
-                    {starting === w.id ? "Starting..." : "Start run"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => start(w.id, true)}
-                    disabled={starting !== null}
-                    aria-label={`Start a Hooli baseline of ${w.name}`}
-                    title="One agent and no graph, so the swarm's runs have something to beat"
-                  >
-                    Hooli baseline
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
+                  <span className="actions">
+                    <span className="faint">v{w.current_version}</span>
+                    <Link
+                      to="/worlds/$worldId/workflows/$workflowId/scorecard"
+                      params={{ worldId, workflowId: w.id }}
+                      className="faint"
+                      aria-label={`Scorecard of ${w.name}`}
+                    >
+                      Scorecard
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => start(w.id)}
+                      disabled={starting !== null}
+                      aria-label={`Start a run of ${w.name}`}
+                    >
+                      {starting === w.id ? "Starting..." : "Start run"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => start(w.id, true)}
+                      disabled={starting !== null}
+                      aria-label={`Start a Hooli baseline of ${w.name}`}
+                      title="One agent and no graph, so the swarm's runs have something to beat"
+                    >
+                      Hooli baseline
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
       <section aria-label="Activity">

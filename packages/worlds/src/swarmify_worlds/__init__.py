@@ -127,14 +127,15 @@ class Worlds:
         event = Event.new("world.updated", world_id=world_id, payload={"id": world_id, **changes})
         return self.storage.update_settings(world_id, changes, event)
 
-    def cast(self, world_id: str) -> list[CastMember] | None:
-        """The world's cast at its current versions, each with its record. None for an unknown
-        world."""
+    def cast(self, world_id: str, agent_count: int | None = None) -> list[CastMember] | None:
+        """The world's cast at its current versions, each with its record. `agent_count` (at
+        most MAX_AGENTS) replaces the world's for one run's stage. None for an unknown world."""
         world = self.get(world_id)
         if world is None:
             return None
         records = cast.records(self.events_after(world_id))
-        return cast.members(world.agent_count, self.storage.cast_edits(world_id), records)
+        count = min(agent_count or world.agent_count, MAX_AGENTS)
+        return cast.members(count, self.storage.cast_edits(world_id), records)
 
     def cast_versions(self, world_id: str, name: str) -> list[CastEdit] | None:
         """Every version of one agent, oldest first, version 1 being the default. None when

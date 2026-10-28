@@ -67,6 +67,7 @@ VERDICT_SCHEMA: dict[str, Any] = {
                     "title": {"type": "string"},
                     "body": {"type": "string"},
                     "rank": {"type": "integer"},
+                    "reason": {"type": "string", "description": "Why it has its rank, briefly"},
                     "fields": {"type": "object", "additionalProperties": {"type": "string"}},
                     "sources": {"type": "array", "items": _SOURCE},
                 },
@@ -134,6 +135,8 @@ class Item:
     rank: int | None = None
     fields: dict[str, str] = field(default_factory=dict)
     sources: list[Source] = field(default_factory=list)
+    reason: str = ""
+    """Why the judge gave it its rank: what a pick gate shows beside the rank."""
 
 
 @dataclass(frozen=True)
@@ -171,6 +174,7 @@ def parse_verdict(output: Any) -> Judgement:
                     for s in (_dict(x) for x in item.get("sources") or [])
                     if isinstance(s.get("paragraph"), int)
                 ],
+                str(item.get("reason") or "").strip(),
             )
         )
     return Judgement(passed, reasons, [] if passed else gaps, items)
@@ -225,6 +229,8 @@ def project(kind: OutputType, items: list[Item], notes: list[tuple[str, str]]) -
         fields: dict[str, Any] = {**item.fields, "title": item.title}
         if item.rank is not None:
             fields["rank"] = item.rank
+        if item.reason:
+            fields["reason"] = item.reason
         fields["sources"] = [f"{s.note}#p{s.paragraph}" for s in refs]
         lines = [f"# {item.title}", "", item.body]
         lines += [f"\n**{k}**: {v}" for k, v in item.fields.items()]

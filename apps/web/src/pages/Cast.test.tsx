@@ -174,3 +174,54 @@ test("each role may run on its own model, over the world's", async () => {
     { planner_model: "claude-haiku-4-5", worker_model: null, judge_model: null, retro_model: null },
   ]);
 });
+
+test("a skill's history lists its versions and restores an older one as the next version", async () => {
+  const bodies: unknown[] = [];
+  const hooks = (version: number) => ({
+    name: "hooks",
+    description: "About hooks.",
+    source: "world",
+    path: "worlds/world_1/skills/hooks/SKILL.md",
+    content: "",
+    version,
+    run_id: null,
+    created_at: video.created_at,
+  });
+  const version = (number: number, content: string, note = "") => ({
+    id: `skill_${number}`,
+    world_id: "world_1",
+    name: "hooks",
+    number,
+    content,
+    run_id: number === 2 ? "run_01HXABC" : null,
+    note,
+    retired: false,
+    created_at: video.created_at,
+  });
+  const versions = [version(1, "v1 body"), version(2, "v2 body", "From the retro.")];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/cast": () => Response.json(cast),
+    "GET /api/worlds/world_1/skills": () => Response.json([hooks(versions.length)]),
+    "GET /api/worlds/world_1/skills/hooks/versions": () => Response.json(versions),
+    "POST /api/worlds/world_1/skills": async (req) => {
+      const body = (await req.json()) as { content: string; note: string };
+      bodies.push(body);
+      versions.push(version(3, body.content, body.note));
+      return Response.json(hooks(3), { status: 201 });
+    },
+  });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const { screen } = await mountAt("/worlds/world_1/cast");
+  await screen.getByRole("button", { name: "History of skill hooks" }).click();
+  const history = screen.getByTestId("skill-history");
+  await expect.element(history).toMatchTextContent(/v1.*written by you.*v2.*from run 1HXABC.*From the retro\..*current/);
+  await expect.element(history.getByRole("button", { name: "Restore v2" })).not.toBeInTheDocument();
+  await history.getByRole("button", { name: "Restore v1" }).click();
+
+  expect(confirm.mock.calls[0]?.[0]).toContain("Restore v1 of hooks as v3?");
+  expect(bodies).toEqual([{ name: "hooks", content: "v1 body", note: "Restored v1." }]);
+  await expect.element(screen.getByRole("status")).toMatchTextContent(/Restored v1 of hooks as v3/);
+  await expect.element(screen.getByTestId("skill-hooks")).toMatchTextContent(/v3/);
+  await expect.element(history).toMatchTextContent(/v3.*Restored v1\..*current/);
+});

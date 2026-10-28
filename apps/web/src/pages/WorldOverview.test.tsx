@@ -149,6 +149,33 @@ test("starting a run of a workflow opens its timeline", async () => {
   expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_1");
 });
 
+test("a workflow run starts with the budget and worker count typed over the workflow's", async () => {
+  const bodies: unknown[] = [];
+  const weekly = { id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: video.created_at };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([weekly]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "POST /api/workflows/wf_1/runs": async (req) => {
+      bodies.push(await req.json());
+      return Response.json({ detail: "stop here" }, { status: 409 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
+  await expect.element(screen.getByRole("alert")).toBeVisible();
+  await screen.getByRole("spinbutton", { name: "Run budget in USD" }).fill("3");
+  await screen.getByRole("spinbutton", { name: "Workers per swarm stage" }).fill("2");
+  await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
+  await screen.getByRole("button", { name: "Start a Hooli baseline of Weekly short" }).click();
+  await expect.poll(() => bodies.length).toBe(3);
+  expect(bodies).toEqual([
+    { baseline: false },
+    { baseline: false, budget_usd: 3, agents: 2 },
+    { baseline: true, budget_usd: 3 }, // a baseline always runs one agent
+  ]);
+});
+
 test("a typed goal starts an ad hoc run and opens its timeline", async () => {
   const bodies: unknown[] = [];
   const started = {
@@ -166,10 +193,13 @@ test("a typed goal starts an ad hoc run and opens its timeline", async () => {
     "GET /api/runs/run_9": () => Response.json(started),
   });
   const { screen, router } = await mountAt("/worlds/world_1");
+  // Its own label, so it is not mistaken for a workflow's Start run.
+  await expect.element(screen.getByRole("button", { name: "Start run" })).not.toBeInTheDocument();
   await screen.getByRole("textbox", { name: "Goal" }).fill("Find five hooks");
-  await screen.getByRole("button", { name: "Start run" }).click();
+  await screen.getByRole("spinbutton", { name: "Budget in USD (optional)" }).fill("2.5");
+  await screen.getByRole("button", { name: "Run this goal" }).click();
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/Queued/);
-  expect(bodies).toEqual([{ goal: "Find five hooks", done_when: "", baseline: false }]);
+  expect(bodies).toEqual([{ goal: "Find five hooks", done_when: "", baseline: false, budget_usd: 2.5 }]);
   expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_9");
   await expect.element(screen.getByRole("heading", { level: 1 })).toMatchTextContent(/Find five hooks.*ad hoc/);
 });
@@ -183,6 +213,6 @@ test("a spent monthly budget is shown as the API's reason", async () => {
   });
   const { screen } = await mountAt("/worlds/world_1");
   await screen.getByRole("textbox", { name: "Goal" }).fill("Anything");
-  await screen.getByRole("button", { name: "Start run" }).click();
+  await screen.getByRole("button", { name: "Run this goal" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("Not started: the world's monthly budget of $5.00 is spent.");
 });

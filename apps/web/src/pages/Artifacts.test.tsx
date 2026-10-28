@@ -22,7 +22,7 @@ const chase = artifact({
   name: "idea-chase.md",
   path: "runs/run_1/stage_0/artifacts/idea-chase.md",
   title: "The chase",
-  fields: { rank: 2, sources: [] },
+  fields: { rank: 2, reason: "A slower open than the hook.", sources: [] },
   body: "# The chase\n\nA chase in 30 seconds, cut to the beat.",
 });
 const hooks = artifact({
@@ -62,8 +62,10 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
     "/api/worlds/world_1/files/runs/run_1/stage_0/notes/trends.md",
   );
   // Without a hook the card summarises the body; without a source it says so.
-  await expect.element(cards.nth(1)).toMatchTextContent(/#2 of 2.*The chase.*A chase in 30 seconds.*No source paragraph cited\./);
-  await expect.element(cards.nth(1)).not.toMatchTextContent(/Why:/);
+  // The judge's reason for the rank, for any type; an idea's own `why` when it gave none.
+  await expect
+    .element(cards.nth(1))
+    .toMatchTextContent(/#2 of 2.*The chase.*A chase in 30 seconds.*Why: A slower open than the hook\..*No source paragraph cited\./);
   await cards.nth(1).getByRole("radio").click();
   await expect.element(screen.getByRole("radio", { name: /The chase/ })).toBeChecked();
   await expect.element(screen.getByRole("radio", { name: /Hook first/ })).not.toBeChecked();
