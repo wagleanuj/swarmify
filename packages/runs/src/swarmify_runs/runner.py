@@ -36,6 +36,7 @@ from swarmify_runs.control import (
     APP_NAME,
     CONTROL_TOPIC,
     SCHEDULED_WORKFLOW,
+    WAKE,
     OverBudget,
     Previews,
     RunControl,
@@ -106,7 +107,6 @@ _runner: "Runner | None" = None
 _waiting: set[str] = set()
 _waiting_lock = threading.Lock()
 _stopping = threading.Event()
-WAKE = {"swarmify": "wake"}
 log = logging.getLogger(__name__)
 
 
@@ -327,13 +327,6 @@ class Runner(RunControl):
 
     def list_all(self, world_id: str) -> list[Run]:
         return self.storage.list_runs(world_id)
-
-    def delete_world(self, world_id: str) -> None:
-        """Cancel the world's unfinished runs, then drop its rows."""
-        for run_id in self.storage.active_run_ids(world_id):
-            DBOS.cancel_workflow(run_id)
-            DBOS.send(run_id, WAKE, topic=CONTROL_TOPIC)
-        self.storage.delete_world(world_id)
 
     def set_cap(self, world_id: str) -> None:
         """Register (or update) the world's queue with its current cap. Call it when the cap

@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 from mcp import Client, StdioServerParameters
 
-from swarmify_api.main import create_app, run_control, task_board, workflow_service, world_service
+from swarmify_api.main import (
+    create_app,
+    run_control,
+    task_board,
+    workflow_service,
+    world_deleter,
+    world_service,
+)
 from swarmify_api.mcp import server
 from swarmify_runs import Run, StageDef
 
@@ -65,10 +72,13 @@ WEEKLY = (
 
 @pytest.mark.anyio
 async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
-    worlds = world_service(tmp_path)
-    async with Client(
-        server(worlds, workflow_service(tmp_path), task_board(tmp_path), run_control(tmp_path))
-    ) as client:
+    worlds, workflows, control = (
+        world_service(tmp_path),
+        workflow_service(tmp_path),
+        run_control(tmp_path),
+    )
+    delete = world_deleter(worlds, workflows, control)
+    async with Client(server(worlds, workflows, task_board(tmp_path), control, delete)) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert {"save_workflow", "check_workflow", "list_workflows", "get_workflow"} <= names
         world = worlds.create("Video")
@@ -137,6 +147,7 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
 
         await client.call_tool("delete_world", {"world_id": world.id})
         assert (await client.call_tool("get_workflow", {"workflow_id": v1["workflow_id"]})).is_error
+    control.close()
 
 
 @pytest.mark.anyio
@@ -285,4 +296,45 @@ async def test_a_pick_gate_takes_an_artifact_path_as_the_choice(tmp_path: Path) 
             assert (decision["choice"], decision["artifact"]) == ("Hooks", path)
             assert 'artifact: "runs/' in Path(decision["path"]).read_text()
             until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    control.close()
+
+
+@pytest.mark.anyio
+async def test_the_stdio_server_deletes_a_world_like_the_api_does(tmp_path: Path) -> None:
+    """Story 7: deleting through the MCP process cancels the world's live run in the hosting
+    process and drops its Slack channel and learning rows, the same delete HTTP runs."""
+    import sqlite3
+    from contextlib import closing
+
+    from api_fakes import until
+    from fastapi.testclient import TestClient
+
+    from swarmify_api.mcp import stdio_server
+
+    control = run_control(tmp_path)
+    with TestClient(create_app(tmp_path, connector=lambda *_: None, retro=False)) as http:
+        world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        hook = {"slack_webhook": "https://hooks.slack.com/services/T/B/x"}
+        assert http.put(f"/api/worlds/{world}/notifications", json=hook).status_code < 300
+        wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": REVIEW}).json()
+        run = http.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+        until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+        with closing(sqlite3.connect(tmp_path / "swarmify.db")) as conn:
+            conn.execute(
+                "INSERT INTO skill_proposals (id, world_id, run_id, stage_id, status, path,"
+                " created_at) VALUES ('prop_1', ?, ?, 's1', 'pending', 'p.md', 't')",
+                (world, run["id"]),
+            )
+            conn.commit()
+
+        async with Client(stdio_server(tmp_path, control)) as client:
+            deleted = await client.call_tool("delete_world", {"world_id": world})
+            assert deleted.structured_content == {"deleted": world}
+
+        status = control.client.retrieve_workflow(run["id"]).get_status()
+        assert status is not None and status.status == "CANCELLED"
+        with closing(sqlite3.connect(tmp_path / "swarmify.db")) as conn:
+            assert conn.execute("SELECT count(*) FROM channels").fetchone() == (0,)
+            assert conn.execute("SELECT count(*) FROM skill_proposals").fetchone() == (0,)
+            assert conn.execute("SELECT count(*) FROM runs").fetchone() == (0,)
     control.close()

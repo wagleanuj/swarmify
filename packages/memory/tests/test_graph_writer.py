@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from swarmify_kernel import MIGRATIONS
-from swarmify_kernel.events import read_after
+from swarmify_kernel import MIGRATIONS, Event
+from swarmify_kernel.events import append, read_after
 from swarmify_kernel.sqlite import connect, migrate
 from swarmify_memory import GRAPH_OUT, GraphWriter, Memory, extract_command
 
@@ -142,6 +142,30 @@ def test_rebuilds_run_one_at_a_time_across_worlds(db: Path, tmp_path: Path) -> N
     thread.join(5)
     assert sorted(extract.folders) == ["w1", "w2", "w3"] and extract.most == 1
     assert all(_events(db, w)[0][0] == "graph.rebuilt" for w in ("w1", "w2", "w3"))
+
+
+def test_a_world_deleted_mid_rebuild_or_while_queued_leaves_nothing_behind(
+    db: Path, tmp_path: Path
+) -> None:
+    """Story 7: `a` is deleted while graphify runs on it, `b` while it waits its turn. The
+    finished rebuild writes no event and no folder; the queued one never runs."""
+    memory, worlds = Memory(db, tmp_path), tmp_path / "worlds"
+    for world in ("a", "b"):
+        memory.write_note(world, "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    fake = Extract()
+
+    def extract(folder: Path) -> None:
+        for world in ("a", "b"):  # what Worlds.delete does, while graphify still runs
+            with closing(connect(db)) as conn:
+                append(conn, Event.new("world.deleted", world_id=world, payload={"id": world}))
+            shutil.rmtree(worlds / world)
+        fake(folder)  # graphify recreates graphify-out in the deleted folder
+
+    writer = GraphWriter(db, worlds, extract, debounce=0)
+    assert writer.tick() == []
+    assert fake.folders == ["a"]
+    assert _events(db, "a") == _events(db, "b") == []
+    assert not (worlds / "a").exists() and not (worlds / "b").exists()
 
 
 def test_the_extract_command_names_the_claude_cli_backend_and_skips_its_output() -> None:
