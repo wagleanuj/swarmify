@@ -6,6 +6,7 @@ asks SessionHooks about every call, the world folder as a local plugin and no ho
 that returns a scripted transport, which the SDK drives exactly like the CLI.
 """
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -31,22 +32,52 @@ from swarmify_swarm.ports import (
     ToolError,
 )
 
-# ponytail: one price for every model, Claude Opus 5.5's per million tokens (input, output, cache
-# write, cache read). The SDK prices only the whole session, at its result, and that total trues
-# the per-step estimates up; a price table per model when stopping on time needs it. A resumed
-# session's total includes the session it resumed, so a replacement counts that one twice: the
-# Budget errs high, never low.
-PRICE_PER_MTOK = {
-    "input_tokens": 4.0,
-    "output_tokens": 20.0,
-    "cache_creation_input_tokens": 5.0,
-    "cache_read_input_tokens": 0.2,
+DEFAULT_MODEL = "claude-opus-5-5"
+"""The model a session runs on when nothing more specific chose one. `SWARMIFY_MODEL` overrides
+it."""
+
+
+def default_model() -> str:
+    return os.environ.get("SWARMIFY_MODEL") or DEFAULT_MODEL
+
+
+# Dollars per million tokens of each model the operator can choose. The SDK prices only the whole
+# session, at its result, and that total trues the per-step estimates up. A resumed session's
+# total includes the session it resumed, so a replacement counts that one twice: the Budget errs
+# high, never low.
+PRICES: dict[str, dict[str, float]] = {
+    "claude-opus-5-5": {
+        "input_tokens": 4.0,
+        "output_tokens": 20.0,
+        "cache_creation_input_tokens": 5.0,
+        "cache_read_input_tokens": 0.2,
+    },
+    "claude-sonnet-5-5": {
+        "input_tokens": 2.0,
+        "output_tokens": 10.0,
+        "cache_creation_input_tokens": 2.5,
+        "cache_read_input_tokens": 0.2,
+    },
+    "claude-haiku-4-5": {
+        "input_tokens": 1.0,
+        "output_tokens": 5.0,
+        "cache_creation_input_tokens": 1.25,
+        "cache_read_input_tokens": 0.1,
+    },
 }
+MOST = max(PRICES.values(), key=lambda p: p["output_tokens"])
+"""What a model missing from the table is priced at, so the Budget errs high."""
 
 
-def step_cost(usage: dict[str, Any] | None) -> float:
-    """The estimated cost of one model step from its usage."""
-    return sum(float((usage or {}).get(k) or 0) * p for k, p in PRICE_PER_MTOK.items()) / 1e6
+def price(model: str | None) -> dict[str, float]:
+    """The model's prices; a variant of a known id (`claude-sonnet-5-5[1m]`) is priced as it."""
+    return next((p for m, p in PRICES.items() if (model or "").startswith(m)), MOST)
+
+
+def step_cost(usage: dict[str, Any] | None, model: str | None) -> float:
+    """The estimated cost of one model step on `model` from its usage."""
+    rates = price(model)
+    return sum(float((usage or {}).get(k) or 0) * p for k, p in rates.items()) / 1e6
 
 
 HARNESS = ("StructuredOutput", "ToolSearch")
@@ -107,11 +138,12 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
 
 class SdkRuntime:
     def __init__(self, transport: TransportFactory | None = None, model: str | None = None):
+        """`model` runs every session whose spec names none; the default model by default."""
         self.transport = transport
-        self.model = model
+        self.model = model or default_model()
 
     async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
-        opts = options(spec, hooks, self.model)
+        opts = options(spec, hooks, spec.model or self.model)
         custom = self.transport(opts) if self.transport else None
         spent, steps, session = 0.0, set[str](), spec.resume or ""
         async with ClaudeSDKClient(opts, transport=custom) as client:
@@ -124,7 +156,7 @@ class SdkRuntime:
                     if step in steps or not msg.usage:
                         continue
                     steps.add(step)
-                    usd = step_cost(msg.usage)
+                    usd = step_cost(msg.usage, msg.model or opts.model)
                     spent += usd
                     if stop := hooks.cost(usd):
                         # Leaving the client ends the CLI; the session id stays resumable.
@@ -139,6 +171,7 @@ class SdkRuntime:
                             msg.data["session_id"],
                             list(msg.data.get("skills") or []),
                             [f"{e.get('plugin')}: {e.get('message')}" for e in errors],
+                            msg.data.get("model") or opts.model or "",
                         )
                     )
                 elif isinstance(msg, ResultMessage):

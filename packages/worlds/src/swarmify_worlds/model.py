@@ -6,6 +6,8 @@ RUN_CAP = 2
 """How many runs of a new world execute at once."""
 AGENT_COUNT = 4
 """How many workers a new world's cast has, besides its planner and judge."""
+MODEL_ROLES = ("planner", "worker", "judge", "retro")
+"""The roles the Cast may give a model of their own."""
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,18 @@ class World:
     """The world's spend ceiling per calendar month across all its runs. None: no ceiling."""
     run_cap: int = RUN_CAP
     agent_count: int = AGENT_COUNT
+    model: str | None = None
+    """The model the world's sessions run on. None: the global default."""
+    planner_model: str | None = None
+    worker_model: str | None = None
+    judge_model: str | None = None
+    retro_model: str | None = None
+    """Per-role overrides of `model`, set on the Cast. None: the world's model."""
+
+    def model_for(self, role: str | None) -> str | None:
+        """The role's override, else the world's model; None leaves it to the global default.
+        A workflow stage's own model wins over both, where the stage is run."""
+        return getattr(self, f"{role}_model", None) or self.model
 
 
 @dataclass(frozen=True)

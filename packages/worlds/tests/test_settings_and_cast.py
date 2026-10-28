@@ -56,6 +56,10 @@ def test_a_new_world_has_default_settings_and_each_change_is_an_event(worlds: Wo
         {"agent_count": 9},
         {"agent_count": 2.5},
         {"colour": "blue"},
+        {"model": ""},
+        {"model": "two words"},
+        {"judge_model": 5},
+        {"intern_model": "claude-haiku-4-5"},
     ],
 )
 def test_settings_out_of_range_are_refused_and_nothing_is_written(
@@ -66,6 +70,23 @@ def test_settings_out_of_range_are_refused_and_nothing_is_written(
         worlds.configure(world.id, changes)
     assert worlds.get(world.id) == world
     assert [e.type for e in worlds.events_after(world.id)] == ["world.created"]
+
+
+def test_the_model_for_a_role_is_its_override_then_the_world_default_then_none(
+    worlds: Worlds,
+) -> None:
+    world = worlds.create("Video")
+    assert (world.model, world.model_for("worker"), world.model_for(None)) == (None, None, None)
+    changed = worlds.configure(
+        world.id, {"model": "claude-sonnet-5-5", "judge_model": "claude-opus-5-5"}
+    )
+    assert changed is not None
+    assert changed.model_for("judge") == "claude-opus-5-5"
+    for role in ("planner", "worker", "retro", None):
+        assert changed.model_for(role) == "claude-sonnet-5-5"
+    cleared = worlds.configure(world.id, {"model": None, "retro_model": "claude-haiku-4-5"})
+    assert cleared is not None
+    assert (cleared.model_for("retro"), cleared.model_for("planner")) == ("claude-haiku-4-5", None)
 
 
 def test_the_default_cast_is_a_planner_the_workers_and_a_judge(worlds: Worlds) -> None:

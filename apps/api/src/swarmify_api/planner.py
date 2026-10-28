@@ -160,7 +160,8 @@ def router(worlds: Worlds, runtime: AgentRuntime, server: MCPServer) -> APIRoute
     async def chat(world_id: str, body: Message) -> Reply:
         """One turn of the planner chat. 502 when the planner's session fails or does not
         answer in the shape asked; send the message again to retry."""
-        if worlds.get(world_id) is None:
+        world = worlds.get(world_id)
+        if world is None:
             raise HTTPException(404, "world not found")
         saves: list[dict[str, Any]] = []
         folder = worlds.folder(world_id)
@@ -174,6 +175,7 @@ def router(worlds: Worlds, runtime: AgentRuntime, server: MCPServer) -> APIRoute
             resume=body.session_id,
             max_turns=MAX_TURNS,
             output_schema=ANSWER_SCHEMA,
+            model=world.model,  # the world default; None leaves it to the global one
         )
         hooks = _Hooks(allowed)
         try:

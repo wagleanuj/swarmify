@@ -19,7 +19,7 @@ from swarmify_workflows.schedule import CRON_RULE, cron_problem
 
 TOP_FIELDS = {"name", "schedule", "budget_usd", "agents", "stages"}
 STAGE_FIELDS: dict[str, set[str]] = {
-    "swarm": {"goal", "done_when", "tools", "graphs", "output_type", "produces"},
+    "swarm": {"goal", "done_when", "tools", "graphs", "output_type", "produces", "model"},
     "gate": {"ask", "kind"},
     "connector": {"calls", "input", "output", "params"},
     "workflow": {"runs", "take"},
@@ -145,9 +145,11 @@ def _parse_stage(index: int, raw: Any, out: list[Violation]) -> tuple[str | None
     if kind == "swarm":
         goal, done_when = f.text("goal", required=True), f.text("done_when", required=True)
         tools, graphs, produces = f.names("tools"), f.names("graphs"), f.names("produces")
-        output_type = f.text("output_type")
+        output_type, model = f.text("output_type"), f.text("model")
         if goal and done_when:
-            stage = SwarmStage(stage_name, goal, done_when, tools, graphs, output_type, produces)
+            stage = SwarmStage(
+                stage_name, goal, done_when, tools, graphs, output_type, produces, model
+            )
     elif kind == "gate":
         ask = f.text("ask", required=True)
         gate_kind = f.text("kind") or "approve"

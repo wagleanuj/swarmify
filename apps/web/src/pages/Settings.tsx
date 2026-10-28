@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
+import { ModelSelect, useModels } from "./ModelSelect";
 
 type World = components["schemas"]["World"];
 type Spend = components["schemas"]["Spend"];
@@ -14,7 +15,8 @@ export function Settings() {
   const path = { params: { path: { world_id: worldId } } };
   const [world, setWorld] = useState<World | null>(null);
   const [spend, setSpend] = useState<Spend | null>(null);
-  const [form, setForm] = useState({ monthly: "", runCap: "2", retention: "90", agents: "4" });
+  const [form, setForm] = useState({ monthly: "", runCap: "2", retention: "90", agents: "4", model: "" });
+  const models = useModels();
   const [savingWorld, setSavingWorld] = useState(false);
   const [worldSaid, setWorldSaid] = useState<string | null>(null);
   const [worldError, setWorldError] = useState<string | null>(null);
@@ -35,6 +37,7 @@ export function Settings() {
           runCap: String(data.run_cap ?? 2),
           retention: String(data.retention_days ?? 90),
           agents: String(data.agent_count ?? 4),
+          model: data.model ?? "",
         });
       })
       .catch(() => undefined);
@@ -87,6 +90,7 @@ export function Settings() {
         run_cap: Number(form.runCap),
         retention_days: Number(form.retention),
         agent_count: Number(form.agents),
+        model: form.model || null,
       },
     });
     setSavingWorld(false);
@@ -177,6 +181,18 @@ export function Settings() {
             </label>
             <span className="faint">
               Richard and Erlich always come along; this is how many workers the cast has. A stage starts one per ready task, up to this.
+            </span>
+          </div>
+          <div className="field">
+            <ModelSelect
+              label="Model"
+              value={form.model}
+              fallback={`Default: ${models?.default ?? "the global default"}`}
+              models={models}
+              onChange={(model) => setForm((f) => ({ ...f, model }))}
+            />
+            <span className="faint">
+              What every agent and the planner chat run on. The cast can choose per role, a stage per workflow. Cheaper models cost less per step.
             </span>
           </div>
         </div>

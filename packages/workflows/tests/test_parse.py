@@ -42,6 +42,14 @@ def test_a_workflow_stage_names_the_workflow_it_runs_and_what_it_takes() -> None
     assert model.stages == [WorkflowStage("trends", "wf_abc", ["brief.md"])]
 
 
+def test_a_swarm_stage_may_name_the_model_its_agents_run_on() -> None:
+    text = "name: N\nstages:\n  - swarm: s\n    goal: g\n    done_when: d\n    model: {m}\n"
+    model, violations = parse_workflow(text.format(m="claude-haiku-4-5"))
+    assert violations == [] and model is not None
+    assert model.stages == [SwarmStage("s", "g", "d", model="claude-haiku-4-5")]
+    assert rules(text.format(m="[1, 2]")) == [("schema", "s", "model must be a non-empty string")]
+
+
 def test_broken_yaml_names_the_line() -> None:
     model, violations = parse_workflow("name: x\nstages:\n  - swarm: [\n")
     assert model is None

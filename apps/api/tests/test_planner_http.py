@@ -102,3 +102,12 @@ def test_a_planner_that_dies_or_answers_badly_is_a_502_the_operator_can_retry(
     assert ok.status_code == 200 and ok.json()["yaml"] is None
     assert running.post("/api/worlds/world_nope/planner", json={"message": "x"}).status_code == 404
     assert running.post(f"/api/worlds/{world}/planner", json={"message": ""}).status_code == 422
+
+
+def test_the_planner_chat_runs_on_the_world_model(running: TestClient, script: Script) -> None:
+    world = _world(running)
+    script.scripts = [[Answer({"reply": "Hi.", "yaml": None})]]
+    assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
+    running.patch(f"/api/worlds/{world}", json={"model": "claude-sonnet-5-5"})
+    assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
+    assert [o.model for o in script.sessions] == ["claude-opus-5-5", "claude-sonnet-5-5"]

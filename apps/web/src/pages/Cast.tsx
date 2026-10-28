@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { who } from "../api/tasks";
 import { castRoute } from "../router";
 import { usd } from "./AgentLog";
+import { ModelSelect, useModels } from "./ModelSelect";
 
 type World = components["schemas"]["World"];
 type Member = components["schemas"]["CastMember"];
@@ -17,6 +18,14 @@ const ROLE: Record<string, string> = {
   worker: "claims tasks, writes notes and artifacts",
   judge: "decides when a stage is done",
 };
+
+const MODEL_ROLES = [
+  ["planner_model", "Planner model"],
+  ["worker_model", "Worker model"],
+  ["judge_model", "Judge model"],
+  ["retro_model", "Retro model"],
+] as const;
+type RoleModel = (typeof MODEL_ROLES)[number][0];
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -46,11 +55,28 @@ export function Cast() {
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[] | null | undefined>(undefined);
+  const models = useModels();
+  const [roleModels, setRoleModels] = useState<Record<RoleModel, string>>({
+    planner_model: "",
+    worker_model: "",
+    judge_model: "",
+    retro_model: "",
+  });
+
+  function showWorld(w: World | null) {
+    setWorld(w);
+    if (w) setRoleModels({
+      planner_model: w.planner_model ?? "",
+      worker_model: w.worker_model ?? "",
+      judge_model: w.judge_model ?? "",
+      retro_model: w.retro_model ?? "",
+    });
+  }
 
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", path)
-      .then(({ data }) => setWorld(data ?? null))
+      .then(({ data }) => showWorld(data ?? null))
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/skills", path)
@@ -99,6 +125,23 @@ export function Cast() {
     if (history?.name === m.name) void showHistory(m.name);
   }
 
+  async function saveModels(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setSaid(null);
+    const body = Object.fromEntries(MODEL_ROLES.map(([key]) => [key, roleModels[key] || null]));
+    const { data, error } = await api.PATCH("/api/worlds/{world_id}", { ...path, body });
+    setBusy(false);
+    if (error || !data) {
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      setError(typeof detail === "string" ? `Not saved: ${detail}.` : "Not saved. Try again.");
+      return;
+    }
+    showWorld(data);
+    setSaid("Models saved. They apply from the next stage on.");
+  }
+
   async function showHistory(name: string) {
     const { data } = await api.GET("/api/worlds/{world_id}/cast/{name}/versions", {
       params: { path: { world_id: worldId, name } },
@@ -132,6 +175,34 @@ export function Cast() {
         </p>
       )}
       {cast === null && !error && <p role="status">Loading...</p>}
+      <form className="card" onSubmit={(e) => void saveModels(e)} aria-label="Models">
+        <h2>Models</h2>
+        <div className="settings-grid">
+          {MODEL_ROLES.map(([key, label]) => (
+            <div className="field" key={key}>
+              <ModelSelect
+                label={label}
+                value={roleModels[key]}
+                fallback={`World's: ${world?.model ?? models?.default ?? "the default"}`}
+                models={models}
+                onChange={(m) => setRoleModels((r) => ({ ...r, [key]: m }))}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="faint">
+          A role left on the world's model follows the{" "}
+          <Link to="/worlds/$worldId/settings" params={{ worldId }}>
+            world setting
+          </Link>
+          . A workflow stage that names a model runs all its agents on it.
+        </p>
+        <div className="row">
+          <button type="submit" className="primary" disabled={busy}>
+            Save models
+          </button>
+        </div>
+      </form>
       <ul className="cast-list" data-testid="cast">
         {(cast ?? []).map((m) => (
           <li key={m.name} className="card cast-member" data-testid={`cast-${m.name}`}>

@@ -88,6 +88,7 @@ from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
 from swarmify_swarm import AgentRuntime, CastEntry, SdkRuntime, Stopped, Swarm
 from swarmify_swarm import SqliteStorage as TaskStorage
+from swarmify_swarm.sdk import PRICES, default_model
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows, WorkflowVersion
 from swarmify_workflows import SqliteStorage as WorkflowStorage
@@ -298,6 +299,11 @@ class Health(BaseModel):
     version: str
 
 
+class Models(BaseModel):
+    default: str
+    models: list[str]
+
+
 def create_app(
     root: Path | None = None,
     connector: Connector | None = None,
@@ -390,7 +396,13 @@ def create_app(
         notes = next(s.notes for s in run.stages if s.id == stage_id)
         # The Cast as it stands when the stage starts: an edit reaches every later stage.
         members = world_svc.cast(run.world_id) or []
-        cast = [CastEntry(m.name, m.role, m.prompt, m.tools) for m in members]  # type: ignore[arg-type]
+        world = world_svc.get(run.world_id)
+        staged = stage.config.get("model")  # the stage's model wins over the world's choice
+
+        def model(role: str) -> str | None:
+            return staged or (world.model_for(role) if world else None)
+
+        cast = [CastEntry(m.name, m.role, m.prompt, m.tools, model(m.role)) for m in members]  # type: ignore[arg-type]
         try:
             swarm.run_stage(
                 run.world_id,
@@ -417,11 +429,14 @@ def create_app(
             version = workflow_svc.version(run.workflow_id, run.workflow_version)
             yaml = version.yaml if version else None
 
+        world = world_svc.get(run.world_id)
+        model = world.model_for("retro") if world else None
+
         def ask(system: str, prompt: str, schema: dict[str, Any], parse: Any) -> Any:
             try:
                 return swarm.ask(
                     run.world_id, run.id, stage_id, stage.name, folder, "retro",
-                    system, prompt, schema, parse,
+                    system, prompt, schema, parse, model,
                 )  # fmt: skip
             except Stopped as exc:
                 raise OverBudget(str(exc)) from exc
@@ -521,6 +536,13 @@ def create_app(
     @app.get("/api/health")
     def health() -> Health:
         return Health(version=VERSION)
+
+    @app.get("/api/models")
+    def models() -> Models:
+        """The models a world, a role or a stage may choose, and the one used when none does
+        (`SWARMIFY_MODEL`, else Claude Opus 5.5). Any other model id is priced at the most
+        expensive of these."""
+        return Models(default=default_model(), models=list(PRICES))
 
     def on_delete(world_id: str) -> None:
         unschedule_world(workflow_svc, runner, world_id)

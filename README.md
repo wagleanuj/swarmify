@@ -43,7 +43,7 @@ schedule: "0 8 * * 1"      # optional cron
 budget_usd: 5              # optional
 agents: 4                  # optional
 stages:
-  - swarm: research        # goal, done_when; optional tools, graphs, output_type, produces
+  - swarm: research        # goal, done_when; optional tools, graphs, output_type, produces, model
     goal: Find 5 ideas trending this week.
     done_when: 5 ideas ranked
     tools: [web_search, graph]
@@ -132,7 +132,9 @@ the workflow's `budget_usd` (a fork keeps its source run's Budget), else 5 USD
 parent's. Spend is the Agent SDK's estimate, not your bill.
 
 - Cost hook: every model step of an agent session (one per tool call) adds an estimate priced
-  from the step's token usage, and the session's result trues the sum up to the SDK's own total.
+  from the step's token usage at the price of the model it ran on (`swarmify_swarm.sdk.PRICES`:
+  Claude Opus 5.5, Sonnet 5.5 and Haiku 4.5; any other model is priced at the most expensive of
+  them, so the Budget errs high), and the session's result trues the sum up to the SDK's own total.
   After each estimate the hooks ask the Budget, which refreshes the run's `spent_usd` (the run and
   every child run below it, ADR 0013) and streams it as `run.updated`.
 - At 80 percent a `budget.warning` event goes to the world's stream and the Notifier, once per
@@ -403,6 +405,13 @@ whiteboard, the workers work it, and the judge decides when the stage is done (s
 judge below). An agent's standing prompt from the cast is added to its system prompt and its
 cast tools narrow the stage's `tools`.
 
+Models: a session runs on the most specific choice of a swarm stage's `model` (all its agents),
+the Cast's model for the role (`planner_model`, `worker_model`, `judge_model`, `retro_model`),
+the world's `model`, then the global default: `SWARMIFY_MODEL`, else `claude-opus-5-5`. The
+planner chat runs on the world's model. `GET /api/models` lists the priced models and the global
+default. The model a session reports at its start is stored on the agent (`model`) and logged, and
+the run page shows it beside each agent.
+
 - In-process tools (`mcp__swarmify__<name>`): `query_graph`, `list_tasks`, `claim_task` (the named
   task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `write_note`,
   `write_artifact`. Notes land in `worlds/<w>/runs/<run>/<stage>/notes/`, artifacts in
@@ -499,10 +508,11 @@ just claimed with `LAST`; `Script(..., cycle=True)` repeats the step lists per r
 
 ## Settings and cast
 
-Each world has four settings on `/worlds/<id>/settings`, read with `GET /api/worlds/<id>` and
+Each world has five settings on `/worlds/<id>/settings`, read with `GET /api/worlds/<id>` and
 changed with `PATCH /api/worlds/<id>` (any subset of `monthly_budget_usd` (null removes it),
 `run_cap` (1 to 8), `retention_days` (0 to 3650, 0 keeps binaries forever), `agent_count` (1 to
-8)); every change is a `world.updated` event. The monthly budget caps each new run's Budget (see
+8), `model` (a model id, null for the global default), and the per-role `<role>_model` the cast
+page sets); every change is a `world.updated` event. The monthly budget caps each new run's Budget (see
 Budget and baseline), the run cap is the world's DBOS queue concurrency and applies at once, the
 retention is read by the retention job, and the agent count is how many workers the cast has.
 
@@ -516,7 +526,8 @@ with `{"prompt", "tools", "confirm": true}` appends a version of the agent's sta
 allowed stage tools (`tools` null means any the stage allows); it is refused without `confirm`
 or when nothing changed, and `GET /api/worlds/<id>/cast/<name>/versions` lists every version,
 version 1 being the default. The page is `/worlds/<id>/cast`: each edit asks for confirmation
-naming the version it becomes, and applies to every stage that starts from then on.
+naming the version it becomes, and applies to every stage that starts from then on. The page also
+picks a model per role (planner, worker, judge, retro), over the world's (see Agents).
 
 ## Notifications
 

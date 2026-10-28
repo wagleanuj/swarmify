@@ -21,6 +21,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Models
+         * @description The models a world, a role or a stage may choose, and the one used when none does
+         *     (`SWARMIFY_MODEL`, else Claude Opus 5.5). Any other model id is priced at the most
+         *     expensive of these.
+         */
+        get: operations["models_api_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds": {
         parameters: {
             query?: never;
@@ -1233,6 +1255,8 @@ export interface components {
             updated_at: string;
             /** Skills */
             skills?: string[];
+            /** Model */
+            model?: string | null;
         };
         /** Answer */
         Answer: {
@@ -1809,6 +1833,13 @@ export interface components {
             /** Session Id */
             session_id?: string | null;
         };
+        /** Models */
+        Models: {
+            /** Default */
+            default: string;
+            /** Models */
+            models: string[];
+        };
         /** NewConnector */
         NewConnector: {
             /** Name */
@@ -2346,6 +2377,8 @@ export interface components {
             output_type?: string | null;
             /** Produces */
             produces?: string[];
+            /** Model */
+            model?: string | null;
             /**
              * Type
              * @default swarm
@@ -2592,6 +2625,16 @@ export interface components {
              * @default 4
              */
             agent_count: number;
+            /** Model */
+            model?: string | null;
+            /** Planner Model */
+            planner_model?: string | null;
+            /** Worker Model */
+            worker_model?: string | null;
+            /** Judge Model */
+            judge_model?: string | null;
+            /** Retro Model */
+            retro_model?: string | null;
         };
         /**
          * WorldSettings
@@ -2606,6 +2649,16 @@ export interface components {
             retention_days?: number | null;
             /** Agent Count */
             agent_count?: number | null;
+            /** Model */
+            model?: string | null;
+            /** Planner Model */
+            planner_model?: string | null;
+            /** Worker Model */
+            worker_model?: string | null;
+            /** Judge Model */
+            judge_model?: string | null;
+            /** Retro Model */
+            retro_model?: string | null;
         };
         /** YamlBody */
         YamlBody: {
@@ -2637,6 +2690,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    models_api_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Models"];
                 };
             };
         };

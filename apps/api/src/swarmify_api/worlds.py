@@ -42,6 +42,14 @@ class WorldSettings(BaseModel):
     """Days run binaries (videos, images) are kept; their markdown stays forever. 0 keeps all."""
     agent_count: int | None = Field(default=None, ge=1, le=MAX_AGENTS)
     """How many workers the cast has; a swarm stage starts up to that many."""
+    model: str | None = None
+    """The model the world's sessions run on; null for the global default (`GET /api/models`)."""
+    planner_model: str | None = None
+    worker_model: str | None = None
+    judge_model: str | None = None
+    retro_model: str | None = None
+    """A role's model, over the world's; null for the world's. A swarm stage's `model` wins
+    over both."""
 
 
 class CastChange(BaseModel):
