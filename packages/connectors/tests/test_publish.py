@@ -216,6 +216,10 @@ def test_a_background_upload_that_reached_no_platform_fails_the_stage(
     transport.outputs["get_status"] = [gone]
     with pytest.raises(ConnectorError, match="nothing was posted. upload_post: file unreadable"):
         connectors.run_stage(W, "run_1", "stage_2", stage("upload_post", user="me"))
+    unknown = {"result": {"success": False, "error": "Request not found"}}
+    transport.outputs["get_status"] = [unknown]
+    with pytest.raises(ConnectorError, match="nothing was posted. upload_post: Request not found"):
+        connectors.run_stage(W, "run_1", "stage_3", stage("upload_post", user="me"))
 
 
 def test_a_publish_stage_with_a_problem_never_calls(

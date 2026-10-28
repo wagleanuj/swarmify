@@ -354,7 +354,7 @@ its frontmatter and the links again in its body) lands in the stage's `artifacts
   each platform's link (a platform that failed is listed in the artifact; when none succeeded the
   stage fails). An upload over about 59 seconds moves to Upload-Post's background and answers a
   request id; the stage then polls `get_status` with it until the upload finishes and records the
-  links the same way. A scheduled post records the Upload-Post job id; its links appear only once it
+  links the same way; a request id Upload-Post no longer knows fails the stage. A scheduled post records the Upload-Post job id; its links appear only once it
   goes out; reading those links back is not built yet.
 
 ### Outcomes

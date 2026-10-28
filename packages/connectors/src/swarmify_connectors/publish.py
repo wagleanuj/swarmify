@@ -145,7 +145,9 @@ def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
     error). Upload-Post moves an upload over 59 seconds to the background even when asked to
     wait, answering a `request_id` and no results: that is `pending` until its `get_status`
     answer is no longer pending or in progress. That answer lists `results` per platform, with
-    `post_url` and `message` where the upload answer has `url` and `error`."""
+    `post_url` and `message` where the upload answer has `url` and `error`. An answer with no
+    results that is `success: false` (an unknown or expired request) or a failed status is a
+    failure, never an empty success."""
     if connector == "upload_post":
         body = response.get("result", response)
         body = body if isinstance(body, dict) else {}
@@ -169,7 +171,7 @@ def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
             for p, r in results.items()
             if not r.get("success")
         }
-        if not results and status in ("failed", "error"):
+        if not results and (status in ("failed", "error") or body.get("success") is False):
             failed = {"upload_post": str(body.get("message") or body.get("error") or status)}
         return {"status": "published", "links": links, "id": None, "failed": failed}
     url = response.get("url")
