@@ -45,6 +45,14 @@ class Storage(Protocol):
         had, so of any number of concurrent callers exactly one warns."""
         ...
 
+    def set_stop(self, run_id: str, stop: str | None) -> None:
+        """Ask the run's agents to stop mid-stage (`pause` or `abort`), or let them go (None)."""
+        ...
+
+    def stop_of(self, run_id: str) -> str | None:
+        """The stop asked for by `set_stop`, None when none is."""
+        ...
+
     def latest_baseline(self, workflow_id: str | None) -> Run | None:
         """The newest finished baseline run of the workflow, any version. None for an ad hoc
         run, which has no workflow to be measured against."""
