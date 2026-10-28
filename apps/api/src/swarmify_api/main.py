@@ -487,6 +487,7 @@ def create_app(
         learning_svc.delete_world(world_id)
 
     app.include_router(worlds.router(world_svc, on_delete, lambda w: runner.set_cap(w.id)))
+    app.include_router(worlds.events_router(world_svc))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(runs.router(runner, workflow_svc, world_svc, swarm_tools, retro))
     app.include_router(connectors.router(registry, world_svc))

@@ -37,6 +37,18 @@ def test_last_event_id_resumes_after_the_given_sequence(live_url: str) -> None:
         assert (kind, seq) == ("world.created", 1)
 
 
+def test_the_all_worlds_stream_carries_every_worlds_events_in_order(live_url: str) -> None:
+    a = httpx.post(f"{live_url}/api/worlds", json={"name": "A"}).json()
+    b = httpx.post(f"{live_url}/api/worlds", json={"name": "B"}).json()
+    with httpx.stream("GET", f"{live_url}/api/events", timeout=5) as r:
+        events = sse_events(r)
+        seen = [(kind, seq, data["world_id"]) for kind, seq, data in (next(events), next(events))]
+        assert seen == [("world.created", 1, a["id"]), ("world.created", 2, b["id"])]
+    resume = {"Last-Event-ID": "1"}
+    with httpx.stream("GET", f"{live_url}/api/events", headers=resume, timeout=5) as r:
+        assert next(sse_events(r))[1] == 2
+
+
 def test_a_bad_last_event_id_is_a_422_and_an_unknown_world_a_404(client: TestClient) -> None:
     world = client.post("/api/worlds", json={"name": "Video"}).json()
     url = f"/api/worlds/{world['id']}/events"

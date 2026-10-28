@@ -34,7 +34,8 @@ test("renders each gate kind with its own control and posts the decision", async
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Needs you");
   const list = screen.getByTestId("gate-list");
   await expect.element(list).toMatchTextContent(/Publish it.*Weekly short.*Weekly short/);
-  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
+  // One stream for every world: a stream per world exhausts the browser's six connections.
+  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events"]);
 
   const pick = screen.getByTestId("gate-run_1");
   await expect.element(pick).toMatchTextContent(/Pick one idea\./);

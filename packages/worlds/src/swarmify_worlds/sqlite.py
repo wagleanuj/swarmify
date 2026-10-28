@@ -120,6 +120,6 @@ class SqliteStorage:
             conn.execute("COMMIT")
             return edit
 
-    def events_after(self, world_id: str, after_seq: int) -> list[Event]:
+    def events_after(self, world_id: str | None, after_seq: int) -> list[Event]:
         with self._conn() as conn:
             return read_after(conn, world_id, after_seq)

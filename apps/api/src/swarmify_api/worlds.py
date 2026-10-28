@@ -155,7 +155,24 @@ def router(
     return api
 
 
-async def _stream(worlds: Worlds, world_id: str, after: int) -> AsyncIterator[str]:
+def events_router(worlds: Worlds) -> APIRouter:
+    api = APIRouter(prefix="/api", tags=["worlds"])
+
+    @api.get("/events", response_class=StreamingResponse)
+    async def all_events(last_event_id: Annotated[int, Header()] = 0) -> StreamingResponse:
+        """Server-sent events for every world, for views that span worlds such as the gates
+        inbox. One stream instead of one per world: browsers cap HTTP/1.1 connections per host
+        at six, and a stream per world held every slot once there were six worlds."""
+        return StreamingResponse(
+            _stream(worlds, None, last_event_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    return api
+
+
+async def _stream(worlds: Worlds, world_id: str | None, after: int) -> AsyncIterator[str]:
     # ponytail: each open stream polls SQLite every 200 ms with a synchronous query on the event
     # loop. Fine for one operator; swap for an in-process notify when streams or latency grow.
     idle = 0.0
