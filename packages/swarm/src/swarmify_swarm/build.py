@@ -147,7 +147,8 @@ picture follows the voice, never the other way round.
   move them onto the timeline), paged per line with createTikTokStyleCaptions from
   @remotion/captions (`npm install @remotion/captions` if the project lacks it) so a page never
   crosses lines, the spoken word highlighted; words are inline-block spans with white-space: pre,
-  or their leading spaces vanish.
+  or their leading spaces vanish. Scaling the spoken word up covers the spaces beside it: pad it
+  sideways by what the scale adds, or highlight by colour alone.
 - Music: a bed from the world's assets, when it has one, under the whole video and ducked under
   speech (about 0.45 between lines, 0.12 while a line plays). No bed, no music.
 A sample composition doing all this, to adapt to the script and the brief:
