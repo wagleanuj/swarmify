@@ -44,6 +44,7 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
     "GET /api/worlds/world_1/graph": () => Response.json(view),
   });
   const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Memory");
   await expect.element(screen.getByTestId("graph-empty")).toMatchTextContent(/Anton folds them in/);
   await expect.element(screen.getByTestId("rebuilt")).toHaveTextContent("Not built yet");
 
@@ -51,14 +52,15 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
   expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events?since=now"]);
   view = built;
   FakeEventSource.emit("graph.rebuilt", { payload: built.rebuilt });
-  await expect.element(screen.getByTestId("graph-size")).toMatchTextContent(/1,284 nodes\s*3,901 edges/);
+  await expect
+    .element(screen.getByTestId("graph-size"))
+    .toMatchTextContent(/Nodes\s*1,284\s*Edges\s*3,901\s*Rebuilds\s*18\s*Spent on memory\s*\$12\.30/);
   await expect
     .element(screen.getByTestId("rebuilt"))
     .toHaveTextContent("Anton rebuilt it just now: +31 nodes, +58 edges in 12s, est. $0.42");
-  await expect
-    .element(screen.getByTestId("spent"))
-    .toHaveTextContent("18 rebuilds so far: 45m of extraction, est. $12.30");
-  await expect.element(screen.getByTestId("god-nodes")).toMatchTextContent(/Hook pattern\s*71 links/);
+  await expect.element(screen.getByTestId("spent")).toHaveAttribute("title", "45m of extraction");
+  // The most connected notes, ranked by their links.
+  await expect.element(screen.getByTestId("god-nodes")).toMatchTextContent(/^Hook pattern\s*71\s*Retention cliff\s*64$/);
   expect(screen.getByTestId("graph-empty").elements()).toHaveLength(0);
 });
 
@@ -128,7 +130,7 @@ test("a shrink the guard refused is shown with one click to accept it", async ()
   expect(screen.getByRole("button", { name: "Accept the shrink" }).elements()).toHaveLength(0);
 });
 
-test("communities and surprising connections link each node to its run and note", async () => {
+test("communities with their size and surprising links name each node with its run and note", async () => {
   const note = "runs/run_1/research/notes/hooks.md";
   const hooks = { label: "Short hooks", source_file: note, run_id: "run_1" };
   const brief = { label: "Brief", source_file: "brief.md", run_id: null };
@@ -148,7 +150,7 @@ test("communities and surprising connections link each node to its run and note"
   });
   const { screen } = await mountAt("/worlds/world_1/graph");
   const communities = screen.getByTestId("communities");
-  await expect.element(communities).toMatchTextContent(/Hooks\s*12 nodes/);
+  await expect.element(communities).toMatchTextContent(/^Hooks\s*Short hooks run note, Brief note\s*12$/);
   const runs = communities.getByRole("link", { name: "run" });
   await expect.element(runs).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
   const notes = communities.getByRole("link", { name: "note" });

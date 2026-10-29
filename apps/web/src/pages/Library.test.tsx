@@ -72,27 +72,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("lists every artifact with where it came from and filters by type, workflow, stage, run and date", async () => {
+test("lists every artifact under type tabs with counts, the tab and search in the address, and filters the rest", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/workflows": () => Response.json([short, long]),
     "GET /api/worlds/world_1/library": () => Response.json([decision, hook, ideas, brief]),
   });
-  const { screen } = await mountAt("/worlds/world_1/library");
+  const { screen, router } = await mountAt("/worlds/world_1/library");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Library");
+  await expect.element(screen.getByText("4 things the runs in this world made, 0 pinned.")).toBeVisible();
   await expect.element(screen.getByTestId("count")).toHaveTextContent("4 of 4");
   expect(screen.getByTestId("artifact").elements()).toHaveLength(4);
-  const card = screen.getByTestId("artifact").first();
-  await expect.element(card).toMatchTextContent(/decision\s*decision\.md\s*from Short · stage 2 pick · v2/);
-  await expect.element(card.getByRole("link", { name: "Short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+  const row = screen.getByTestId("artifact").first();
+  await expect.element(row).toMatchTextContent(/decision\s*decision\.md\s*Short · stage 2 pick · v2/);
 
-  const filters = screen.getByRole("form", { name: "Filters" });
-  await filters.getByLabelText(/^Type/).selectOptions("idea");
+  const tabs = screen.getByRole("navigation", { name: "Types" });
+  await expect.element(tabs).toMatchTextContent(/All 4\s*decision 1\s*idea 1\s*file 2/);
+  await tabs.getByRole("link", { name: /^idea/ }).click();
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ type: "idea" }));
+  await expect.element(tabs.getByRole("link", { name: /^idea/ })).toHaveAttribute("aria-current", "page");
+  await expect.element(tabs.getByRole("link", { name: /^All/ })).not.toHaveAttribute("aria-current");
   await expect.element(screen.getByTestId("count")).toHaveTextContent("1 of 4");
   await expect.element(screen.getByTestId("library")).toMatchTextContent(/^idea\s*Hook first/);
-  await filters.getByRole("button", { name: "Clear filters" }).click();
+  await tabs.getByRole("link", { name: /^All/ }).click();
+  await expect.element(tabs.getByRole("link", { name: /^All/ })).toHaveAttribute("aria-current", "page");
   await expect.element(screen.getByTestId("count")).toHaveTextContent("4 of 4");
 
+  await screen.getByRole("searchbox", { name: "Search the library" }).fill("brief");
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ q: "brief" }));
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
+  await screen.getByRole("searchbox", { name: "Search the library" }).fill("");
+
+  const filters = screen.getByRole("form", { name: "Filters" });
   await filters.getByLabelText(/^Workflow/).selectOptions("Long form");
   await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
   await filters.getByRole("button", { name: "Clear filters" }).click();
@@ -112,54 +123,71 @@ test("lists every artifact with where it came from and filters by type, workflow
   await expect.element(screen.getByText("No artifact matches these filters.")).toBeVisible();
 });
 
-test("pinning flips the flag through the API and shows on the card", async () => {
+test("the address names the item in the preview, and pinning keeps it there with a stamp and lists it first", async () => {
   const pins: unknown[] = [];
+  const notes = item("ideas.md", { body: "# Ideas\n\nOpen on the **hook**." });
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/workflows": () => Response.json([short]),
-    "GET /api/worlds/world_1/library": () => Response.json([hook]),
+    "GET /api/worlds/world_1/library": () => Response.json([notes, hook]),
     "POST /api/worlds/world_1/pins": async (req) => {
       const body = (await req.json()) as { path: string; pinned: boolean };
       pins.push(body);
       return Response.json({ ...hook, pinned: body.pinned });
     },
   });
-  const { screen } = await mountAt("/worlds/world_1/library");
-  await screen.getByRole("button", { name: "Pin Hook first" }).click();
-  await expect.element(screen.getByTestId("artifact")).toHaveAttribute("data-pinned", "true");
-  await expect.element(screen.getByTestId("artifact")).toMatchTextContent(/pinned/);
-  await screen.getByRole("button", { name: "Unpin Hook first" }).click();
-  await expect.element(screen.getByTestId("artifact")).toHaveAttribute("data-pinned", "false");
+  const { screen, router } = await mountAt(`/worlds/world_1/library?item=${encodeURIComponent(notes.path)}`);
+  const preview = screen.getByTestId("preview");
+  await expect.element(preview.getByRole("heading", { level: 2 })).toHaveTextContent("ideas.md");
+  await expect.element(preview).toMatchTextContent(/Open on the hook\./);
+  await expect.element(screen.getByTestId("artifact").first()).toHaveAttribute("aria-current", "page");
+
+  await screen.getByRole("link", { name: /Hook first/ }).click();
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ item: hook.path }));
+  await expect.element(preview.getByRole("heading", { level: 2 })).toHaveTextContent("Hook first");
+  await expect.element(preview.getByRole("link", { name: "Short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+
+  await preview.getByRole("button", { name: "Pin Hook first" }).click();
+  await expect.element(preview.getByRole("status")).toHaveTextContent("Pinned. Later stages read it.");
+  expect(router.state.location.search).toEqual({ item: hook.path });
+  const first = screen.getByTestId("artifact").first();
+  await expect.element(first).toHaveAttribute("data-pinned", "true");
+  await expect.element(first).toMatchTextContent(/Pinned · Hook first/);
+  await preview.getByRole("button", { name: "Unpin Hook first" }).click();
+  await expect.element(preview.getByRole("status")).toHaveTextContent("Unpinned.");
   expect(pins).toEqual([
     { path: hook.path, pinned: true },
     { path: hook.path, pinned: false },
   ]);
 });
 
-test("promote starts the workflow at the chosen stage with the artifact and opens the run", async () => {
+test("start a run from here is a menu naming the stage each new run starts at, and opens the run", async () => {
   let promoted: unknown = null;
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
-    "GET /api/worlds/world_1/workflows": () => Response.json([short, long]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([long, short]),
     "GET /api/worlds/world_1/library": () => Response.json([ideas]),
     "GET /api/workflows/wf_1/versions/2": () => Response.json(version),
+    "GET /api/workflows/wf_2/versions/1": () =>
+      Response.json({ ...version, model: { name: "Long form", stages: [{ name: "brief", type: "swarm", goal: "", done_when: "" }, { name: "edit", type: "swarm", goal: "", done_when: "" }] } }),
     "POST /api/workflows/wf_1/promote": async (req) => {
       promoted = await req.json();
       return Response.json({ id: "run_9" }, { status: 201 });
     },
   });
-  const { screen, router } = await mountAt("/worlds/world_1/library");
-  await screen.getByRole("button", { name: "Promote ideas.md" }).click();
-  const form = screen.getByRole("form", { name: "Promote ideas.md" });
-  await expect.element(form.getByLabelText(/^Workflow/)).toHaveValue("wf_1");
-  await expect.element(form).toMatchTextContent(/ideas\.md stands in for the skipped stages' output/);
-  await form.getByLabelText(/^Start at/).selectOptions("2. render");
-  await form.getByRole("button", { name: "Start run" }).click();
+  const { screen, router } = await mountAt(`/worlds/world_1/library?item=${encodeURIComponent(ideas.path)}`);
+  await screen.getByRole("button", { name: "Start a run from here" }).click();
+  const menu = screen.getByRole("menu", { name: "Start a run from here" });
+  // Its own workflow first, after the stage that made it; then the others from their second stage.
+  await expect.element(menu).toMatchTextContent(
+    /^pick\s*Opens a new run of Short at pick, using this file\s*render\s*Opens a new run of Short at render.*edit\s*Opens a new run of Long form at edit/,
+  );
+  await menu.getByRole("menuitem", { name: /^render/ }).click();
   await vi.waitFor(() => expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_9"));
   expect(promoted).toEqual({ artifact: ideas.path, stage: 2 });
 });
 
-test("a refused promote shows the API's reason", async () => {
+test("a refused start shows the API's reason", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/workflows": () => Response.json([short]),
@@ -167,9 +195,9 @@ test("a refused promote shows the API's reason", async () => {
     "GET /api/workflows/wf_1/versions/2": () => Response.json(version),
     "POST /api/workflows/wf_1/promote": () => Response.json({ detail: "artifact not found" }, { status: 404 }),
   });
-  const { screen } = await mountAt("/worlds/world_1/library");
-  await screen.getByRole("button", { name: "Promote ideas.md" }).click();
-  await screen.getByRole("button", { name: "Start run" }).click();
+  const { screen } = await mountAt(`/worlds/world_1/library?item=${encodeURIComponent(ideas.path)}`);
+  await screen.getByRole("button", { name: "Start a run from here" }).click();
+  await screen.getByRole("menuitem", { name: /^pick/ }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("artifact not found");
 });
 
@@ -223,7 +251,7 @@ test("a note or artifact becomes a skill draft the operator edits and saves as a
       );
     },
   });
-  const { screen } = await mountAt("/worlds/world_1/library");
+  const { screen } = await mountAt(`/worlds/world_1/library?item=${encodeURIComponent(note.path)}`);
   await screen.getByRole("button", { name: "Make a skill from Trends: hooks win" }).click();
   const form = screen.getByRole("form", { name: "Make a skill from Trends: hooks win" });
   await expect.element(form.getByLabelText("Skill name")).toHaveValue("trends-hooks-win");
@@ -251,6 +279,7 @@ test("a skill the API refuses shows why", async () => {
       Response.json({ detail: "the SKILL.md frontmatter needs a description" }, { status: 422 }),
   });
   const { screen } = await mountAt("/worlds/world_1/library");
+  await screen.getByRole("link", { name: /ideas\.md/ }).click();
   await screen.getByRole("button", { name: "Make a skill from ideas.md" }).click();
   await screen.getByRole("button", { name: "Save skill" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("the SKILL.md frontmatter needs a description");

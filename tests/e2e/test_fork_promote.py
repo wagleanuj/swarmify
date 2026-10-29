@@ -62,24 +62,25 @@ def test_fork_from_the_pick_then_pin_filter_and_promote_from_the_library(
         library = page.get_by_test_id("library")
         expect(library).to_contain_text("Hook first")
         count = page.get_by_test_id("count")
-        page.get_by_label("Type").select_option("idea")
+        page.get_by_role("navigation", name="Types").get_by_role(
+            "link", name=re.compile("^idea")
+        ).click()
         expect(count).to_contain_text("4 of")  # two ideas in the run, two copied into the fork
         page.get_by_label("Run").select_option(index=1)
         expect(count).to_contain_text("2 of")
         page.get_by_role("button", name="Clear filters").click()
 
-        idea = library.get_by_test_id("artifact").filter(has_text="Hook first").first
-        idea.get_by_role("button", name="Pin Hook first").click()
-        expect(idea).to_have_attribute("data-pinned", "true")
-        expect(idea).to_contain_text("pinned")
+        library.get_by_test_id("artifact").filter(has_text="Hook first").first.click()
+        preview = page.get_by_test_id("preview")
+        preview.get_by_role("button", name="Pin Hook first").click()
+        expect(preview.get_by_role("status")).to_have_text("Pinned. Later stages read it.")
+        expect(library.locator("[data-pinned=true]")).to_contain_text("Pinned · Hook first")
         page.reload()
         expect(library.locator("[data-pinned=true]")).to_contain_text("Hook first")
 
-        idea = library.locator("[data-pinned=true]")
-        idea.get_by_role("button", name="Promote Hook first").click()
-        form = idea.get_by_role("form", name="Promote Hook first")
-        form.get_by_label("Start at").select_option(label="1. pick")
-        form.get_by_role("button", name="Start run").click()
+        # The address kept the item, so the preview is still there to start a run from.
+        preview.get_by_role("button", name="Start a run from here").click()
+        page.get_by_role("menuitem", name=re.compile("^pick")).first.click()
         expect(page.get_by_test_id("promoted-from")).to_contain_text("idea-hook-first.md")
         expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=20_000)
         expect(page.get_by_test_id("timeline").locator("[data-status=skipped]")).to_contain_text(

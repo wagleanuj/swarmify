@@ -31,6 +31,12 @@ const KINDS: { kind: Kind; label: string; hint: string }[] = [
   { kind: "publish", label: "Publish", hint: "Posts to the outside world. Always after a gate." },
 ];
 
+const GROUPS: [Kind, string, string][] = [
+  ["tool", "Tools agents use inside a swarm step", ""],
+  ["stage", "Steps of their own", ""],
+  ["publish", "Publishing", "Always after a gate."],
+];
+
 /** `NAME=value` per line; a bare `NAME` means the keys file already holds it. */
 export function parseKeys(text: string): Record<string, string> {
   const keys: Record<string, string> = {};
@@ -45,15 +51,16 @@ export function parseKeys(text: string): Record<string, string> {
 }
 
 function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
-  if (c.missing.length > 0) return { text: `${c.missing.join(", ")} missing`, tone: "warn" };
+  if (c.missing.length > 0) return { text: "Needs a key", tone: "warn" };
   // remotion_build runs inside swarmify (a session, then the render), so it has no server
   if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && c.name !== "remotion_build") {
-    return { text: "not installed", tone: "off" };
+    return { text: "Not installed", tone: "off" };
   }
-  return { text: "ready", tone: "ok" };
+  return { text: "Ready", tone: "ok" };
 }
 
 function where(c: Connector): string {
+  if (c.missing.length > 0) return `${c.builtin ? c.about : c.url ?? c.command.join(" ")} · ${c.missing.join(", ")} not set`;
   if (c.builtin) return c.about;
   const server = c.url ?? c.command.join(" ");
   return c.credentials.length ? `${server} · ${c.credentials.join(", ")}` : `${server} · no key`;
@@ -71,6 +78,7 @@ export function Connectors() {
   const [tested, setTested] = useState<{ body: string; tools: Tool[] } | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const stageTypes: StageType[] = kind === "publish" ? ["connector"] : allowed;
   const body: NewConnector = { name, kind, server, credentials: parseKeys(keys), stage_types: stageTypes };
@@ -150,50 +158,24 @@ export function Connectors() {
     );
   }
 
+  const waiting = connectors.filter((c) => c.missing.length > 0).length;
   return (
     <main>
       <header className="page">
         <div>
           <h1>Connectors</h1>
           <p className="sub">
-            Each connector is an MCP server, its keys, and which stage types may use it. Keys live
-            in ~/.swarmify/.env, never inside a run or a shared workflow, and are shared by every
-            world: changing a key here changes it for all your worlds.
+            {connectors.length} connectors, {waiting} waiting on a key. Any MCP server can be one: its keys
+            live in ~/.swarmify/.env, never inside a run or a shared workflow, and are shared by every world.
           </p>
         </div>
+        <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
+          Add a connector
+        </button>
       </header>
       {error && <p role="alert">{error}</p>}
-      <ul className="connector-list" aria-label="Connectors" data-testid="connector-list">
-        {connectors.map((c) => {
-          const s = status(c);
-          return (
-            <li key={c.id} data-name={c.name}>
-              <span className="connector-main">
-                <b>{LABEL[c.name] ?? c.name}</b>
-                <span className="faint mono">{where(c)}</span>
-              </span>
-              <span className="chips">
-                {c.stage_types.map((t) => (
-                  <span key={t} className="chip">
-                    {t}
-                  </span>
-                ))}
-                {c.kind === "publish" && <span className="chip warn">gate first, always</span>}
-                <span className={`chip ${s.tone}`}>{s.text}</span>
-                {c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />}
-                {!c.builtin && (
-                  <button type="button" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}>
-                    Remove
-                  </button>
-                )}
-              </span>
-              {c.health && <Health connector={c} />}
-            </li>
-          );
-        })}
-      </ul>
-
-      <form className="card add-connector" onSubmit={test} aria-label="Add a connector">
+      {adding && (
+      <form className="panel add-connector" onSubmit={test} aria-label="Add a connector">
         <h2>Add a connector</h2>
         <p className="faint">
           Paste an MCP command or URL. Swarmify starts it once, lists its tools, and shows you what
@@ -293,6 +275,46 @@ export function Connectors() {
           </section>
         )}
       </form>
+      )}
+      <div className="con-groups" data-testid="connector-list">
+        {GROUPS.map(([k, title, note]) => {
+          const group = connectors.filter((c) => c.kind === k);
+          if (group.length === 0) return null;
+          return (
+            <section key={k} className="panel" aria-labelledby={`group-${k}`}>
+              <div className="panel-head">
+                <h2 id={`group-${k}`}>{title}</h2>
+                <span className="faint">
+                  {note} <span className="num">{group.length}</span>
+                </span>
+              </div>
+              <ul className="con-list" aria-label={title}>
+                {group.map((c) => {
+                  const s = status(c);
+                  return (
+                    <li key={c.id} data-name={c.name} className="con-row">
+                      <span className={s.tone === "ok" ? "dot live" : s.tone === "warn" ? "dot warn" : "dot"} />
+                      <span className="con-main">
+                        <b>{LABEL[c.name] ?? c.name}</b>
+                        <span className={c.builtin ? "faint" : "faint mono"}>{where(c)}</span>
+                      </span>
+                      <span className="faint">{c.stage_types.join(", ")} steps</span>
+                      <span className={s.tone === "warn" ? "pill warning" : "pill"}>{s.text}</span>
+                      {c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />}
+                      {!c.builtin && (
+                        <button type="button" className="link" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}>
+                          Remove
+                        </button>
+                      )}
+                      {c.health && <Health connector={c} />}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
     </main>
   );
 }
@@ -365,7 +387,7 @@ function SetKeys({
     return (
       <>
         <button type="button" onClick={() => setOpen(true)} aria-label={`Set keys for ${connector.name}`}>
-          {connector.missing.length > 0 ? "Add keys" : "Change keys"}
+          {connector.missing.length > 0 ? "Set keys" : "Change keys"}
         </button>
         {check?.ok && (
           <span role="status" className="key-check">

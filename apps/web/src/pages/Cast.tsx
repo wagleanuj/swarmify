@@ -20,28 +20,11 @@ const ROLE: Record<string, string> = {
   judge: "decides when a stage is done",
 };
 
-const MODEL_ROLES = [
-  ["planner_model", "Planner model"],
-  ["worker_model", "Worker model"],
-  ["judge_model", "Judge model"],
-  ["retro_model", "Retro model"],
-] as const;
-type RoleModel = (typeof MODEL_ROLES)[number][0];
+/** The world setting each role's model lives in; every worker shares one. */
+const MODEL_OF: Record<string, RoleModel> = { planner: "planner_model", worker: "worker_model", judge: "judge_model" };
+type RoleModel = "planner_model" | "worker_model" | "judge_model" | "retro_model";
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-/** The record as one line: counts with their reference beside them, cost labelled an estimate. */
-export function recordLine(m: Member): string {
-  const r = m.record ?? { tasks_done: 0, judged: 0, first_try: 0, send_backs: 0, cost_usd: 0 };
-  if (m.role !== "worker") {
-    return r.cost_usd === 0 ? "No sessions yet." : `Estimated cost so far: ${usd(r.cost_usd)}.`;
-  }
-  if (r.tasks_done === 0 && r.cost_usd === 0) return "No record yet. It starts with the first run.";
-  const parts = [plural(r.tasks_done, "task") + " done"];
-  if (r.judged > 0) parts.push(`${r.first_try} of ${plural(r.judged, "stage")} passed first try`);
-  parts.push(plural(r.send_backs, "send-back"), `${usd(r.cost_usd)} est.`);
-  return parts.join(" · ");
-}
+const NO_RECORD = { tasks_done: 0, judged: 0, first_try: 0, send_backs: 0, cost_usd: 0 };
 
 export function Cast() {
   const { worldId } = castRoute.useParams();
@@ -53,32 +36,17 @@ export function Cast() {
   const [tools, setTools] = useState("");
   const [history, setHistory] = useState<{ name: string; versions: Version[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<{ name: string; text: string } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[] | null | undefined>(undefined);
   const [skillHistory, setSkillHistory] = useState<{ name: string; versions: SkillVersion[] } | null>(null);
   const models = useModels();
-  const [roleModels, setRoleModels] = useState<Record<RoleModel, string>>({
-    planner_model: "",
-    worker_model: "",
-    judge_model: "",
-    retro_model: "",
-  });
-
-  function showWorld(w: World | null) {
-    setWorld(w);
-    if (w) setRoleModels({
-      planner_model: w.planner_model ?? "",
-      worker_model: w.worker_model ?? "",
-      judge_model: w.judge_model ?? "",
-      retro_model: w.retro_model ?? "",
-    });
-  }
 
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", path)
-      .then(({ data }) => showWorld(data ?? null))
+      .then(({ data }) => setWorld(data ?? null))
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/skills", path)
@@ -97,7 +65,7 @@ export function Cast() {
     setEditing(m.name);
     setPrompt(m.prompt);
     setTools((m.tools ?? []).join(", "));
-    setSaid(null);
+    setSaved(null);
     setError(null);
   }
 
@@ -123,26 +91,41 @@ export function Cast() {
     }
     setCast((prev) => (prev ?? []).map((c) => (c.name === data.name ? data : c)));
     setEditing(null);
-    setSaid(`Saved version ${data.version} of ${who(data.name)}. It applies from the next stage on.`);
+    setSaved({ name: data.name, text: `Saved version ${data.version} of ${who(data.name)}. It applies from the next stage on.` });
     if (history?.name === m.name) void showHistory(m.name);
   }
 
-  async function saveModels(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  /** A model change saves itself, stamped in the row it was made in. */
+  async function saveModel(key: RoleModel, value: string, row: string) {
     setError(null);
-    setSaid(null);
-    const body = Object.fromEntries(MODEL_ROLES.map(([key]) => [key, roleModels[key] || null]));
-    const { data, error } = await api.PATCH("/api/worlds/{world_id}", { ...path, body });
-    setBusy(false);
+    setSaved(null);
+    const { data, error } = await api.PATCH("/api/worlds/{world_id}", { ...path, body: { [key]: value || null } });
     if (error || !data) {
       const detail = (error as { detail?: unknown } | undefined)?.detail;
       setError(typeof detail === "string" ? `Not saved: ${detail}.` : "Not saved. Try again.");
       return;
     }
-    showWorld(data);
-    setSaid("Models saved. They apply from the next stage on.");
+    setWorld(data);
+    setSaved({ name: row, text: "Saved" });
   }
+
+  const modelSelect = (key: RoleModel, label: string, row: string) => (
+    <span className="model-cell">
+      <ModelSelect
+        label={label}
+        hideLabel
+        value={world?.[key] ?? ""}
+        fallback={`World's: ${world?.model ?? models?.default ?? "the default"}`}
+        models={models}
+        onChange={(m) => void saveModel(key, m, row)}
+      />
+      {saved?.name === row && saved.text === "Saved" && (
+        <span role="status" className="faint">
+          Saved
+        </span>
+      )}
+    </span>
+  );
 
   async function showSkillHistory(name: string) {
     const { data } = await api.GET("/api/worlds/{world_id}/skills/{name}/versions", {
@@ -180,14 +163,16 @@ export function Cast() {
   }
 
   const name = world?.name ?? "this world";
+  const total = (cast ?? []).reduce((sum, m) => sum + (m.record ?? NO_RECORD).cost_usd, 0);
   return (
     <main>
       <header className="page">
         <div>
           <h1>Cast</h1>
           <p className="sub">
-            Who works in {name}: Richard plans, the workers claim tasks, Erlich judges. Records
-            come from every run so far; cost is the runtime's estimate, not billing.
+            {cast
+              ? `${cast.length} agents work in ${name}: Richard plans, the workers claim tasks, Erlich judges. Together they cost an estimated ${usd(total)} so far.`
+              : `Who works in ${name}.`}
           </p>
         </div>
       </header>
@@ -198,119 +183,164 @@ export function Cast() {
         </p>
       )}
       {cast === null && !error && <p role="status">Loading...</p>}
-      <form className="card" onSubmit={(e) => void saveModels(e)} aria-label="Models">
-        <h2>Models</h2>
-        <div className="settings-grid">
-          {MODEL_ROLES.map(([key, label]) => (
-            <div className="field" key={key}>
-              <ModelSelect
-                label={label}
-                value={roleModels[key]}
-                fallback={`World's: ${world?.model ?? models?.default ?? "the default"}`}
-                models={models}
-                onChange={(m) => setRoleModels((r) => ({ ...r, [key]: m }))}
-              />
-            </div>
-          ))}
+      <section className="panel" aria-labelledby="agents">
+        <div className="panel-head">
+          <h2 id="agents">Agents</h2>
+          <span className="faint">
+            First try is a stage the judge passed without a send back. A model change saves itself; the workers share one.
+          </span>
+        </div>
+        <div className="scroll-x cast-scroll">
+          <table className="cast-table" data-testid="cast">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Model</th>
+                <th className="num">Tasks</th>
+                <th className="num">Judged</th>
+                <th className="num">First try</th>
+                <th className="num">Send backs</th>
+                <th className="num">Cost</th>
+                <th>
+                  <span className="visually-hidden">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            {(cast ?? []).map((m) => {
+              const r = m.record ?? NO_RECORD;
+              const key = MODEL_OF[m.role];
+              return (
+                <tbody key={m.name} className="cast-member" data-testid={`cast-${m.name}`}>
+                  <tr>
+                    <td>
+                      <b>{who(m.name)}</b>
+                      <span className="faint">
+                        {ROLE[m.role] ?? m.role} · v{m.version}
+                        {m.version === 1 ? ", default" : ""}
+                      </span>
+                    </td>
+                    <td>{key ? modelSelect(key, `Model for ${who(m.name)}`, m.name) : <span className="faint">-</span>}</td>
+                    <td className="num">{r.tasks_done}</td>
+                    <td className="num">{r.judged}</td>
+                    <td className="num">
+                      {r.judged ? (
+                        <>
+                          {r.first_try} <span className="faint">of {r.judged}</span>
+                        </>
+                      ) : (
+                        <span className="faint">-</span>
+                      )}
+                    </td>
+                    <td className="num">{r.send_backs}</td>
+                    <td className="num">{usd(r.cost_usd)}</td>
+                    <td className="cast-actions">
+                      {editing !== m.name && (
+                        <button type="button" onClick={() => startEdit(m)} aria-label={`Edit ${who(m.name)}`}>
+                          Edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => (history?.name === m.name ? setHistory(null) : void showHistory(m.name))}
+                        aria-label={`History of ${who(m.name)}`}
+                      >
+                        {history?.name === m.name ? "Hide history" : "History"}
+                      </button>
+                    </td>
+                  </tr>
+                  {saved?.name === m.name && saved.text !== "Saved" && (
+                    <tr>
+                      <td colSpan={8} className="cast-more">
+                        <span role="status" className="ok">
+                          {saved.text}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                  {editing === m.name && (
+                    <tr>
+                      <td colSpan={8} className="cast-more">
+                        <form className="cast-edit" onSubmit={(e) => void save(e, m)} aria-label={`Edit ${who(m.name)}`}>
+                          <label>
+                            Standing instructions
+                            <textarea
+                              rows={3}
+                              value={prompt}
+                              onChange={(e) => setPrompt(e.target.value)}
+                              placeholder="Write hooks first. Cite the note you took it from."
+                            />
+                          </label>
+                          {m.role === "worker" && (
+                            <label>
+                              Tools (comma separated; blank for any the stage allows)
+                              <input value={tools} onChange={(e) => setTools(e.target.value)} placeholder="web_search, graph" />
+                            </label>
+                          )}
+                          <div className="actions">
+                            <button type="submit" className="primary" disabled={busy}>
+                              Save as version {m.version + 1}
+                            </button>
+                            <button type="button" onClick={() => setEditing(null)} disabled={busy}>
+                              Cancel
+                            </button>
+                            <span className="faint">
+                              Becomes version {m.version + 1} for every stage that starts from now on in {name}. Runs
+                              already going keep version {m.version}.
+                            </span>
+                          </div>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                  {history?.name === m.name && (
+                    <tr>
+                      <td colSpan={8} className="cast-more">
+                        <ol className="versions" data-testid="history">
+                          {history.versions.map((v) => (
+                            <li key={v.number}>
+                              <span>
+                                v{v.number}
+                                {v.number === 1 ? " default" : `, ${new Date(v.created_at).toLocaleDateString()}`}
+                              </span>
+                              <span className="faint">
+                                {v.prompt || "no instructions"} · tools: {v.tools ? v.tools.join(", ") : "any"}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              );
+            })}
+            <tfoot>
+              <tr>
+                <td>Retro</td>
+                <td>{modelSelect("retro_model", "Retro model", "retro")}</td>
+                <td colSpan={4} className="faint">
+                  {cast?.length ?? 0} agents, and the retro after every run
+                </td>
+                <td className="num">{usd(total)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
         </div>
         <p className="faint">
           A role left on the world's model follows the{" "}
           <Link to="/worlds/$worldId/settings" params={{ worldId }}>
             world setting
           </Link>
-          . A workflow stage that names a model runs all its agents on it.
+          . A workflow stage that names a model runs all its agents on it. Cost is the runtime's estimate, not billing.
         </p>
-        <div className="row">
-          <button type="submit" className="primary" disabled={busy}>
-            Save models
-          </button>
+      </section>
+      <section aria-labelledby="skills" className="panel skills">
+        <div className="panel-head">
+          <h2 id="skills">Skills</h2>
+          {skills && <span className="faint">{skills.length} in this world</span>}
         </div>
-      </form>
-      <ul className="cast-list" data-testid="cast">
-        {(cast ?? []).map((m) => (
-          <li key={m.name} className="card cast-member" data-testid={`cast-${m.name}`}>
-            <div className="row">
-              <h3>
-                {who(m.name)} <span className="faint-title">{ROLE[m.role]}</span>
-              </h3>
-              <span className="chip" title={m.updated_at ? `edited ${new Date(m.updated_at).toLocaleDateString()}` : "the default"}>
-                v{m.version}
-                {m.version === 1 ? ", default" : ""}
-              </span>
-            </div>
-            <p data-testid="record">{recordLine(m)}</p>
-            {editing === m.name ? (
-              <form className="cast-edit" onSubmit={(e) => void save(e, m)} aria-label={`Edit ${who(m.name)}`}>
-                <label>
-                  Standing instructions
-                  <textarea
-                    rows={3}
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Write hooks first. Cite the note you took it from."
-                  />
-                </label>
-                {m.role === "worker" && (
-                  <label>
-                    Tools (comma separated; blank for any the stage allows)
-                    <input value={tools} onChange={(e) => setTools(e.target.value)} placeholder="web_search, graph" />
-                  </label>
-                )}
-                <p className="faint">
-                  Becomes version {m.version + 1}. Applies to every stage that starts from now on, in
-                  every run of {name}.
-                </p>
-                <div className="row">
-                  <button type="submit" className="primary" disabled={busy}>
-                    Save as version {m.version + 1}
-                  </button>
-                  <button type="button" onClick={() => setEditing(null)} disabled={busy}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <p className="faint">
-                  {m.prompt ? `Standing instructions: ${m.prompt}` : "No standing instructions; the stage goal is all it gets."}
-                </p>
-                {m.role === "worker" && (
-                  <p className="faint">Tools: {m.tools ? m.tools.join(", ") : "any the stage allows"}</p>
-                )}
-                <div className="row">
-                  <button type="button" onClick={() => startEdit(m)} aria-label={`Edit ${who(m.name)}`}>
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => (history?.name === m.name ? setHistory(null) : void showHistory(m.name))}
-                    aria-label={`History of ${who(m.name)}`}
-                  >
-                    {history?.name === m.name ? "Hide history" : "History"}
-                  </button>
-                </div>
-              </>
-            )}
-            {history?.name === m.name && (
-              <ol className="versions" data-testid="history">
-                {history.versions.map((v) => (
-                  <li key={v.number}>
-                    <span>
-                      v{v.number}
-                      {v.number === 1 ? " default" : `, ${new Date(v.created_at).toLocaleDateString()}`}
-                    </span>
-                    <span className="faint">
-                      {v.prompt || "no instructions"} · tools: {v.tools ? v.tools.join(", ") : "any"}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </li>
-        ))}
-      </ul>
-      <section aria-label="Skills" className="skills">
-        <h2>Skills</h2>
         <p className="faint">
           Procedures the cast loads when they match a stage. The retro after every run may propose
           one; you approve it on the Needs you page, or make one from the library. A world skill

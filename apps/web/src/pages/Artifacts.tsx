@@ -8,7 +8,7 @@ export const fileUrl = (worldId: string, path: string) =>
 
 /** The raw file behind an artifact. A binary is listed by its sidecar (`short.mp4.md`), so the
  * bytes live one `.md` short of its path. */
-export const rawUrl = (worldId: string, a: ArtifactFile) =>
+export const rawUrl = (worldId: string, a: Pick<ArtifactFile, "path" | "name">) =>
   fileUrl(worldId, a.path.endsWith(`/${a.name}.md`) ? a.path.slice(0, -3) : a.path);
 
 /** What the run wrote about itself, not something to choose or review. */
