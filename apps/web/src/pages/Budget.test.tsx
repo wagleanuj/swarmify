@@ -21,34 +21,39 @@ const hooli = run("done", [timed("2026-10-26T09:00:00+00:00", "2026-10-26T09:54:
   spent_usd: 2.6,
 });
 
-test("the run page shows Russ against the spend and Hooli beside the swarm, live", async () => {
+test("the run page shows the spend against the budget, and the one-agent comparison behind a link, live", async () => {
   fakeFetch({
     "GET /api/runs/run_1": () => Response.json(researching),
     "GET /api/runs/run_1/baseline": () => Response.json(hooli),
+    "GET /api/gates": () => Response.json([gate("budget", { budget_usd: 5, spent_usd: 5.2 })]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("budget")).toHaveTextContent("Russ · $1.84 of $5.00");
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Russ stops every agent at $5.00.");
+  await expect.element(screen.getByTestId("budget")).toHaveTextContent("$1.84 of $5.00 budget");
+  expect(screen.getByTestId("budget-line").query()).toBeNull();
   await expect.element(screen.getByRole("meter", { name: "Budget spent" })).toHaveAttribute("value", "1.84");
+  await expect.element(screen.getByTestId("baseline")).not.toBeVisible();
+  await screen.getByText("Compare with one agent").click();
   await expect
     .element(screen.getByTestId("baseline"))
-    .toMatchTextContent(/^Hooli ran this alone for \$2\.60 and 54 min\. This run: \$1\.84/);
+    .toMatchTextContent(/^One agent with no graph did this for \$2\.60 in 54 min; this run \$1\.84/);
 
-  FakeEventSource.emit("run.updated", { payload: { ...researching, spent_usd: 4.2 } });
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Past 80 percent. Russ stops every agent at $5.00.");
+  FakeEventSource.emit("run.updated", { payload: { ...researching, spent_usd: 4.2, updated_at: "2026-10-26T10:00:01+00:00" } });
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Past 80 percent. Every agent stops at $5.00.");
 
   const stopped = run("waiting_gate", [stage(0, "research", "swarm", "waiting")], {
     budget_usd: 5,
     spent_usd: 5.2,
     over_budget: true,
+    updated_at: "2026-10-26T10:00:02+00:00",
   });
   FakeEventSource.emit("run.updated", { payload: stopped });
-  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Out of budget at stage 1: research. Add money or abort.");
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Russ stopped every agent at $5.00. Add money to go on, or abort.");
-  await expect.element(screen.getByRole("link", { name: "Add money or abort" })).toHaveAttribute("href", "/gates");
+  await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/^Waiting for you: The budget of \$5\.00 is spent/);
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Every agent stopped at $5.00. Add money to go on, or abort.");
+  await screen.getByRole("button", { name: "Answer now" }).first().click();
+  await expect.element(screen.getByRole("button", { name: "Add money and go on" })).toBeVisible();
 });
 
-test("with no baseline yet the page says how to get one, and a baseline names itself", async () => {
+test("with no baseline yet the comparison says how to get one, and a baseline names itself", async () => {
   fakeFetch({
     "GET /api/runs/run_1": () => Response.json(run("queued", [stage(0, "research", "swarm", "pending")])),
     "GET /api/runs/run_1/baseline": () => Response.json(null),
@@ -56,10 +61,10 @@ test("with no baseline yet the page says how to get one, and a baseline names it
     "GET /api/runs/run_0/baseline": () => Response.json(hooli),
   });
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("baseline")).toMatchTextContent(/^No Hooli baseline yet/);
-  expect(screen.getByTestId("budget").query()).toBeNull();
+  await expect.element(screen.getByTestId("baseline")).toMatchTextContent(/^No one-agent run of this yet/);
+  await expect.element(screen.getByTestId("budget")).toHaveTextContent("$0.00 spent, no budget set");
   await router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId: "world_1", runId: "run_0" } });
-  await expect.element(screen.getByTestId("baseline")).toMatchTextContent(/^This is a Hooli baseline: one agent and no graph/);
+  await expect.element(screen.getByTestId("baseline")).toMatchTextContent(/^This is a one-agent baseline, with no graph/);
 });
 
 test("a budget gate adds money as a new total or aborts the run", async () => {

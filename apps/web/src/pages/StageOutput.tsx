@@ -19,7 +19,7 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
   return (
     <>
       <section className="agents" aria-label="Verdict" data-testid="verdict">
-        <h2>Erlich's verdict</h2>
+        <h3>Erlich's verdict</h3>
         {!last ? (
           <p className="faint">No verdict yet. Erlich judges once every task on the whiteboard is done.</p>
         ) : (
@@ -53,7 +53,7 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
         )}
       </section>
       <section className="agents" aria-label="Artifacts" data-testid="artifacts">
-        <h2>Artifacts</h2>
+        <h3>Artifacts</h3>
         {typed.length === 0 && files.length === 0 && (
           <p className="faint">Nothing yet. On a pass, Erlich turns the stage's notes into its declared output.</p>
         )}

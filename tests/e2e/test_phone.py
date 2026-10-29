@@ -92,7 +92,7 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
 def test_a_gate_is_answered_from_a_phone_as_the_stream_moves(phone: Page, ids: dict) -> None:
     phone.goto(f"/worlds/{ids['world']}/runs/{ids['run']}")
     status = phone.get_by_test_id("status-line")
-    expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=15_000)
+    expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=15_000)
     phone.goto("/gates")
     card = phone.get_by_test_id(f"gate-{ids['run']}")
     expect(card).to_contain_text("Which idea do we shoot?")

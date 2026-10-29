@@ -381,3 +381,18 @@ def test_each_gate_counts_its_own_send_backs_up_to_its_max_send_backs(
     with pytest.raises(Illegal, match="already sent back 3 times"):
         runner.decide(run.id, send_back_to="script")
     assert fetch(runner, run.id).send_backs == 4
+
+
+def test_a_run_names_what_each_stage_calls_and_what_each_gate_asks(runner: Runner) -> None:
+    """The run page tells a speech stage from a publish stage, and shows a gate's ask after it
+    was answered, from the run alone (ADR 0002)."""
+    run = runner.start("world_1", "wf_1", 1, "Weekly short", WEEKLY)
+    stages = fetch(runner, run.id).stages
+    assert [(s.calls, s.ask) for s in stages] == [
+        ("web_search", None),
+        (None, "Pick one idea."),
+        ("writer", None),
+        (None, "Watch it. Approve or send back."),
+        (None, "Publish Tuesday 9am?"),
+        ("youtube", None),
+    ]

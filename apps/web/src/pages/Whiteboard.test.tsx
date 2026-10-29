@@ -24,8 +24,7 @@ test("the swarm stage's whiteboard shows its columns and follows the world strea
     [TASKS]: () => Response.json([pull, rank]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  const board = screen.getByTestId("whiteboard");
-  await expect.element(board.getByRole("heading", { level: 2 })).toHaveTextContent("Whiteboard · research");
+  await expect.element(screen.getByTestId("stage-panel").getByRole("heading", { level: 2 })).toHaveTextContent("research");
   await expect.element(screen.getByTestId("col-open")).toMatchTextContent(/Open 2.*Pull top shorts.*added by richard/);
   await expect.element(screen.getByTestId("col-open")).toMatchTextContent(/Rank hooks.*waiting on 1 task/);
   await expect.element(screen.getByTestId("col-claimed")).toHaveTextContent("Claimed 0Nothing in flight.");
@@ -101,11 +100,12 @@ test("an ended stage's whiteboard is read-only, and stages can be switched", asy
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   const board = screen.getByTestId("whiteboard");
-  await expect.element(board.getByRole("heading", { level: 2 })).toHaveTextContent("Whiteboard · script");
-  await expect.element(screen.getByRole("button", { name: "Open the whiteboard of script" })).toHaveAttribute("aria-pressed", "true");
+  const title = screen.getByTestId("stage-panel").getByRole("heading", { level: 2 });
+  await expect.element(title).toHaveTextContent("script");
+  await expect.element(screen.getByRole("button", { name: /^Step 3, script/ })).toHaveAttribute("aria-pressed", "true");
 
-  await screen.getByRole("button", { name: "Open the whiteboard of research" }).click();
-  await expect.element(board.getByRole("heading", { level: 2 })).toHaveTextContent("Whiteboard · research");
+  await screen.getByRole("button", { name: /^Step 1, research/ }).click();
+  await expect.element(title).toHaveTextContent("research");
   await expect.element(screen.getByTestId("col-done")).toMatchTextContent(/Task task_1/);
   await expect.element(board).toMatchTextContent(/read-only/);
   expect(board.getByRole("button", { name: "Add task" }).query()).toBeNull();

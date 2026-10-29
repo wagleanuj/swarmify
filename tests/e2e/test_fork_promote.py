@@ -2,6 +2,8 @@
 with lineage shown both ways; then from the library pin an idea, filter by type, and promote it
 into a run that starts at the pick, its research skipped."""
 
+import re
+
 import httpx
 from playwright.sync_api import Page, expect
 
@@ -27,25 +29,31 @@ def test_fork_from_the_pick_then_pin_filter_and_promote_from_the_library(
         page.goto(f"{base_url}/worlds/{world}")
         page.get_by_role("button", name="Start a run of Research then pick").click()
         status = page.get_by_test_id("status-line")
-        expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=20_000)
+        expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=20_000)
         run = page.url.rstrip("/").split("/")[-1]
         api.post(f"/runs/{run}/decision", json={"choice": "Hook first"}).raise_for_status()
-        expect(status).to_have_text("Done. All 3 stages finished.", timeout=20_000)
+        expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
 
         # Fork from the pick: research is copied, not run again, and the pick asks anew.
+        pick = re.compile(r"^Step 2, pick,")
+        page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
         page.get_by_role("button", name="Fork the run from pick").click()
         expect(page.get_by_test_id("forked-from")).to_contain_text(
             "Forked from Research then pick at stage 2. The earlier stages were copied"
         )
-        expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=20_000)
-        expect(page.get_by_test_id("artifact-card").first).to_contain_text("Hook first")
-        fork = page.url.rstrip("/").split("/")[-1]
+        expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=20_000)
+        expect(page.get_by_test_id("result").get_by_test_id("item").first).to_contain_text(
+            "Hook first"
+        )
+        fork = page.url.split("?")[0].rstrip("/").split("/")[-1]
         assert fork != run
         api.post(f"/runs/{fork}/decision", json={"choice": "The chase"}).raise_for_status()
-        expect(page.get_by_test_id("timeline")).to_contain_text("You picked The chase.")
+        page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
+        expect(page.get_by_test_id("decision")).to_have_text('You picked "The chase".')
         page.get_by_test_id("forked-from").get_by_role("link").click()
         expect(page.get_by_test_id("forks")).to_contain_text("Research then pick")
-        expect(page.get_by_test_id("timeline")).to_contain_text("You picked Hook first.")
+        page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
+        expect(page.get_by_test_id("decision")).to_have_text('You picked "Hook first".')
         page.get_by_role("link", name="runs").click()
         expect(page.get_by_test_id("fork-of")).to_contain_text("fork of Research then pick")
 
@@ -73,7 +81,7 @@ def test_fork_from_the_pick_then_pin_filter_and_promote_from_the_library(
         form.get_by_label("Start at").select_option(label="1. pick")
         form.get_by_role("button", name="Start run").click()
         expect(page.get_by_test_id("promoted-from")).to_contain_text("idea-hook-first.md")
-        expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=20_000)
+        expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=20_000)
         expect(page.get_by_test_id("timeline").locator("[data-status=skipped]")).to_contain_text(
             "research"
         )

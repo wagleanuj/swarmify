@@ -47,7 +47,7 @@ function routes(verdicts: Verdict[], artifacts: () => ArtifactFile[]) {
     "GET /api/runs/run_1/stages/stage_0/log": () => Response.json([]),
     "GET /api/runs/run_1/stages/stage_0/tasks": () => Response.json([]),
     "GET /api/runs/run_1/stages/stage_0/verdicts": () => Response.json(verdicts),
-    "GET /api/runs/run_1/stages/stage_0/artifacts": () => Response.json(artifacts()),
+    "GET /api/runs/run_1/artifacts": () => Response.json(artifacts()),
   });
 }
 

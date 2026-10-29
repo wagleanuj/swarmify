@@ -150,8 +150,35 @@ A connector stage calls its connector (see Connectors below), a swarm stage runs
 Agents below), a gate waits for a person (see Gates below), and a workflow stage runs a child run
 (see Child runs below).
 `GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its
-stages and decisions. The runs page filters by workflow (or ad hoc) and status, and shows each
+stages and decisions. Each stage names the connector it `calls` (connector stages) and what it
+`ask`s (gates), so a page can tell a speech stage from a publish stage and show a gate's question
+after it was answered. The runs page filters by workflow (or ad hoc) and status, and shows each
 run's duration.
+
+### The run page
+
+The run page reads the run, its events and its artifacts only (ADR 0002), top to bottom:
+
+- **Status line**, one sentence: `<stage> is working · step i of n · m so far`, `Waiting for you:
+  <the gate's ask>` with `Answer now` (the gate opens on the page), `Done in <duration>.` with where
+  it was posted and `Open the post`, `Stopped at <stage>: <error>` with `Fork from here`, or
+  `Paused at` / `Aborted at`. A failed or aborted run says its finished stages keep their artifacts,
+  and `Nothing was posted.` when a publish stage did not run.
+- **Result**: the run's latest primary output in place: a video or audio player, an image, a
+  document's first lines with `Open`, or a list's item cards. At a review gate it is the thing under
+  review.
+- **Spend**: `$x of $y budget` with its bar; `Compare with one agent` opens the baseline note.
+- **Stage rail**: a step per stage with its type, state and duration. Clicking one selects it and
+  keeps it in the URL as `?stage=<id>`; by default the current stage, else the one that made the
+  result, else the last.
+- **Stage panel** for the selected step: a swarm's agents (what each does now, in words), whiteboard,
+  verdict and artifacts; a gate's ask and your decision; a speech stage's takes per scene with their
+  length, engine and any join with no silence; a build's session log in words, its render progress
+  (`Rendered 412 of 870 frames`), the video and its project folder; a render's progress and video; a
+  publish stage's title, place, visibility, time, link and views; the retro's proposal and how it
+  went. Every connector stage keeps the raw call under `Technical details`.
+- **Live log** of the selected stage in words; a JSON answer collapses to one line (`Planned 5
+  tasks`) that opens.
 
 ## Budget and baseline
 
@@ -300,7 +327,7 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   poll is a fresh MCP session.
 - Every change to a call appends a `connector_call.updated` event carrying the whole call, progress
   included; `GET /api/stages/<stage id>/call` returns the raw request and response, which the run
-  timeline shows when a connector stage is opened.
+  page keeps under a connector stage's `Technical details`.
 
 A connector stage's call also carries `output_path` (`worlds/<w>/runs/<run>/<stage>/artifacts/<output>`,
 folder created; `output` must be a bare file name), `input_path` (the newest file named like
@@ -842,7 +869,8 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
   rows keep their status and times, their folders (notes, artifacts, decisions) are copied under
   the fork's own stage ids, and the fork never runs them again. Every stage before `n` must have
   finished (409 otherwise). The fork carries `forked_from` and `fork_stage_index`; the source
-  lists it under `forks`. The run timeline offers "Fork from here" on every finished stage, so a
+  lists it under `forks`. The run page offers "Fork from here" on a selected finished stage (and a
+  failed run's status line on the stage that failed), so a
   pick gate can be answered differently without redoing the research.
 - **Promote.** `POST /api/workflows/<id>/promote` (`{"artifact": "<path>", "stage": n, "version":
   optional}`) starts a run at stage `n` with a Library artifact as its input: stages before `n`

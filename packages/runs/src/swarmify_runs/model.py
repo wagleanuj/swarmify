@@ -79,6 +79,10 @@ class RunStageView:
     notes: list[str] = field(default_factory=list)
     child: RunLink | None = None
     """The child run a workflow stage started, while that visit to the stage lasts."""
+    calls: str | None = None
+    """The connector a connector stage calls, so a skin can show what it made."""
+    ask: str | None = None
+    """What a gate asks, kept after it was answered."""
 
 
 @dataclass(frozen=True)

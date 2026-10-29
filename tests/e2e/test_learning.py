@@ -3,6 +3,7 @@ approved; the world's skills beside a shared one on the cast page; a cast member
 confirmed prompt edit with its history; a library idea made into a skill; and the workflow's
 scorecard. A server of its own whose retro proposes a skill on every run."""
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,10 +34,14 @@ def test_approve_an_edited_skill_proposal_and_see_skills_records_and_scores(
         page.goto(f"{base_url}/worlds/{world}")
         page.get_by_role("button", name="Start a run of Research").click()
         status = page.get_by_test_id("status-line")
-        expect(status).to_have_text("Waiting for you at stage 2: retro.", timeout=20_000)
+        expect(status).to_have_text(
+            "Waiting for you: The retro read this run and proposes a change."
+            " Approve it, edit it, or reject it.",
+            timeout=20_000,
+        )
         run = page.url.rstrip("/").split("/")[-1]
 
-        page.get_by_role("link", name="Answer the gate").click()
+        page.get_by_role("button", name="Answer now").first.click()
         card = page.get_by_test_id(f"gate-{run}")
         expect(card).to_have_attribute("data-kind", "skill")
         change = card.get_by_test_id("skill-change")
@@ -44,11 +49,11 @@ def test_approve_an_edited_skill_proposal_and_see_skills_records_and_scores(
         expect(change).to_contain_text("the judge passed the hook-first idea as #1")
         change.get_by_label("SKILL.md (edit before approving)").fill(EDITED)
         card.get_by_role("button", name="Approve").click()
-        expect(page.get_by_test_id("no-gates")).to_be_visible(timeout=20_000)
+        expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         skill = tmp_path / "worlds" / world / "skills/hooks/SKILL.md"
         assert skill.read_text() == EDITED
-        page.goto(f"{base_url}/worlds/{world}/runs/{run}")
-        expect(status).to_have_text("Done. All 2 stages finished.", timeout=20_000)
+        page.get_by_role("button", name=re.compile(r"^Step 2, retro,")).click()
+        expect(page.get_by_test_id("retro")).to_contain_text("You approved it.")
 
         # The cast: skills by source, records, and a prompt edit behind a confirmation.
         page.goto(f"{base_url}/worlds/{world}/cast")

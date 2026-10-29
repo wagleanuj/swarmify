@@ -421,6 +421,8 @@ class SqliteStorage:
                     s["error"],
                     [d.note for d in decisions if d.send_back_to == s["name"] and d.note],
                     _link(conn, s["child_run_id"]),
+                    json.loads(s["config"]).get("calls") if s["type"] == "connector" else None,
+                    json.loads(s["config"]).get("ask") if s["type"] == "gate" else None,
                 )
                 for s in stages
             ],

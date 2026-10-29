@@ -5,6 +5,7 @@ budget gate offering add money or abort, and Slack hearing of each with a deep l
 Each scripted session costs $0.0042, so a $0.005 run warns after the planner and is stopped
 before the judge."""
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -55,18 +56,15 @@ def test_a_run_warns_at_80_percent_and_waits_at_100_for_money_or_an_abort(
         page.goto(f"{base_url}/worlds/{world}/runs/{run}")
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(
-            "Out of budget at stage 1: research. Add money or abort.", timeout=20_000
+            re.compile(r"^Waiting for you: The budget of \$0\.01 is spent"), timeout=20_000
         )
-        expect(page.get_by_test_id("budget-line")).to_contain_text("Russ stopped every agent")
-        page.get_by_role("link", name="Add money or abort").click()
+        expect(page.get_by_test_id("budget-line")).to_contain_text("Every agent stopped")
+        page.get_by_role("button", name="Answer now").first.click()
         card = page.get_by_test_id(f"gate-{run}")
         expect(card).to_have_attribute("data-kind", "budget")
         expect(card).to_contain_text("Russ has spent")
         card.get_by_role("button", name="Add money and go on").click()
-        expect(page.get_by_test_id("no-gates")).to_be_visible(timeout=20_000)
-
-        page.goto(f"{base_url}/worlds/{world}/runs/{run}")
-        expect(status).to_have_text("Done. All 2 stages finished.", timeout=20_000)
+        expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_test_id("budget-line")).to_contain_text("Past 80 percent")
 
         # A second one is stopped the same way and aborted from the gate.

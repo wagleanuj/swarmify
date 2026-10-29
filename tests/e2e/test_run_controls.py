@@ -2,6 +2,7 @@
 reaching a child run, a Hooli baseline measured beside the swarm, and an ad hoc run from a typed
 goal saved as a workflow. Every change reaches the open page over the world's event stream."""
 
+import re
 from typing import Any
 
 import httpx
@@ -35,24 +36,26 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
         page.goto(f"{base_url}/worlds/{world}/runs/{run}")
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(
-            "Stage 1 of 2, child, waits on its child run Brief.", timeout=20_000
+            re.compile(r"^Child waits on its child run Brief · step 1 of 2 · "), timeout=20_000
         )
         page.get_by_test_id("child-run").get_by_role("link", name="Brief").click()
         expect(page.get_by_test_id("child-of")).to_contain_text("child of Parent")
-        expect(status).to_have_text("Waiting for you at stage 1: brief.")
+        expect(status).to_have_text("Waiting for you: Go?")
         child = page.url.rstrip("/").split("/")[-1]
 
         # Pause at the gate, then resume (story 31).
         page.get_by_role("button", name="Pause").click()
-        expect(status).to_have_text("Paused. Nothing moves until it is resumed.")
+        expect(status).to_have_text("Paused at brief.")
         page.get_by_role("button", name="Resume").click()
-        expect(status).to_have_text("Waiting for you at stage 1: brief.")
+        expect(status).to_have_text("Waiting for you: Go?")
 
         # Aborting the parent aborts the child (story 32).
         page.get_by_test_id("child-of").get_by_role("link").click()
         page.once("dialog", lambda dialog: dialog.accept())
         page.get_by_role("button", name="Abort").click()
-        expect(status).to_have_text("Aborted. Finished stages keep their artifacts.")
+        expect(status).to_have_text(
+            re.compile(r"^Aborted at child\. Finished stages keep their artifacts\.$")
+        )
         until(lambda: api.get(f"/runs/{child}").json()["status"] == "aborted")
 
         # One run at a time: the second waits in the queue until the first ends (story 26).
@@ -83,13 +86,14 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         page.goto(f"{base_url}/worlds/{world}")
         page.get_by_role("button", name="Start a Hooli baseline of Research").click()
         status = page.get_by_test_id("status-line")
-        expect(status).to_have_text("Done. All 1 stages finished.", timeout=20_000)
-        expect(page.get_by_test_id("baseline")).to_contain_text("This is a Hooli baseline")
+        expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
+        expect(page.get_by_test_id("baseline")).to_contain_text("This is a one-agent baseline")
 
         page.goto(f"{base_url}/worlds/{world}")
         page.get_by_role("button", name="Start a run of Research").click()
-        expect(status).to_have_text("Done. All 2 stages finished.", timeout=20_000)
-        expect(page.get_by_test_id("baseline")).to_contain_text("Hooli ran this alone for")
+        expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
+        page.get_by_text("Compare with one agent").click()
+        expect(page.get_by_test_id("baseline")).to_contain_text("One agent with no graph did this")
         page.get_by_role("link", name="runs").click()
         expect(page.get_by_test_id("run-list")).to_contain_text("Hooli baseline")
 
@@ -97,7 +101,7 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         page.goto(f"{base_url}/worlds/{world}")
         page.get_by_role("textbox", name="Goal").fill("Find five hooks for next week's short.")
         page.get_by_role("button", name="Run this goal").click()
-        expect(status).to_have_text("Done. All 2 stages finished.", timeout=20_000)
+        expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_role("heading", level=1)).to_contain_text("ad hoc")
         page.get_by_role("button", name="Save as workflow").click()
         expect(page.get_by_test_id("versions")).to_contain_text("v1")

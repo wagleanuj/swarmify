@@ -100,7 +100,7 @@ export function Gates() {
   );
 }
 
-function GateCard({
+export function GateCard({
   gate,
   world,
   onAnswer,

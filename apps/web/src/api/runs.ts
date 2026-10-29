@@ -29,40 +29,77 @@ export function progress(run: Run): string {
   return `${done} of ${run.stages.length} stages`;
 }
 
-/** One confident sentence about where the run is. */
-export function statusLine(run: Run): string {
-  const at = run.stages.find((s) => s.status === "running" || s.status === "waiting");
-  const failed = run.stages.find((s) => s.status === "failed");
+/** Connectors that post: a run that has one and did not reach it says nothing went out.
+ * ponytail: the built-in publishers by name; carry the connector kind on the stage view when a
+ * world adds its own. */
+export const PUBLISHERS = new Set(["youtube", "upload_post"]);
+
+type Stage = Run["stages"][number];
+const FINISHED = ["done", "skipped"];
+
+/** The stage a run is at: the one working or waiting, else the first not finished. */
+export function current(run: Run): Stage | undefined {
+  return (
+    run.stages.find((s) => s.status === "running" || s.status === "waiting") ??
+    run.stages.find((s) => !FINISHED.includes(s.status))
+  );
+}
+
+/** One sentence that answers "is it working, and do I need to do anything?". `ask` is what the
+ * open gate asks, when the run waits at one. */
+export function statusLine(run: Run, ask?: string | null, now = Date.now()): string {
+  const line = sentence(run, ask, now);
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+function sentence(run: Run, ask?: string | null, now = Date.now()): string {
+  const at = current(run);
   const total = run.stages.length;
+  const seconds = duration(run, now);
+  const kept = " Finished stages keep their artifacts.";
+  const posted = run.stages.some((s) => PUBLISHERS.has(s.calls ?? "") && s.status !== "done");
+  const nothing = posted ? " Nothing was posted." : "";
   switch (run.status) {
     case "queued":
       return "Queued. It starts as soon as one of this world's two run slots is free.";
-    case "running":
-      if (at?.child) return `Stage ${at.index + 1} of ${total}, ${at.name}, waits on its child run ${at.child.name}.`;
-      return at ? `Running stage ${at.index + 1} of ${total}: ${at.name}.` : "Running.";
+    case "running": {
+      if (!at) return "Running.";
+      const step = ` · step ${at.index + 1} of ${total}${seconds === null ? "" : ` · ${took(seconds)} so far`}`;
+      if (at.child) return `${at.name} waits on its child run ${at.child.name}${step}`;
+      return `${at.name} is working${step}`;
+    }
     case "waiting_gate":
-      if (run.over_budget && at) return `Out of budget at stage ${at.index + 1}: ${at.name}. Add money or abort.`;
-      return at ? `Waiting for you at stage ${at.index + 1}: ${at.name}.` : "Waiting for you.";
+      return `Waiting for you: ${ask ?? at?.ask ?? (at ? `${at.name} needs an answer.` : "a gate needs an answer.")}`;
     case "paused":
-      return "Paused. Nothing moves until it is resumed.";
+      return at ? `Paused at ${at.name}.` : "Paused.";
     case "done":
-      return `Done. All ${total} stages finished.`;
-    case "failed":
-      return failed
-        ? `Failed at stage ${failed.index + 1}, ${failed.name}: ${failed.error?.split("\n")[0] ?? "no error recorded"}.`
-        : "Failed.";
+      return seconds === null ? "Done." : `Done in ${took(seconds)}.`;
+    case "failed": {
+      const failed = run.stages.find((s) => s.status === "failed");
+      const why = (failed?.error?.split("\n")[0] ?? "no error recorded").replace(/([^.!?])$/, "$1.");
+      return `${failed ? `Stopped at ${failed.name}: ${why}` : "Stopped."}${kept}${nothing}`;
+    }
     case "aborted":
-      return "Aborted. Finished stages keep their artifacts.";
+      return `${at ? `Aborted at ${at.name}.` : "Aborted."}${kept}${nothing}`;
   }
+}
+
+/** A step's duration: "14s", "2m 14s", "1h 5m". */
+export function clock(seconds: number): string {
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
 /** What a person decided, as one line of plain copy. */
 export function decisionLine(d: Decision): string {
-  const note = d.note ? ` Note: ${d.note}` : "";
+  const note = d.note ? ` Your note: ${d.note}` : "";
+  const what = d.choice ? ` "${d.choice}"` : "";
   if (d.send_back_to) return `You sent it back to ${d.send_back_to}.${note}`;
-  if (d.kind === "pick") return `You picked ${d.choice ?? "nothing"}.${note}`;
+  if (d.kind === "pick") return `You picked${what || " nothing"}.${note}`;
   if (d.kind === "confirm") return `You confirmed.${note}`;
-  return `You approved.${note}`;
+  return `You approved${what}.${note}`;
 }
 
 /** Act on a run; resolves to the refused reason, or null when it went through. */
