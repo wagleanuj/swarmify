@@ -100,18 +100,20 @@ def test_notes_from_a_run_are_rebuilt_into_the_graph_and_streamed(
     with TestClient(app) as client:
         world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
         assert _run(client, world, _research())["status"] == "done"
-        _until(lambda: client.get(f"/api/worlds/{world}/graph").json()["rebuilt"])
+        _until(
+            lambda: (
+                (client.get(f"/api/worlds/{world}/graph").json()["rebuilt"] or {}).get("nodes") == 2
+            )
+        )
         view = client.get(f"/api/worlds/{world}/graph").json()
-    assert {k: view["rebuilt"][k] for k in ("nodes", "edges", "nodes_added", "edges_added")} == {
-        "nodes": 2,
-        "edges": 1,
-        "nodes_added": 2,
-        "edges_added": 1,
-    }
+    # Files the run writes after the note (verdict, retro) may land after the first rebuild began,
+    # so a slow host can rebuild twice; the graph and the per-rebuild price are what must hold.
+    assert {k: view["rebuilt"][k] for k in ("nodes", "edges")} == {"nodes": 2, "edges": 1}
     assert view["nodes"] == 2 and view["edges"] == 1 and view["failed"] is None
     # Unpriced model: Opus rates, 1M in at $4 and 100k out at $20 per million.
     assert view["rebuilt"]["input_tokens"] == 1_000_000 and view["rebuilt"]["cost_usd"] == 6.0
-    assert view["spent"]["rebuilds"] == 1 and view["spent"]["cost_usd"] == 6.0
+    rebuilds = view["spent"]["rebuilds"]
+    assert rebuilds >= 1 and view["spent"]["cost_usd"] == 6.0 * rebuilds
     assert view["god_nodes"][0] == {"label": "Short hooks", "degree": 1}
     assert (tmp_path / "worlds" / world / "graphify-out/graph.json").exists()
 
