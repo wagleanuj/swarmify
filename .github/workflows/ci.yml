@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # Branches with a PR run once, as the pull_request; push runs only for main itself.
   push:
+    branches: [main]
   pull_request:
 
 jobs:
