@@ -25,7 +25,7 @@ if composition == "Broken":
 for frame in range(1, 4):
     print(f"Rendered {frame}/3, time remaining: 0s", flush=True)
     if composition == "Slow":
-        time.sleep(0.4)
+        time.sleep(1.0)  # longer than a poll takes on a loaded CI runner
 print("Encoded 3/3", flush=True)
 snooped: dict[str, str] = {}
 if composition == "Snoop":

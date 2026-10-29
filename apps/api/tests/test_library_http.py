@@ -240,6 +240,7 @@ def test_assets_are_uploaded_listed_and_served_by_the_operator(running: TestClie
     assert running.get(f"/api/worlds/{world}/library").json() == []  # not an artifact
     refused = running.put(f"{url}/.env", content=b"KEY=x")
     assert refused.status_code == 422 and "plain file name" in refused.json()["detail"]
-    assert running.put(f"{url}/..%2F..%2Fswarmify.db", content=b"x").status_code in (404, 422)
+    escape = running.put(f"{url}/..%2F..%2Fswarmify.db", content=b"x")
+    assert 400 <= escape.status_code < 500 and running.get(url).json() == [bed]  # no route or 422
     assert running.get("/api/worlds/world_nope/assets").status_code == 404
     assert running.put("/api/worlds/world_nope/assets/x.mp3", content=b"x").status_code == 404
