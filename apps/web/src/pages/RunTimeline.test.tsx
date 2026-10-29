@@ -94,13 +94,15 @@ test("running: the status line says which stage works, the step and the time, an
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(at(4)));
   const queued = run("queued", [research("pending", timed(0, null)), voice("pending"), video("pending")].map((s) => ({ ...s, started_at: null, ended_at: null })));
-  fakeFetch({
+  const calls = fakeFetch({
     "GET /api/runs/run_1": () => Response.json(queued),
     "GET /api/worlds/world_1": () => Response.json(world),
   });
-  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/^Queued\./);
   await expect.element(screen.getByRole("button", { name: "Step 1, research, starting" })).toHaveAttribute("aria-current", "step");
+  // Arriving with no step pins the picked one in the address.
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_0" }));
   await expect.element(screen.getByRole("link", { name: "kids videos" })).toHaveAttribute("href", "/worlds/world_1");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Render then pick v2");
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
@@ -110,7 +112,15 @@ test("running: the status line says which stage works, the step and the time, an
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Video is working · step 3 of 3 · 4 min so far");
   const rail = screen.getByTestId("timeline");
   await expect.element(rail).toMatchTextContent(/research\s*2m 14s\s*voice\s*1m 14s\s*video\s*running/);
+  // The run moved on; the step you are on stays, its log is not fetched again, and Go there follows.
+  await expect.element(screen.getByTestId("follow")).toHaveTextContent("Now at video · Go there");
+  await expect.element(screen.getByRole("button", { name: /^Step 1, research/ })).toHaveAttribute("aria-pressed", "true");
+  expect(router.state.location.search).toEqual({ stage: "stage_0" });
+  expect(calls.filter((c) => c.endsWith("/log"))).toEqual(["GET /api/runs/run_1/stages/stage_0/log"]);
+  await screen.getByRole("button", { name: "Go there" }).click();
   await expect.element(screen.getByRole("button", { name: "Step 3, video, running" })).toHaveAttribute("aria-pressed", "true");
+  expect(router.state.location.search).toEqual({ stage: "stage_2" });
+  await expect.element(screen.getByTestId("follow")).not.toBeInTheDocument();
   await expect.element(screen.getByTestId("result")).toHaveTextContent("Nothing made yet. What the run makes shows here as soon as a stage makes it.");
 
   // An older snapshot replayed from the stream never moves the page back.
@@ -131,7 +141,8 @@ test("at a gate: the status line asks the gate's question, and Answer now opens 
       return Response.json(waiting);
     },
   });
-  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_3" }));
   const status = screen.getByTestId("status-line");
   await expect.element(status).toHaveTextContent("Waiting for you: Watch it. Approve or send back.");
   // The thing under review is the result, above every control.
@@ -142,6 +153,14 @@ test("at a gate: the status line asks the gate's question, and Answer now opens 
   await expect.element(screen.getByTestId("gate-panel")).toMatchTextContent(/Your answer is open at the top of the page\./);
   await screen.getByRole("button", { name: "Approve" }).click();
   await vi.waitFor(() => expect(decided).toMatchObject([{ note: "", artifact: mp4.path }]));
+
+  // Approving moves the run on, not the page: the gate step stays selected.
+  FakeEventSource.emit("run.updated", {
+    payload: run("running", [research("done"), voice("done"), video("done"), review("done"), publish("running", timed(9, null))], { updated_at: at(30) }),
+  });
+  await expect.element(screen.getByTestId("follow")).toHaveTextContent("Now at publish · Go there");
+  await expect.element(screen.getByRole("button", { name: /^Step 4, review/ })).toHaveAttribute("aria-pressed", "true");
+  expect(router.state.location.search).toEqual({ stage: "stage_3" });
 });
 
 test("done with a video: the run's time, where it was posted, and the video in place", async () => {
@@ -158,12 +177,16 @@ test("done with a video: the run's time, where it was posted, and the video in p
     "GET /api/stages/stage_2/call": () => Response.json(call("stage_2", { status: "done", progress: 1, response: { output: "video.mp4" } })),
     "GET /api/stages/stage_4/call": () => Response.json(call("stage_4", { connector: "youtube", tool: "youtube", status: "done" })),
   });
-  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Done in 10 min. Posted private to YouTube.");
+  // A done run opens on its last finished step.
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_4" }));
+  await expect.element(screen.getByTestId("follow")).not.toBeInTheDocument();
   await expect.element(screen.getByRole("link", { name: "Open the post" }).first()).toHaveAttribute("href", "https://youtu.be/abc");
   await expect.element(screen.getByTestId("result")).toMatchTextContent(/What\s*video\.mp4\s*Made by\s*video, step 3 of 5/);
   await expect.element(screen.getByTestId("budget")).toHaveTextContent("$5.06 of $40.00 budget");
-  // The default step is the one that made the result; its player is not repeated.
+  // The step that made the result does not repeat its player.
+  await screen.getByRole("button", { name: /^Step 3, video/ }).click();
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^video\s*build · step 3 of 5 · 4m 14s/);
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/It made video\.mp4, the result at the top of the page\./);
   expect(screen.getByTestId("player").elements()).toHaveLength(1);
