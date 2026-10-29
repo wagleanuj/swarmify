@@ -122,6 +122,7 @@ def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
         "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
         "youtube": ["title", "metadata", "description", "visibility", "schedule", "made_for_kids"],
         "upload_post": ["same params as youtube", "user", "platforms"],
+        "speech": ["voice", "engines", "seed"],
     }
     stage_connectors = {c.name for c in BUILTINS if "connector" in c.stage_types}
     assert stage_connectors == set(params)

@@ -6,7 +6,15 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, StringConstraints
 
-from swarmify_connectors import Call, Connector, ConnectorError, Connectors, KeyCheck, Tool
+from swarmify_connectors import (
+    Call,
+    Connector,
+    ConnectorError,
+    Connectors,
+    HealthCheck,
+    KeyCheck,
+    Tool,
+)
 from swarmify_worlds import Worlds
 
 
@@ -35,6 +43,8 @@ class ConnectorView(BaseModel):
     builtin: bool
     about: str
     created_at: str | None
+    health: str | None
+    """The tool `GET /api/connectors/<id>/health` calls; None when it has no health check."""
     missing: list[str]
     """Credential names the credentials file does not hold yet."""
 
@@ -123,6 +133,18 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
         except (ValueError, PermissionError) as exc:
             raise HTTPException(422, str(exc)) from exc
         return SavedKeys(**view(found).model_dump(), check=check)
+
+    @api.get("/connectors/{connector_id}/health")
+    def connector_health(connector_id: str) -> list[HealthCheck]:
+        """What the connector depends on and whether each answers, as a speech connector's
+        engines. Empty for a connector without a health check."""
+        found = connectors.get(connector_id)
+        if found is None:
+            raise HTTPException(404, "connector not found")
+        try:
+            return connectors.health(found)
+        except ConnectorError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

@@ -11,6 +11,7 @@ A long job is a tool answer carrying `job_id` and `poll`, the tool to poll with
 `progress` (0 to 1), `message` and `error`.
 """
 
+import os
 import re
 import shlex
 import sys
@@ -20,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from swarmify_connectors import publish, remotion
+from swarmify_connectors import publish, remotion, speech
 from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
@@ -31,6 +32,7 @@ from swarmify_connectors.model import (
     Call,
     Connector,
     ConnectorError,
+    HealthCheck,
     KeyCheck,
     Kind,
     Tool,
@@ -51,6 +53,7 @@ __all__ = [
     "Connectors",
     "Credentials",
     "FakeTransport",
+    "HealthCheck",
     "KeyCheck",
     "McpTransport",
     "SqliteStorage",
@@ -114,6 +117,18 @@ BUILTINS = [
         "Posts or schedules to YouTube, TikTok and Instagram through Upload-Post's MCP.",
         ["npx", "-y", "@upload-post/mcp@0.11.4"],
         ["UPLOAD_POST_API_KEY"],
+    ),
+    Connector(
+        f"builtin_{speech.MANIFEST['name']}",
+        None,
+        speech.MANIFEST["name"],
+        speech.MANIFEST["kind"],
+        speech.MANIFEST["command"],
+        credentials=speech.MANIFEST["credentials"],
+        stage_types=speech.MANIFEST["stage_types"],
+        builtin=True,
+        about=speech.MANIFEST["about"],
+        health=speech.MANIFEST["health"],
     ),
 ]
 
@@ -300,7 +315,21 @@ class Connectors:
         env = {n: values[n] for n in connector.credentials}
         if connector.builtin and connector.name == "remotion_render":
             env["SWARMIFY_DATA_DIR"] = str(self.data_dir)  # where its templates live
+        if connector.builtin and connector.name == "speech" and os.environ.get("SPEECH_ENDPOINTS"):
+            env["SPEECH_ENDPOINTS"] = os.environ["SPEECH_ENDPOINTS"]  # a setting, not a secret
         return env
+
+    def health(self, connector: Connector) -> list[HealthCheck]:
+        """What the connector's `health` tool finds, as a speech connector's engines. Empty for
+        one without a health tool. Raises ConnectorError when the tool cannot be called."""
+        if not connector.health:
+            return []
+        answer = self.transport.call(connector, connector.health, {}, self._env(connector))
+        return [
+            HealthCheck(str(c.get("name", "")), bool(c.get("ok")), str(c.get("message", "")))
+            for c in answer.get("checks") or []
+            if isinstance(c, dict)
+        ]
 
     # Publish stages (ADR 0007)
 
@@ -343,6 +372,21 @@ class Connectors:
                     remotion.template(str(params["base"]), self.data_dir)
                 except ValueError as exc:
                     out.append(str(exc))
+            return out
+        if connector.builtin and connector.name == "speech":
+            out = (
+                []
+                if config.get("input") or config.get("inputs")
+                else ["speech needs an input, the script"]
+            )
+            if not config.get("output"):
+                out.append("speech needs an output, its timings file: timings.json")
+            allowed = speech.MANIFEST["params"]["properties"]
+            out += [
+                f"speech does not take params.{k}"
+                for k in params
+                if k not in allowed and k != "tool"
+            ]
             return out
         return []
 

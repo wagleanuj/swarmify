@@ -658,6 +658,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connectors/{connector_id}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Connector Health
+         * @description What the connector depends on and whether each answers, as a speech connector's
+         *     engines. Empty for a connector without a health check.
+         */
+        get: operations["connector_health_api_connectors__connector_id__health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stage_id}/call": {
         parameters: {
             query?: never;
@@ -1574,6 +1595,8 @@ export interface components {
             about: string;
             /** Created At */
             created_at: string | null;
+            /** Health */
+            health: string | null;
             /** Missing */
             missing: string[];
         };
@@ -1818,6 +1841,18 @@ export interface components {
         Health: {
             /** Version */
             version: string;
+        };
+        /**
+         * HealthCheck
+         * @description One thing a connector depends on, such as a speech engine, and whether it answers.
+         */
+        HealthCheck: {
+            /** Name */
+            name: string;
+            /** Ok */
+            ok: boolean;
+            /** Message */
+            message: string;
         };
         /**
          * Judgement
@@ -2389,6 +2424,8 @@ export interface components {
             about: string;
             /** Created At */
             created_at: string | null;
+            /** Health */
+            health: string | null;
             /** Missing */
             missing: string[];
             check: components["schemas"]["KeyCheck"] | null;
@@ -4250,6 +4287,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedKeys"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connector_health_api_connectors__connector_id__health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthCheck"][];
                 };
             };
             /** @description Validation Error */

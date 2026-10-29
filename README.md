@@ -255,7 +255,7 @@ its kind (tool, stage or publish) and the stage types allowed to use it (swarm, 
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
 Every world starts with the built-ins: `web_search` and `graph` (swarm tools, no setup),
 the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
-build below), and the two publish
+build below) and `speech` (see Speech engines), and the two publish
 connectors `youtube` and `upload_post` (see Publishing below).
 
 Credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with mode 600; the
@@ -277,6 +277,10 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   Upload-Post's `get_account_info`, naming the account. A failing check still saves the keys and
   the page warns, so a bad refresh token shows then rather than at publish. `check` is null for
   any other connector.
+- `GET /api/connectors/<id>/health` calls the connector's health tool, the one its `health`
+  field names, and answers `[{"name", "ok", "message"}]`, one per thing it depends on: for
+  `speech`, each engine in `SPEECH_ENDPOINTS`. The connectors page shows them as up or down when
+  it opens. It is `[]` for a connector without one, and 502 when the tool cannot be called.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors` saves it and merges the given credential
   values into the file (an empty value means the file already has it). `DELETE
@@ -432,6 +436,49 @@ connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
   they have no sign-in.
 - `uv run pytest services --no-cov` includes a smoke test that speaks a sentence on every engine in
   `SPEECH_ENDPOINTS` and aligns it where the engine can; it skips each engine that is not up.
+
+### The speech connector
+
+`speech` is a built-in stage connector, a plain MCP server (`python -m
+swarmify_connectors.speech`). Everything Swarmify knows about it (name, kind, stage types,
+command, credentials, a JSON schema of its params, inputs, outputs, health tool) is its
+`MANIFEST`, the shape of a V2 connector package (ADR 0019).
+
+```yaml
+- connector: voice
+  calls: speech
+  input: script.md
+  output: timings.json
+  params: {seed: 7}           # optional: voice, engines, seed
+- connector: video
+  calls: remotion_build
+  inputs: [script.md, timings.json]
+```
+
+- The script is a fenced JSON block, `{"scenes": [{"id", "lines": [{"text", "pause_after"}]}]}`
+  (`pause_after` in seconds, default 0.3; ids are letters, digits, `_` or `-`), else each
+  paragraph is a scene and each sentence a line. Frontmatter and `#` headings are skipped.
+- One take per scene. The engines are tried in the order of `SPEECH_ENDPOINTS` (or of
+  `params.engines`, which may only reorder or narrow that list, since the script is sent there);
+  when one fails, the whole run is redone on the next, so one video never mixes two voices.
+  `voice` and `seed` go to the engine.
+- Word times come with the speech when the engine serves Kokoro-FastAPI's
+  `/dev/captioned_speech`, else from its `/v1/align`. Either way they are matched back to the
+  script, whose spelling wins; words the engine missed or merged share the gap between their
+  neighbours.
+- It writes the takes to `narration/<scene id>.wav` beside `timings.json`, which holds `engine`,
+  `voice`, `seed` and per take its `file`, `duration` (seconds) and `lines`: each line's `text`,
+  `pause_after`, `words` in Remotion's `Caption` shape (`text` with the space before it,
+  `startMs` and `endMs` from the take's start, `timestampMs` and `confidence` null), and
+  `cut_in` and `cut_out` (seconds into the take). A cut between two lines sits in the middle of
+  the quietest 10 ms between them; the take keeps 0.05 s before its first word and 0.15 s after
+  its last. A line whose cut has no silence (a gap under 10 ms or louder than about -34 dBFS)
+  has `joined_next: true`, and the call's `joined` and `message` name it: cut there and the
+  word edge shows, so keep the two lines together or voice them again.
+- The workflow check wants an input and an output and refuses params outside the manifest's.
+- Measured on an M3 Max with both engines warm, the spike's four scenes (11 lines): Kokoro 6.6 s
+  for 17.7 s of speech, Chatterbox Turbo 33 s for 20.6 s, which flagged "sleep all winter
+  long." running into "Good night" as the spike heard it. The health check takes 0.4 s.
 
 ## Publishing
 

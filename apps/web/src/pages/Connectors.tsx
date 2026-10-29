@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { connectorsRoute } from "../router";
 
 type Connector = components["schemas"]["ConnectorView"];
+type HealthCheck = components["schemas"]["HealthCheck"];
 type KeyCheck = components["schemas"]["KeyCheck"];
 type NewConnector = components["schemas"]["NewConnector"];
 type Tool = components["schemas"]["Tool"];
@@ -21,6 +22,7 @@ export const LABEL: Record<string, string> = {
   remotion_build: "Remotion build",
   youtube: "YouTube",
   upload_post: "Upload-Post",
+  speech: "Speech",
 };
 
 const KINDS: { kind: Kind; label: string; hint: string }[] = [
@@ -195,6 +197,7 @@ export function Connectors() {
                   </button>
                 )}
               </span>
+              {c.health && <Health connector={c} />}
             </li>
           );
         })}
@@ -307,6 +310,32 @@ export function Connectors() {
 function detail(error: unknown): string | null {
   const d = (error as { detail?: unknown } | undefined)?.detail;
   return typeof d === "string" ? d : null;
+}
+
+/** What a connector depends on, such as each speech engine, checked once when the page opens. */
+function Health({ connector }: { connector: Connector }) {
+  const [checks, setChecks] = useState<HealthCheck[] | string | null>(null);
+
+  useEffect(() => {
+    api
+      .GET("/api/connectors/{connector_id}/health", { params: { path: { connector_id: connector.id } } })
+      .then(({ data, error }) => setChecks(data ?? detail(error) ?? "Could not check them."))
+      .catch(() => setChecks("Could not check them."));
+  }, [connector.id]);
+
+  if (checks === null) return <p className="faint health">Checking engines...</p>;
+  if (typeof checks === "string") return <p className="faint health">Engines not checked: {checks}</p>;
+  return (
+    <ul className="health" aria-label={`${LABEL[connector.name] ?? connector.name} engines`}>
+      {checks.map((h) => (
+        <li key={h.name}>
+          <span className="mono">{h.name}</span>{" "}
+          <span className={`chip ${h.ok ? "ok" : "warn"}`}>{h.ok ? "up" : "down"}</span>
+          {!h.ok && <span className="faint"> {h.message}</span>}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** One password field per credential the connector names; empty fields leave the file alone. */

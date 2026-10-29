@@ -275,6 +275,8 @@ main.editor-page { max-width: 80rem; }
 .tool-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
 .set-keys { display: grid; gap: 8px; flex-basis: 100%; }
 .key-check { flex-basis: 100%; font-size: 13px; }
+.health { flex-basis: 100%; list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 13px; }
+.connector-list .health li { background: none; border: 0; padding: 0; display: block; }
 
 /* Graph */
 .communities, .surprises { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }

@@ -1,0 +1,302 @@
+"""The speech connector against fake engines: order and fallback, words matched to the script,
+cut points and the flag for joins with no silence, and the built-in started over stdio MCP."""
+
+import base64
+import io
+import json
+import math
+import threading
+import wave
+from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+from mcp.server.mcpserver.exceptions import ToolError
+
+from swarmify_connectors import BUILTINS, Connectors, FakeTransport, HealthCheck, McpTransport
+from swarmify_connectors import speech as sp
+from swarmify_connectors.credentials import Credentials
+from swarmify_connectors.sqlite import SqliteStorage
+
+RATE = 16000
+SCRIPT = """# The hedgehog
+
+```json
+{"scenes": [
+  {"id": "hook", "lines": [{"text": "Who sleeps?", "pause_after": 0.5}, {"text": "Good night."}]},
+  {"id": "fact", "lines": [{"text": "A hedgehog."}]}
+]}
+```
+"""
+
+
+def wav(parts: list[tuple[float, bool]]) -> bytes:
+    """A 16-bit mono WAV of (seconds, loud) parts: a loud part is a tone, the rest silence."""
+    samples = bytearray()
+    for seconds, loud in parts:
+        for i in range(int(seconds * RATE)):
+            value = int(12000 * math.sin(2 * math.pi * 220 * i / RATE)) if loud else 0
+            samples += value.to_bytes(2, "little", signed=True)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(bytes(samples))
+    return buf.getvalue()
+
+
+# Two lines with a 0.3 s silence between them: words 0-0.5, 0.5-1.0 | 1.3-1.6, 1.6-2.0.
+SPOKEN = wav([(1.0, True), (0.3, False), (0.7, True), (0.2, False)])
+WORDS = [("who", 0.0, 0.5), ("sleeps", 0.5, 1.0), ("Good", 1.3, 1.6), ("night", 1.6, 2.0)]
+
+
+def kokoro(seen: list[str], fail: bool = False) -> Callable[[httpx.Request], httpx.Response]:
+    """A captioned engine: its speech carries its own word times, punctuation tokens included."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(f"{request.url.host} {request.url.path} {body['input']}")
+        if fail and "hedgehog" in body["input"]:
+            return httpx.Response(500, text="out of memory")
+        stamps = [*WORDS[:2], ("?", 1.0, 1.3), *WORDS[2:], (".", 2.0, 2.1)]
+        return httpx.Response(
+            200,
+            json={
+                "audio": base64.b64encode(SPOKEN).decode(),
+                "timestamps": [{"word": w, "start_time": s, "end_time": e} for w, s, e in stamps],
+            },
+        )
+
+    return handle
+
+
+def chatterbox(seen: list[str]) -> Callable[[httpx.Request], httpx.Response]:
+    """An engine without captions: speech, then its own alignment endpoint."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.url.host} {request.url.path}")
+        if request.url.path == "/dev/captioned_speech":
+            return httpx.Response(404)
+        if request.url.path == "/v1/audio/speech":
+            return httpx.Response(200, content=SPOKEN)
+        # heard "Goodnight" as one word
+        heard = [*WORDS[:2], ("Goodnight", 1.3, 2.0)]
+        return httpx.Response(
+            200,
+            json={"timestamps": [{"word": w, "start_time": s, "end_time": e} for w, s, e in heard]},
+        )
+
+    return handle
+
+
+def engines(**by_host: Callable[[httpx.Request], httpx.Response]) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(lambda r: by_host[r.url.host](r)))
+
+
+def test_the_fenced_json_gives_scenes_and_lines() -> None:
+    scenes = sp.parse_script(SCRIPT)
+    assert [s["id"] for s in scenes] == ["hook", "fact"]
+    assert scenes[0]["lines"] == [
+        {"text": "Who sleeps?", "pause_after": 0.5},
+        {"text": "Good night.", "pause_after": sp.PAUSE},
+    ]
+
+
+def test_plain_prose_is_paragraphs_of_sentences() -> None:
+    text = "---\ntype: script\n---\n# Title\n\nWho sleeps? All winter\nlong.\n\nGood night!\n"
+    assert sp.parse_script(text) == [
+        {
+            "id": "scene_1",
+            "lines": [
+                {"text": "Who sleeps?", "pause_after": sp.PAUSE},
+                {"text": "All winter long.", "pause_after": sp.PAUSE},
+            ],
+        },
+        {"id": "scene_2", "lines": [{"text": "Good night!", "pause_after": sp.PAUSE}]},
+    ]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        '```json\n{"scenes": [{"id": "../x", "lines": [{"text": "Hi"}]}]}\n```',
+        '```json\n{"scenes": [{"id": "a", "lines": [{"text": "Hi", "pause_after": -1}]}]}\n```',
+        '```json\n{"scenes": [{"id": "a", "lines": []}]}\n```',
+        "```json\nnot json\n```",
+        "# only a title\n",
+    ],
+)
+def test_a_script_it_cannot_voice_is_refused(bad: str) -> None:
+    with pytest.raises(ValueError):
+        sp.parse_script(bad)
+
+
+def test_words_are_matched_back_to_the_script_spelling() -> None:
+    want = ["Who", "sleeps?", "Good", "night."]
+    heard = [("who", 0.0, 0.5), ("sleeps", 0.5, 1.0), ("Goodnight", 1.3, 2.0)]
+    # "Goodnight" matches neither word: the two share the gap from 1.0 to the end
+    assert sp.match(want, heard, 2.2) == [(0.0, 0.5), (0.5, 1.0), (1.0, 1.6), (1.6, 2.2)]
+
+
+def test_the_first_engine_voices_every_scene_with_its_own_word_times() -> None:
+    seen: list[str] = []
+    with engines(a=kokoro(seen), b=chatterbox(seen)) as http:
+        engine, takes = sp.voice_run(
+            http, sp.parse_script(SCRIPT), ["http://a", "http://b"], "af_heart"
+        )
+    assert engine == "http://a" and len(seen) == 2  # one call per scene, b never asked
+    hook = takes[0][1]
+    assert hook["file"] == "narration/hook.wav" and hook["duration"] == 2.2
+    first, second = hook["lines"]
+    assert [w["text"] for w in first["words"]] == ["Who", " sleeps?"]
+    assert [w["text"] for w in second["words"]] == ["Good", " night."]
+    assert second["words"][1] == {
+        "text": " night.", "startMs": 1600, "endMs": 2000, "timestampMs": None, "confidence": None
+    }  # fmt: skip
+    assert first["pause_after"] == 0.5 and second["pause_after"] == sp.PAUSE
+
+
+def test_a_failing_engine_redoes_the_whole_run_on_the_next_so_voices_never_mix() -> None:
+    seen: list[str] = []
+    with engines(a=kokoro(seen, fail=True), b=chatterbox(seen)) as http:
+        engine, takes = sp.voice_run(http, sp.parse_script(SCRIPT), ["http://a", "http://b"])
+    assert engine == "http://b"
+    assert [s.split()[:2] for s in seen[:2]] == [["a", "/dev/captioned_speech"]] * 2
+    # b voices both scenes again, the hook included, through speech then alignment
+    assert seen[2:] == ["b /dev/captioned_speech", "b /v1/audio/speech", "b /v1/align"] * 2
+    assert [t["scene"] for _, t in takes] == ["hook", "fact"]
+
+
+def test_when_every_engine_fails_the_error_names_each() -> None:
+    seen: list[str] = []
+    with engines(a=kokoro(seen, fail=True)) as http, pytest.raises(ToolError) as err:
+        sp.voice_run(http, sp.parse_script(SCRIPT), ["http://a", "http://c"])
+    assert "http://a: HTTPStatusError" in str(err.value) and "http://c:" in str(err.value)
+
+
+def test_a_cut_lands_in_the_silence_between_lines() -> None:
+    scene = sp.parse_script(SCRIPT)[0]
+    take = sp.take_timings(scene, SPOKEN, WORDS)
+    first, second = take["lines"]
+    assert first["cut_in"] == 0.0 and second["cut_out"] == 2.15  # a 0.15 s tail kept
+    assert 1.0 < first["cut_out"] == second["cut_in"] < 1.3
+    assert first["joined_next"] is False
+
+
+def test_lines_with_no_silence_between_them_are_flagged() -> None:
+    scene = sp.parse_script(SCRIPT)[0]
+    take = sp.take_timings(scene, wav([(2.0, True), (0.2, False)]), WORDS)
+    assert take["lines"][0]["joined_next"] is True and take["lines"][1]["joined_next"] is False
+    # a gap shorter than the window has no silence either: the cut goes in its middle
+    touching = [*WORDS[:2], ("Good", 1.0, 1.6), WORDS[3]]
+    first, _ = sp.take_timings(scene, SPOKEN, touching)["lines"]
+    assert first["joined_next"] is True and first["cut_out"] == 1.0
+
+
+def test_a_streamed_wav_with_a_bogus_length_is_read_to_its_end() -> None:
+    raw = bytearray(SPOKEN)
+    raw[40:44] = (2**31 - 1).to_bytes(4, "little")  # the data chunk's size, as Kokoro sends it
+    samples, rate = sp.decode(bytes(raw))
+    assert rate == RATE and len(samples) == int(2.2 * RATE)
+
+
+def test_the_built_in_is_declared_by_its_manifest() -> None:
+    builtin = next(c for c in BUILTINS if c.name == "speech")
+    m = sp.MANIFEST
+    assert (builtin.kind, builtin.command, builtin.stage_types) == (
+        m["kind"],
+        m["command"],
+        m["stage_types"],
+    )
+    assert builtin.health == m["health"] == "speech_health"
+    tool = next(t for t in sp.mcp._tool_manager.list_tools() if t.name == "speech")
+    assert set(m["params"]["properties"]) <= set(tool.parameters["properties"])
+
+
+def test_a_speech_stage_is_checked_for_its_script_output_and_params(
+    connectors: Connectors,
+) -> None:
+    ok = {"calls": "speech", "input": "script.md", "output": "timings.json", "params": {"seed": 7}}
+    assert connectors.stage_problems("w", ok) == []
+    assert connectors.stage_problems("w", {"calls": "speech", "params": {"speed": 2}}) == [
+        "speech needs an input, the script",
+        "speech needs an output, its timings file: timings.json",
+        "speech does not take params.speed",
+    ]
+
+
+def test_health_lists_each_engine(connectors: Connectors, transport: FakeTransport) -> None:
+    transport.outputs["speech_health"] = [
+        {"checks": [{"name": "http://a", "ok": True, "message": "up"}]}
+    ]
+    speech = connectors.find("w", "speech")
+    assert speech is not None
+    assert connectors.health(speech) == [HealthCheck("http://a", True, "up")]
+    youtube = connectors.find("w", "youtube")
+    assert youtube is not None and connectors.health(youtube) == []
+
+
+# Over stdio MCP, against a fake engine on a real port.
+
+
+class Engine(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+    def _send(self, code: int, body: bytes, kind: str = "application/json") -> None:
+        self.send_response(code)
+        self.send_header("content-type", kind)
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        self._send(200, b'{"status": "ok"}')
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["content-length"]))
+        stamps = [{"word": w, "start_time": s, "end_time": e} for w, s, e in WORDS]
+        audio = base64.b64encode(SPOKEN).decode()
+        self._send(200, json.dumps({"audio": audio, "timestamps": stamps}).encode())
+
+
+@pytest.fixture
+def engine() -> Iterator[str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Engine)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+
+
+def test_the_built_in_voices_a_script_over_stdio(
+    tmp_path: Path, db: Path, engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    down = "http://127.0.0.1:9"  # nothing listens on discard
+    monkeypatch.setenv("SPEECH_ENDPOINTS", f"{down},{engine}")
+    real = Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
+    script = tmp_path / "script.md"
+    script.write_text(SCRIPT)
+    out = tmp_path / "speak" / "artifacts" / "timings.json"
+    out.parent.mkdir(parents=True)
+    config = {
+        "calls": "speech",
+        "input": "script.md",
+        "output": "timings.json",
+        "params": {"input_path": str(script), "output_path": str(out), "seed": 7},
+    }
+    call = real.run_stage("w", "run_1", "speak", config)
+    assert call.status == "done" and call.response is not None
+    assert call.response["engine"] == engine and call.response["takes"] == 2
+    timings = json.loads(out.read_text())
+    assert [t["file"] for t in timings["takes"]] == ["narration/hook.wav", "narration/fact.wav"]
+    assert (out.parent / "narration" / "hook.wav").read_bytes() == SPOKEN
+    assert timings["seed"] == 7
+
+    speech = real.find("w", "speech")
+    assert speech is not None
+    checks = real.health(speech)
+    assert [(c.name, c.ok) for c in checks] == [(down, False), (engine, True)]

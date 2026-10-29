@@ -74,6 +74,12 @@ The built-in connector stages and their params:
 - remotion_render: input is the script; params project (a template's name under the data
   directory's remotion folder, or a folder path) and composition (its ID), both required;
   optional entry, codec, frames, props.
+- speech: input is the script (a fenced JSON block of scenes, each an id and lines of text
+  with an optional pause_after in seconds; else paragraphs become scenes and sentences lines);
+  output timings.json. Voices one take per scene into narration/ beside timings.json, which
+  holds each line's words (Remotion Caption shape) and cut points; give remotion_build both the
+  script and timings.json as inputs. Optional params: voice, engines (the configured speech
+  endpoints to try, in order), seed.
 - youtube: input is the video; params title (required unless metadata names a file an earlier
   stage produced whose frontmatter has title and description), description, visibility
   (public, unlisted or private), schedule (ISO 8601 with a timezone, or 09:00, or +1d 09:00;
