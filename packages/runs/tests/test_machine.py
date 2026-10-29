@@ -104,8 +104,8 @@ class AnyEvents(RuleBasedStateMachine):
             assert status in ("waiting_gate", "paused")
 
     @invariant()
-    def send_backs_are_capped(self) -> None:
-        assert 0 <= self.state.send_backs <= MAX_SEND_BACKS
+    def send_backs_only_count_up(self) -> None:
+        assert self.state.send_backs >= 0
 
     @invariant()
     def commands_point_at_the_active_stage(self) -> None:
@@ -230,8 +230,9 @@ def test_kinds_must_match_stages() -> None:
 
 
 @given(KINDS)
-def test_send_back_reruns_from_the_named_stage_and_the_third_is_refused(kinds: list[str]) -> None:
-    """Drive the run to its first gate past stage 0; send it back there twice, refuse the third."""
+def test_send_back_reruns_from_the_named_stage_and_counts_the_visit(kinds: list[str]) -> None:
+    """Drive the run to its first gate past stage 0 and send it back there, more often than
+    the default limit: the machine counts visits, RunControl.decide holds each gate's limit."""
     kinds = ["connector", *kinds, "gate"]
     gate = kinds.index("gate", 1)
     k = tuple(kinds)
@@ -240,16 +241,14 @@ def test_send_back_reruns_from_the_named_stage_and_the_third_is_refused(kinds: l
         state, cmds = transition(k, state, StageFinished(cmds[0].index))
     assert cmds == [OpenGate(gate)]
 
-    for n in (1, 2):
+    for n in range(1, MAX_SEND_BACKS + 2):
         state, cmds = transition(k, state, SentBack(gate, 0))
         assert state.send_backs == n and state.status == "running"
         assert state.stages == ("running",) + ("pending",) * (len(k) - 1)
         assert cmds == [RunStage(0)]
         while not isinstance(cmds[0], OpenGate):
             state, cmds = transition(k, state, StageFinished(cmds[0].index))
-    with pytest.raises(Illegal, match="already sent back"):
-        transition(k, state, SentBack(gate, 0))
-    assert transition(k, state, GateAnswered(gate))[0].send_backs == 2
+    assert transition(k, state, GateAnswered(gate))[0].send_backs == MAX_SEND_BACKS + 1
 
 
 def test_send_back_must_name_an_earlier_stage() -> None:

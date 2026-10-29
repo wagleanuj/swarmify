@@ -71,6 +71,19 @@ def seed(folder: Path, base: str | None, data_dir: Path) -> None:
     shutil.copytree(source, folder, ignore=shutil.ignore_patterns("node_modules", ".git"))
 
 
+def keep(folder: Path, version: Path, video: Path) -> None:
+    """A revision of the last build: that project is kept as `version` and the video it
+    rendered beside it as `version` plus the video's suffix (once, so a retried revision starts
+    from the same point), then `folder` starts over as a copy of `version` to edit."""
+    if not version.exists():
+        folder.rename(version)
+        if video.is_file():
+            shutil.copy2(video, version.with_name(version.name + video.suffix))
+    if folder.exists():
+        shutil.rmtree(folder)
+    shutil.copytree(version, folder, ignore=shutil.ignore_patterns("node_modules"))
+
+
 def _data_dir() -> Path:
     return Path(os.environ.get("SWARMIFY_DATA_DIR", Path.home() / ".swarmify"))
 

@@ -148,7 +148,7 @@ test("a run at a gate links to the inbox, pauses, resumes and aborts, showing de
     ],
   });
   FakeEventSource.emit("run.updated", { payload: paused });
-  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Paused. Nothing moves until it is resumed. Sent back 1 of 2 times.");
+  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Paused. Nothing moves until it is resumed. Sent back once.");
   await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/Sent back with: Darker\./);
   await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/You sent it back to render\. Note: Darker\./);
   await screen.getByRole("button", { name: "Resume" }).click();

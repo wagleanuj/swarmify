@@ -146,6 +146,8 @@ class Gate:
     earlier_stages: list[str]
     parent_run_id: str | None = None
     parent: RunLink | None = None
+    max_send_backs: int = 2
+    """How many send-backs the gate allows in all, its workflow's `max_send_backs`."""
     publish: PublishPreview | None = None
     """Set when the next stage publishes: exactly what confirming sends out."""
     budget_usd: float | None = None

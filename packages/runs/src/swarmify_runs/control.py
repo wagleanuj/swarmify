@@ -23,6 +23,7 @@ from sqlalchemy.exc import OperationalError
 from swarmify_kernel import Event, new_id
 from swarmify_runs import budget
 from swarmify_runs.machine import (
+    MAX_SEND_BACKS,
     TERMINAL,
     Aborted,
     GateAnswered,
@@ -306,7 +307,7 @@ class RunControl:
         differently by now is refused, so what posts is what was confirmed.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
-        send-back target is not an earlier stage, on the third send-back, when someone
+        send-back target is not an earlier stage, on a send-back past the gate's limit, when someone
         else already answered this gate, or when the publish stage after it has problems
         (send back or abort instead), and ValueError when a pick gate gets no choice or
         the artifact is not one of this run's before the gate, or when an edited title or
@@ -334,6 +335,10 @@ class RunControl:
             targets = [s.index for s in run.stages if s.name == send_back_to and s.index < index]
             if not targets:
                 raise Illegal(f"no earlier stage named {send_back_to!r}")
+            limit = int(stage.config.get("max_send_backs") or MAX_SEND_BACKS)
+            if sum(1 for d in run.decisions if d.stage_index == index and d.send_back_to) >= limit:
+                times = "once" if limit == 1 else f"{limit} times"
+                raise Illegal(f"already sent back {times}; approve or abort")
             event: RunEvent = SentBack(index, targets[0])
         else:
             event = GateAnswered(index)

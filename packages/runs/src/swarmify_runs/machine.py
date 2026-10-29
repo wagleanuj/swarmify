@@ -16,7 +16,8 @@ STAGE_STATUSES: tuple[StageStatus, ...] = (
 )  # fmt: skip
 TERMINAL: frozenset[RunStatus] = frozenset({"done", "failed", "aborted"})
 MAX_SEND_BACKS = 2
-"""A run may be sent back twice; the third send-back is refused (V1 spec, story 55)."""
+"""A gate may send the run back twice unless its `max_send_backs` says otherwise (V1 spec, story
+55); RunControl.decide counts each gate's own send-backs and refuses the one past its limit."""
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class RunState:
     status: RunStatus
     stages: tuple[StageStatus, ...]
     send_backs: int = 0
+    """Every send-back of the run so far, at any gate: a revisited stage's visit number."""
     over_budget: bool = False
     """The run's Budget is spent: its waiting stage is a budget gate, not a decision."""
 
@@ -173,10 +175,6 @@ def transition(
             _require(not state.over_budget, "the run waits for money, not a decision")
             _require(0 <= to < i, f"send back must name a stage before {i}")
             _require("failed" not in stages, "a failed run cannot be sent back")
-            _require(
-                state.send_backs < MAX_SEND_BACKS,
-                f"already sent back {MAX_SEND_BACKS} times; approve or abort",
-            )
             pending: list[StageStatus] = ["pending"] * (len(stages) - to)
             stages = stages[:to] + pending
             return _settle(kinds, replace(state, send_backs=state.send_backs + 1), stages)

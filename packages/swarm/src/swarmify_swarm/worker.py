@@ -240,6 +240,20 @@ def _decisions(world_folder: Path, run_id: str) -> list[str]:
     return out
 
 
+def revision(note: str, previous: Sequence[str]) -> str:
+    """The framing of a stage the run came back to with work already done: revise it, do not
+    start over. `note` is the send-back note addressed to the stage, if the send-back named it."""
+    asked = (
+        f"The operator sent it back with this note, required reading: {note}"
+        " Change what the note asks and keep the rest as it is."
+        if note
+        else "An earlier stage was redone: change what that needs and keep the rest as it is."
+    )
+    read = ", ".join(previous)
+    read = f" The previous version, required reading before you change anything: {read}."
+    return f"This is a revision, not a fresh start. {asked}{read if previous else ''}"
+
+
 def _wants(config: dict[str, Any]) -> str:
     produces = ", ".join(str(p) for p in config.get("produces") or [])
     out = f"Write these artifacts: {produces}." if produces else ""
@@ -422,7 +436,10 @@ class Swarm:
             # ponytail: a stage first run after a send-back and then retried by DBOS gets one
             # needless rework; extra work, never lost work.
             if all(t.title != rework for t in tasks):  # a retried step added it already
-                body = at.notes[-1] if at.notes else "An earlier stage was redone. Update the work."
+                own = self.files.stage_folder(world_id, run_id, stage_id)
+                made = [own.parent / a for a in self.files.artifacts(world_id, run_id)]
+                mine = [str(a) for a in made if a.is_relative_to(own)]
+                body = revision(at.notes[-1] if at.notes else "", mine)
                 self.board.add_task(world_id, run_id, stage_id, rework, added_by="gate", body=body)
         while True:
             verdicts = self.board.list_verdicts(stage_id)
@@ -652,12 +669,15 @@ class Swarm:
         max_turns: int = builds.MAX_TURNS,
         minutes: float = builds.MINUTES,
         inputs: Sequence[Path] = (),
+        revises: Sequence[Path] = (),
+        note: str = "",
     ) -> None:
         """One sandboxed coding session writing the Remotion project in `folder` (see build.py),
-        with the run's gate decisions as required reading. Logged, costed and budgeted like any
-        agent, as `builder`, whose closing summary ends the stage log. Raises StageError, with the
-        builder's last log lines, when two sessions fail or time runs out; Stopped when the
-        run's Budget stopped it."""
+        with the run's gate decisions as required reading. `revises` names the previous version
+        when the session revises it after a send-back with `note`, instead of starting over.
+        Logged, costed and budgeted like any agent, as `builder`, whose closing summary ends the
+        stage log. Raises StageError, with the builder's last log lines, when two sessions fail
+        or time runs out; Stopped when the run's Budget stopped it."""
         cast = (CastEntry(builds.AGENT, builds.ROLE, model=model),)
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         decisions = _decisions(world_folder, run_id)
@@ -671,7 +691,10 @@ class Swarm:
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
                 system_prompt=builds.SYSTEM,
-                prompt=builds.prompt(script, composition, brief, decisions, inputs, assets),
+                prompt="\n".join(
+                    ([revision(note, [str(p) for p in revises])] if revises else [])
+                    + [builds.prompt(script, composition, brief, decisions, inputs, assets)]
+                ),
                 cwd=folder,
                 # No skills plugin: Claude Code refuses Write and Edit inside a plugin folder,
                 # and the build folder lies inside the world folder.

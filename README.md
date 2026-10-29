@@ -223,7 +223,11 @@ it may send the run back to. The web skin shows it at `/gates` and renders each 
 
 - `pick` takes a `choice` (idea cards arrive with the swarm; until then the pick is typed).
 - `approve` approves, or names `send_back_to`, an earlier stage that runs again with the note in
-  its context (`notes` on that stage). A run may be sent back twice; the third is refused (409).
+  its context (`notes` on that stage). Each gate counts its own send-backs: it may send the run
+  back `max_send_backs` times (2 when the workflow leaves it out), and the next is refused (409).
+  The inbox shows how many revisions the gate has left. A stage that runs again with work
+  already done revises it: a swarm stage gets one rework task saying so, with the note and its
+  own previous artifacts as required reading (a `remotion_build` stage, below, its last build).
 - `confirm` takes a plain yes before anything goes out.
 
 `POST /api/runs/<id>/decision` with `{"choice", "note", "send_back_to"}` answers the gate. Every
@@ -373,6 +377,13 @@ builder's last log lines. Then the render runs as a `remotion_render` call on th
 (its call shows on the timeline as usual, a failed render fails the stage with the CLI's last
 lines), the video gets its sidecar and becomes the stage's artifact, and the build folder stays
 for a person to open, without its `node_modules` (`npm ci` brings them back).
+
+A send-back that reruns the stage revises, it does not start over: the last build is kept as
+`<stage folder>/build.v<n>/` (n counting the run's visits from 1) with the video it rendered beside
+it as `build.v<n>.mp4`, `build/` starts as a copy of it, and the prompt opens with "This is a
+revision": the send-back note (when the send-back named this stage) and the previous version are
+required reading, change what the note asks and keep the rest. Both stay inside the stage folder,
+which the session may read. A stage never run, or whose last render failed, starts fresh.
 
 When one of `inputs` is a `timings.json` (the speech connector's, below), the brief turns voice
 first, as the spike on branch `spike/voice-first-video` proved: copy the timings and their takes

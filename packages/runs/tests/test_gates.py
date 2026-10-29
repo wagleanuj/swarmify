@@ -355,3 +355,29 @@ def test_a_run_already_ended_when_its_workflow_loads_returns_at_once(
     ended = Run("run_gone", "world_1", "wf_1", 1, "Gone", "aborted", "t", "t", [])
     runner._enqueue(storage.add_run(ended, [PICK]))  # pyright: ignore[reportPrivateUsage]
     wait_for(lambda: getattr(DBOS.get_workflow_status("run_gone"), "status", None) == "SUCCESS")
+
+
+def test_each_gate_counts_its_own_send_backs_up_to_its_max_send_backs(
+    runner: Runner, connector: FakeConnector
+) -> None:
+    once = StageDef("draft review", "gate", {"ask": "Draft ok?", "max_send_backs": 1})
+    thrice = StageDef("final review", "gate", {"ask": "Final ok?", "max_send_backs": 3})
+    run = runner.start("world_1", "wf_1", 1, "Two gates", [RESEARCH, once, SCRIPT, thrice])
+    at(runner, run.id, "waiting_gate", "draft review")
+    assert (runner.gates()[0].send_backs_left, runner.gates()[0].max_send_backs) == (1, 1)
+    runner.decide(run.id, note="Again.", send_back_to="research")
+    wait_for(lambda: fetch(runner, run.id).send_backs == 1)
+    at(runner, run.id, "waiting_gate", "draft review")
+    with pytest.raises(Illegal, match="already sent back once"):
+        runner.decide(run.id, send_back_to="research")
+    runner.decide(run.id)
+    for sent, left in enumerate((3, 2, 1), start=2):  # the first gate's send-back is its own
+        at(runner, run.id, "waiting_gate", "final review")
+        assert (runner.gates()[0].send_backs_left, runner.gates()[0].max_send_backs) == (left, 3)
+        runner.decide(run.id, note="Again.", send_back_to="script")
+        wait_for(lambda n=sent: fetch(runner, run.id).send_backs == n)
+    at(runner, run.id, "waiting_gate", "final review")
+    assert runner.gates()[0].send_backs_left == 0
+    with pytest.raises(Illegal, match="already sent back 3 times"):
+        runner.decide(run.id, send_back_to="script")
+    assert fetch(runner, run.id).send_backs == 4

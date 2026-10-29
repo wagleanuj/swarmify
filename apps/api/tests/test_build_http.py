@@ -59,9 +59,11 @@ def build_run(
     params: str,
     opened: list[TestClient],
     inputs: str = "input: script.md",
+    after: str = "",
 ) -> tuple[TestClient, dict]:
     """`inputs` is the build stage's input line; a notes stage writing notes.md runs before it
-    when it names notes.md."""
+    when it names notes.md. `after` is YAML for stages after it; the run is returned once it
+    ends or waits at a gate."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     (data / ".env").write_text("UPLOAD_POST_API_KEY=k3y\n")
@@ -92,15 +94,22 @@ stages:
     calls: remotion_build
     {inputs}
     params: {params}
-"""
+{after}"""
     workflow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
     assert workflow.status_code == 201, workflow.text
     run = client.post(f"/api/workflows/{workflow.json()['workflow_id']}/runs", json={}).json()
+    return client, settled(client, run["id"])
+
+
+def settled(client: TestClient, run_id: str, send_backs: int = 0) -> dict:
+    """The run once it ended or waits at a gate, after `send_backs` send-backs."""
     deadline = time.monotonic() + float(os.environ.get("SWARMIFY_BUILD_WAIT", 60))
-    while (run := client.get(f"/api/runs/{run['id']}").json())["status"] not in ("done", "failed"):
+    while True:
+        run = client.get(f"/api/runs/{run_id}").json()
+        if run["send_backs"] == send_backs and run["status"] in ("done", "failed", "waiting_gate"):
+            return run
         assert time.monotonic() < deadline, run
         time.sleep(0.1)
-    return client, run
 
 
 @pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
@@ -161,6 +170,48 @@ def test_a_build_with_several_inputs_renders_the_first_and_names_the_rest(
     rendered = json.loads((folder / video_id / "artifacts/video.mp4").read_text())
     assert rendered["scriptPath"] == str(folder / script_id / "artifacts/script.md")
     assert str(folder / notes_id / "artifacts/notes.md") in script.prompts[0]
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_send_back_revises_the_previous_project_with_the_note_kept_as_a_version(
+    tmp_path: Path, fake_cli: None, opened: list[TestClient]
+) -> None:
+    def writes(name: str) -> Answer:  # the scripted CLI runs no tools, so the step writes
+        return Answer(lambda options: (Path(options.cwd) / "src" / name).write_text("1"))
+
+    liked, edit = writes("Liked.tsx"), writes("Ending.tsx")
+    script = Script([Answer(_installs), liked, Say("v1")], [Answer(_installs), edit, Say("v2")])
+    review = "  - gate: review\n    ask: Good?\n"
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened, after=review
+    )
+    assert run["status"] == "waiting_gate", run
+    video_id = run["stages"][1]["id"]
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    first = (stage / "artifacts/video.mp4").read_text()
+    assert "revision" not in script.prompts[0]
+
+    note = "Slow the ending down; keep the opening."
+    sent = client.post(
+        f"/api/runs/{run['id']}/decision", json={"note": note, "send_back_to": "video"}
+    )
+    assert sent.status_code == 200, sent.text
+    run = settled(client, run["id"], send_backs=1)
+    assert run["status"] == "waiting_gate", run
+
+    # the second session edits the kept project, told it revises and what to read first
+    assert [o.cwd for o in script.sessions] == [stage / "build"] * 2
+    prompt = script.prompts[1]
+    assert prompt.startswith("This is a revision, not a fresh start.") and note in prompt
+    assert f"{note} Change what the note asks and keep the rest as it is." in prompt
+    assert f"before you change anything: {stage}/build.v1, {stage}/build.v1.mp4." in prompt
+    assert (stage / "build/src/Liked.tsx").is_file() and (stage / "build/src/Ending.tsx").is_file()
+    # the previous version stays beside it, inside the stage folder the session may read
+    assert (stage / "build.v1/src/Liked.tsx").is_file()
+    assert not (stage / "build.v1/src/Ending.tsx").exists()
+    assert (stage / "build.v1.mp4").read_text() == first
+    call = client.get(f"/api/stages/{video_id}/call").json()
+    assert call["visit"] == 1 and call["request"]["project"] == str(stage / "build")
 
 
 def test_a_failed_build_fails_the_stage_with_the_last_log_lines(
