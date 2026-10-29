@@ -18,17 +18,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("lists every world as a card linking to its overview, plus the new-world card", async () => {
-  fakeFetch({ "GET /api/health": health, "GET /api/worlds": () => Response.json([video, research]) });
+test("lists every world as a table row linking to its overview, beside the new-world form", async () => {
+  fakeFetch({
+    "GET /api/health": health,
+    "GET /api/worlds": () => Response.json([video, { ...research, run_cap: 3, monthly_budget_usd: 40 }]),
+  });
   const { screen } = await mountAt("/");
-  await expect.element(screen.getByRole("heading", { name: "Your worlds" })).toBeVisible();
-  await expect.element(screen.getByTestId("world-card").nth(1)).toBeVisible();
-  const link = screen.getByRole("link", { name: "Video" });
+  await expect.element(screen.getByRole("heading", { name: "Your worlds", level: 1 })).toBeVisible();
+  const rows = screen.getByTestId("world-row");
+  await expect.element(rows.nth(1)).toBeVisible();
+  const link = screen.getByRole("main").getByRole("link", { name: "Video" });
   await expect.element(link).toHaveAttribute("href", "/worlds/world_1");
-  await expect.element(screen.getByText("Weekly shorts.")).toBeVisible();
-  await expect.element(screen.getByText("No purpose written yet.")).toBeVisible();
+  await expect.element(rows.first()).toMatchTextContent(/Video.*2.*No ceiling/);
+  await expect.element(rows.nth(1)).toMatchTextContent(/Market research.*3\$40\.00/);
   await expect.element(screen.getByRole("form", { name: "New world" })).toBeVisible();
   await expect.element(screen.getByTestId("empty")).not.toBeInTheDocument();
+  await expect.element(screen.getByTestId("eval-worlds")).not.toBeInTheDocument();
+});
+
+test("eval worlds fold under their own group and the world in the switcher is marked current", async () => {
+  const evals = { id: "world_9", name: "Evals", purpose: "", created_at: video.created_at };
+  const trial = { id: "world_8", name: "Eval home-espresso swarm 1", purpose: "", created_at: video.created_at };
+  fakeFetch({
+    "GET /api/health": health,
+    "GET /api/worlds": () => Response.json([video, evals, research, trial]),
+    "GET /api/worlds/world_2": () => Response.json(research),
+  });
+  const { screen, router } = await mountAt("/worlds/world_2");
+  await router.navigate({ to: "/" });
+  await expect.element(screen.getByRole("main").getByText("2 worlds, plus 2 made by evals", { exact: false })).toBeVisible();
+  const group = screen.getByTestId("eval-worlds");
+  await expect.element(group.getByText("Eval worlds (2)")).toBeVisible();
+  expect(group.getByTestId("world-row").elements()).toHaveLength(2);
+  expect(screen.getByTestId("world-row").elements()).toHaveLength(4);
+  await expect.element(screen.getByTestId("world-row").nth(1)).toMatchTextContent(/Market research\s*Current/);
+  await expect.element(screen.getByTestId("world-row").first()).not.toMatchTextContent(/Current/);
 });
 
 test("says what the space is for when there are no worlds", async () => {
