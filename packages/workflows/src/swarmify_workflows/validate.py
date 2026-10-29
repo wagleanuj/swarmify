@@ -64,7 +64,8 @@ def validate(
                     Violation(
                         "swarm_binary",
                         f"only a connector stage can make {name}: swarm agents write text, so"
-                        " produce a script here and render it in a remotion_render stage",
+                        " produce a script here and build the video from it in a remotion_build"
+                        " stage",
                         stage.name,
                     )
                 )

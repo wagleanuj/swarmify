@@ -93,6 +93,13 @@ BUILTINS = [
         [sys.executable, "-m", "swarmify_connectors.remotion"],
     ),
     _builtin(
+        "remotion_build",
+        "stage",
+        "connector",
+        "Writes a Remotion project from the script in a sandboxed coding session, then renders"
+        " it. Needs Node.",
+    ),
+    _builtin(
         "youtube",
         "publish",
         "connector",
@@ -252,6 +259,15 @@ class Connectors:
     def delete_world(self, world_id: str) -> None:
         self.storage.delete_world(world_id)
 
+    def secret_names(self, world_id: str) -> list[str]:
+        """Every key name a coding session must not see: those in the file and those any of
+        the world's connectors declares."""
+        try:
+            saved = set(self.credentials.read())
+        except PermissionError:
+            saved = set()
+        return sorted(saved | {n for c in self.list_all(world_id) for n in c.credentials})
+
     def agent_servers(self, world_id: str, names: list[str]) -> dict[str, dict[str, Any]]:
         """The standard MCP server config of each named connector that has a server, with its
         credentials: what a swarm stage's agents connect to. Raises ConnectorError when one is
@@ -318,6 +334,14 @@ class Connectors:
                 out.append(f"the Remotion project {project} does not exist{where}")
             if not str(params.get("composition") or "").strip():
                 out.append("remotion_render needs params.composition, the composition ID")
+            return out
+        if connector.builtin and connector.name == "remotion_build":
+            out = [] if config.get("input") else ["remotion_build needs an input, the script"]
+            if params.get("base"):
+                try:
+                    remotion.template(str(params["base"]), self.data_dir)
+                except ValueError as exc:
+                    out.append(str(exc))
             return out
         return []
 

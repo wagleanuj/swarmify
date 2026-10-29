@@ -67,10 +67,11 @@ Rules checked on every save and by the editor as you type, each reported with it
 rule name: a publish connector must come right after a gate (ADR 0007); workflow stages may not
 form a cycle and may nest at most two deep (ADR 0013); every connector must exist in the world and
 allow the stage type; a connector's `input` must be produced by an earlier stage; a swarm stage may `produce` only text files (`video.mp4` comes from
-a connector stage such as `remotion_render`, since swarm agents write text); and a connector stage
+a connector stage, `remotion_build` from a script, since swarm agents write text); and a connector stage
 must pass its connector's own check (`connector_params`): a publish stage needs `title` or
 `metadata`, an `input` and valid params (the problems its gate would show), a `remotion_render`
-stage needs a `project` folder that exists and a `composition`. So a broken stage is caught when
+stage needs a `project` folder that exists and a `composition`, a `remotion_build` stage an
+`input` and, when it names one, a `base` template that exists. So a broken stage is caught when
 the workflow is saved, not after the stages before it spent the budget. The editor's planner is
 told each built-in connector's params.
 `POST /api/worlds/<id>/workflows` creates, `POST /api/workflows/<id>/versions` appends,
@@ -251,7 +252,8 @@ A connector is an MCP server (a command line or an http(s) URL), the credential 
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
 Every world starts with the built-ins: `web_search` and `graph` (swarm tools, no setup),
-the stage connector `remotion_render` (see Remotion render below), and the two publish
+the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
+build below), and the two publish
 connectors `youtube` and `upload_post` (see Publishing below).
 
 Credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with mode 600; the
@@ -327,6 +329,71 @@ bytes, and the template's git commit when the project is a git checkout). On fai
 fails with the last 40 lines of CLI output, shown under the timeline.
 Tests use a fake `npx`; one real render runs when you opt in:
 `SWARMIFY_REMOTION_PROJECT=<project> SWARMIFY_REMOTION_COMPOSITION=<id> uv run pytest -k real_render`.
+
+## Remotion build
+
+Swarm agents have no shell (ADR 0018), so a video Swarmify makes itself comes from one built-in
+stage connector, `remotion_build`: one coding session writes a Remotion project for the run's
+script, then the render code above, not the agent, turns it into the stage's video.
+
+```yaml
+  - connector: video
+    calls: remotion_build
+    input: script.md            # the script artifact an earlier stage produced
+    output: video.mp4           # the default
+    params:                     # all optional
+      base: shorts              # a template in <data dir>/remotion/ to start from (a name, not a path)
+      composition: Main         # the default
+      brief: Bold captions, 20 seconds, a cold open.
+      model: claude-sonnet-5-5  # over the world's worker model (the Cast), else the default
+      max_turns: 80             # the default
+      minutes: 20               # the session's time limit, the default
+```
+
+The stage copies `base` (else a minimal starter shipped in the repo,
+`packages/connectors/src/swarmify_connectors/remotion_starter`, composition `Main`), without its
+`node_modules` or `.git`, into a fresh `<stage folder>/build/`, and runs one session there as
+agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the script path, the brief and the
+run's gate decisions as required reading. It is logged, costed against the run's Budget and
+stopped by it like any agent; failing twice, or running out of time, fails the stage with the
+builder's last log lines. Then the render runs as a `remotion_render` call on the build folder
+(its call shows on the timeline as usual, a failed render fails the stage with the CLI's last
+lines), the video gets its sidecar and becomes the stage's artifact, and the build folder stays
+for a person to open, without its `node_modules` (`npm ci` brings them back).
+
+The session's sandbox:
+
+- Bash runs in the Agent SDK's OS sandbox (Seatbelt on macOS, bubblewrap on Linux), with
+  `allowUnsandboxedCommands: false` and `failIfUnavailable`, so a command never runs outside it.
+  Writes reach only the build folder and the npm cache; the data directory is unreadable except
+  the build folder, the npm cache and the stage's own world (the script and decisions); the
+  network reaches only `registry.npmjs.org`, `fonts.googleapis.com` and `fonts.gstatic.com`.
+- The PreToolUse hooks enforce the same paths without the sandbox: Write and Edit only inside
+  the build folder, Read, Glob and Grep only inside it or the world's folder (resolved, so `..`
+  and a symlink pointing out are outside), never a `.env`; a Bash command asking to leave the
+  sandbox is refused, and one naming the data directory or a `.env` file too (a tripwire; the
+  sandbox is the wall).
+- The environment carries no keys: every name in the credentials file or declared by a
+  connector, and `SWARMIFY_PASSWORD`, is blanked for the session, and the sandbox also unsets
+  them and the model's own credentials for every command. The world's skills are not loaded
+  (Claude Code refuses writes inside a plugin's folder, and the build folder is in the world's).
+- `npm install` reuses one cache, `<data dir>/npm-cache`, so a run does not download everything.
+
+The render executes the agent's code (its `remotion.config.ts`, its `node_modules`), so a project
+under the data directory's `worlds/` renders in an OS sandbox of its own: `sandbox-exec` on macOS,
+`bwrap` on Linux, and no render where neither exists. It has no network beyond loopback (fonts and
+images must be files in `public/`, which the builder is told), reads nothing of the data directory
+but the project, the output folder and the shared browser, and writes only those and temp. It
+never installs: a build that left no `node_modules` fails. Chrome Headless Shell comes from `PATH`
+(the Docker image) or is downloaded once by Remotion into `<data dir>/chrome` from the starter's
+pinned packages. On macOS that profile starts from allow-all and denies network, the data
+directory, writes, other processes, Apple Events and Launch Services, since Chrome needs Mach
+services a deny-all profile refuses; Linux unshares every namespace.
+
+Tests drive the builder with the scripted CLI and the render with a fake `npx` inside the real
+sandbox. One real build, on your subscription and the real Remotion CLI, runs when you opt in:
+`SWARMIFY_REAL_BUILD=1 uv run pytest apps/api/tests/test_build_http.py -k real -s` (about a
+minute on a Mac, most of it the first npm install and the Chrome download).
 
 ## Publishing
 
@@ -781,6 +848,12 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `docker run --rm -v swarmify_data:/data -v "$PWD":/out debian tar czf /out/data.tgz -C /data .`
   and the reverse `tar xzf` on the VM.
 - Connector keys live in the volume's `/data/.env`, set from the connectors page as natively.
+- A `remotion_build` stage sandboxes with bubblewrap (in the image, with `socat` for the Agent
+  SDK's network filter). bubblewrap needs user namespaces and a fresh `/proc`, which Docker's
+  default seccomp, AppArmor and masked paths refuse, so `compose.yaml` runs `api` with
+  `security_opt: seccomp=unconfined, apparmor=unconfined, systempaths=unconfined`. That loosens the
+  container to tighten the build inside it; without it a build stage fails rather than run
+  unsandboxed.
 - A Remotion template for the render connector must be inside the container: copy it to
   `/data/remotion` (`docker compose cp ./shorts api:/data/remotion/shorts`) and the stage's
   `project: shorts` finds it, as natively. The first render installs its dependencies. When

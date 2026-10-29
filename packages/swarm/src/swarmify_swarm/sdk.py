@@ -125,7 +125,7 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
         allowed_tools=[*spec.allowed, *HARNESS],
         permission_mode="dontAsk",
         setting_sources=[],
-        plugins=[{"type": "local", "path": str(spec.plugin)}],
+        plugins=[{"type": "local", "path": str(spec.plugin)}] if spec.plugin else [],
         resume=spec.resume,
         max_turns=spec.max_turns,
         model=model,
@@ -133,6 +133,8 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
             {"type": "json_schema", "schema": spec.output_schema} if spec.output_schema else None
         ),
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[pre_tool])]},
+        sandbox=spec.sandbox,  # type: ignore[arg-type]  # the CLI's settings shape, a superset
+        env=spec.env,
     )
 
 

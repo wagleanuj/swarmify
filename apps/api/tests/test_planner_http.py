@@ -119,6 +119,7 @@ def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
 
     params = {
         "remotion_render": ["project", "composition", "entry", "codec", "frames", "props"],
+        "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
         "youtube": ["title", "metadata", "description", "visibility", "schedule", "made_for_kids"],
         "upload_post": ["same params as youtube", "user", "platforms"],
     }
@@ -128,7 +129,7 @@ def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
         entry = SYSTEM.split(f"- {name}:")[1].split("\n- ")[0]
         for param in names:
             assert param in entry, (name, param)
-    assert "remotion_render" in SYSTEM and "agents\nwrite text only" in SYSTEM
+    assert "remotion_build connector stage" in SYSTEM and "agents\nwrite text only" in SYSTEM
 
 
 def test_the_planner_starts_a_run_when_the_operator_asks(

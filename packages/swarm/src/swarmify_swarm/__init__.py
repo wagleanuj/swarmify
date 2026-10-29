@@ -5,6 +5,7 @@ Runs and Memory are other contexts, so callers hand in the world, run and stage 
 composition root hands in the files and graph the worker uses.
 """
 
+from swarmify_swarm import build
 from swarmify_swarm.model import (
     HEARTBEAT_TIMEOUT,
     OPERATOR,
@@ -79,5 +80,6 @@ __all__ = [
     "ToolError",
     "Verdict",
     "allowlist",
+    "build",
     "tool_id",
 ]

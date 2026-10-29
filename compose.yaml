@@ -13,6 +13,13 @@ services:
       - "${SWARMIFY_BIND:-0.0.0.0}:${SWARMIFY_PORT:-8000}:8000"
     volumes:
       - data:/data
+    # bubblewrap sandboxes a remotion_build stage's Bash and render (ADR 0018): it needs user
+    # namespaces and its own /proc, which Docker's default profiles refuse. Without these a
+    # build stage fails rather than run unsandboxed.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
     environment:
       <<: *env
       SWARMIFY_GRAPH_WRITER: external

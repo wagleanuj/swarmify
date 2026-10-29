@@ -58,9 +58,16 @@ A workflow is YAML: `name`, optional `schedule` (cron, UTC), `budget_usd`, `agen
 Rules: a publish connector (youtube, upload_post) must come right after a gate; a connector's
 input must be produced by an earlier stage; connectors must exist in the world. Swarm agents
 write text only, so a swarm stage produces text files (script.md, ideas.json), never video.mp4
-or an image: a video comes from a remotion_render connector stage.
+or an image: a video comes from a remotion_build connector stage (or remotion_render, when the
+operator has a finished template).
 
 The built-in connector stages and their params:
+- remotion_build: input is the script; output defaults to video.mp4. One sandboxed coding
+  session writes a Remotion project for this script (reading the run's gate decisions), then
+  swarmify renders it. Optional params: base (a template's name under the data directory's
+  remotion folder to start from, else a minimal starter), composition (default Main), brief
+  (free text for the builder: style, length, pacing), model, max_turns (default 80), minutes
+  (the session's time limit, default 20). It costs a coding session from the run's budget.
 - remotion_render: input is the script; params project (a template's name under the data
   directory's remotion folder, or a folder path) and composition (its ID), both required;
   optional entry, codec, frames, props.
