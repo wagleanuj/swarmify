@@ -13,7 +13,7 @@ import logging
 import os
 import shutil
 import threading
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -47,6 +47,7 @@ from swarmify_api import (
 )
 from swarmify_api.auth import BasicAuth
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
+from swarmify_connectors import Connector as ConnectorDef
 from swarmify_connectors import (
     ConnectorError,
     Connectors,
@@ -141,6 +142,28 @@ def connector_service(
     )
 
 
+class WorldTypes(Mapping[str, Any]):
+    """A connector's declared types as it answers them for one world (issue 140), asked only
+    when the check reads a schema, so checking a workflow that promises none starts nothing."""
+
+    def __init__(self, registry: Connectors, world_id: str, connector: ConnectorDef) -> None:
+        self.registry, self.world_id, self.connector = registry, world_id, connector
+        self.answered: dict[str, Any] | None = None
+
+    def __getitem__(self, name: str) -> Any:
+        if name not in self.connector.types:
+            raise KeyError(name)
+        if self.answered is None:
+            self.answered = self.registry.for_world(self.world_id, self.connector)[0]
+        return self.answered[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.connector.types)
+
+    def __len__(self) -> int:
+        return len(self.connector.types)
+
+
 def workflow_service(
     root: Path, registry: Connectors | None = None, control: RunControl | None = None
 ) -> Workflows:
@@ -154,7 +177,12 @@ def workflow_service(
 
         return {
             c.name: ConnectorRef(
-                c.name, c.kind, frozenset(c.stage_types), problems, c.types, tuple(c.input_types)
+                c.name,
+                c.kind,
+                frozenset(c.stage_types),
+                problems,
+                WorldTypes(registry, world_id, c),
+                tuple(c.input_types),
             )
             for c in registry.list_all(world_id)
         }

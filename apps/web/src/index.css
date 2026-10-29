@@ -261,6 +261,9 @@ p.ask { margin: 0; font-size: 18px; line-height: 1.35; max-width: 44rem; }
 .artifact-view figcaption .faint { margin-left: 6px; }
 .artifact-view video, .artifact-view img { display: block; max-width: 100%; max-height: 70vh; border-radius: var(--rc); background: var(--well); border: 1px solid var(--line); }
 .artifact-view video { width: min(100%, 36rem); }
+.typed-text { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.typed-text dt { color: var(--muted); }
+.typed-text dd { margin: 0; }
 .md { display: grid; gap: 8px; max-width: 62ch; }
 .md p, .md ul, .md ol { margin: 0; color: var(--ink); }
 .md ul, .md ol { padding-left: 20px; }

@@ -282,7 +282,7 @@ def test_words_are_matched_back_to_the_script_spelling() -> None:
 def test_the_first_engine_voices_every_scene_with_its_own_word_times() -> None:
     seen: list[str] = []
     with engines(a=kokoro(seen), b=chatterbox(seen)) as http:
-        engine, takes = sp.voice_run(
+        engine, _, takes = sp.voice_run(
             http, sp.parse_script(SCRIPT), ["http://a", "http://b"], "af_heart"
         )
     assert engine == "http://a" and len(seen) == 2  # one call per scene, b never asked
@@ -300,7 +300,7 @@ def test_the_first_engine_voices_every_scene_with_its_own_word_times() -> None:
 def test_a_failing_engine_redoes_the_whole_run_on_the_next_so_voices_never_mix() -> None:
     seen: list[str] = []
     with engines(a=kokoro(seen, fail=True), b=chatterbox(seen)) as http:
-        engine, takes = sp.voice_run(http, sp.parse_script(SCRIPT), ["http://a", "http://b"])
+        engine, _, takes = sp.voice_run(http, sp.parse_script(SCRIPT), ["http://a", "http://b"])
     assert engine == "http://b"
     assert [s.split()[:2] for s in seen[:2]] == [["a", "/dev/captioned_speech"]] * 2
     # b voices both scenes again, the hook included, through speech then alignment
@@ -326,7 +326,7 @@ def test_an_engine_that_advertises_tags_hears_them_but_alignment_and_captions_do
     seen: list[str] = []
     said: list[str] = []
     with engines(b=chatterbox(seen, said)) as http:
-        _, takes = sp.voice_run(http, sp.parse_script(TAGGED), ["http://b"])
+        _, _, takes = sp.voice_run(http, sp.parse_script(TAGGED), ["http://b"])
     assert said == [
         "[whispering] Who sleeps? Good looks up night.",  # [sigh] is not among b's tags
         "Who sleeps? Good looks up night.",
@@ -344,7 +344,7 @@ def test_a_fallback_to_an_engine_without_tags_strips_them() -> None:
     said: list[str] = []
     kokoro_seen: list[str] = []
     with engines(b=chatterbox(seen, said, fail=True), a=kokoro(kokoro_seen)) as http:
-        engine, _ = sp.voice_run(http, sp.parse_script(TAGGED), ["http://b", "http://a"])
+        engine, _, _ = sp.voice_run(http, sp.parse_script(TAGGED), ["http://b", "http://a"])
     assert engine == "http://a"
     assert said == ["[whispering] Who sleeps? Good looks up night."]
     assert kokoro_seen == ["a /dev/captioned_speech Who sleeps? Good looks up night."]
@@ -522,3 +522,211 @@ def test_the_built_in_voices_a_script_over_stdio(
     assert speech is not None
     checks = real.health(speech)
     assert [(c.name, c.ok) for c in checks] == [(down, False), (engine, True)]
+
+
+# The world's voice catalog (issue 140): parsed with the consent rule, offered to the judge as
+# the script type's `voice`, and resolved per engine.
+
+CLIP = wav([(6.0, True)])
+CATALOG = [
+    {"name": "narrator", "description": "Warm and calm, for bedtime facts", "tags": ["warm",
+     "calm"], "engine": "chatterbox", "clip": "narrator.wav", "consent": "My own recording."},
+    {"name": "heart", "description": "Bright and warm", "tags": ["warm", "bright"],
+     "engine": "kokoro", "preset": "af_heart", "consent": "Kokoro's Apache 2.0 voices."},
+    {"name": "puck", "description": "Playful", "tags": ["playful"], "engine": "kokoro",
+     "preset": "am_puck", "consent": "Kokoro's Apache 2.0 voices."},
+    {"name": "stranger", "description": "Someone", "engine": "kokoro", "preset": "af_x"},
+    {"name": "ghost", "description": "Gone", "engine": "chatterbox", "clip": "ghost.wav",
+     "consent": "Mine."},
+    {"name": "heart", "description": "Again", "engine": "kokoro", "preset": "af_bella",
+     "consent": "Kokoro's."},
+]  # fmt: skip
+
+
+@pytest.fixture
+def assets(tmp_path: Path) -> Path:
+    voices = tmp_path / "assets" / "voices"
+    voices.mkdir(parents=True)
+    (voices / "voices.json").write_text(json.dumps(CATALOG))
+    (voices / "narrator.wav").write_bytes(CLIP)
+    return tmp_path / "assets"
+
+
+def test_the_catalog_keeps_voices_with_consent_and_warns_of_each_other(assets: Path) -> None:
+    voices, warnings = sp.catalog(str(assets))
+    assert [v["name"] for v in voices] == ["narrator", "heart", "puck"]
+    narrator, heart, _ = voices
+    assert narrator["clip"] == str(assets / "voices" / "narrator.wav") and not narrator["preset"]
+    assert heart["preset"] == "af_heart" and heart["clip"] is None
+    assert warnings == [
+        "voice 4 in voices.json is ignored: stranger has no consent, the short statement of the"
+        " right to use the voice",
+        "voice 5 in voices.json is ignored: ghost's clip ghost.wav is not in voices/",
+        "voice 6 in voices.json is ignored: heart is named twice",
+    ]
+    assert sp.catalog(str(assets.parent / "elsewhere")) == ([], [])
+    assert sp.catalog("") == ([], [])
+    (assets / "voices" / "voices.json").write_text("{nope")
+    assert sp.catalog(str(assets))[1][0].startswith("voices.json is not JSON")
+
+
+@pytest.mark.parametrize(
+    ("entry", "problem"),
+    [
+        ("narrator", "it is not an object"),
+        ({"name": "a b"}, "a name is letters, digits, _ or -"),
+        ({"name": "a", "consent": "Mine.", "engine": "k"}, "a has no description"),
+        ({"name": "a", "consent": "Mine.", "description": "d", "engine": "k"}, "neither a clip"),
+        ({"name": "a", "consent": "x", "description": "d", "engine": "k", "clip": "../a.wav"},
+         "not a file name in voices/"),
+        ({"name": "a", "consent": "x", "description": "d", "engine": "k", "preset": "p",
+          "tags": "warm"}, "tags are not a list of words"),
+    ],
+)  # fmt: skip
+def test_an_entry_it_cannot_use_is_named(tmp_path: Path, entry: Any, problem: str) -> None:
+    (tmp_path / "voices").mkdir()
+    (tmp_path / "voices" / "voices.json").write_text(json.dumps([entry]))
+    voices, (warning,) = sp.catalog(str(tmp_path))
+    assert voices == [] and problem in warning
+
+
+def test_the_world_s_script_type_offers_its_voices_to_the_judge(assets: Path) -> None:
+    answer = sp.speech_types("world_1", str(assets))
+    script = answer["types"]["script"]
+    voice = script["properties"]["voice"]
+    assert voice["enum"] == ["narrator", "heart", "puck"] and "voice" not in script["required"]
+    assert "narrator: Warm and calm, for bedtime facts (warm, calm)" in voice["description"]
+    jsonschema.Draft202012Validator.check_schema(script)
+    scenes = [{"id": "s01", "lines": [{"text": "Hi.", "pause_after": 0.3}]}]
+    jsonschema.validate({"voice": "puck", "scenes": scenes}, script)
+    jsonschema.validate({"scenes": scenes}, script)  # no voice: the engine's default
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"voice": "nobody", "scenes": scenes}, script)
+    assert "narrator, heart, puck" in answer["note"] and len(answer["warnings"]) == 3
+    # a world without a catalog gets the declared type, and the planner hears nothing
+    assert sp.speech_types("world_2", str(assets.parent / "none")) == {
+        "types": {"script": sp.SCRIPT},
+        "note": "",
+        "warnings": [],
+    }
+    assert sp.MANIFEST["world_types"] == "speech_types"
+    assert next(c for c in BUILTINS if c.name == "speech").world_types == "speech_types"
+
+
+def voiced(
+    seen: list[dict[str, Any]],
+    clips: bool = False,
+    presets: list[str] | None = None,
+    fail: bool = False,
+) -> Callable[[httpx.Request], httpx.Response]:
+    """An engine that records each speech request's voice and reference clip. With `clips` it
+    takes a reference; with `presets` it lists them as Kokoro-FastAPI's voices."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/health":
+            return httpx.Response(200, json={"status": "ok", "clips": clips})
+        if path == "/v1/audio/voices":
+            return httpx.Response(200, json={"voices": presets}) if presets else httpx.Response(404)
+        if path == "/dev/captioned_speech":
+            return httpx.Response(404)
+        if path == "/v1/audio/align" or path == "/v1/align":
+            stamps = [{"word": w, "start_time": s, "end_time": e} for w, s, e in WORDS]
+            return httpx.Response(200, json={"timestamps": stamps})
+        kind = request.headers["content-type"]
+        if kind.startswith("multipart/"):
+            parts = request.content.split(b"--" + kind.split("boundary=")[1].encode())
+            fields = {
+                p.split(b'name="')[1].split(b'"')[0].decode(): p.split(b"\r\n\r\n", 1)[1][:-2]
+                for p in parts
+                if b'name="' in p
+            }
+            heard = {k: v if k == "reference" else v.decode() for k, v in fields.items()}
+        else:
+            heard = json.loads(request.content)
+        seen.append({"host": request.url.host, **heard})
+        return httpx.Response(500) if fail else httpx.Response(200, content=SPOKEN)
+
+    return handle
+
+
+def test_a_clip_voice_goes_up_to_an_engine_that_takes_clips(assets: Path) -> None:
+    voices, _ = sp.catalog(str(assets))
+    seen: list[dict[str, Any]] = []
+    with engines(c=voiced(seen, clips=True)) as http:
+        _, spoke, _ = sp.voice_run(http, sp.parse_script(SCRIPT), ["http://c"], "narrator",
+                                   voices=voices)  # fmt: skip
+    assert spoke == "narrator" and len(seen) == 2
+    assert all(s["reference"] == CLIP and "voice" not in s for s in seen)
+
+
+def test_a_preset_goes_to_an_engine_that_has_it(assets: Path) -> None:
+    voices, _ = sp.catalog(str(assets))
+    seen: list[dict[str, Any]] = []
+    with engines(k=voiced(seen, presets=["af_heart", "am_puck"])) as http:
+        _, spoke, _ = sp.voice_run(http, sp.parse_script(SCRIPT), ["http://k"], "puck",
+                                   voices=voices)  # fmt: skip
+    assert spoke == "puck" and [s["voice"] for s in seen] == ["am_puck", "am_puck"]
+    assert all("reference" not in s for s in seen)
+
+
+def test_a_fallback_engine_without_the_voice_speaks_the_one_sharing_most_tags(
+    assets: Path,
+) -> None:
+    voices, _ = sp.catalog(str(assets))
+    seen: list[dict[str, Any]] = []
+    cloner, kokoro_ = voiced(seen, clips=True, fail=True), voiced(seen, presets=["af_heart"])
+    with engines(c=cloner, k=kokoro_) as http:
+        engine, spoke, _ = sp.voice_run(
+            http, sp.parse_script(SCRIPT), ["http://c", "http://k"], "narrator", voices=voices
+        )
+    # narrator is a clip; k takes none, so heart speaks: it shares "warm" with narrator
+    assert (engine, spoke) == ("http://k", "heart")
+    assert [s["host"] for s in seen] == ["c", "k", "k"] and seen[1]["voice"] == "af_heart"
+
+
+def test_an_engine_with_no_voice_sharing_a_tag_speaks_its_default(assets: Path) -> None:
+    voices, _ = sp.catalog(str(assets))
+    seen: list[dict[str, Any]] = []
+    with engines(c=voiced(seen, clips=True)) as http:
+        _, spoke, _ = sp.voice_run(http, sp.parse_script(SCRIPT), ["http://c"], "puck",
+                                   voices=voices)  # fmt: skip
+    assert spoke is None and all("voice" not in s and "reference" not in s for s in seen)
+
+
+def speak(tmp_path: Path, assets: Path, script: str, voice: str = "") -> dict[str, Any]:
+    """The speech tool in process, against an engine taking clips and having every preset."""
+    source = tmp_path / "script.md"
+    source.write_text(script)
+    out = tmp_path / "timings.json"
+    sp.speech("k", str(out), str(source), voice=voice, assets_path=str(assets))
+    return json.loads(out.read_text())
+
+
+@pytest.fixture
+def one_engine(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    seen: list[dict[str, Any]] = []
+    handler = voiced(seen, clips=True, presets=["af_heart", "am_puck"])
+    monkeypatch.setenv("SPEECH_ENDPOINTS", "http://e")
+    monkeypatch.setattr(sp, "_client", lambda: engines(e=handler))
+    return seen
+
+
+def test_the_stage_s_voice_wins_over_the_script_s_and_timings_record_who_spoke(
+    tmp_path: Path, assets: Path, one_engine: list[dict[str, Any]]
+) -> None:
+    chose = SCRIPT.replace('{"scenes"', '{"voice": "puck", "scenes"')
+    timings = speak(tmp_path, assets, chose)
+    assert (timings["voice"], timings["chosen"]) == ("puck", "puck")
+    assert one_engine[-1]["voice"] == "am_puck"
+    assert len(timings["warnings"]) == 3  # the ignored entries, in the stage's own record
+    timings = speak(tmp_path, assets, chose, voice="narrator")
+    assert timings["voice"] == "narrator" and one_engine[-1]["reference"] == CLIP
+    timings = speak(tmp_path, assets, SCRIPT)  # no voice anywhere: the engine's default
+    assert timings["voice"] is None and "voice" not in one_engine[-1]
+    timings = speak(tmp_path, assets, SCRIPT, voice="af_bella")  # an engine's own, as before
+    assert timings["voice"] == "af_bella" and one_engine[-1]["voice"] == "af_bella"
+    gone = SCRIPT.replace('{"scenes"', '{"voice": "gone", "scenes"')
+    timings = speak(tmp_path, assets, gone)
+    assert timings["voice"] is None
+    assert "the script's voice gone is not in the world's catalog" in timings["warnings"]

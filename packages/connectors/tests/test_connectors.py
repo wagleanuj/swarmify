@@ -92,6 +92,66 @@ def test_a_connector_may_declare_input_types_and_they_are_kept(connectors: Conne
         fal(connectors, input_types=["script"])
 
 
+# World-dependent types (issue 140), on a fixture publish connector whose `post` type lists
+# the channels a world has keys for: nothing here is about speech.
+POST = {"type": "object", "properties": {"channel": {"type": "string"}}, "required": ["channel"]}
+
+
+def poster(connectors: Connectors) -> Connector:
+    return connectors.add(
+        fal(
+            connectors,
+            name="poster",
+            credentials=[],
+            declared={"post": POST},
+            input_types=["post"],
+            world_types="post_types",
+        ),
+        {},
+    )
+
+
+def test_a_connector_answers_its_types_for_a_world(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    channels = {**POST, "properties": {"channel": {"type": "string", "enum": ["news", "kids"]}}}
+    transport.outputs["post_types"] = [{"types": {"post": channels}, "note": "Two channels."}]
+    connector = poster(connectors)
+    assert connectors.find(W, "poster") == connector and connector.world_types == "post_types"
+    assert connectors.for_world(W, connector) == ({"post": channels}, "Two channels.")
+    assert connectors.type_schema(W, "post") == channels
+    ((_, tool, args, _),) = [c for c in transport.calls if c[0] == "poster"][:1]
+    assert tool == "post_types" and args["world"] == W
+    assert args["assets_path"] == str(connectors.data_dir / "worlds" / W / "assets")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        ConnectorError("poster: could not start"),
+        {"ok": True},
+        {"types": "post"},
+        {"types": {"post": {"type": "soup"}}},
+        {"types": {"other": POST}},  # only a type it declares may change
+    ],
+)
+def test_a_connector_that_cannot_answer_for_the_world_keeps_its_declared_types(
+    connectors: Connectors, transport: FakeTransport, answer: Any
+) -> None:
+    transport.outputs["post_types"] = [answer]
+    connector = poster(connectors)
+    assert connectors.for_world(W, connector) == ({"post": POST}, "")
+    assert connectors.type_schema(W, "post") == POST
+
+
+def test_a_connector_without_world_types_is_never_asked(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    cook = connectors.add(fal(connectors, credentials=[], declared={"recipe": POST}), {})
+    assert connectors.for_world(W, cook) == ({"recipe": POST}, "")
+    assert all(c[0] != "fal_video" for c in transport.calls)
+
+
 def test_test_starts_the_server_once_with_only_its_credentials_and_saves_nothing(
     connectors: Connectors, transport: FakeTransport
 ) -> None:

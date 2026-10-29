@@ -33,6 +33,9 @@ class Connector:
     input_types: list[str | None] = field(default_factory=list)
     """The declared type of a stage's `input`, or of each of its `inputs` in order; None or
     left out is untyped."""
+    world_types: str | None = None
+    """The tool that answers its types for one world (issue 140), given `world` and the world's
+    `assets_path`, as `{"types": {name: schema}, "note": "..."}`; `types` stays the fallback."""
 
     @property
     def has_server(self) -> bool:

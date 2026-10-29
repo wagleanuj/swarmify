@@ -7,6 +7,11 @@ run is redone on the next, so one video never mixes two voices. Word times come 
 when the engine offers Kokoro-FastAPI's `/dev/captioned_speech`, else from the engine's
 `/v1/align`; either way they are matched back to the script, whose spelling wins.
 
+A world may keep a voice catalog in its assets, `voices/voices.json` (`catalog`): the connector
+answers its `script` type for that world with a `voice` to choose from (`speech_types`), and
+voices each script in the voice its stage or the script names, as each engine can (`resolve`).
+Only this connector gives `voices/` a meaning; to the core the schema is opaque.
+
 `MANIFEST` holds everything Swarmify needs to know about this connector, in the shape of a V2
 connector package's manifest (ADR 0019), so moving it into a package is a move, not a rewrite.
 """
@@ -99,7 +104,11 @@ MANIFEST: dict[str, Any] = {
     "params": {
         "type": "object",
         "properties": {
-            "voice": {"type": "string", "description": "the engine's voice, as af_heart"},
+            "voice": {
+                "type": "string",
+                "description": "fixes the voice: a name from the world's voice catalog, else the"
+                " engine's own, as af_heart; it wins over the script's voice",
+            },
             "engines": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -117,6 +126,7 @@ MANIFEST: dict[str, Any] = {
     "health": "speech_health",
     "types": {"script": SCRIPT},
     "input_types": ["script"],
+    "world_types": "speech_types",
 }
 
 DEFAULT_ENDPOINTS = "http://localhost:8881,http://localhost:8880"
@@ -140,6 +150,97 @@ mcp = MCPServer("speech")
 def endpoints() -> list[str]:
     raw = os.environ.get("SPEECH_ENDPOINTS") or DEFAULT_ENDPOINTS
     return [e.strip().rstrip("/") for e in raw.split(",") if e.strip()]
+
+
+VOICES = "voices"
+"""The folder of a world's assets holding its voice catalog, voices.json, and its clips."""
+
+
+def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """The world's voices from `<assets>/voices/voices.json`, a list of `{name, description,
+    tags, engine, clip?, preset?, consent}` (`clip` made a path), and a warning for each entry
+    ignored: one without consent, without a clip in that folder or a preset, or named twice."""
+    folder = Path(assets_path) / VOICES
+    file = folder / "voices.json"
+    if not assets_path or not file.is_file():
+        return [], []
+    try:
+        raw = json.loads(file.read_text())
+    except ValueError as exc:
+        return [], [f"voices.json is not JSON, so no voice of it is used: {exc}"]
+    if not isinstance(raw, list):
+        return [], ["voices.json is not a list of voices, so none of it is used"]
+    voices: list[dict[str, Any]] = []
+    warnings = []
+    for n, entry in enumerate(raw, 1):
+        if problem := _unusable(entry, folder, voices):
+            warnings.append(f"voice {n} in voices.json is ignored: {problem}")
+            continue
+        clip = entry.get("clip")
+        voices.append(
+            {
+                **{k: entry[k].strip() for k in ("name", "description", "engine", "consent")},
+                "tags": entry.get("tags") or [],
+                "clip": str(folder / clip) if clip else None,
+                "preset": entry.get("preset") or None,
+            }
+        )
+    return voices, warnings
+
+
+def _unusable(entry: Any, folder: Path, kept: list[dict[str, Any]]) -> str:
+    def text(key: str) -> bool:
+        return isinstance(entry.get(key), str) and bool(entry[key].strip())
+
+    if not isinstance(entry, dict):
+        return "it is not an object"
+    name = entry.get("name")
+    if not isinstance(name, str) or not _ID.match(name):
+        return f"a name is letters, digits, _ or -, got {name!r}"
+    if any(v["name"] == name for v in kept):
+        return f"{name} is named twice"
+    if not text("consent"):
+        return f"{name} has no consent, the short statement of the right to use the voice"
+    if missing := [k for k in ("description", "engine") if not text(k)]:
+        return f"{name} has no {missing[0]}"
+    tags = entry.get("tags") or []
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return f"{name}'s tags are not a list of words"
+    clip, preset = entry.get("clip"), entry.get("preset")
+    if clip and (not isinstance(clip, str) or Path(clip).name != clip or clip.startswith(".")):
+        return f"{name}'s clip is not a file name in voices/: {clip!r}"
+    if clip and not (folder / clip).is_file():
+        return f"{name}'s clip {clip} is not in voices/"
+    if preset is not None and not text("preset"):
+        return f"{name}'s preset is not an engine voice name"
+    return "" if clip or preset else f"{name} has neither a clip nor a preset"
+
+
+def script_type(voices: list[dict[str, Any]]) -> dict[str, Any]:
+    """The `script` type for a world with these voices: SCRIPT with an optional top-level
+    `voice`, one of their names, each told by its description and tags so the judge picks."""
+    if not voices:
+        return SCRIPT
+    told = "; ".join(
+        f"{v['name']}: {v['description']}" + (f" ({', '.join(v['tags'])})" if v["tags"] else "")
+        for v in voices
+    )
+    voice = {
+        "type": "string",
+        "enum": [v["name"] for v in voices],
+        "description": "The voice that speaks the whole script, the one that fits it best: " + told,
+    }
+    return {**SCRIPT, "properties": {**SCRIPT["properties"], "voice": voice}}
+
+
+def script_voice(text: str) -> str:
+    """The `voice` a script's fenced JSON block names, else ""."""
+    fenced = _FENCE.search(text)
+    try:
+        voice = json.loads(fenced.group(1)).get("voice") if fenced else None
+    except (ValueError, AttributeError):
+        return ""
+    return voice.strip() if isinstance(voice, str) else ""
 
 
 def parse_script(text: str) -> list[dict[str, Any]]:
@@ -263,13 +364,43 @@ def for_engine(say: str, tags: set[str]) -> str:
     return " ".join(_TAG.sub(lambda m: m[0] if m[1] in tags else "", say).split())
 
 
+def _get(http: httpx.Client, url: str) -> dict[str, Any]:
+    try:
+        answer = http.get(url).json()
+    except (httpx.HTTPError, ValueError):
+        return {}
+    return answer if isinstance(answer, dict) else {}
+
+
+def _words(found: Any) -> set[str]:
+    return {t for t in found if isinstance(t, str)} if isinstance(found, list) else set()
+
+
 def engine_tags(http: httpx.Client, base: str) -> set[str]:
     """The tags the engine at `base` advertises in its `/health` (`"tags": [...]`), else none."""
-    try:
-        tags = http.get(f"{base}/health").json().get("tags")
-    except (httpx.HTTPError, ValueError, AttributeError):
-        return set()
-    return {t for t in tags if isinstance(t, str)} if isinstance(tags, list) else set()
+    return _words(_get(http, f"{base}/health").get("tags"))
+
+
+def usable(voice: dict[str, Any], clips: bool, presets: set[str]) -> bool:
+    """Whether an engine can speak a catalog voice: from its clip when it takes clips, or as
+    its preset when the engine has that voice."""
+    return bool(voice["clip"] and clips) or voice["preset"] in presets
+
+
+def resolve(
+    chosen: dict[str, Any], voices: list[dict[str, Any]], clips: bool, presets: set[str]
+) -> dict[str, Any] | None:
+    """The catalog voice that speaks on an engine: the chosen one when it can, else the one it
+    can that shares the most tags with it, else None, the engine's default."""
+    if usable(chosen, clips, presets):
+        return chosen
+
+    def shared(v: dict[str, Any]) -> int:
+        return len(set(v["tags"]) & set(chosen["tags"]))
+
+    can = [v for v in voices if usable(v, clips, presets)]
+    best = max(can, key=shared, default=None)
+    return best if best is not None and shared(best) > 0 else None
 
 
 def _norm(word: str) -> str:
@@ -382,22 +513,35 @@ def take_timings(
 
 
 def _take(
-    http: httpx.Client, base: str, say: str, text: str, voice: str, seed: int | None
+    http: httpx.Client,
+    base: str,
+    say: str,
+    text: str,
+    voice: str,
+    seed: int | None,
+    clip: bytes | None = None,
 ) -> tuple[bytes, list[tuple[str, float, float]]]:
     """One take of `say` from the engine at `base`, with the words of `text` (`say` without its
-    tags) it spoke and when."""
+    tags) it spoke and when. A `clip` goes up with the speech request as `reference`."""
     body: dict[str, Any] = {"model": "tts-1", "input": say, "response_format": "wav"}
     if voice:
         body["voice"] = voice
     if seed is not None:
         body["seed"] = seed
-    r = http.post(f"{base}/dev/captioned_speech", json={**body, "stream": False})
-    if r.status_code != 404:
+    r = None
+    if clip is None:
+        r = http.post(f"{base}/dev/captioned_speech", json={**body, "stream": False})
+    if r is not None and r.status_code != 404:
         r.raise_for_status()
         answer = r.json()
         audio, stamps = base64.b64decode(answer["audio"]), answer["timestamps"]
     else:
-        r = http.post(f"{base}/v1/audio/speech", json=body)
+        if clip is None:
+            r = http.post(f"{base}/v1/audio/speech", json=body)
+        else:
+            form = {k: str(v) for k, v in body.items()}
+            files = {"reference": ("reference.wav", clip, "audio/wav")}
+            r = http.post(f"{base}/v1/audio/speech", data=form, files=files)
         r.raise_for_status()
         audio = r.content
         a = http.post(f"{base}/v1/align", data={"text": text}, files={"file": ("take.wav", audio)})
@@ -412,19 +556,40 @@ def voice_run(
     engines: list[str],
     voice: str = "",
     seed: int | None = None,
-) -> tuple[str, list[tuple[bytes, dict[str, Any]]]]:
-    """Every scene's take and timings from the first engine that voices them all. Raises
-    ToolError naming each engine's failure."""
+    voices: list[dict[str, Any]] | None = None,
+) -> tuple[str, str | None, list[tuple[bytes, dict[str, Any]]]]:
+    """Every scene's take and timings from the first engine that voices them all, and the
+    voice that spoke. `voice` names one of the catalog's `voices`, resolved per engine
+    (`resolve`), or else is the engine's own voice; "" is the engine's default. Raises ToolError
+    naming each engine's failure."""
+    voices = voices or []
+    chosen = next((v for v in voices if v["name"] == voice), None)
     failures = []
     for base in engines:
         try:
-            tags, takes = engine_tags(http, base), []
+            health = _get(http, f"{base}/health")
+            tags, clips = _words(health.get("tags")), health.get("clips") is True
+            spoke, own, clip = (voice or None), voice, None
+            if chosen is not None:
+                # an engine has a preset when it lists it, as Kokoro-FastAPI's voices do
+                presets = (
+                    _words(_get(http, f"{base}/v1/audio/voices").get("voices"))
+                    if any(v["preset"] for v in voices)
+                    else set()
+                )
+                speaker = resolve(chosen, voices, clips, presets)
+                spoke, own = (speaker or {}).get("name"), ""
+                if speaker and speaker["clip"] and clips:
+                    clip = Path(speaker["clip"]).read_bytes()
+                elif speaker:
+                    own = speaker["preset"]
+            takes = []
             for scene in scenes:
                 say = " ".join(for_engine(line["say"], tags) for line in scene["lines"])
                 text = " ".join(line["text"] for line in scene["lines"])
-                audio, heard = _take(http, base, say, text, voice, seed)
+                audio, heard = _take(http, base, say, text, own, seed, clip)
                 takes.append((audio, take_timings(scene, audio, heard)))
-            return base, takes
+            return base, spoke, takes
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             failures.append(f"{base}: {type(exc).__name__}: {exc}")
     raise ToolError("no speech engine voiced the script. " + "; ".join(failures))
@@ -450,10 +615,13 @@ def speech(
     engines: list[str] | None = None,
     seed: int | None = None,
     frontmatter: dict[str, Any] | None = None,
+    assets_path: str = "",
 ) -> dict[str, Any]:
     """The script is `input` (or the first of `inputs`). Writes `output_path` (timings.json)
     and the takes in `narration/` beside it. `engines` reorders or narrows SPEECH_ENDPOINTS;
-    it cannot name an endpoint outside it, since the script is sent there."""
+    it cannot name an endpoint outside it, since the script is sent there. The voice is the
+    stage's `voice`, else the script's, else the engine's default; timings.json records the
+    one that spoke."""
     # ponytail: answers when done rather than as a long job; a few scenes take under a minute.
     del idempotency_key, frontmatter  # a rerun simply voices again; nothing is posted
     script = Path(input_path or (input_paths or [""])[0])
@@ -465,12 +633,18 @@ def speech(
         raise ToolError(
             f"engines must be among SPEECH_ENDPOINTS ({', '.join(configured)}): {foreign}"
         )
+    text = script.read_text()
     try:
-        scenes = parse_script(script.read_text())
+        scenes = parse_script(text)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
+    voices, warnings = catalog(assets_path)
+    asked = voice.strip() or script_voice(text)
+    if not voice.strip() and asked and all(v["name"] != asked for v in voices):
+        warnings.append(f"the script's voice {asked} is not in the world's catalog")
+        asked = ""
     with _client() as http:
-        engine, takes = voice_run(http, scenes, order, voice, seed)
+        engine, spoke, takes = voice_run(http, scenes, order, asked, seed, voices)
     out = Path(output_path)
     folder = out.parent / "narration"
     folder.mkdir(parents=True, exist_ok=True)
@@ -480,8 +654,10 @@ def speech(
         (out.parent / timing["file"]).write_bytes(audio)
     timings = {
         "engine": engine,
-        "voice": voice or None,
+        "voice": spoke,
+        "chosen": asked or None,
         "seed": seed,
+        "warnings": warnings,
         "takes": [t for _, t in takes],
     }
     out.write_text(json.dumps(timings, indent=1))
@@ -492,15 +668,40 @@ def speech(
         if line["joined_next"]
     ]
     seconds = round(sum(t["duration"] for t in timings["takes"]), 1)
+    said = f" in {spoke}" if spoke else ""
+    if asked and spoke != asked:
+        said += f" (chosen {asked}, which {engine} cannot speak)"
     return {
         "output": str(out),
         "engine": engine,
+        "voice": spoke,
         "takes": len(takes),
         "seconds": seconds,
         "joined": joined,
-        "message": f"{len(takes)} takes, {seconds} s, from {engine}"
-        + (f"; no silence to cut at: {', '.join(joined)}" if joined else ""),
+        "warnings": warnings,
+        "message": f"{len(takes)} takes, {seconds} s, from {engine}{said}"
+        + (f"; no silence to cut at: {', '.join(joined)}" if joined else "")
+        + (f"; {'; '.join(warnings)}" if warnings else ""),
     }
+
+
+@mcp.tool(
+    description="The script type for one world: with a voice catalog in its assets, a `voice`"
+    " to choose from among its voices."
+)
+def speech_types(world: str = "", assets_path: str = "") -> dict[str, Any]:
+    """What the registry asks at check, run start and projection (issue 140)."""
+    del world  # the assets folder is all the catalog needs
+    voices, warnings = catalog(assets_path)
+    names = ", ".join(v["name"] for v in voices)
+    note = (
+        f"The world has voices for speech: {names}. The judge of the swarm stage writing the"
+        " script picks one per script (its `voice`) unless the speech stage fixes one with"
+        " params.voice."
+        if voices
+        else ""
+    )
+    return {"types": {"script": script_type(voices)}, "note": note, "warnings": warnings}
 
 
 @mcp.tool(description="Whether each speech engine in SPEECH_ENDPOINTS answers its health check.")

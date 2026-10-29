@@ -187,7 +187,7 @@ class Transport(McpTransport):
             return self.fake.call(connector, tool, arguments, env) | {"output": out.name}
         if connector.name == "youtube":
             return self.fake.call(connector, tool, arguments, env)
-        if connector.name == "speech":
+        if connector.name == "speech" and tool == "speech":  # its types answer for real
             return voice(Path(arguments["output_path"]))
         return super().call(connector, tool, arguments, env)
 

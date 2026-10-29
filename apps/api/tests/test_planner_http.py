@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from swarmify_connectors import FakeTransport
 from swarmify_swarm import tool_id
 from swarmify_swarm.fake import Answer, Call, Die, Say, Script
 
@@ -127,6 +128,21 @@ def test_the_planner_sees_the_worlds_typed_inputs(running: TestClient, script: S
     assert "must declare that type as its output_type" in system
     assert "- speech: input 1 is type script" in system
     assert "- cook: input 1 is type recipe" in system
+
+
+def test_the_planner_hears_what_a_connector_says_of_its_types_in_this_world(
+    running: TestClient, script: Script, transport: FakeTransport
+) -> None:
+    world = _world(running)
+    post = {"name": "poster", "kind": "stage", "server": "uvx poster-mcp"}
+    post |= {"stage_types": ["connector"], "types": {"post": {"type": "object"}}}
+    post |= {"input_types": ["post"], "world_types": "post_types"}
+    assert running.post(f"/api/worlds/{world}/connectors", json=post).status_code == 201
+    transport.outputs["post_types"] = [{"types": {}, "note": "This world posts to news, kids."}]
+    script.scripts = [[Answer({"reply": "Hi.", "yaml": None})]]
+    assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
+    system = script.sessions[0].system_prompt or ""
+    assert "- poster: This world posts to news, kids." in system
 
 
 def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:

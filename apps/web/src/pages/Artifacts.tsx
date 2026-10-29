@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import type { ArtifactFile } from "../api/events";
 
@@ -115,7 +115,10 @@ export function ArtifactView({ artifacts, worldId }: { artifacts: ArtifactFile[]
             ) : IMAGE.test(a.name) ? (
               <img src={url} alt={a.title} />
             ) : a.name.endsWith(".md") ? (
-              <Markdown text={a.body} />
+              <>
+                <TypedText body={a.body} />
+                <Markdown text={a.body} />
+              </>
             ) : (
               <a href={url} target="_blank" rel="noreferrer">
                 Open {a.name}
@@ -125,6 +128,31 @@ export function ArtifactView({ artifacts, worldId }: { artifacts: ArtifactFile[]
         );
       })}
     </section>
+  );
+}
+
+/** A typed artifact's top-level text from its fenced JSON block, as the voice a script's judge
+ * chose, so it shows on the gate before the long value below. */
+export function TypedText({ body }: { body: string }) {
+  const block = /```json[ \t]*\n([\s\S]*?)\n```/.exec(body)?.[1];
+  let value: unknown = null;
+  try {
+    value = block ? JSON.parse(block) : null;
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const text = Object.entries(value).filter((e): e is [string, string] => typeof e[1] === "string");
+  if (!text.length) return null;
+  return (
+    <dl className="typed-text" data-testid="typed-text">
+      {text.map(([k, v]) => (
+        <Fragment key={k}>
+          <dt>{k}</dt>
+          <dd>{v}</dd>
+        </Fragment>
+      ))}
+    </dl>
   );
 }
 
