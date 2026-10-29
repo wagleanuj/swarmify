@@ -56,7 +56,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     page.get_by_role("button", name="Start a run of Weekly short").click()
     status = page.get_by_test_id("status-line")
     expect(status).to_have_text("Waiting for you: Pick one idea.", timeout=20_000)
-    run = page.url.rstrip("/").split("/")[-1]
+    run = page.url.split("?")[0].rstrip("/").split("/")[-1]
     cards = page.get_by_test_id("result").get_by_test_id("item")
     expect(cards.first).to_contain_text("#1 of 2")
     expect(cards.first).to_contain_text("Hook first")

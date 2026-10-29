@@ -30,7 +30,7 @@ def test_fork_from_the_pick_then_pin_filter_and_promote_from_the_library(
         page.get_by_role("button", name="Start a run of Research then pick").click()
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=20_000)
-        run = page.url.rstrip("/").split("/")[-1]
+        run = page.url.split("?")[0].rstrip("/").split("/")[-1]
         api.post(f"/runs/{run}/decision", json={"choice": "Hook first"}).raise_for_status()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
 
