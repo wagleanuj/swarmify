@@ -185,7 +185,9 @@ export function WorldOverview() {
           ) : (
             <>
               {gates.length === 1 ? "One run is waiting on you. " : `${gates.length} runs are waiting on you. `}
-              <Link to="/gates">Answer</Link>
+              <Link to="/gates" search={{ world: worldId, gate: gates[0]!.stage_id }}>
+                Answer
+              </Link>
             </>
           )}
         </div>

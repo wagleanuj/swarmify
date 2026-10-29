@@ -57,6 +57,9 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
   await expect.element(cards.first()).toMatchTextContent(
     /Erlich's #1 of 2.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
   );
+  // The reason and sources are folded away until asked for.
+  await expect.element(cards.first().getByRole("link")).not.toBeInTheDocument();
+  await cards.first().getByText("Why it ranked here").click();
   await expect.element(cards.first().getByRole("link")).toHaveAttribute(
     "href",
     "/api/worlds/world_1/files/runs/run_1/stage_0/notes/trends.md",

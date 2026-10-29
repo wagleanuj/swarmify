@@ -55,8 +55,8 @@ export function summary(body: string): string {
   return (para ?? "").replace(/\s+/g, " ").slice(0, 200);
 }
 
-/** Choosable cards for a pick gate, a radio each (story 53): title, hook or summary, the judge's
- * rank and reason where given, and the note paragraph it came from. */
+/** Choosable cards for a pick gate as a ranked radio list (story 32): rank, title and hook or
+ * summary, with the judge's reason and the note paragraphs it came from folded away (story 33). */
 export function ArtifactCards({ cards, worldId }: { cards: ArtifactFile[]; worldId: string }) {
   return (
     <fieldset className="pick-cards" data-testid="pick-cards">
@@ -66,29 +66,32 @@ export function ArtifactCards({ cards, worldId }: { cards: ArtifactFile[]; world
         const hook = typeof a.fields.hook === "string" ? a.fields.hook : summary(a.body);
         const why = [a.fields.reason, a.fields.why].find((w) => typeof w === "string" && w) as string | undefined;
         return (
-          <label key={a.path} className="card pick-card" data-testid="pick-card">
+          <label key={a.path} className="pick-card" data-testid="pick-card">
             <input type="radio" name="artifact" value={a.path} required />
-            <span className="faint">
+            <span className="rank">
               {a.fields.rank != null ? `Erlich's #${String(a.fields.rank)} of ${cards.length}` : a.type}
             </span>
             <b>{a.title}</b>
-            {hook && <span>{hook}</span>}
-            {why && <span className="faint">Why: {why}</span>}
-            <span className="faint">
-              {sources.length ? (
-                <>
-                  From{" "}
-                  {sources.map((s, i) => (
-                    <span key={s}>
-                      {i > 0 && "; "}
-                      <Source ref={s} worldId={worldId} />
-                    </span>
-                  ))}
-                </>
-              ) : (
-                "No source paragraph cited."
-              )}
-            </span>
+            {hook && <span className="hook">{hook}</span>}
+            <details>
+              <summary>Why it ranked here</summary>
+              {why && <p>Why: {why}</p>}
+              <p>
+                {sources.length ? (
+                  <>
+                    From{" "}
+                    {sources.map((s, i) => (
+                      <span key={s}>
+                        {i > 0 && "; "}
+                        <Source ref={s} worldId={worldId} />
+                      </span>
+                    ))}
+                  </>
+                ) : (
+                  "No source paragraph cited."
+                )}
+              </p>
+            </details>
           </label>
         );
       })}
