@@ -350,7 +350,8 @@ def sandboxed(argv: list[str], project: Path, output: Path, data_dir: Path) -> l
         return [
             "bwrap", "--die-with-parent", "--unshare-all", "--ro-bind", "/", "/",
             "--dev", "/dev", "--proc", "/proc", "--bind", "/tmp", "/tmp",
-            "--tmpfs", str(data_dir.resolve()), *binds, "--chdir", str(project.resolve()),
+            "--tmpfs", str(data_dir.resolve()), *binds, "--remount-ro", str(data_dir.resolve()),
+            "--chdir", str(project.resolve()),
             "--", *argv,
         ]  # fmt: skip
     raise OSError("no sandbox to render an agent's project in: install bubblewrap (bwrap)")
