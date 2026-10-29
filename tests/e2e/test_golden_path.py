@@ -45,10 +45,11 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     page.get_by_role("button", name="Send").click()
     expect(page.get_by_test_id("chat-log")).to_contain_text("post after you confirm")
     expect(page.get_by_test_id("check-status")).to_contain_text("Richard updated the draft")
-    rail = page.get_by_test_id("stage-rail")
+    page.get_by_role("tab", name="Stages").click()
+    rail = page.get_by_test_id("stage-rows")
     for name in ("research", "pick", "render", "review", "confirm", "publish"):
         expect(rail).to_contain_text(name)
-    expect(page.get_by_test_id("problems")).to_contain_text("No problems")
+    expect(page.get_by_test_id("problems")).to_contain_text("Checks pass")
     page.get_by_role("button", name="Save as version 1").click()
     expect(page.get_by_test_id("versions")).to_contain_text("v1")
 

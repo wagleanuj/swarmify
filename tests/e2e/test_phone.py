@@ -24,6 +24,7 @@ PAGES = [
     "/",
     "/gates",
     "/worlds/{world}",
+    "/worlds/{world}/workflows",
     "/worlds/{world}/workflows/new",
     "/worlds/{world}/workflows/{workflow}",
     "/worlds/{world}/workflows/{workflow}/scorecard",

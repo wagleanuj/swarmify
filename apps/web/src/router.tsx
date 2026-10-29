@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
   type RouterHistory,
 } from "@tanstack/react-router";
 
@@ -13,9 +14,9 @@ import { Gates } from "./pages/Gates";
 import { Library } from "./pages/Library";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
-import { Scorecard } from "./pages/Scorecard";
 import { Settings } from "./pages/Settings";
-import { WorkflowEditor } from "./pages/WorkflowEditor";
+import { type EditorTab, EDITOR_TABS, WorkflowEditor } from "./pages/WorkflowEditor";
+import { Workflows } from "./pages/Workflows";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 import { Shell } from "./Shell";
@@ -51,22 +52,37 @@ export const worldRoute = createRoute({
   component: WorldOverview,
 });
 
+export const workflowsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/workflows",
+  component: Workflows,
+});
+
+// `?tab=` keeps the editor's tab in the address; it opens on Stages.
+const editorSearch = (search: Record<string, unknown>): { tab?: EditorTab } =>
+  EDITOR_TABS.includes(search.tab as EditorTab) ? { tab: search.tab as EditorTab } : {};
+
 export const newWorkflowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/workflows/new",
   component: WorkflowEditor,
+  validateSearch: editorSearch,
 });
 
 export const workflowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/workflows/$workflowId",
   component: WorkflowEditor,
+  validateSearch: editorSearch,
 });
 
+// The scorecard is a tab of the editor now; old links land on it.
 export const scorecardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/workflows/$workflowId/scorecard",
-  component: Scorecard,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/worlds/$worldId/workflows/$workflowId", params, search: { tab: "scorecard" } });
+  },
 });
 
 export const runsRoute = createRoute({
@@ -124,6 +140,7 @@ const routeTree = rootRoute.addChildren([
   gatesRoute,
   evalsRoute,
   worldRoute,
+  workflowsRoute,
   newWorkflowRoute,
   workflowRoute,
   scorecardRoute,
