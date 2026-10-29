@@ -60,13 +60,14 @@ def test_a_run_warns_at_80_percent_and_waits_at_100_for_money_or_an_abort(
             re.compile(r"^Waiting for you: The budget of \$0\.01 is spent"), timeout=20_000
         )
         expect(page.get_by_test_id("budget-line")).to_contain_text("Every agent stopped")
-        page.get_by_role("button", name="Answer now").first.click()
         card = page.get_by_test_id(f"gate-{run}")
         expect(card).to_have_attribute("data-kind", "budget")
         expect(card).to_contain_text("Russ has spent")
         card.get_by_role("button", name="Add money and go on").click()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
-        expect(page.get_by_test_id("budget-line")).to_contain_text("Past 80 percent")
+        expect(page.get_by_test_id("budget-line")).to_contain_text(
+            "left before Russ pauses the run"
+        )
 
         # A second one is stopped the same way and aborted from the gate.
         second = api.post(start, json={"budget_usd": 0.005}).json()["id"]

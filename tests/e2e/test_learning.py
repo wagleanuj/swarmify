@@ -41,7 +41,8 @@ def test_approve_an_edited_skill_proposal_and_see_skills_records_and_scores(
         )
         run = page.url.split("?")[0].rstrip("/").split("/")[-1]
 
-        page.get_by_role("button", name="Answer now").first.click()
+        # The page may still be on the step it opened at; choosing the retro opens its answer.
+        page.get_by_role("button", name=re.compile(r"^Step 2, retro,")).click()
         card = page.get_by_test_id(f"gate-{run}")
         expect(card).to_have_attribute("data-kind", "skill")
         change = card.get_by_test_id("skill-change")

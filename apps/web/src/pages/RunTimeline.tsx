@@ -10,7 +10,9 @@ import { runRoute } from "../router";
 import { LABEL } from "./Connectors";
 import { GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
-import { Result, resultStage, StagePanel, stepMeta } from "./StagePanel";
+import { type MenuItem, Menu } from "./Menu";
+import { kindOf, Result, resultStage, StagePanel, stepMeta } from "./StagePanel";
+import { TimeStrip } from "./TimeStrip";
 
 type World = components["schemas"]["World"];
 type Stage = Run["stages"][number];
@@ -20,10 +22,17 @@ function liveStage(run: Run): Stage | undefined {
   return run.stages.find((s) => s.status === "waiting") ?? run.stages.find((s) => s.status === "running");
 }
 
-/** The step picked on arrival when the URL names none: the live one, else the last finished,
- * else the first. It is pinned in the URL then, so it never moves by itself. */
-function arrivalStage(run: Run): Stage | undefined {
-  return liveStage(run) ?? run.stages.filter((s) => s.status === "done" || s.status === "failed").at(-1) ?? run.stages[0];
+/** The step picked on arrival when the URL names none: the live one, else for a done run the
+ * step that made its result, else the last finished, else the first. It is pinned in the URL
+ * then, so it never moves by itself. Undefined while a done run's artifacts are loading. */
+function arrivalStage(run: Run, artifacts: ArtifactFile[] | null): Stage | undefined {
+  const live = liveStage(run);
+  if (!live && run.status === "done") {
+    if (!artifacts) return undefined;
+    const made = resultStage(run, artifacts);
+    if (made) return made;
+  }
+  return live ?? run.stages.filter((s) => s.status === "done" || s.status === "failed").at(-1) ?? run.stages[0];
 }
 
 export function RunTimeline() {
@@ -35,16 +44,17 @@ export function RunTimeline() {
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<Record<string, Call | null>>({});
   const [gate, setGate] = useState<Gate | null>(null);
-  const [answering, setAnswering] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agents, setAgents] = useState<Record<string, Agent>>({});
   const [log, setLog] = useState<LogEntry[]>([]);
   const [verdicts, setVerdicts] = useState<Verdict[]>([]);
-  const [artifacts, setArtifacts] = useState<ArtifactFile[]>([]);
+  const [loaded, setArtifacts] = useState<ArtifactFile[] | null>(null);
+  const artifacts = loaded ?? [];
+  const [saved, setSaved] = useState<string | null>(null);
   const [artifactsSeen, setArtifactsSeen] = useState(0);
   const [baseline, setBaseline] = useState<Run | null>(null);
   const chosen = run?.stages.find((s) => s.id === search.stage);
-  const stage = run ? (chosen ?? arrivalStage(run)) : undefined;
+  const stage = run ? (chosen ?? arrivalStage(run, loaded)) : undefined;
   const stageId = stage?.id;
   const live = run ? liveStage(run) : undefined;
   const swarmId = stage?.type === "swarm" ? stage.id : undefined;
@@ -93,17 +103,13 @@ export function RunTimeline() {
   useEffect(() => {
     api
       .GET("/api/runs/{run_id}/artifacts", { params: { path: { run_id: runId } } })
-      .then(({ data }) => data && setArtifacts(data))
-      .catch(() => undefined);
+      .then(({ data }) => setArtifacts((prev) => data ?? prev ?? []))
+      .catch(() => setArtifacts((prev) => prev ?? []));
   }, [runId, artifactsSeen]);
 
   // The open gate, so the status line can say what it asks and answer it here.
   useEffect(() => {
-    if (!waitingAt) {
-      setGate(null);
-      setAnswering(false);
-      return;
-    }
+    if (!waitingAt) return setGate(null);
     api
       .GET("/api/gates")
       .then(({ data }) => setGate((data ?? []).find((g) => g.run_id === runId) ?? null))
@@ -220,7 +226,8 @@ export function RunTimeline() {
     void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
-  /** A done run becomes a workflow: the stages it ran, gates added by hand included. */
+  /** A done run becomes a workflow: the stages it ran, gates added by hand included. You stay
+   * on the run; a link opens the new workflow. */
   async function saveAsWorkflow() {
     if (!run) return;
     setError(null);
@@ -232,7 +239,7 @@ export function RunTimeline() {
       const detail = (error as { detail?: unknown } | undefined)?.detail;
       return setError(typeof detail === "string" ? detail : `Could not save the run as a workflow (${response.status}).`);
     }
-    void router.navigate({ to: "/worlds/$worldId/workflows/$workflowId", params: { worldId, workflowId: data.workflow_id } });
+    setSaved(data.workflow_id);
   }
 
   async function answer(g: Gate, send: () => Promise<string | null>) {
@@ -240,12 +247,6 @@ export function RunTimeline() {
     const refused = await send();
     if (refused) return setError(refused);
     if (g.kind !== "budget") setGate(null);
-    setAnswering(false);
-  }
-
-  function openGate() {
-    setAnswering(true);
-    window.scrollTo({ top: 0 });
   }
 
   if (run === undefined) {
@@ -272,128 +273,144 @@ export function RunTimeline() {
   const forkable = (index: number) =>
     run.stages.slice(0, index).every((s) => s.status === "done" || s.status === "skipped") &&
     ["done", "failed"].includes(run.stages[index]?.status ?? "");
-  const failed = run.stages.find((s) => s.status === "failed");
   const post = artifacts.filter((a) => a.type === "publish").at(-1);
   const postLink = post ? Object.values((post.fields.links as Record<string, string> | undefined) ?? {})[0] : undefined;
   const made = stage ? artifacts.filter((a) => a.stage === stage.id) : [];
+  const gateStage = gate ? run.stages.find((s) => s.id === gate.stage_id) : undefined;
+  const open = gate && gate.stage_id === stageId ? gate : null;
+  const isResult = !open && !!stage && resultStage(run, artifacts)?.id === stage.id;
+  const started = run.stages.find((s) => s.started_at)?.started_at;
+  const seconds = duration(run);
+  const items: MenuItem[] = [];
+  if (!ended) {
+    items.push(
+      run.status === "paused"
+        ? { label: "Resume", note: "Agents pick up where they stopped; you stay here", onSelect: () => act("resume") }
+        : { label: "Pause", note: "Agents finish their current task, then stop; you stay here", disabled: run.status === "queued", onSelect: () => act("pause") },
+    );
+  }
+  if (stage && forkable(stage.index)) {
+    const at = stage;
+    items.push({
+      label: `Fork from ${at.name}`,
+      note: `Opens a new run that keeps every step before ${at.name}; this one stays as it is`,
+      onSelect: () => fork(at.index),
+    });
+  }
+  if (run.status === "done") {
+    items.push({ label: "Save as workflow", note: "Saves the steps it ran as a new workflow; you stay on this run", onSelect: saveAsWorkflow });
+  }
+  if (!ended) {
+    items.push({ label: "Abort run", note: "Stops every agent; finished steps keep their artifacts", danger: true, onSelect: () => act("abort") });
+  }
   return (
     <main className="run-page">
       <header className="page">
         <div>
-            <h1>
+          <h1>
             {run.name} <span className="faint-title">{version(run)}</span>
           </h1>
+          <p role="status" data-testid="status-line" className={`status-line state-${run.status}`}>
+            {statusLine(run, gate?.ask)}
+            {run.send_backs > 0 && ` Sent back ${run.send_backs === 1 ? "once" : `${run.send_backs} times`}.`}
+            {run.status === "done" && post && ` Posted ${String(post.fields.visibility ?? "")} to ${LABEL[String(post.fields.connector)] ?? String(post.fields.connector)}.`}
+          </p>
           <Lineage run={run} worldId={worldId} />
         </div>
-        {live && live.id !== stageId && (
-          <span className="follow" data-testid="follow">
-            Now at {live.name} ·{" "}
-            <button type="button" onClick={() => select(live.id)}>
-              Go there
-            </button>
-          </span>
-        )}
-      </header>
-      <div className={`status-block state-${run.status}`}>
-        <p role="status" data-testid="status-line" className="status-line">
-          {statusLine(run, gate?.ask)}
-          {run.send_backs > 0 && ` Sent back ${run.send_backs === 1 ? "once" : `${run.send_backs} times`}.`}
-          {run.status === "done" && post && ` Posted ${String(post.fields.visibility ?? "")} to ${LABEL[String(post.fields.connector)] ?? String(post.fields.connector)}.`}
-        </p>
-        {run.status === "waiting_gate" && gate && !answering && (
-          <button type="button" className="primary" onClick={openGate}>
-            Answer now
-          </button>
-        )}
-        {run.status === "done" && postLink && (
-          <a href={postLink} target="_blank" rel="noreferrer" className="button">
-            Open the post
-          </a>
-        )}
-        {run.status === "failed" && failed && forkable(failed.index) && (
-          <button type="button" onClick={() => fork(failed.index)} title="A new run that keeps every finished stage and runs this one again">
-            Fork from here
-          </button>
-        )}
-      </div>
-      {error && <p role="alert">{error}</p>}
-      {answering && gate ? (
-        <ul className="gate-list inline-gate" aria-label="Answer the gate">
-          <GateCard gate={gate} world={world?.name ?? worldId} onAnswer={answer} />
-        </ul>
-      ) : (
-        <Result run={run} artifacts={artifacts} worldId={worldId} />
-      )}
-      <div className="spend-row">
-        <Spend run={run} baseline={baseline} />
-        <div className="row" data-testid="run-actions">
-          {run.status === "done" && (
-            <button type="button" onClick={saveAsWorkflow}>
-              Save as workflow
+        <div className="row run-actions" data-testid="run-actions">
+          {live && live.id !== stageId && (
+            <span className="follow" data-testid="follow">
+              Now at {live.name} ·{" "}
+              <button type="button" onClick={() => select(live.id)}>
+                Go there
+              </button>
+            </span>
+          )}
+          {gateStage && gateStage.id !== stageId && (
+            <button type="button" className="primary" onClick={() => select(gateStage.id)}>
+              Answer {gateStage.name}
             </button>
           )}
-          {!ended && (
-            <>
-              {run.status === "paused" ? (
-                <button type="button" onClick={() => act("resume")}>
-                  Resume
-                </button>
-              ) : (
-                <button type="button" onClick={() => act("pause")} disabled={run.status === "queued"}>
-                  Pause
-                </button>
-              )}
-              <button type="button" className="danger" onClick={() => act("abort")}>
-                Abort
-              </button>
-            </>
+          {run.status === "done" && postLink && (
+            <a href={postLink} target="_blank" rel="noreferrer" className="button">
+              Open the post
+            </a>
+          )}
+          {items.length > 0 && (
+            <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />
           )}
         </div>
-      </div>
-      <ol className="rail" aria-label="Stages" data-testid="timeline">
-        {run.stages.map((s) => {
-          const now = run.status === "queued" ? s.index === 0 : s.status === "running" || s.status === "waiting";
-          return (
-            <li key={s.id} data-status={s.status} className={`step step-${s.status}${now ? " step-now" : ""}`}>
-              <button
-                type="button"
-                aria-pressed={s.id === stageId}
-                aria-current={now ? "step" : undefined}
-                aria-label={`Step ${s.index + 1}, ${s.name}, ${stepMeta(s, run.status === "queued")}`}
-                onClick={() => select(s.id)}
-              >
-                <StageIcon kind={s.type === "connector" ? "connector" : s.type} />
-                <span className="step-name">{s.name}</span>
-                <span className="step-meta">{stepMeta(s, run.status === "queued")}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-      {stage && (
-        <StagePanel
-          run={run}
-          stage={stage}
-          worldId={worldId}
-          made={made}
-          agents={Object.values(agents).filter((a) => a.stage_id === stage.id)}
-          log={log}
-          tasks={tasks}
-          verdicts={verdicts}
-          call={calls[stage.id]}
-          onTaskAdded={(task) => setTasks((prev) => upsert(prev, task))}
-          onAnswer={answering ? undefined : openGate}
-          resultShown={!answering && resultStage(run, artifacts)?.id === stage.id}
-        />
-      )}
-      {stage && forkable(stage.index) && stage.status === "done" && (
-        <p className="faint fork-note">
-          <button type="button" className="link" aria-label={`Fork the run from ${stage.name}`} onClick={() => fork(stage.index)}>
-            Fork from here
-          </button>{" "}
-          starts a new run that keeps every stage before {stage.name} and runs it again.
+      </header>
+      {error && <p role="alert">{error}</p>}
+      {saved && (
+        <p className="saved" role="status" data-testid="saved">
+          Saved as a workflow.{" "}
+          <Link to="/worlds/$worldId/workflows/$workflowId" params={{ worldId, workflowId: saved }}>
+            Open it in the editor
+          </Link>
         </p>
       )}
+      <TimeStrip stages={run.stages} selected={stageId} onSelect={select} />
+      <div className="strip-axis">
+        <span>{started ? new Date(started).toLocaleTimeString([], { timeStyle: "short" }) : "Not started"}</span>
+        {seconds !== null && <span>{ended ? took(seconds) : `${took(seconds)} so far`}</span>}
+      </div>
+      <div className="run-grid">
+        <aside className="run-side">
+          <nav className="panel steps" aria-label="Steps">
+            <ol data-testid="timeline">
+              {run.stages.map((s) => {
+                const now = run.status === "queued" ? s.index === 0 : s.status === "running" || s.status === "waiting";
+                const meta = stepMeta(s, run.status === "queued");
+                return (
+                  <li key={s.id} data-status={s.status} className={`step step-${s.status}`}>
+                    <button
+                      type="button"
+                      aria-pressed={s.id === stageId}
+                      aria-current={now ? "step" : undefined}
+                      aria-label={`Step ${s.index + 1}, ${s.name}, ${meta}`}
+                      onClick={() => select(s.id)}
+                    >
+                      <Glyph status={s.status} />
+                      <span className="step-name">
+                        {s.name}
+                        <small>{s.status === "waiting" ? "waiting for you" : kindOf(s)}</small>
+                      </span>
+                      <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+          <Spend run={run} baseline={baseline} />
+        </aside>
+        {stage && (
+          <StagePanel
+            run={run}
+            stage={stage}
+            worldId={worldId}
+            made={made}
+            agents={Object.values(agents).filter((a) => a.stage_id === stage.id)}
+            log={log}
+            tasks={tasks}
+            verdicts={verdicts}
+            call={calls[stage.id]}
+            onTaskAdded={(task) => setTasks((prev) => upsert(prev, task))}
+            lead={
+              open ? (
+                <ul className="gate-list inline-gate" aria-label="Answer the gate">
+                  <GateCard gate={open} world={world?.name ?? worldId} onAnswer={answer} bare />
+                </ul>
+              ) : isResult ? (
+                <Result run={run} artifacts={artifacts} worldId={worldId} />
+              ) : undefined
+            }
+            answering={!!open}
+            resultShown={isResult}
+          />
+        )}
+      </div>
     </main>
   );
 }
@@ -445,13 +462,14 @@ function Lineage({ run, worldId }: { run: Run; worldId: string }) {
   return <>{lines}</>;
 }
 
-/** Part 5: what the run spent against its budget, and a link to the one-agent comparison. */
+/** Part 5: what the run spent against its budget, what is left before the pause, and a link to
+ * the one-agent comparison. */
 function Spend({ run, baseline }: { run: Run; baseline: Run | null }) {
   const budget = run.budget_usd;
   const spent = run.spent_usd ?? 0;
   let note = "";
   if (budget != null && run.over_budget) note = `Every agent stopped at ${money(budget)}. Add money to go on, or abort.`;
-  else if (budget != null && spent >= 0.8 * budget) note = `Past 80 percent. Every agent stops at ${money(budget)}.`;
+  else if (budget != null) note = `${money(Math.max(0, budget - spent))} left before Russ pauses the run.`;
   const seconds = duration(run);
   let compare: string;
   if (baseline) {
@@ -459,15 +477,24 @@ function Spend({ run, baseline }: { run: Run; baseline: Run | null }) {
     compare = `One agent with no graph did this for ${money(baseline.spent_usd)}${base === null ? "" : ` in ${took(base)}`}; this run ${money(spent)}${seconds === null ? "" : ` in ${took(seconds)}`}.`;
   } else compare = "No one-agent run of this yet. Start a baseline from the world page to compare.";
   return (
-    <section className="spend" aria-label="Spend" data-testid="measure">
-      <span className="num" data-testid="budget">
-        {budget != null ? `${money(spent)} of ${money(budget)} budget` : `${money(spent)} spent, no budget set`}
-      </span>
+    <section className="panel spend" aria-label="Spend" data-testid="measure">
+      <div className="panel-head">
+        <h3>Spend</h3>
+        <span className="num" data-testid="budget">
+          {budget != null ? (
+            <>
+              {money(spent)} <span className="faint">of {money(budget)}</span>
+            </>
+          ) : (
+            `${money(spent)} spent, no budget set`
+          )}
+        </span>
+      </div>
       {budget != null && (
         <meter min={0} max={budget} low={0.8 * budget} high={0.8 * budget} optimum={0} value={Math.min(spent, budget)} aria-label="Budget spent" />
       )}
       {note && (
-        <span className={run.over_budget ? "stage-error" : "faint"} data-testid="budget-line">
+        <span className={run.over_budget ? "stage-error" : budget != null && spent >= 0.8 * budget ? "warn" : "faint"} data-testid="budget-line">
           {note}
         </span>
       )}
@@ -487,39 +514,24 @@ function Spend({ run, baseline }: { run: Run; baseline: Run | null }) {
   );
 }
 
-/** A 16px outline icon per stage type: a swarm of three, a gate, a plug, a loop back. */
-function StageIcon({ kind }: { kind: string }) {
-  const paths: Record<string, ReactNode> = {
-    swarm: (
-      <>
-        <circle cx="5" cy="6" r="2" />
-        <circle cx="11" cy="6" r="2" />
-        <circle cx="8" cy="11.5" r="2" />
-      </>
-    ),
-    gate: (
-      <>
-        <path d="M3 14V3h10v11" />
-        <path d="M8 3v11" />
-      </>
-    ),
-    connector: (
-      <>
-        <path d="M6 2v3M10 2v3" />
-        <path d="M4 5h8v3a4 4 0 0 1-8 0z" />
-        <path d="M8 12v2" />
-      </>
-    ),
-    retro: (
-      <>
-        <path d="M3 8a5 5 0 1 0 1.5-3.5" />
-        <path d="M3 2.5V5h2.5" />
-      </>
-    ),
-  };
+/** A step's state at a glance: a check when done, else a dot coloured by its state. */
+function Glyph({ status }: { status: string }) {
+  if (status === "done") {
+    return (
+      <svg className="glyph" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 8.5l3.2 3L13 4.5" />
+      </svg>
+    );
+  }
+  return <span className={`glyph dot dot-${status}`} aria-hidden="true" />;
+}
+
+function MoreIcon() {
   return (
-    <svg className="step-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {paths[kind] ?? <rect x="3" y="3" width="10" height="10" rx="2" />}
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="3.5" cy="8" r="1.25" />
+      <circle cx="8" cy="8" r="1.25" />
+      <circle cx="12.5" cy="8" r="1.25" />
     </svg>
   );
 }

@@ -44,15 +44,19 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
         child = page.url.split("?")[0].rstrip("/").split("/")[-1]
 
         # Pause at the gate, then resume (story 31).
-        page.get_by_role("button", name="Pause").click()
+        actions = page.get_by_role("button", name="Run actions")
+        actions.click()
+        page.get_by_role("menuitem", name=re.compile(r"^Pause")).click()
         expect(status).to_have_text("Paused at brief.")
-        page.get_by_role("button", name="Resume").click()
+        actions.click()
+        page.get_by_role("menuitem", name=re.compile(r"^Resume")).click()
         expect(status).to_have_text("Waiting for you: Go?")
 
         # Aborting the parent aborts the child (story 32).
         page.get_by_test_id("child-of").get_by_role("link").click()
         page.once("dialog", lambda dialog: dialog.accept())
-        page.get_by_role("button", name="Abort").click()
+        page.get_by_role("button", name="Run actions").click()
+        page.get_by_role("menuitem", name=re.compile(r"^Abort run")).click()
         expect(status).to_have_text(
             re.compile(r"^Aborted at child\. Finished stages keep their artifacts\.$")
         )
@@ -103,7 +107,9 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         page.get_by_role("button", name="Run goal").click()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_role("heading", level=1)).to_contain_text("ad hoc")
-        page.get_by_role("button", name="Save as workflow").click()
+        page.get_by_role("button", name="Run actions").click()
+        page.get_by_role("menuitem", name=re.compile(r"^Save as workflow")).click()
+        page.get_by_role("link", name="Open it in the editor").click()
         expect(page.get_by_test_id("versions")).to_contain_text("v1")
         expect(page.get_by_test_id("stage-rows")).to_contain_text("Find five hooks")
     finally:

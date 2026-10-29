@@ -44,10 +44,12 @@ def test_a_voiced_build_shows_its_takes_its_build_and_its_video_then_the_gate_is
         nav = page.get_by_role("navigation", name="Main")
         expect(nav.get_by_test_id("world-switcher")).to_contain_text("Shorts")
         expect(nav.get_by_role("link", name="Runs")).to_have_attribute("aria-current", "page")
-        expect(page.get_by_test_id("result").get_by_test_id("player")).to_be_visible()
-        expect(page.get_by_test_id("budget")).to_have_text(
-            re.compile(r"^\$0\.\d\d of \$5\.00 budget$")
-        )
+        # The waiting review leads its panel with the video to judge.
+        page.get_by_test_id("timeline").get_by_role(
+            "button", name=re.compile("^Step 4, review")
+        ).click()
+        expect(page.get_by_test_id("stage-panel").get_by_test_id("player")).to_be_visible()
+        expect(page.get_by_test_id("budget")).to_have_text(re.compile(r"^\$0\.\d\d of \$5\.00$"))
         rail = page.get_by_test_id("timeline")
         expect(rail.locator("[data-status=done]")).to_have_count(3)
         expect(rail.locator("[data-status=waiting]")).to_contain_text("waiting")
@@ -72,7 +74,7 @@ def test_a_voiced_build_shows_its_takes_its_build_and_its_video_then_the_gate_is
         page.reload()
         expect(page.get_by_test_id("build-log")).to_contain_text("Installed packages")
 
-        page.get_by_role("button", name="Answer now").click()
+        page.get_by_role("button", name="Answer review").click()
         page.get_by_role("button", name="Approve").click()
         expect(status).to_have_text(re.compile(r"^Done in \d+ s\.$"), timeout=20_000)
         rail.get_by_role("button", name=re.compile("^Step 4, review")).click()

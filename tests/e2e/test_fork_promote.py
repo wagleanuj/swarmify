@@ -37,16 +37,19 @@ def test_fork_from_the_pick_then_pin_filter_and_promote_from_the_library(
         # Fork from the pick: research is copied, not run again, and the pick asks anew.
         pick = re.compile(r"^Step 2, pick,")
         page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
-        page.get_by_role("button", name="Fork the run from pick").click()
+        page.get_by_role("button", name="Run actions").click()
+        page.get_by_role("menuitem", name=re.compile(r"^Fork from pick")).click()
         expect(page.get_by_test_id("forked-from")).to_contain_text(
             "Forked from Research then pick at stage 2. The earlier stages were copied"
         )
         expect(status).to_have_text("Waiting for you: Which idea do we shoot?", timeout=20_000)
-        expect(page.get_by_test_id("result").get_by_test_id("item").first).to_contain_text(
-            "Hook first"
-        )
         fork = page.url.split("?")[0].rstrip("/").split("/")[-1]
         assert fork != run
+        # The pick it waits at leads its panel, with the copied ideas to choose from.
+        page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
+        expect(
+            page.get_by_test_id(f"gate-{fork}").get_by_test_id("pick-card").first
+        ).to_contain_text("Hook first")
         api.post(f"/runs/{fork}/decision", json={"choice": "The chase"}).raise_for_status()
         page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
         expect(page.get_by_test_id("decision")).to_have_text('You picked "The chase".')

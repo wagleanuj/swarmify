@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
+import "../index.css";
 
 const ts = "2026-10-26T10:00:00+00:00";
 const video = { id: "world_1", name: "Video", purpose: "", created_at: ts };
@@ -19,6 +20,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** The run menu, opened. */
+async function runMenu(screen: Awaited<ReturnType<typeof mountAt>>["screen"]) {
+  await screen.getByRole("button", { name: "Run actions" }).click();
+  return screen.getByRole("menu", { name: "Run actions" });
+}
+
 test("a finished stage offers a fork, which posts the stage and opens the new run", async () => {
   let body: unknown = null;
   fakeFetch({
@@ -29,9 +36,13 @@ test("a finished stage offers a fork, which posts the stage and opens the new ru
     },
   });
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
-  // The selected step offers it, one at a time.
-  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(1);
-  await screen.getByRole("button", { name: "Fork the run from pick" }).click();
+  // The run menu offers it from the selected step, and says where it lands.
+  const menu = await runMenu(screen);
+  await expect.element(menu.getByRole("menuitem", { name: /^Fork from/ })).toMatchTextContent(
+    "Fork from pickOpens a new run that keeps every step before pick; this one stays as it is",
+  );
+  expect(menu.getByRole("menuitem", { name: /^Fork from/ }).elements()).toHaveLength(1);
+  await menu.getByRole("menuitem", { name: /^Fork from pick/ }).click();
   await vi.waitFor(() => expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_2"));
   expect(body).toEqual({ stage: 1 });
 });
@@ -45,12 +56,17 @@ test("only stages that finished, after finished stages, can be forked from", asy
   fakeFetch({ "GET /api/runs/run_1": () => Response.json(waiting) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^pick/);
-  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(0);
+  let menu = await runMenu(screen);
+  await expect.element(menu.getByRole("menuitem", { name: /^Pause/ })).toBeVisible();
+  expect(menu.getByRole("menuitem", { name: /^Fork from/ }).elements()).toHaveLength(0);
   await screen.getByRole("button", { name: /^Step 1, research/ }).click();
-  await expect.element(screen.getByRole("button", { name: "Fork the run from research" })).toBeVisible();
+  menu = await runMenu(screen);
+  await expect.element(menu.getByRole("menuitem", { name: /^Fork from research/ })).toBeVisible();
   await screen.getByRole("button", { name: /^Step 3, render/ }).click();
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^render/);
-  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(0);
+  menu = await runMenu(screen);
+  await expect.element(menu.getByRole("menuitem", { name: /^Pause/ })).toBeVisible();
+  expect(menu.getByRole("menuitem", { name: /^Fork from/ }).elements()).toHaveLength(0);
 });
 
 test("a refused fork shows the API's reason", async () => {
@@ -59,7 +75,7 @@ test("a refused fork shows the API's reason", async () => {
     "POST /api/runs/run_1/fork": () => Response.json({ detail: "stage pick has not finished" }, { status: 409 }),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await screen.getByRole("button", { name: "Fork the run from render" }).click();
+  await (await runMenu(screen)).getByRole("menuitem", { name: /^Fork from render/ }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("stage pick has not finished");
 });
 
