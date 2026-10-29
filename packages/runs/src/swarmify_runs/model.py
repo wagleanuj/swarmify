@@ -116,6 +116,12 @@ class Run:
     baseline: bool = False
     """Baseline mode: one agent and no graph, to measure the swarm against."""
 
+    def send_back_note(self, stage_name: str) -> str:
+        """The note of the send-back that caused this visit, when it named `stage_name`; empty
+        when the stage reruns because the send-back named an earlier stage."""
+        sent = next((d for d in reversed(self.decisions) if d.send_back_to), None)
+        return sent.note if sent and sent.send_back_to == stage_name else ""
+
 
 @dataclass(frozen=True)
 class PublishPreview:

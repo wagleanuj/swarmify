@@ -259,6 +259,8 @@ it may send the run back to. The web skin shows it at `/gates` and renders each 
   The inbox shows how many revisions the gate has left. A stage that runs again with work
   already done revises it: a swarm stage gets one rework task saying so, with the note and its
   own previous artifacts as required reading (a `remotion_build` stage, below, its last build).
+  Only the note of the send-back that caused this visit reaches a stage: a later stage that
+  reruns because the send-back named an earlier one gets no note, not an older one of its own.
 - `confirm` takes a plain yes before anything goes out.
 
 `POST /api/runs/<id>/decision` with `{"choice", "note", "send_back_to"}` answers the gate. Every

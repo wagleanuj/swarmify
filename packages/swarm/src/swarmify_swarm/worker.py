@@ -201,7 +201,7 @@ class _At:
     config: dict[str, Any]
     world_folder: Path
     notes: tuple[str, ...] = ()
-    """The send-back notes addressed to this stage, oldest first."""
+    """The note of the send-back that caused this visit, when it named this stage."""
     baseline: bool = False
     cast: tuple[CastEntry, ...] = tuple(DEFAULT_CAST)
 
@@ -405,9 +405,10 @@ class Swarm:
         stopped an agent. `baseline` runs one worker on the goal alone, with no graph. `cast`
         is the world's Cast (a planner, one worker and a judge with no prompts by default).
 
-        `notes` are the send-back notes addressed to this stage and `visit` the run's send-back
-        count. A stage the run comes back to after send-back `visit` gets one rework task
-        carrying the newest note, so its passed board is worked and judged again.
+        `notes` holds the note of the send-back that caused this visit, when it named this
+        stage, and `visit` is the run's send-back count. A stage the run comes back to after
+        send-back `visit` gets one rework task carrying that note, so its passed board is
+        worked and judged again.
 
         Every step reads where the stage got to from the whiteboard and its verdicts, so a
         retried stage resumes: a seeded board is not planned again, a worked board is not worked

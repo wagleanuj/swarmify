@@ -268,3 +268,46 @@ def test_a_send_back_reworks_the_swarm_stage_with_the_note(
     previous = tmp_path / "worlds" / world / "runs" / run["id"] / stage / "artifacts/verdict-1.md"
     assert f"required reading before you change anything: {previous}." in body
     assert len(running.get(f"{url}/stages/{stage}/verdicts").json()) == 2
+
+
+def test_a_revisited_stage_gets_only_the_note_of_the_send_back_that_caused_this_visit(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    """Sent back to the later stage, then to the earlier one: the later stage reruns as a
+    consequence, so its rework carries no note, not the older one addressed to it."""
+    work = [CLAIM, FINISH]
+    first = [PLAN, [GRAPH, *work], PASS]
+    script.scripts = first + first + [work, PASS] * 3
+    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    yaml = (
+        RESEARCH
+        + "  - swarm: script\n    goal: Write the script.\n    done_when: a script\n"
+        + "  - gate: review\n    ask: Good?\n    kind: approve\n"
+    )
+    wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()
+    run = running.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+    url = f"/api/runs/{run['id']}"
+
+    def at_gate(send_backs: int) -> Callable[[], bool]:
+        def check() -> bool:
+            now = running.get(url).json()
+            return now["send_backs"] == send_backs and now["status"] == "waiting_gate"
+
+        return check
+
+    _until(at_gate(0))
+    for n, (note, to) in enumerate([("Shorter lines.", "script"), ("Other ideas.", "research")]):
+        sent = running.post(f"{url}/decision", json={"note": note, "send_back_to": to})
+        assert sent.status_code == 200, sent.text
+        _until(at_gate(n + 1))
+
+    # sessions: research and script plan, work, judge; script reworks; both rework again
+    assert "Sent back to you with this note: Other ideas." in str(script.sessions[8].system_prompt)
+    rework = str(script.sessions[10].system_prompt)
+    assert "Shorter lines." not in rework and "Sent back to you" not in rework
+    assert "Shorter lines." not in script.prompts[11]
+    stage = running.get(url).json()["stages"][1]["id"]
+    tasks = running.get(f"{url}/stages/{stage}/tasks").json()
+    title, body = [(t["title"], t["body"]) for t in tasks][-1]
+    assert title == "Rework after send-back 2"
+    assert body.startswith("This is a revision, not a fresh start. An earlier stage was redone")
