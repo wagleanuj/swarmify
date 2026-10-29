@@ -1,3 +1,4 @@
+import re
 import time
 
 import httpx
@@ -26,8 +27,12 @@ def test_add_a_task_by_hand_and_watch_it_move_across_the_columns(page: Page, bas
             time.sleep(0.1)
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run['id']}")
 
-        board = page.get_by_test_id("whiteboard")
-        expect(board.get_by_role("heading", level=2)).to_have_text("Whiteboard · research")
+        page.get_by_test_id("timeline").get_by_role(
+            "button", name=re.compile(r"^Step 2, research,")
+        ).click()
+        expect(page.get_by_test_id("stage-panel").get_by_role("heading", level=2)).to_have_text(
+            "research"
+        )
         page.get_by_role("textbox", name="New task").fill("Check @datingdecoded this week")
         page.get_by_role("button", name="Add task").click()
         expect(page.get_by_test_id("col-open")).to_contain_text("Check @datingdecoded this week")

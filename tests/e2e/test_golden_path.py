@@ -55,14 +55,14 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     page.get_by_role("link", name="golden").click()
     page.get_by_role("button", name="Start a run of Weekly short").click()
     status = page.get_by_test_id("status-line")
-    expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=20_000)
+    expect(status).to_have_text("Waiting for you: Pick one idea.", timeout=20_000)
     run = page.url.rstrip("/").split("/")[-1]
-    cards = page.get_by_test_id("artifact-card")
+    cards = page.get_by_test_id("result").get_by_test_id("item")
     expect(cards.first).to_contain_text("#1 of 2")
     expect(cards.first).to_contain_text("Hook first")
 
     # Pick, then the render runs and the review gate opens in the same inbox card.
-    page.get_by_role("link", name="Answer the gate").click()
+    page.goto(f"{base_url}/gates")
     card = page.get_by_test_id(f"gate-{run}")
     expect(card).to_contain_text("Pick one idea.")
     card.get_by_role("radio", name=re.compile("Hook first")).click()
@@ -81,15 +81,32 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     expect(page.get_by_test_id("no-gates")).to_be_visible(timeout=20_000)
 
     page.goto(f"{base_url}/worlds/{world}/runs/{run}")
-    expect(status).to_have_text("Done. All 7 stages finished.", timeout=20_000)
-    timeline = page.get_by_test_id("timeline")
-    expect(timeline).to_contain_text("You picked Hook first.")
-    expect(timeline).to_contain_text("You approved.")
-    expect(timeline).to_contain_text("You confirmed.")
+    expect(status).to_have_text(
+        re.compile(r"^Done in .*\. Posted unlisted to YouTube\.$"), timeout=20_000
+    )
+    expect(page.get_by_role("link", name="Open the post").first).to_have_attribute(
+        "href", "https://youtu.be/e2e-video"
+    )
+    expect(page.get_by_test_id("result").get_by_test_id("player")).to_be_visible()
+    rail = page.get_by_test_id("timeline")
+
+    def step(name: str) -> None:
+        rail.get_by_role("button", name=re.compile(rf"^Step \d+, {name},")).click()
+
+    step("pick")
+    expect(page.get_by_test_id("decision")).to_have_text('You picked "Hook first".')
+    step("review")
+    expect(page.get_by_test_id("decision")).to_contain_text("You approved")
+    step("confirm")
+    expect(page.get_by_test_id("decision")).to_have_text("You confirmed.")
+    step("research")
     expect(page.get_by_test_id("artifact-card").first).to_contain_text("Hook first")
-    timeline.locator("li", has_text="render").get_by_role("button", name="Show the call").click()
-    expect(page.get_by_test_id("call")).to_contain_text("Out: short.mp4")
-    timeline.locator("li", has_text="publish").get_by_role("button", name="Show the call").click()
+    step("render")
+    page.get_by_text("Technical details").click()
+    expect(page.get_by_test_id("call-request")).to_contain_text('"output": "short.mp4"')
+    step("publish")
+    expect(page.get_by_test_id("publish")).to_contain_text("Five hooks that work")
+    page.get_by_text("Technical details").click()
     expect(page.get_by_test_id("call-response")).to_contain_text("https://youtu.be/e2e-video")
 
     page.goto(f"{base_url}/worlds/{world}/library")

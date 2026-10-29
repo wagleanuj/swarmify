@@ -1,3 +1,4 @@
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -43,9 +44,10 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         run = httpx.post(f"{base_url}/api/workflows/{created['workflow_id']}/runs", json={}).json()
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run['id']}")
         status = page.get_by_test_id("status-line")
-        expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=20_000)
+        expect(status).to_have_text("Waiting for you: Ship it?", timeout=20_000)
 
-        page.get_by_role("button", name="Show the call").click()
+        page.get_by_test_id("timeline").get_by_role("button", name=re.compile(r"^Step 1,")).click()
+        page.get_by_text("Technical details").click()
         expect(page.get_by_test_id("call")).to_contain_text("polled 2 times")
         request = page.get_by_test_id("call-request")
         expect(request).to_contain_text(f'"idempotency_key": "{run["stages"][0]["id"]}"')

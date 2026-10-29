@@ -74,6 +74,9 @@ export const runRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/runs/$runId",
   component: RunTimeline,
+  // `?stage=<id>` keeps the selected step, so a link opens the same one.
+  validateSearch: (search: Record<string, unknown>): { stage?: string } =>
+    typeof search.stage === "string" ? { stage: search.stage } : {},
 });
 
 export const connectorsRoute = createRoute({

@@ -1,3 +1,4 @@
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -45,9 +46,12 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
 
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run.json()['id']}")
         expect(page.get_by_test_id("status-line")).to_have_text(
-            "Done. All 3 stages finished. Sent back once.", timeout=15_000
+            re.compile(r"^Done in .*\. Sent back once\.$"), timeout=15_000
         )
-        expect(page.get_by_test_id("timeline")).to_contain_text("Sent back with: Darker.")
-        expect(page.get_by_test_id("timeline")).to_contain_text("You approved.")
+        rail = page.get_by_test_id("timeline")
+        rail.get_by_role("button", name=re.compile(r"^Step 1,")).click()
+        expect(page.get_by_test_id("stage-panel")).to_contain_text("Sent back with: Darker.")
+        rail.get_by_role("button", name=re.compile(r"^Step 2,")).click()
+        expect(page.get_by_test_id("decision").last).to_contain_text("You approved")
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")

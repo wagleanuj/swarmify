@@ -2449,6 +2449,10 @@ export interface components {
             /** Notes */
             notes?: string[];
             child?: components["schemas"]["RunLink"] | null;
+            /** Calls */
+            calls?: string | null;
+            /** Ask */
+            ask?: string | null;
         };
         /** SaveAsWorkflow */
         SaveAsWorkflow: {

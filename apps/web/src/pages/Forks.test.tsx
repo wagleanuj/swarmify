@@ -28,8 +28,9 @@ test("a finished stage offers a fork, which posts the stage and opens the new ru
       return Response.json({ ...done, id: "run_2", status: "queued" }, { status: 201 });
     },
   });
-  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
-  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(3);
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  // The selected step offers it, one at a time.
+  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(1);
   await screen.getByRole("button", { name: "Fork the run from pick" }).click();
   await vi.waitFor(() => expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_2"));
   expect(body).toEqual({ stage: 1 });
@@ -43,8 +44,13 @@ test("only stages that finished, after finished stages, can be forked from", asy
   ]);
   fakeFetch({ "GET /api/runs/run_1": () => Response.json(waiting) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^pick/);
+  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(0);
+  await screen.getByRole("button", { name: /^Step 1, research/ }).click();
   await expect.element(screen.getByRole("button", { name: "Fork the run from research" })).toBeVisible();
-  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(1);
+  await screen.getByRole("button", { name: /^Step 3, render/ }).click();
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^render/);
+  expect(screen.getByRole("button", { name: /Fork the run from/ }).elements()).toHaveLength(0);
 });
 
 test("a refused fork shows the API's reason", async () => {

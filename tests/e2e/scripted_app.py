@@ -4,18 +4,21 @@ Every swarm stage takes three sessions through the real SDK client, hooks and in
 tools, each scripted by its role, told apart by its system prompt: the planner seeds one task;
 the worker queries the graph, claims it, writes a note and an artifact and finishes it; the
 judge passes with two ranked ideas. Every run's retro session proposes nothing, or, with
-`SWARMIFY_E2E_RETRO=propose` in the app's environment, one new skill.
+`SWARMIFY_E2E_RETRO=propose` in the app's environment, one new skill. A `remotion_build` stage's
+builder session installs packages and writes src/Main.tsx.
 
 The planner chat, told apart by its system prompt too, drafts GOLDEN. The built-in Remotion
-render and YouTube connectors answer from a fake ConnectorTransport (render writes the video and
-its sidecar, as the real wrapper does; YouTube counts 1,234 views); a connector a test adds goes
-through the real MCP transport. Upkeep runs every second.
+render, speech and YouTube connectors answer from a fake ConnectorTransport (render writes the
+video and its sidecar, as the real wrapper does; speech writes timings.json and a silent take per
+scene; YouTube counts 1,234 views); a connector a test adds goes through the real MCP transport.
+Upkeep runs every second.
 
 The GraphWriter's extract writes a fixed graph instead of calling graphify's model, a second
 after the last change; the real graphify MCP process answers queries over it."""
 
 import json
 import os
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +31,7 @@ from swarmify_connectors import Connector, FakeTransport, McpTransport
 from swarmify_learning import SYSTEM as RETRO_SYSTEM
 from swarmify_memory import GRAPH_OUT
 from swarmify_swarm import SdkRuntime, tool_id
+from swarmify_swarm.build import SYSTEM as BUILDER_SYSTEM
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script, ScriptedTransport
 
 PLANNER = [Answer({"tasks": [{"title": "Pull this week's top shorts"}]})]
@@ -51,6 +55,11 @@ IDEAS = [
     {"title": "The chase", "body": "A chase in 30 seconds.", "rank": 2, "sources": []},
 ]
 JUDGE = [Answer({"passed": True, "reasons": ["Two ideas, ranked."], "items": IDEAS})]
+BUILDER = [
+    Call("Bash", {"command": "npm install"}),
+    Call("Write", {"file_path": "src/Main.tsx", "content": "export const Main = () => null;"}),
+    Say("A title card over the narration."),
+]
 RETRO = [Answer({"skill": None, "workflow": None})]
 """The retro after the run proposes nothing, so the run ends without a skill gate."""
 HOOKS = "---\nname: hooks\ndescription: Open on the hook.\n---\n\nWrite the hook first.\n"
@@ -104,6 +113,32 @@ PLANNER_CHAT = [
     )
 ]
 VIDEO = "e2e-video"
+SCENES = [("hook", 1.5, True), ("payoff", 2.0, False)]
+"""The speech fake's takes: scene, seconds, and whether its first line runs into the next."""
+
+
+def voice(out: Path) -> dict[str, Any]:
+    """What the speech connector leaves: timings.json and a silent take per scene beside it."""
+    (out.parent / "narration").mkdir(exist_ok=True)
+    takes = []
+    for scene, seconds, joined in SCENES:
+        with wave.open(str(out.parent / f"narration/{scene}.wav"), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(8000)
+            w.writeframes(b"\0\0" * int(8000 * seconds))
+        lines = [{"text": "One.", "joined_next": joined}, {"text": "Two.", "joined_next": False}]
+        takes.append(
+            {"scene": scene, "file": f"narration/{scene}.wav", "duration": seconds, "lines": lines}
+        )
+    out.write_text(json.dumps({"engine": "http://localhost:8881", "takes": takes}))
+    total = sum(s for _, s, _ in SCENES)
+    return {
+        "output": str(out),
+        "takes": len(takes),
+        "seconds": total,
+        "message": f"{len(takes)} takes",
+    }
 
 
 class Transport(McpTransport):
@@ -130,6 +165,8 @@ class Transport(McpTransport):
             return self.fake.call(connector, tool, arguments, env) | {"output": out.name}
         if connector.name == "youtube":
             return self.fake.call(connector, tool, arguments, env)
+        if connector.name == "speech":
+            return voice(Path(arguments["output_path"]))
         return super().call(connector, tool, arguments, env)
 
 
@@ -155,6 +192,7 @@ def create_app() -> FastAPI:
     scripts = {  # the first whose marker is in the system prompt plays the session
         PLANNER_SYSTEM: Script(PLANNER_CHAT, cost=0.0042),
         RETRO_SYSTEM: Script(retro, cost=0.0042),
+        BUILDER_SYSTEM: Script(BUILDER, cost=0.0042),
         "You are the planner of a swarm": Script(PLANNER, cost=0.0042),
         "You are the judge of a swarm": Script(JUDGE, cost=0.0042),
         "a worker in a swarm": Script(WORKER, cost=0.0042),

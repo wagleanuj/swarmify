@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import httpx
@@ -22,17 +23,18 @@ def test_a_worker_runs_the_stage_and_the_page_shows_its_live_log(
         run = api.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run['id']}")
 
-        expect(page.get_by_test_id("status-line")).to_have_text("Done. All 2 stages finished.")
+        expect(page.get_by_test_id("status-line")).to_have_text(re.compile(r"^Done in "))
         log = page.get_by_test_id("log")
-        expect(log).to_contain_text("Gilfoyle used query_graph")
-        expect(log).to_contain_text("Gilfoyle used claim_task")
-        expect(log).to_contain_text("Gilfoyle was refused Bash: Bash is not allowed in this stage.")
-        expect(log).to_contain_text("Gilfoyle used write_note")
+        expect(log).to_contain_text("Gilfoyle: Searching the world's memory")
+        expect(log).to_contain_text("Gilfoyle: Claimed: the next task")
+        expect(log).to_contain_text("Gilfoyle: Refused Bash: Bash is not allowed in this stage.")
+        expect(log).to_contain_text("Gilfoyle: Writing notes/findings.md")
         expect(log).to_contain_text("Richard: Session ended")
         expect(log).to_contain_text("Erlich: Session ended")
-        expect(page.get_by_test_id("agent").nth(1)).to_contain_text("estimated $0.0042")
-        # Planner, worker, judge and retro at $0.0042 each.
-        expect(page.get_by_test_id("run-cost")).to_contain_text("$0.0168")
+        expect(page.get_by_test_id("agent").nth(1)).to_contain_text("worker · $0.0042")
+        expect(page.get_by_test_id("agent").nth(1)).to_contain_text("Finished")
+        # Planner, worker, judge and retro at $0.0042 each, about two cents.
+        expect(page.get_by_test_id("budget")).to_contain_text("$0.02")
         expect(page.get_by_test_id("col-done")).to_contain_text(
             "Pull this week's top shortsdone by Gilfoyle"
         )

@@ -54,7 +54,7 @@ export function Whiteboard(props: {
     <section className="whiteboard" aria-label={`Whiteboard of ${stage.name}`} data-testid="whiteboard">
       <div className="row">
         <div>
-          <h2>Whiteboard · {stage.name}</h2>
+          <h3>Whiteboard</h3>
           <p className="faint" data-testid="whiteboard-summary">
             {tasks.length === 0
               ? "No tasks yet."

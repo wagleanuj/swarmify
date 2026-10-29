@@ -8,13 +8,14 @@ export const fileUrl = (worldId: string, path: string) =>
 
 /** The raw file behind an artifact. A binary is listed by its sidecar (`short.mp4.md`), so the
  * bytes live one `.md` short of its path. */
-const rawUrl = (worldId: string, a: ArtifactFile) =>
+export const rawUrl = (worldId: string, a: ArtifactFile) =>
   fileUrl(worldId, a.path.endsWith(`/${a.name}.md`) ? a.path.slice(0, -3) : a.path);
 
 /** What the run wrote about itself, not something to choose or review. */
-const RECORD = new Set(["verdict", "decision", "note"]);
-const VIDEO = /\.(mp4|webm|mov|m4v)$/i;
-const IMAGE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+export const RECORD = new Set(["verdict", "decision", "note"]);
+export const VIDEO = /\.(mp4|webm|mov|m4v)$/i;
+export const IMAGE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+export const AUDIO = /\.(wav|mp3|m4a|ogg|flac|aac)$/i;
 
 const byRank = (a: ArtifactFile, b: ArtifactFile) =>
   Number(a.fields.rank ?? 1e9) - Number(b.fields.rank ?? 1e9);
@@ -46,7 +47,7 @@ function Source({ ref, worldId }: { ref: string; worldId: string }) {
 }
 
 /** The first paragraph of the body that is not its heading, for a card with no hook. */
-function summary(body: string): string {
+export function summary(body: string): string {
   const para = body
     .split(/\n\s*\n/)
     .map((b) => b.trim())

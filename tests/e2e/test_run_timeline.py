@@ -31,7 +31,7 @@ def test_start_a_run_and_watch_it_reach_its_gate_live(page: Page, base_url: str)
 
         # The page loads the queued run, then the world's event stream moves it along.
         status = page.get_by_test_id("status-line")
-        expect(status).to_have_text("Waiting for you at stage 2: pick.", timeout=15_000)
+        expect(status).to_have_text("Waiting for you: Ship it?", timeout=15_000)
         timeline = page.get_by_test_id("timeline")
         expect(timeline.locator("[data-status=done]")).to_contain_text("render")
         expect(timeline.locator("[data-status=waiting]")).to_contain_text("pick")
