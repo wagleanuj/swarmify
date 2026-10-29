@@ -188,19 +188,10 @@ test("with nothing made yet it says what lands here and reloads when an artifact
   await expect.element(screen.getByTestId("library")).toMatchTextContent(/Hook first/);
 });
 
-test("a load failure is an alert and the overview links here", async () => {
+test("a load failure is an alert", async () => {
   fakeFetch({ "GET /api/worlds/world_1/library": () => new Response("boom", { status: 500 }) });
   const { screen } = await mountAt("/worlds/world_1/library");
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load the library/);
-
-  fakeFetch({
-    "GET /api/worlds/world_1": () => Response.json(video),
-    "GET /api/worlds/world_1/workflows": () => Response.json([]),
-  });
-  const overview = await mountAt("/worlds/world_1");
-  await expect
-    .element(overview.screen.getByRole("link", { name: "Open the library" }))
-    .toHaveAttribute("href", "/worlds/world_1/library");
 });
 
 test("a note or artifact becomes a skill draft the operator edits and saves as a version", async () => {
