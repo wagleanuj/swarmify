@@ -277,7 +277,10 @@ def project(
         refs = [
             s for s in item.sources if s.note in paras and 1 <= s.paragraph <= len(paras[s.note])
         ]
-        fields: dict[str, Any] = {**({} if declared else item.fields), "title": item.title}
+        # A declared type's top-level text also goes in the frontmatter, where readers such as
+        # a publish stage look for title and description; nested fields stay in the JSON block.
+        text = {k: v for k, v in item.fields.items() if isinstance(v, str)} if declared else {}
+        fields: dict[str, Any] = {**(text if declared else item.fields), "title": item.title}
         if item.rank is not None:
             fields["rank"] = item.rank
         if item.reason:

@@ -202,3 +202,19 @@ def test_a_declared_type_is_written_as_the_produced_file_with_a_fenced_json_bloc
     assert c.name == "recipe-soup.md"
     many = project(OutputType("recipe", True), [soup, soup], [], True, ["recipe.md"])
     assert [m.name for m in many] == ["recipe-soup.md", "recipe-soup-2.md"]
+
+
+def test_a_declared_types_top_level_text_reaches_the_frontmatter() -> None:
+    # A publish stage reads title and description from the produced file's frontmatter.
+    item = Item(
+        "Kidneys",
+        "Body.",
+        1,
+        {"description": "Why you can have five.", "scenes": [{"id": "s1"}], "rank": "x"},
+    )
+    (a,) = project(OutputType("script", False), [item], [], True, ["script.md"])
+    assert a.fields["description"] == "Why you can have five."
+    assert (
+        a.fields["title"] == "Kidneys" and a.fields["rank"] == 1
+    )  # reserved keys are never overwritten
+    assert "scenes" not in a.fields

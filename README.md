@@ -324,7 +324,8 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   schemas. A swarm stage promises a type with `output_type: <name>`: its judge then answers each
   item's `fields` in the type's schema (structured output), an answer that does not fit fails
   that judge session, and the artifact carries the value as a fenced JSON block before the
-  readable body. A single typed output is written as the stage's produced markdown file (the one
+  readable body; its top-level text fields (a script's `description`, say) also go in the
+  frontmatter beside the title, where a publish stage's `metadata` reads them. A single typed output is written as the stage's produced markdown file (the one
   named after the type, else the first), so the connector stage reading that file gets it; a
   `list[<name>]` writes `<name>-<slug>.md` files. A type name no connector declares (`idea`)
   keeps the generic projection. The check refuses a workflow, and a run start re-checks it
