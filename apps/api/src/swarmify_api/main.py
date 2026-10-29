@@ -300,11 +300,12 @@ def run_file(world_folder: Path, run: Run, name: str) -> Path:
 
 def with_files(world_folder: Path, run: Run, stage_id: str, config: dict[str, Any]) -> dict:
     """A connector stage exchanges files through the run folder. `output` lands in this stage's
-    `artifacts/` (created for it), `input` is the newest run file of that name (`run_file`), and
-    the frontmatter a sidecar needs rides along. All join the call's params. Workflow YAML is
-    Planner-authored, so a path in `output` or a run-owned key in `params` is refused."""
+    `artifacts/` (created for it), `input` is the newest run file of that name (`run_file`), as
+    is each of `inputs` (`input_paths`, in order), and the frontmatter a sidecar needs rides
+    along. All join the call's params. Workflow YAML is Planner-authored, so a path in `output`
+    or a run-owned key in `params` is refused."""
     params = dict(config.get("params") or {})
-    for key in ("input_path", "output_path", "frontmatter"):
+    for key in ("input_path", "input_paths", "output_path", "frontmatter"):
         if key in params:
             raise ConnectorError(f"params.{key} is set by the run, not the workflow")
     output = str(config.get("output") or "")
@@ -312,6 +313,8 @@ def with_files(world_folder: Path, run: Run, stage_id: str, config: dict[str, An
         raise ConnectorError(f"output must be a bare file name, got '{output}'")
     if config.get("input"):
         params["input_path"] = str(run_file(world_folder, run, str(config["input"])))
+    if config.get("inputs"):
+        params["input_paths"] = [str(run_file(world_folder, run, str(n))) for n in config["inputs"]]
     if output:
         out = world_folder / "runs" / run.id / stage_id / "artifacts" / output
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -384,8 +387,11 @@ def create_app(
         output = stage.config.get("output") or "video.mp4"
         config = with_files(folder, run, stage_id, {**stage.config, "output": output})
         params = config["params"]
-        if "input_path" not in params:
+        # the script is `input` or the first of `inputs`; the rest are the builder's to read
+        script, *others = params.get("input_paths") or [params.get("input_path") or ""]
+        if not script:
             raise ConnectorError("remotion_build needs an input, the script")
+        params["input_path"] = script
         project = folder / "runs" / run.id / stage_id / "build"
         composition = str(params.get("composition") or "Main")
         call = registry.call_for(stage_id)
@@ -406,8 +412,9 @@ def create_app(
                     stage.name,
                     folder,
                     project,
-                    Path(params["input_path"]),
+                    Path(script),
                     composition=composition,
+                    inputs=[Path(p) for p in others],
                     brief=str(params.get("brief") or ""),
                     sandbox=build.sandbox(project, folder, root, cache, secrets),
                     env={**dict.fromkeys(secrets, ""), "npm_config_cache": str(cache)},

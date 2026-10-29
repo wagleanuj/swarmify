@@ -13,6 +13,7 @@ them and the model credentials for every command.
 """
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -96,13 +97,20 @@ def refusal(
     return None
 
 
-def prompt(script: Path, composition: str, brief: str, decisions: list[str]) -> str:
+def prompt(
+    script: Path, composition: str, brief: str, decisions: list[str], inputs: Sequence[Path] = ()
+) -> str:
+    """`inputs` are the stage's other input files, beside the script."""
     lines = [
         f"Build the Remotion project in this folder (your working directory) so that"
         f" composition `{composition}` turns the script at {script} into a finished short video.",
         "Read the script first. The render passes it as input props: getInputProps() returns"
         " {script: <its text>, scriptPath: <its path>}, so the composition must read the script"
         " from there, not from a copied file.",
+        "The stage's other inputs, also yours to read (copy what the render needs into public/):"
+        f" {', '.join(map(str, inputs))}."
+        if inputs
+        else "",
         *decisions,
         f"The operator's brief: {brief}" if brief else "",
     ]

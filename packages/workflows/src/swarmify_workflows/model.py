@@ -36,13 +36,15 @@ class GateStage:
 
 @dataclass(frozen=True)
 class ConnectorStage:
-    """One idempotent call to connector `calls`, from `input` artifact to `output` artifact."""
+    """One idempotent call to connector `calls`, from `input` artifact (or several, `inputs`) to
+    `output` artifact."""
 
     name: str
     calls: str
     input: str | None = None
     output: str | None = None
     params: dict[str, object] = field(default_factory=dict)
+    inputs: list[str] = field(default_factory=list)
     type: Literal["connector"] = "connector"
 
 
@@ -80,8 +82,8 @@ class Violation:
 @dataclass(frozen=True)
 class ConnectorRef:
     """What Workflows needs to know about a connector: its kind, the stage types it allows and
-    `problems`, the connector's own check of a connector stage's config (calls, input, output,
-    params), which names every problem that would stop the call."""
+    `problems`, the connector's own check of a connector stage's config (calls, input, inputs,
+    output, params), which names every problem that would stop the call."""
 
     name: str
     kind: str  # tool, stage or publish

@@ -207,3 +207,73 @@ def test_params_may_not_set_the_run_paths(tmp_path: Path, key: str) -> None:
     config = {"output": "clip.mp4", "params": {key: "/etc/passwd"}}
     with pytest.raises(ConnectorError, match=f"params.{key} is set by the run"):
         with_files(tmp_path, _run("draft", "render"), "stage_1", config)
+
+
+def test_a_stage_with_several_inputs_gets_the_newest_of_each_across_a_send_back(
+    running: TestClient, tmp_path: Path
+) -> None:
+    w = running.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
+    server = shlex.join([sys.executable, str(HERE / "script_server.py")])
+    body = {"name": "script_writer", "kind": "stage", "server": server}
+    added = running.post(f"/api/worlds/{w}/connectors", json={**body, "stage_types": ["connector"]})
+    assert added.status_code == 201, added.text
+    yaml = """name: Two inputs
+stages:
+  - connector: script
+    calls: script_writer
+    output: script.md
+  - connector: notes
+    calls: script_writer
+    output: notes.md
+  - connector: join
+    calls: script_writer
+    inputs: [script.md, notes.md]
+    output: both.md
+  - gate: review
+    ask: Read it.
+"""
+    workflow = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
+    assert workflow.status_code == 201, workflow.text
+    run = running.post(f"/api/workflows/{workflow.json()['workflow_id']}/runs", json={}).json()
+    run = settled(running, run["id"])
+    assert run["status"] == "waiting_gate", run
+    script_id, notes_id, join_id = (s["id"] for s in run["stages"][:3])
+    folder = tmp_path / "data/worlds" / w / "runs" / run["id"]
+    call = running.get(f"/api/stages/{join_id}/call").json()
+    assert call["request"]["inputs"] == ["script.md", "notes.md"]
+    assert call["request"]["input_paths"] == [
+        str(folder / script_id / "artifacts/script.md"),
+        str(folder / notes_id / "artifacts/notes.md"),
+    ]
+    both = (folder / join_id / "artifacts/both.md").read_text()
+    assert f"<!-- {script_id} -->" in both and f"<!-- {notes_id} -->" in both
+
+    sent = running.post(
+        f"/api/runs/{run['id']}/decision", json={"note": "Again.", "send_back_to": "script"}
+    )
+    assert sent.status_code == 200, sent.text
+    while (run := settled(running, run["id"]))["send_backs"] != 1:
+        time.sleep(0.05)
+    both = (folder / join_id / "artifacts/both.md").read_text()
+    assert f"<!-- {script_id}.1 -->" in both and f"<!-- {notes_id}.1 -->" in both
+
+
+def test_inputs_are_the_newest_run_file_of_each_name_in_order(tmp_path: Path) -> None:
+    run = _run("draft", "voice", "rewrite", "video")
+    for n, (stage, name) in enumerate(
+        [("stage_0", "script.md"), ("stage_1", "timings.json"), ("stage_2", "script.md")]
+    ):
+        (tmp_path / "runs/run_1" / stage / "artifacts").mkdir(parents=True)
+        file = tmp_path / "runs/run_1" / stage / "artifacts" / name
+        file.write_text(stage)
+        os.utime(file, (n, n))
+    config = {"inputs": ["timings.json", "script.md"]}
+    params = with_files(tmp_path, run, "stage_3", config)["params"]
+    assert [Path(p).read_text() for p in params["input_paths"]] == ["stage_1", "stage_2"]
+    assert "input_path" not in params
+    with pytest.raises(ConnectorError, match="no earlier stage of this run left a file named"):
+        with_files(tmp_path, run, "stage_3", {"inputs": ["script.md", "takes.wav"]})
+    with pytest.raises(ConnectorError, match="must be a bare file name"):
+        with_files(tmp_path, run, "stage_3", {"inputs": ["script.md", "../x.md"]})
+    with pytest.raises(ConnectorError, match="params.input_paths is set by the run"):
+        with_files(tmp_path, run, "stage_3", {"params": {"input_paths": ["/etc/passwd"]}})

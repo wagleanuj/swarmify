@@ -54,6 +54,7 @@ const FIELDS: Record<StageType, { key: string; label: string; kind: "text" | "lo
   connector: [
     { key: "calls", label: "Calls", kind: "text" },
     { key: "input", label: "Input", kind: "text" },
+    { key: "inputs", label: "Inputs", kind: "list" },
     { key: "output", label: "Output", kind: "text" },
   ],
   workflow: [

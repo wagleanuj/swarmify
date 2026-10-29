@@ -1522,7 +1522,8 @@ export interface components {
         };
         /**
          * ConnectorStage
-         * @description One idempotent call to connector `calls`, from `input` artifact to `output` artifact.
+         * @description One idempotent call to connector `calls`, from `input` artifact (or several, `inputs`) to
+         *     `output` artifact.
          */
         ConnectorStage: {
             /** Name */
@@ -1537,6 +1538,8 @@ export interface components {
             params?: {
                 [key: string]: unknown;
             };
+            /** Inputs */
+            inputs?: string[];
             /**
              * Type
              * @default connector

@@ -119,3 +119,23 @@ def test_an_unquoted_timestamp_stays_the_text_written() -> None:
     stage = model.stages[0]
     assert isinstance(stage, ConnectorStage)
     assert stage.params == {"schedule": "2099-01-01T09:00:00Z", "day": "2099-01-01"}
+
+
+def test_a_connector_stage_may_take_several_inputs() -> None:
+    model, violations = parse_workflow(
+        "name: P\nstages:\n  - connector: video\n    calls: remotion_build\n"
+        "    inputs: [script.md, timings.json]\n"
+    )
+    assert violations == [] and model is not None
+    assert model.stages[0] == ConnectorStage(
+        "video", "remotion_build", inputs=["script.md", "timings.json"]
+    )
+
+
+def test_a_connector_stage_names_input_or_inputs_not_both() -> None:
+    assert rules(
+        "name: P\nstages:\n  - connector: video\n    input: script.md\n    inputs: [a.json]\n"
+    ) == [("schema", "video", "give input or inputs, not both")]
+    assert rules("name: P\nstages:\n  - connector: video\n    inputs: a.json\n") == [
+        ("schema", "video", "inputs must be a list of names")
+    ]

@@ -336,6 +336,7 @@ def test_a_saved_build_stage_names_its_script_and_an_existing_template(
 ) -> None:
     build = {"calls": "remotion_build", "output": "video.mp4"}
     assert connectors.stage_problems(W, build) == ["remotion_build needs an input, the script"]
+    assert connectors.stage_problems(W, {**build, "inputs": ["script.md", "t.json"]}) == []
     build["input"] = "script.md"
     assert connectors.stage_problems(W, build) == []
     assert connectors.stage_problems(W, {**build, "params": {"base": "/etc"}}) == [

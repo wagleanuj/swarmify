@@ -58,6 +58,22 @@ def test_connector_inputs_must_be_produced_by_an_earlier_stage() -> None:
     assert rules(WorkflowModel("w", [child, upload]), wf_c=[]) == []
 
 
+def test_every_one_of_several_inputs_must_be_produced_by_an_earlier_stage() -> None:
+    script = SwarmStage("script", "g", "d", produces=["script.md"])
+    voice = ConnectorStage("voice", "remotion_render", input="script.md", output="timings.json")
+    video = ConnectorStage("video", "remotion_render", inputs=["script.md", "timings.json"])
+    assert rules(WorkflowModel("w", [script, voice, video])) == []
+    found = validate(
+        WorkflowModel("w", [script, video, voice]),
+        workflow_id=None,
+        connectors=CONNECTORS,
+        references={},
+    )
+    assert [(v.rule, v.stage, v.message) for v in found] == [
+        ("input_not_produced", "video", "input 'timings.json' is not produced by an earlier stage")
+    ]
+
+
 def test_workflow_stages_must_name_a_stored_workflow() -> None:
     assert rules(WorkflowModel("w", [WorkflowStage("s", "wf_x")])) == [("unknown_workflow", "s")]
     assert rules(WorkflowModel("w", [WorkflowStage("s", "wf_x")]), wf_x=[]) == []
@@ -114,7 +130,9 @@ def test_a_connector_s_own_param_check_is_reported_per_problem() -> None:
     assert [(v.rule, v.stage, v.message) for v in found] == [
         ("connector_params", "publish", "a publish stage needs params.title")
     ]
-    assert seen == [{"calls": "youtube", "input": "short.mp4", "output": None, "params": {}}]
+    assert seen == [
+        {"calls": "youtube", "input": "short.mp4", "inputs": [], "output": None, "params": {}}
+    ]
 
 
 @pytest.mark.parametrize("name", ["video.mp4", "cover.png", "voice.mp3", "deck.pdf", "a.zip"])

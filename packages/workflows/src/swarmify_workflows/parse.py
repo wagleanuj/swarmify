@@ -21,7 +21,7 @@ TOP_FIELDS = {"name", "schedule", "budget_usd", "agents", "stages"}
 STAGE_FIELDS: dict[str, set[str]] = {
     "swarm": {"goal", "done_when", "tools", "graphs", "output_type", "produces", "model"},
     "gate": {"ask", "kind"},
-    "connector": {"calls", "input", "output", "params"},
+    "connector": {"calls", "input", "inputs", "output", "params"},
     "workflow": {"runs", "take"},
 }
 
@@ -159,12 +159,14 @@ def _parse_stage(index: int, raw: Any, out: list[Violation]) -> tuple[str | None
             stage = GateStage(stage_name, ask, gate_kind)
     elif kind == "connector":
         calls = f.text("calls") or stage_name
-        input_, output = f.text("input"), f.text("output")
+        input_, output, inputs = f.text("input"), f.text("output"), f.names("inputs")
         params = raw.get("params", {})
+        if input_ and inputs:
+            f.fail("give input or inputs, not both")
         if not isinstance(params, dict):
             f.fail("params must be a mapping")
         else:
-            stage = ConnectorStage(stage_name, calls, input_, output, params)
+            stage = ConnectorStage(stage_name, calls, input_, output, params, inputs)
     else:
         runs = f.text("runs", required=True)
         take = f.names("take")
