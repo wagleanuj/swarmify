@@ -4,6 +4,8 @@ It prints the real CLI's progress lines and writes the props it was given as the
 test can see the script arrived. Composition `Broken` fails like a bad render; `Slow` pauses
 between frames so a poll can catch it mid-render; `Empty` exits 0 without writing a file;
 `Snoop` is an agent's project trying to break out of the render sandbox and records what it got.
+Like the real CLI it serves the bundle on `--port` (3000 without one) and, when another server
+already answers there, talks to that one and fails.
 """
 
 import json
@@ -18,6 +20,14 @@ assert args[:2] == ["remotion", "render"], args
 _, _, entry, composition, output = args[:5]
 props = next(a.split("=", 1)[1] for a in sys.argv if a.startswith("--props="))
 browser = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--browser-executable=")), "")
+port = int(next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--port=")), "3000"))
+try:
+    socket.create_connection(("localhost", port), timeout=1).close()
+except OSError:
+    pass
+else:
+    print("Error: window.getStaticCompositions is not defined", flush=True)
+    sys.exit(1)
 if composition == "Broken":
     print("Bundling 100%")
     print(f"Error: No composition with the ID {composition} found.", flush=True)

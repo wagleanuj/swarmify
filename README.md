@@ -334,7 +334,10 @@ swarmify resumes polling it; progress comes from the CLI's `Rendered n/N` and `E
 and shows on the timeline. On success the video gets a sidecar, `short.mp4.md`, with frontmatter
 (type video, author remotion_render, world, run, stage, created, source script, composition,
 bytes, and the template's git commit when the project is a git checkout). On failure the stage
-fails with the last 40 lines of CLI output, shown under the timeline.
+fails with the last 40 lines of CLI output, shown under the timeline. Every render, a build's
+included, serves its bundle on a port the OS just handed out (`--port`), never Remotion's default
+3000, where another server (an open-webui container, say) would answer and fail the render with
+`window.getStaticCompositions is not defined`.
 Tests use a fake `npx`; one real render runs when you opt in:
 `SWARMIFY_REMOTION_PROJECT=<project> SWARMIFY_REMOTION_COMPOSITION=<id> uv run pytest -k real_render`.
 
