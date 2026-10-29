@@ -409,7 +409,6 @@ def create_app(
             last = call if call is not None and call.status == "done" else None
             previous = project.with_name(f"build.v{last.visit + 1}") if last else None
             video = Path(params["output_path"])
-            sent = next((d for d in reversed(run.decisions) if d.send_back_to), None)
             try:
                 if previous and (previous.exists() or project.exists()):
                     remotion.keep(project, previous, video)
@@ -443,7 +442,7 @@ def create_app(
                     revises=[previous, previous.with_name(previous.name + video.suffix)]
                     if previous
                     else [],
-                    note=sent.note if sent and sent.send_back_to == stage.name else "",
+                    note=run.send_back_note(stage.name),
                 )
             except Stopped as exc:
                 raise OverBudget(str(exc)) from exc
@@ -520,7 +519,7 @@ def create_app(
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
         folder = world_svc.folder(run.world_id)
         learning_svc.sync(run.world_id)  # shared skills the world lacks load from its folder
-        notes = next(s.notes for s in run.stages if s.id == stage_id)
+        note = run.send_back_note(stage.name)  # an older send-back's note no longer applies
         # The Cast as it stands when the stage starts: an edit reaches every later stage.
         # A run's own worker count (the workflow's `agents` or the start's) beats the world's.
         members = world_svc.cast(run.world_id, stage.config.get("agents")) or []
@@ -546,7 +545,7 @@ def create_app(
                 stage.name,
                 config,
                 folder,
-                notes,
+                [note] if note else [],
                 run.send_backs,
                 baseline=run.baseline,
                 cast=cast,
