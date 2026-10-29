@@ -55,5 +55,5 @@ run = [
 description = "Build the web skin and run Playwright against the real API"
 run = [
   "pnpm --filter web build",
-  "uv run pytest tests/e2e --no-cov -p no:cacheprovider",
+  "uv run pytest tests/e2e --no-cov -n 0 -p no:cacheprovider",
 ]

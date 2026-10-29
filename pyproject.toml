@@ -13,6 +13,7 @@ dev = [
   "pytest>=9.1",
   "pytest-cov>=7.1",
   "pytest-playwright>=0.10",
+  "pytest-xdist>=3.8.0",
   "ruff>=0.17",
   "types-pyyaml>=6.0",
 ]
@@ -53,7 +54,8 @@ typeCheckingMode = "standard"
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps/api", "tools"]
 pythonpath = ["tools"]
-addopts = "--cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_learning --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+# -n 8: the suite mostly waits on polling intervals, so eight workers beat one even on a 4-core runner.
+addopts = "-n 8 --cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_learning --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
 
 [tool.coverage.run]
 omit = ["*/tests/*"]
