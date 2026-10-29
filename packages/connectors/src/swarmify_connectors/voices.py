@@ -17,6 +17,7 @@ from pathlib import Path
 
 import httpx
 
+from swarmify_connectors import speech
 from swarmify_connectors.speech import VOICES, decode
 
 KOKORO = "http://localhost:8880"
@@ -53,7 +54,7 @@ def described(preset: str) -> tuple[str, list[str]]:
 def seed(http: httpx.Client, base: str, voices: Path, presets: list[str]) -> list[str]:
     """Speak SENTENCE in each preset the engine at `base` lists, save `<preset>.wav` in `voices`
     and add or replace its entry in voices.json, keeping the others. Returns what was skipped."""
-    listed = http.get(f"{base}/v1/audio/voices").json().get("voices") or []
+    listed = speech.voice_names(http.get(f"{base}/v1/audio/voices").json().get("voices"))
     voices.mkdir(parents=True, exist_ok=True)
     file = voices / "voices.json"
     entries = json.loads(file.read_text()) if file.is_file() else []
