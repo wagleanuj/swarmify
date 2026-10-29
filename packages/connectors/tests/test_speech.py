@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import math
+import re
 import threading
 import wave
 from collections.abc import Callable, Iterator
@@ -58,6 +59,8 @@ def kokoro(seen: list[str], fail: bool = False) -> Callable[[httpx.Request], htt
     """A captioned engine: its speech carries its own word times, punctuation tokens included."""
 
     def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok"})  # no tags
         body = json.loads(request.content)
         seen.append(f"{request.url.host} {request.url.path} {body['input']}")
         if fail and "hedgehog" in body["input"]:
@@ -74,15 +77,24 @@ def kokoro(seen: list[str], fail: bool = False) -> Callable[[httpx.Request], htt
     return handle
 
 
-def chatterbox(seen: list[str]) -> Callable[[httpx.Request], httpx.Response]:
-    """An engine without captions: speech, then its own alignment endpoint."""
+def chatterbox(
+    seen: list[str], said: list[str] | None = None, fail: bool = False
+) -> Callable[[httpx.Request], httpx.Response]:
+    """An engine without captions that advertises tags: speech, then its own alignment endpoint.
+    `said` gets each speech input and each text it aligns."""
 
     def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok", "tags": ["whispering", "laugh"]})
         seen.append(f"{request.url.host} {request.url.path}")
         if request.url.path == "/dev/captioned_speech":
             return httpx.Response(404)
         if request.url.path == "/v1/audio/speech":
-            return httpx.Response(200, content=SPOKEN)
+            if said is not None:
+                said.append(json.loads(request.content)["input"])
+            return httpx.Response(500) if fail else httpx.Response(200, content=SPOKEN)
+        if said is not None:
+            said.append(request.content.split(b'name="text"\r\n\r\n')[1].split(b"\r\n")[0].decode())
         # heard "Goodnight" as one word
         heard = [*WORDS[:2], ("Goodnight", 1.3, 2.0)]
         return httpx.Response(
@@ -97,26 +109,150 @@ def engines(**by_host: Callable[[httpx.Request], httpx.Response]) -> httpx.Clien
     return httpx.Client(transport=httpx.MockTransport(lambda r: by_host[r.url.host](r)))
 
 
+def line(text: str, pause: float = sp.PAUSE, say: str = "", **more: list[str]) -> dict[str, Any]:
+    return {
+        "text": text,
+        "say": say or text,
+        "pause_after": pause,
+        "directions": more.get("directions", []),
+        "unrecognized": more.get("unrecognized", []),
+    }
+
+
+def scene_of(lines: str) -> list[dict[str, Any]]:
+    """The lines of a one-scene fenced script whose `lines` JSON is `lines`."""
+    body = json.dumps({"scenes": [{"id": "s01", "lines": json.loads(lines)}]})
+    return sp.parse_script(f"```json\n{body}\n```")[0]["lines"]
+
+
 def test_the_fenced_json_gives_scenes_and_lines() -> None:
     scenes = sp.parse_script(SCRIPT)
     assert [s["id"] for s in scenes] == ["hook", "fact"]
-    assert scenes[0]["lines"] == [
-        {"text": "Who sleeps?", "pause_after": 0.5},
-        {"text": "Good night.", "pause_after": sp.PAUSE},
+    assert scenes[0]["lines"] == [line("Who sleeps?", 0.5), line("Good night.")]
+
+
+def test_a_line_of_the_wrong_shape_is_named_with_the_shape_expected() -> None:
+    # the script that failed run_01M6329GYYWZE12C55T0HKSBXV: lines as plain strings
+    script = (Path(__file__).parent / "fixtures/kidney_script.md").read_text()
+    with pytest.raises(ValueError) as err:
+        sp.parse_script(script)
+    assert str(err.value) == (
+        'scene s01, line 1: expected {"text": ..., "pause_after": ...}, got a string'
+    )
+
+
+@pytest.mark.parametrize(
+    ("lines", "message"),
+    [
+        ('[{"text": "Hi."}, {"text": " "}]', "scene s01, line 2: the text is empty"),
+        (
+            '[{"text": "Hi."}, {"text": "Bye.", "pause_after": -1}]',
+            "scene s01, line 2: pause_after",
+        ),
+        ('[{"text": 3}]', 'scene s01, line 1: expected {"text": ..., "pause_after": ...}'),
+        ('[{"text": "(beat)"}]', "scene s01, line 1: the text is empty"),
+    ],
+)
+def test_a_bad_line_is_named(lines: str, message: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(message)):
+        scene_of(lines)
+
+
+@pytest.mark.parametrize(
+    ("text", "pauses"),
+    [
+        ("Usually... nothing. (pause)", [sp.PAUSE + 0.5]),
+        ("Usually... nothing. (beat)", [sp.PAUSE + 0.5]),
+        ("Usually... nothing. (long pause)", [sp.PAUSE + 1.2]),
+        ("Usually... nothing. (pause 1.5s)", [sp.PAUSE + 1.5]),
+        ("Usually... (beat) nothing.", [0.5, sp.PAUSE]),
+        ("Usually... (pause 2 s) nothing.", [2.0, sp.PAUSE]),
+        ("Usually... (long beat) nothing. (pause)", [1.2, sp.PAUSE + 0.5]),
+    ],
+)
+def test_pauses_become_silence_ending_or_splitting_a_line(text: str, pauses: list[float]) -> None:
+    lines = scene_of(json.dumps([{"text": text}]))
+    assert [ln["pause_after"] for ln in lines] == pytest.approx(pauses)
+    assert " ".join(ln["text"] for ln in lines) == "Usually... nothing."
+    assert all(ln["directions"] == [] for ln in lines)
+
+
+def test_a_pause_opening_a_line_lengthens_the_one_before() -> None:
+    assert [
+        ln["pause_after"] for ln in scene_of('[{"text": "One."}, {"text": "(beat) Two."}]')
+    ] == [
+        pytest.approx(sp.PAUSE + 0.5),
+        sp.PAUSE,
     ]
+
+
+def test_directions_map_to_tags_and_the_rest_is_spoken() -> None:
+    lines = scene_of(
+        json.dumps(
+            [
+                {"text": "(whispers) I know a secret. (laughs)"},
+                {"text": "[clear throat] Ahem, (points at the screen) look. (Sarcastically) Fine."},
+            ]
+        )
+    )
+    assert lines == [
+        line(
+            "I know a secret.",
+            say="[whispering] I know a secret. [laugh]",
+            directions=["whispering", "laugh"],
+        ),
+        line(
+            "Ahem, points at the screen look. Fine.",
+            say="[clear throat] Ahem, points at the screen look. [sarcastic] Fine.",
+            directions=["clear throat", "sarcastic"],
+            unrecognized=["points at the screen"],
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("words", "tag"),
+    [
+        ("whispering", "whispering"),
+        ("excited", "happy"),
+        ("cheerful", "happy"),
+        ("happily", "happy"),
+        ("dramatically", "dramatic"),
+        ("sadly", "crying"),
+        ("angrily", "angry"),
+        ("surprised", "surprised"),
+        ("scared", "fear"),
+        ("fearfully", "fear"),
+        ("chuckles", "chuckle"),
+        ("sighs", "sigh"),
+        ("gasps", "gasp"),
+        ("laughing", "laugh"),
+        ("[advertisement]", "advertisement"),
+        ("[narration]", "narration"),
+        ("[groan]", "groan"),
+        ("[cough]", "cough"),
+        ("[sniff]", "sniff"),
+        ("[shush]", "shush"),
+    ],
+)
+def test_screenplay_words_and_bracket_tags_are_known(words: str, tag: str) -> None:
+    text = words if words.startswith("[") else f"({words.title()})"
+    (only,) = scene_of(json.dumps([{"text": f"{text} Yes."}]))
+    assert only["directions"] == [tag] and only["say"] == f"[{tag}] Yes."
+
+
+def test_an_engine_hears_only_the_tags_it_advertises() -> None:
+    say = "[whispering] I know a secret. [laugh]"
+    assert sp.for_engine(say, {"whispering", "laugh"}) == say
+    assert sp.for_engine(say, {"laugh"}) == "I know a secret. [laugh]"
+    assert sp.for_engine(say, set()) == "I know a secret."
 
 
 def test_plain_prose_is_paragraphs_of_sentences() -> None:
     text = "---\ntype: script\n---\n# Title\n\nWho sleeps? All winter\nlong.\n\nGood night!\n"
     assert sp.parse_script(text) == [
-        {
-            "id": "scene_1",
-            "lines": [
-                {"text": "Who sleeps?", "pause_after": sp.PAUSE},
-                {"text": "All winter long.", "pause_after": sp.PAUSE},
-            ],
-        },
-        {"id": "scene_2", "lines": [{"text": "Good night!", "pause_after": sp.PAUSE}]},
+        {"id": "scene_1", "lines": [line("Who sleeps?"), line("All winter long.")]},
+        {"id": "scene_2", "lines": [line("Good night!")]},
     ]
 
 
@@ -176,6 +312,41 @@ def test_when_every_engine_fails_the_error_names_each() -> None:
     with engines(a=kokoro(seen, fail=True)) as http, pytest.raises(ToolError) as err:
         sp.voice_run(http, sp.parse_script(SCRIPT), ["http://a", "http://c"])
     assert "http://a: HTTPStatusError" in str(err.value) and "http://c:" in str(err.value)
+
+
+TAGGED = """```json
+{"scenes": [{"id": "hook", "lines": [
+  {"text": "(whispers) Who sleeps? (beat) (sighs)"}, {"text": "Good (looks up) night."}
+]}]}
+```"""
+
+
+def test_an_engine_that_advertises_tags_hears_them_but_alignment_and_captions_do_not() -> None:
+    seen: list[str] = []
+    said: list[str] = []
+    with engines(b=chatterbox(seen, said)) as http:
+        _, takes = sp.voice_run(http, sp.parse_script(TAGGED), ["http://b"])
+    assert said == [
+        "[whispering] Who sleeps? Good looks up night.",  # [sigh] is not among b's tags
+        "Who sleeps? Good looks up night.",
+    ]
+    first, second = takes[0][1]["lines"]
+    assert [w["text"] for w in first["words"]] == ["Who", " sleeps?"]
+    assert first["directions"] == ["whispering", "sigh"] and first["unrecognized"] == []
+    assert first["pause_after"] == 0.5 + sp.PAUSE
+    assert second["text"] == "Good looks up night." and second["unrecognized"] == ["looks up"]
+    assert "say" not in second
+
+
+def test_a_fallback_to_an_engine_without_tags_strips_them() -> None:
+    seen: list[str] = []
+    said: list[str] = []
+    kokoro_seen: list[str] = []
+    with engines(b=chatterbox(seen, said, fail=True), a=kokoro(kokoro_seen)) as http:
+        engine, _ = sp.voice_run(http, sp.parse_script(TAGGED), ["http://b", "http://a"])
+    assert engine == "http://a"
+    assert said == ["[whispering] Who sleeps? Good looks up night."]
+    assert kokoro_seen == ["a /dev/captioned_speech Who sleeps? Good looks up night."]
 
 
 def test_a_cut_lands_in_the_silence_between_lines() -> None:

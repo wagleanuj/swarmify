@@ -75,8 +75,13 @@ The built-in connector stages and their params:
 - remotion_render: input is the script; params project (a template's name under the data
   directory's remotion folder, or a folder path) and composition (its ID), both required;
   optional entry, codec, frames, props.
-- speech: input is the script (a fenced JSON block of scenes, each an id and lines of text
-  with an optional pause_after in seconds; else paragraphs become scenes and sentences lines);
+- speech: input is the script (a fenced JSON block {"scenes": [{"id", "lines": [{"text",
+  "pause_after"}]}]}, each line an object, pause_after optional seconds; else paragraphs
+  become scenes and sentences lines). In a line's text, (pause), (beat), (long pause) or
+  (pause 1.5s) is silence, and delivery directions (whispers), (laughs), (chuckles), (sighs),
+  (gasps), (excited), (dramatically), (sadly), (angrily), (sarcastically), (surprised),
+  (scared), or tags as [clear throat], [cough], [groan], [sniff], [shush], [narration],
+  [advertisement], are voiced by engines that support them and never read aloud;
   output timings.json. Voices one take per scene into narration/ beside timings.json, which
   holds each line's words (Remotion Caption shape) and cut points; give remotion_build both the
   script and timings.json as inputs. Optional params: voice, engines (the configured speech

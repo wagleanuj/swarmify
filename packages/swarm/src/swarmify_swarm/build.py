@@ -142,7 +142,9 @@ picture follows the voice, never the other way round.
   `<Sequence from durationInFrames>`. Never trim or stretch speech to fit a picture.
 - `pause_after` is the script's pause; scale the pauses for the style (shorter for a fast cut,
   longer before a reveal). A line with `joined_next: true` runs into the next with no silence to
-  cut in: keep the two back to back, with no pause.
+  cut in: keep the two back to back, with no pause. A line's `directions` (as whispering, laugh)
+  say how it was voiced, for the picture to match; `unrecognized` lists the script's other
+  bracketed asides, spoken as plain words.
 - Captions are karaoke: each line's `words` are Remotion Captions (ms from the take's start, so
   move them onto the timeline), paged per line with createTikTokStyleCaptions from
   @remotion/captions (`npm install @remotion/captions` if the project lacks it) so a page never

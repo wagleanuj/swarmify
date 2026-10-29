@@ -3,7 +3,8 @@
 POST /v1/audio/speech  OpenAI-style JSON {"input", "voice", "response_format": "wav", "seed"}: a WAV
 POST /v1/align         form fields `file` (audio) and `text`: {"timestamps": [{"word", "start_time",
                        "end_time"}]}, the shape Kokoro-FastAPI's captioned speech returns
-GET  /health           ok once both models are loaded
+GET  /health           ok once both models are loaded, with the delivery `tags` Turbo understands
+                       written in brackets in the input, as "[whispering] Who sleeps?"
 
 Both models load once at start. Chatterbox runs on the Apple GPU (MPS) when there is one, else on
 the CPU; faster-whisper runs on the CPU.
@@ -26,6 +27,12 @@ DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 models: dict[str, Any] = {}
 # ponytail: one request per model at a time; Chatterbox keeps its voice on the model object.
 tts_lock, asr_lock = threading.Lock(), threading.Lock()
+# Turbo's added tokens (its added_tokens.json), each spoken as `[tag]`.
+TAGS = [
+    "whispering", "happy", "angry", "sarcastic", "surprised", "fear", "crying", "dramatic",
+    "narration", "advertisement", "laugh", "chuckle", "sigh", "gasp", "groan", "cough", "sniff",
+    "shush", "clear throat",
+]  # fmt: skip
 
 
 @asynccontextmanager
@@ -50,8 +57,8 @@ class Speech(BaseModel):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "engine": "chatterbox-turbo", "device": DEVICE}
+def health() -> dict[str, Any]:
+    return {"status": "ok", "engine": "chatterbox-turbo", "device": DEVICE, "tags": TAGS}
 
 
 @app.post("/v1/audio/speech")
