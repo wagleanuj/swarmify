@@ -1,42 +1,82 @@
-/* Run page: status line, result, spend, the stage rail, the selected step's panel */
-.follow { display: inline-flex; align-items: center; gap: 8px; padding: 3px 3px 3px 12px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; }
+/* Run page: title row with the run menu, the time strip, the step list and spend beside the selected step */
+.run-page header.page { align-items: flex-start; }
+.run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.follow { display: inline-flex; align-items: center; gap: 8px; padding: 3px 3px 3px 12px; border-radius: 999px; background: var(--raised); color: var(--muted); font-size: 12px; }
 .follow button { min-height: 26px; padding: 2px 10px; border-radius: 999px; font-size: 12px; }
-.status-block { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: -8px 0 20px; }
-p.status-line { margin: 0; font-size: 18px; line-height: 1.35; color: var(--text); max-width: 52rem; }
-.state-waiting_gate p.status-line { color: var(--warning); }
-.state-failed p.status-line, .state-aborted p.status-line { color: var(--negative); }
-.result { margin-bottom: 20px; display: grid; gap: 8px; }
+p.status-line { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(--muted); max-width: 52rem; }
+p.status-line.state-waiting_gate { color: var(--warning); }
+p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative); }
+.saved { margin: 0 0 16px; color: var(--muted); }
+
+/* The time strip: each step as wide as its time; the bare variant is a list row's small strip */
+.strip { display: flex; gap: 2px; height: 40px; margin: 4px 0 6px; }
+.strip-seg { position: relative; display: block; flex: 0 0 56px; min-width: 34px; min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--raised); color: var(--muted); font-size: 11px; font-weight: 500; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.strip-seg span { display: block; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; }
+.strip-seg:first-child { border-radius: 4px 0 0 4px; }
+.strip-seg:last-child { border-radius: 0 4px 4px 0; }
+.strip-seg:hover { background: var(--control); }
+.seg-done { background: #23322a; color: #cfe9da; }
+.seg-done.seg-gate { background: #1e2a24; }
+.seg-running { background: #1d3a2b; color: #e8fff2; }
+.seg-waiting { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+.seg-failed { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.seg-pending, .seg-skipped { background: transparent; border: 1px dashed var(--control); }
+.strip-seg[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--accent); }
+.strip-bare { height: 8px; margin: 0; gap: 1px; }
+.strip-bare .strip-seg { min-width: 3px; flex-basis: 12px; }
+.strip-axis { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; margin-bottom: var(--gap); }
+
+.run-grid { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.run-side { display: grid; gap: var(--gap); }
+.steps { padding: 8px; }
+.steps ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.step button { position: relative; width: 100%; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; justify-content: stretch; gap: 10px; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 6px; text-align: left; font-weight: 400; }
+.step button[aria-pressed="true"] { background: var(--raised); }
+.step button[aria-pressed="true"]::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: var(--accent); }
+.step-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-name small { display: block; color: var(--faint); font-size: 11px; }
+.step-meta { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.step-waiting .step-meta { color: var(--warning); }
+.step-failed .step-meta { color: var(--negative); }
+.glyph { justify-self: center; }
+svg.glyph { color: var(--accent); }
+.dot-running { background: var(--accent); }
+.dot-waiting { background: var(--warning); }
+.dot-failed { background: var(--negative); }
+.dot-pending, .dot-skipped { background: transparent; border: 1px solid var(--faint); }
+.step-running .dot, .step-waiting .dot { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .step-running .dot, .step-waiting .dot { animation: none; } }
+.spend { display: grid; gap: 8px; }
+.spend .panel-head { justify-content: space-between; }
+.spend meter { width: 100%; }
+.spend .compare summary { margin: 0; font-size: 13px; }
+.compare p { margin-top: 4px; }
+
+/* A short list of actions under a button, each with what happens and where you land */
+.menu-wrap { position: relative; display: inline-flex; }
+.menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 260px; padding: 6px; background: var(--raised); border: 1px solid var(--control); border-radius: 8px; z-index: 10; display: grid; }
+.menu button { display: grid; justify-items: start; gap: 2px; padding: 8px 10px; border: 0; border-radius: 6px; text-align: left; font-weight: 500; }
+.menu button:hover { background: var(--surface); }
+.menu button.danger { color: var(--pill-negative-ink); }
+.menu small { color: var(--faint); font-size: 11px; font-weight: 400; }
+.gate-actions .menu { left: 0; right: auto; }
+
+/* The result and the gate's answer lead the selected step's panel */
+.result { display: grid; gap: 8px; }
 .result-one { grid-template-columns: minmax(0, max-content) minmax(14rem, 1fr); gap: 24px; align-items: start; }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
 .player { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; border-radius: var(--radius-field); background: var(--well); }
-.document { display: grid; gap: 12px; justify-items: start; padding: 16px 20px; background: var(--surface); border-radius: var(--radius-card); width: min(100%, 40rem); }
-.spend-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px 24px; padding: 14px 0; border-block: 1px solid var(--border); margin-bottom: 16px; }
-.spend { display: grid; gap: 6px; flex: 0 1 26rem; }
-.spend details summary, .compare summary { margin: 0; font-size: 13px; }
-.compare p { margin-top: 4px; }
+.document { display: grid; gap: 12px; justify-items: start; padding: 16px 20px; background: var(--well); border-radius: var(--radius-card); width: min(100%, 40rem); }
+.inline-gate .gate { padding: 0; border: 0; background: none; }
+.inline-gate .gate:has(> .artifact-view) { grid-template-columns: 240px minmax(0, 1fr); gap: 16px var(--gap); align-items: start; }
+.inline-gate .gate > .ask { grid-column: 1 / -1; font-size: 15px; }
+.inline-gate .gate .artifact-view video { width: 100%; }
+.inline-gate .gate-actions { padding-top: 16px; border-top: 1px solid var(--rule); }
 .stage-error, .warn { font-size: 13px; color: var(--negative); }
 .warn { color: var(--warning); }
-.rail { list-style: none; padding: 0; margin: 0 0 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: 6px; }
-.step { min-width: 0; }
-.step button { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; justify-content: stretch; align-items: center; gap: 0 8px; text-align: left; padding: 8px 10px; font-weight: 400; color: var(--muted); }
-.step-icon { grid-row: 1 / span 2; color: var(--faint); }
-.step-name { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step-meta { font-size: 12px; font-variant-numeric: tabular-nums; }
-.step-done button { background: var(--pill-positive-bg); border-color: transparent; }
-.step-done .step-icon { color: var(--accent); }
-.step-skipped button { border-style: dashed; }
-.step-running button, .step-now button { border-color: var(--accent); }
-.step-running .step-icon, .step-now .step-icon { color: var(--accent); }
-.step-waiting button { border-color: var(--warning); }
-.step-waiting .step-icon, .step-waiting .step-meta { color: var(--warning); }
-.step-failed button { background: var(--pill-negative-bg); border-color: var(--negative); }
-.step-failed .step-icon, .step-failed .step-meta { color: var(--negative); }
-.step button[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
-.step-now .step-icon { animation: pulse 1.6s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .step-now .step-icon { animation: none; } }
 .panel { display: grid; gap: 14px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
 .panel .agents, .panel .whiteboard { margin: 0; padding: 0; background: none; border: 0; }
 .panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
@@ -67,8 +107,6 @@ p.status-line { margin: 0; font-size: 18px; line-height: 1.35; color: var(--text
 .technical summary { margin: 0; font-size: 13px; }
 .technical .call-json { margin-top: 8px; }
 .call-json h4 { font-size: 13px; font-weight: 500; color: var(--muted); margin: 0 0 4px; }
-.fork-note { margin-top: 10px; }
-.inline-gate { margin-bottom: 20px; }
 .call-json { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 16px; }
 .agents { display: grid; gap: 8px; }
 .agents h2, .agents h3 { margin: 0; }
@@ -90,7 +128,11 @@ p.status-line { margin: 0; font-size: 18px; line-height: 1.35; color: var(--text
 .task .notes { margin: 4px 0 0; padding-left: 16px; font-size: 13px; display: grid; gap: 2px; }
 
 @media (max-width: 48rem) {
-  .result-one { grid-template-columns: 1fr; }
+  .run-grid, .result-one, .inline-gate .gate:has(> .artifact-view) { grid-template-columns: minmax(0, 1fr); }
+  .run-grid > .panel { order: -1; } /* the selected step, with its decision, comes before the step list */
+  .strip-seg { min-width: 10px; }
+  .strip-seg span { display: none; }
+  .run-actions .menu { left: 0; right: auto; }
   .take-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .take-list audio { grid-column: 1 / -1; }
   .board { grid-template-columns: 1fr; }

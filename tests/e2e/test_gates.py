@@ -35,9 +35,9 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
         expect(card).to_contain_text("Watch it. Approve or send back.", timeout=15_000)
         expect(card).to_contain_text("2 of 2 revisions left")
 
-        card.get_by_role("button", name="Send back...").click()
         card.get_by_label(r"Note").fill("Darker.")
-        card.get_by_role("button", name="Send back", exact=True).click()
+        card.get_by_role("button", name="Send back to...").click()
+        card.get_by_role("menuitem").first.click()
         expect(card).to_contain_text("1 of 2 revisions left", timeout=15_000)
 
         card.get_by_role("button", name="Approve").click()

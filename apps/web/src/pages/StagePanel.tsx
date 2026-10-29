@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { Agent, ArtifactFile, LogEntry, Verdict } from "../api/events";
@@ -278,7 +278,7 @@ function RenderProgress({ call }: { call: Call | null | undefined }) {
 function Video({ made, worldId, shown }: { made: ArtifactFile[]; worldId: string; shown?: boolean }) {
   const v = made.find((a) => a.type === "video" || VIDEO.test(a.name));
   if (!v) return null;
-  if (shown) return <p className="faint">It made {v.name}, the result at the top of the page.</p>;
+  if (shown) return <p className="faint">It made {v.name}, the result shown above.</p>;
   return <Made a={v} worldId={worldId} />;
 }
 
@@ -411,8 +411,9 @@ function RetroPanel({ run, stage }: { run: Run; stage: Stage }) {
   );
 }
 
-function GatePanel({ run, stage, onAnswer }: { run: Run; stage: Stage; onAnswer?: () => void }) {
+function GatePanel({ run, stage, open }: { run: Run; stage: Stage; open: boolean }) {
   const decisions = (run.decisions ?? []).filter((d) => d.stage_index === stage.index);
+  if (open) return null; // the open gate leads the panel, its question included
   return (
     <div data-testid="gate-panel">
       {stage.ask && <p className="ask">{stage.ask}</p>}
@@ -421,14 +422,6 @@ function GatePanel({ run, stage, onAnswer }: { run: Run; stage: Stage; onAnswer?
           {decisionLine(d)}
         </p>
       ))}
-      {stage.status === "waiting" &&
-        (onAnswer ? (
-          <button type="button" className="primary" onClick={onAnswer}>
-            Answer now
-          </button>
-        ) : (
-          <p className="faint">Your answer is open at the top of the page.</p>
-        ))}
       {decisions.length === 0 && stage.status !== "waiting" && <p className="faint">Not reached yet.</p>}
     </div>
   );
@@ -476,8 +469,10 @@ export type PanelProps = {
   verdicts: Verdict[];
   call: Call | null | undefined;
   onTaskAdded: (task: Task) => void;
-  /** Opens the gate at the top of the page; none while it is open there. */
-  onAnswer?: () => void;
+  /** What the panel leads with: the open gate's question and answer, or the run's result. */
+  lead?: ReactNode;
+  /** The gate's answer is the lead, so the gate panel does not repeat its question. */
+  answering?: boolean;
   /** This step made the result shown above, so its player is not repeated here. */
   resultShown?: boolean;
 };
@@ -497,13 +492,13 @@ export function StagePanel(p: PanelProps) {
       </>
     );
   } else if (stage.type === "gate") {
-    inside = <GatePanel run={run} stage={stage} onAnswer={p.onAnswer} />;
+    inside = <GatePanel run={run} stage={stage} open={!!p.answering} />;
   } else if (stage.type === "retro") {
     inside = <RetroPanel run={run} stage={stage} />;
   } else if (kind === "speech") {
     const timings = made.find((a) => a.name === "timings.json");
     inside = p.resultShown && timings ? (
-      <p className="faint">Its takes are the result at the top of the page.</p>
+      <p className="faint">Its takes are the result shown above.</p>
     ) : timings ? (
       <SpeechTakes timings={timings} worldId={worldId} />
     ) : <p className="faint">No narration yet. The takes appear here once the engine has voiced the script.</p>;
@@ -522,7 +517,7 @@ export function StagePanel(p: PanelProps) {
     const out = work(made);
     inside = out.length ? (
       p.resultShown ? (
-        <p className="faint">It made {out.map((a) => a.name).join(", ")}, the result at the top of the page.</p>
+        <p className="faint">It made {out.map((a) => a.name).join(", ")}, the result shown above.</p>
       ) : (
         out.map((a) => <Made key={a.path} a={a} worldId={worldId} />)
       )
@@ -539,6 +534,7 @@ export function StagePanel(p: PanelProps) {
           {kind} · step {stage.index + 1} of {run.stages.length} · {stepMeta(stage, run.status === "queued")}
         </span>
       </div>
+      {p.lead}
       {stage.child && (
         <p data-testid="child-run">
           Child run:{" "}

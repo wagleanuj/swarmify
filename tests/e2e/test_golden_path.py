@@ -57,6 +57,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     status = page.get_by_test_id("status-line")
     expect(status).to_have_text("Waiting for you: Pick one idea.", timeout=20_000)
     run = page.url.split("?")[0].rstrip("/").split("/")[-1]
+    page.get_by_test_id("timeline").get_by_role("button", name=re.compile(r"^Step 1,")).click()
     cards = page.get_by_test_id("result").get_by_test_id("item")
     expect(cards.first).to_contain_text("#1 of 2")
     expect(cards.first).to_contain_text("Hook first")
@@ -87,11 +88,14 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     expect(page.get_by_role("link", name="Open the post").first).to_have_attribute(
         "href", "https://youtu.be/e2e-video"
     )
-    expect(page.get_by_test_id("result").get_by_test_id("player")).to_be_visible()
     rail = page.get_by_test_id("timeline")
 
     def step(name: str) -> None:
         rail.get_by_role("button", name=re.compile(rf"^Step \d+, {name},")).click()
+
+    # The page may have opened on the confirm while it moved on; the render leads with the result.
+    step("render")
+    expect(page.get_by_test_id("result").get_by_test_id("player")).to_be_visible()
 
     step("pick")
     expect(page.get_by_test_id("decision")).to_have_text('You picked "Hook first".')

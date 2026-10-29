@@ -25,11 +25,11 @@ test("the run page shows the spend against the budget, and the one-agent compari
   fakeFetch({
     "GET /api/runs/run_1": () => Response.json(researching),
     "GET /api/runs/run_1/baseline": () => Response.json(hooli),
-    "GET /api/gates": () => Response.json([gate("budget", { budget_usd: 5, spent_usd: 5.2 })]),
+    "GET /api/gates": () => Response.json([gate("budget", { stage_id: "stage_0", budget_usd: 5, spent_usd: 5.2 })]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("budget")).toHaveTextContent("$1.84 of $5.00 budget");
-  expect(screen.getByTestId("budget-line").query()).toBeNull();
+  await expect.element(screen.getByTestId("budget")).toHaveTextContent("$1.84 of $5.00");
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$3.16 left before Russ pauses the run.");
   await expect.element(screen.getByRole("meter", { name: "Budget spent" })).toHaveAttribute("value", "1.84");
   await expect.element(screen.getByTestId("baseline")).not.toBeVisible();
   await screen.getByText("Compare with one agent").click();
@@ -38,7 +38,7 @@ test("the run page shows the spend against the budget, and the one-agent compari
     .toMatchTextContent(/^One agent with no graph did this for \$2\.60 in 54 min; this run \$1\.84/);
 
   FakeEventSource.emit("run.updated", { payload: { ...researching, spent_usd: 4.2, updated_at: "2026-10-26T10:00:01+00:00" } });
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Past 80 percent. Every agent stops at $5.00.");
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$0.80 left before Russ pauses the run.");
 
   const stopped = run("waiting_gate", [stage(0, "research", "swarm", "waiting")], {
     budget_usd: 5,
@@ -49,7 +49,7 @@ test("the run page shows the spend against the budget, and the one-agent compari
   FakeEventSource.emit("run.updated", { payload: stopped });
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/^Waiting for you: The budget of \$5\.00 is spent/);
   await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Every agent stopped at $5.00. Add money to go on, or abort.");
-  await screen.getByRole("button", { name: "Answer now" }).first().click();
+  // The step it stopped at is selected, so its panel leads with the answer.
   await expect.element(screen.getByRole("button", { name: "Add money and go on" })).toBeVisible();
 });
 

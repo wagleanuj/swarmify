@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { dropGate, reloadGates, useOpenGates } from "../api/gates";
@@ -10,6 +10,7 @@ import { gatesRoute } from "../router";
 import { ArtifactCards, ArtifactView, choosable, underReview } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { LABEL } from "./Connectors";
+import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
@@ -207,13 +208,18 @@ export function GateCard({
   gate,
   world,
   onAnswer,
+  bare = false,
 }: {
   gate: Gate;
   world: string;
+  /** On the run page, which already names the run and the step. */
+  bare?: boolean;
   onAnswer: Answer;
 }) {
   const [busy, setBusy] = useState(false);
-  const [sendBack, setSendBack] = useState(false);
+  // The earlier step a Send back menu item chose; the form then submits with it.
+  const sendBack = useRef<string | null>(null);
+  const form = useRef<HTMLFormElement>(null);
   // What the earlier stages made: the cards a pick chooses from, the piece an approve reviews
   // (stories 53 and 54). null until loaded, so the pick's fallback field does not flash.
   const [artifacts, setArtifacts] = useState<ArtifactFile[] | null>(null);
@@ -252,9 +258,11 @@ export function GateCard({
     }
     // An approval or send-back of one piece names it, so the record says which.
     if (gate.kind === "approve" && reviewed.length === 1) body.artifact = reviewed[0]!.path;
-    if (sendBack) body.send_back_to = String(fields.get("send_back_to") ?? "");
+    const target = sendBack.current;
+    sendBack.current = null;
+    if (target) body.send_back_to = target;
     // What goes out is what the form holds, edited or not; the decision records it.
-    if (gate.publish && !sendBack) {
+    if (gate.publish && !target) {
       body.title = String(fields.get("title") ?? "");
       body.description = String(fields.get("description") ?? "");
       // The schedule shown; a relative one that moved since is refused and shown again.
@@ -270,7 +278,6 @@ export function GateCard({
     setBusy(true);
     await onAnswer(gate, () => decide(gate.run_id, body), said);
     setBusy(false);
-    setSendBack(false);
   }
 
   async function abort() {
@@ -285,6 +292,7 @@ export function GateCard({
   const since = new Date(gate.opened_at).toLocaleTimeString([], { timeStyle: "short" });
   return (
     <li className="gate" data-kind={gate.kind} data-testid={`gate-${gate.run_id}`}>
+      {!bare && (
       <div className="gate-head">
         <Link
           to="/worlds/$worldId/runs/$runId"
@@ -297,6 +305,7 @@ export function GateCard({
         </span>
         {gate.parent && <RunRef label="child of" run={gate.parent} testId="child-of" />}
       </div>
+      )}
       <p className="ask">{gate.ask}</p>
       {reviewed.length > 0 && <ArtifactView artifacts={reviewed} worldId={gate.world_id} />}
       {gate.kind === "approve" && artifacts && reviewed.length === 0 && (
@@ -305,7 +314,7 @@ export function GateCard({
       {gate.kind === "skill" ? (
         <SkillGate gate={gate} onAnswer={onAnswer} />
       ) : (
-      <form onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
+      <form ref={form} onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
         {gate.publish && <WhatGoesOut preview={gate.publish} />}
         {gate.kind === "budget" && (
           <>
@@ -353,18 +362,6 @@ export function GateCard({
           <textarea name="note" rows={2} />
         </label>
         )}
-        {gate.kind === "approve" && sendBack && (
-          <label>
-            Send back to
-            <select name="send_back_to" defaultValue={gate.earlier_stages.at(-1)}>
-              {gate.earlier_stages.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         <div className="row gate-actions">
           {gate.kind === "pick" && (
             <>
@@ -388,16 +385,26 @@ export function GateCard({
               </span>
             </>
           )}
-          {gate.kind === "approve" && !sendBack && (
+          {gate.kind === "approve" && (
             <>
               <button type="submit" className="primary" disabled={busy || blocked}>
                 Approve
               </button>
               {gate.send_backs_left > 0 && gate.earlier_stages.length > 0 ? (
                 <>
-                  <button type="button" onClick={() => setSendBack(true)} disabled={busy}>
-                    Send back...
-                  </button>
+                  <Menu
+                    label="Send back to..."
+                    button="Send back to..."
+                    items={[...gate.earlier_stages].reverse().map((name) => ({
+                      label: name,
+                      note: `Redo ${name} with your notes`,
+                      disabled: busy,
+                      onSelect: () => {
+                        sendBack.current = name;
+                        form.current?.requestSubmit();
+                      },
+                    }))}
+                  />
                   <span className="faint">
                     {gate.send_backs_left} of {gate.max_send_backs} revisions left
                   </span>
@@ -407,17 +414,6 @@ export function GateCard({
                   No revisions left at this gate. Approve, or abort the run from its timeline.
                 </span>
               )}
-            </>
-          )}
-          {gate.kind === "approve" && sendBack && (
-            <>
-              <button type="submit" className="primary" disabled={busy}>
-                Send back
-              </button>
-              <button type="button" onClick={() => setSendBack(false)} disabled={busy}>
-                Cancel
-              </button>
-              <span className="faint">The stage runs again with your note in its context.</span>
             </>
           )}
         </div>

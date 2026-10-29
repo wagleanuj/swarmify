@@ -63,11 +63,11 @@ test("the queue opens the next decision after each answer and says what was deci
   await expect.element(queue.getByRole("link", { name: /Review and approve/ })).toHaveAttribute("aria-current");
 
   await expect.element(approve).toMatchTextContent(/1 of 5 revisions left/);
-  await approve.getByRole("button", { name: "Send back..." }).click();
-  await expect.element(approve.getByLabelText(/Send back to/)).toHaveValue("script");
-  await approve.getByLabelText(/Send back to/).selectOptions("research");
   await approve.getByLabelText(/^Note/).fill("Too much text.");
-  await approve.getByRole("button", { name: "Send back" }).click();
+  await approve.getByRole("button", { name: "Send back to..." }).click();
+  // The nearest earlier step first, each saying what sending back there does.
+  await expect.element(approve.getByRole("menu")).toMatchTextContent(/^script\s*Redo script with your notes\s*research\s*Redo research with your notes$/);
+  await approve.getByRole("menuitem", { name: /^research/ }).click();
   await vi.waitFor(() =>
     expect(bodies.run_2).toEqual({ note: "Too much text.", send_back_to: "research" }),
   );
@@ -132,7 +132,7 @@ test("approve without revisions left says so, and a refused decision is an alert
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
   await expect.element(card).toMatchTextContent(/No revisions left at this gate/);
-  await expect.element(card.getByRole("button", { name: "Send back..." })).not.toBeInTheDocument();
+  await expect.element(card.getByRole("button", { name: "Send back to..." })).not.toBeInTheDocument();
   await card.getByRole("button", { name: "Approve" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("already sent back 2 times; approve or abort");
   await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
@@ -262,7 +262,7 @@ test("a skill gate shows the proposal with its evidence and posts the edited ski
   await expect.element(card).toMatchTextContent(/Approve it, edit it, or reject it/);
   await expect.element(card.getByTestId("skill-change")).toMatchTextContent(/New skill hooks.*Hook first.*sent back with the note: Hook sooner/);
   await expect.element(card.getByTestId("workflow-change")).toMatchTextContent(/Ask for hooks up front.*in 3 runs.*name: Research/);
-  await expect.element(card.getByRole("button", { name: "Send back..." })).not.toBeInTheDocument();
+  await expect.element(card.getByRole("button", { name: "Send back to..." })).not.toBeInTheDocument();
   const edited = hooks.replace("Write the hook first.", "Write the hook in the first second.");
   await card.getByLabelText(/SKILL\.md/).fill(edited);
   await card.getByLabelText(/Save it as the workflow's next version/).click();
