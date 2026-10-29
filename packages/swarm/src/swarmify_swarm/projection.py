@@ -5,11 +5,19 @@ and strict about shape, forgiving about extras: a malformed answer raises ValueE
 fails that session. Projection (ADR 0011) turns the judge's items into artifact files for the
 stage's declared output type, each keeping only source references that point at a real
 paragraph of one of the stage's notes.
+
+A type a connector declares (issue 133) comes with its JSON Schema, which then replaces an
+item's generic `fields`: the judge's structured output carries it, a parsed item is validated
+against it, and the artifact carries it as a fenced JSON block for the connector.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from jsonschema.exceptions import best_match
+from jsonschema.validators import validator_for
 
 MAX_LOOPS = 3
 """Gap loops a stage may take. The verdict after the third loop is final: fail fails the stage."""
@@ -79,6 +87,23 @@ VERDICT_SCHEMA: dict[str, Any] = {
 }
 
 
+def verdict_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
+    """VERDICT_SCHEMA, or with a declared type's `schema` as each item's required `fields`."""
+    if schema is None:
+        return VERDICT_SCHEMA
+    items = VERDICT_SCHEMA["properties"]["items"]
+    item = items["items"]
+    typed = {
+        **item,
+        "properties": {**item["properties"], "fields": schema},
+        "required": [*item["required"], "fields"],
+    }
+    return {
+        **VERDICT_SCHEMA,
+        "properties": {**VERDICT_SCHEMA["properties"], "items": {**items, "items": typed}},
+    }
+
+
 @dataclass(frozen=True)
 class OutputType:
     """`list[idea]` is many artifacts of type idea; `document` is one of type document."""
@@ -133,7 +158,8 @@ class Item:
     title: str
     body: str
     rank: int | None = None
-    fields: dict[str, str] = field(default_factory=dict)
+    fields: dict[str, Any] = field(default_factory=dict)
+    """Strings by name, or for a declared type the value its schema describes."""
     sources: list[Source] = field(default_factory=list)
     reason: str = ""
     """Why the judge gave it its rank: what a pick gate shows beside the rank."""
@@ -147,7 +173,9 @@ class Judgement:
     items: list[Item]
 
 
-def parse_verdict(output: Any) -> Judgement:
+def parse_verdict(output: Any, schema: dict[str, Any] | None = None) -> Judgement:
+    """`schema`, a declared type's, is what each passing item's `fields` must be: one that is
+    not raises ValueError, naming where it is wrong."""
     data = _dict(output)
     if not isinstance(data.get("passed"), bool):
         raise ValueError("the judge returned no pass or fail")
@@ -160,15 +188,24 @@ def parse_verdict(output: Any) -> Judgement:
         # A fail must leave work on the board, or the next loop would judge the same thing.
         gaps = [f"Close the gap: {r}" for r in reasons]
     items = []
-    for raw in (data.get("items") or []) if passed else []:
+    for n, raw in enumerate((data.get("items") or []) if passed else [], 1):
         item = _dict(raw)
         rank = item.get("rank")
+        if schema is None:
+            fields = {str(k): str(v) for k, v in _dict(item.get("fields") or {}).items()}
+        else:
+            fields = item.get("fields")
+            wrong = best_match(validator_for(schema)(schema).iter_errors(fields))
+            if wrong is not None:
+                at = "/".join(str(p) for p in wrong.absolute_path) or "the top"
+                raise ValueError(f"item {n} does not fit its type at {at}: {wrong.message}")
+            fields = _dict(fields)
         items.append(
             Item(
                 str(item.get("title") or "").strip() or "Untitled",
                 str(item.get("body") or "").strip(),
                 rank if isinstance(rank, int) else None,
-                {str(k): str(v) for k, v in _dict(item.get("fields") or {}).items()},
+                fields,
                 [
                     Source(str(s.get("note")), s["paragraph"])
                     for s in (_dict(x) for x in item.get("sources") or [])
@@ -208,17 +245,31 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:50] or "item"
 
 
-def project(kind: OutputType, items: list[Item], notes: list[tuple[str, str]]) -> list[Projected]:
+def project(
+    kind: OutputType,
+    items: list[Item],
+    notes: list[tuple[str, str]],
+    declared: bool = False,
+    produces: list[str] | None = None,
+) -> list[Projected]:
     """Typed artifacts from the judge's items. A source is kept only when its note is one of the
     stage's notes and its paragraph exists; it is written as `<note path>#p<n>` with the
-    paragraph quoted in the body. A single output type keeps only the best ranked item."""
+    paragraph quoted in the body. A single output type keeps only the best ranked item.
+
+    A `declared` type's fields go in the body as a fenced JSON block, before the readable body,
+    not in the frontmatter. A single one is written as the stage's produced markdown file (the
+    one named after the type, else the first), so the connector reading that file gets it."""
     if not kind.many:
         items = sorted(items, key=lambda i: i.rank if i.rank is not None else 1 << 30)[:1]
     paras = {path: paragraphs(body) for path, body in notes}
+    md = [p for p in produces or [] if p.endswith(".md")]
+    target = f"{kind.type}.md" if f"{kind.type}.md" in md else md[0] if md else None
     taken: set[str] = set()
     out: list[Projected] = []
     for item in items:
         name, n = f"{kind.type}-{_slug(item.title)}.md", 1
+        if declared and not kind.many and target:
+            name = target
         while name in taken:
             n += 1
             name = f"{kind.type}-{_slug(item.title)}-{n}.md"
@@ -226,14 +277,18 @@ def project(kind: OutputType, items: list[Item], notes: list[tuple[str, str]]) -
         refs = [
             s for s in item.sources if s.note in paras and 1 <= s.paragraph <= len(paras[s.note])
         ]
-        fields: dict[str, Any] = {**item.fields, "title": item.title}
+        fields: dict[str, Any] = {**({} if declared else item.fields), "title": item.title}
         if item.rank is not None:
             fields["rank"] = item.rank
         if item.reason:
             fields["reason"] = item.reason
         fields["sources"] = [f"{s.note}#p{s.paragraph}" for s in refs]
-        lines = [f"# {item.title}", "", item.body]
-        lines += [f"\n**{k}**: {v}" for k, v in item.fields.items()]
+        lines = [f"# {item.title}", ""]
+        if declared:
+            lines += ["```json", json.dumps(item.fields, indent=2, ensure_ascii=False), "```", ""]
+        lines.append(item.body)
+        if not declared:
+            lines += [f"\n**{k}**: {v}" for k, v in item.fields.items()]
         if refs:
             lines += ["", "## Sources", ""]
             lines += [

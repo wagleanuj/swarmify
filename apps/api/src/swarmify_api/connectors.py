@@ -1,7 +1,7 @@
 """HTTP face of the Connectors context: the registry, test-and-list-tools, and stage calls."""
 
 from dataclasses import asdict
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, StringConstraints
@@ -29,6 +29,11 @@ class NewConnector(BaseModel):
     """Credential name to value. An empty value means the file already holds it. Values go to
     the credentials file only and are never returned."""
     stage_types: list[Literal["swarm", "connector"]] = Field(min_length=1)
+    types: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=20)
+    """Input types it declares, a JSON Schema by name (lower_snake_case), as `script`."""
+    input_types: list[str | None] = Field(default_factory=list, max_length=20)
+    """The declared type of a stage's `input`, or of each of its `inputs` in order; null for
+    an untyped one. A swarm stage that produces a typed input must declare that output_type."""
 
 
 class ConnectorView(BaseModel):
@@ -45,6 +50,10 @@ class ConnectorView(BaseModel):
     created_at: str | None
     health: str | None
     """The tool `GET /api/connectors/<id>/health` calls; None when it has no health check."""
+    types: dict[str, dict[str, Any]]
+    """Input types it declares, a JSON Schema by name."""
+    input_types: list[str | None]
+    """The declared type of a stage's `input`, or of each of its `inputs` in order."""
     missing: list[str]
     """Credential names the credentials file does not hold yet."""
 
@@ -85,6 +94,8 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
                 body.server,
                 list(body.credentials),
                 list(body.stage_types),
+                body.types,
+                body.input_types,
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc

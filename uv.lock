@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1763,6 +1763,7 @@ version = "0.1.0"
 source = { editable = "packages/connectors" }
 dependencies = [
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "swarmify-kernel" },
 ]
@@ -1770,6 +1771,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
+    { name = "jsonschema", specifier = ">=4.26" },
     { name = "mcp", specifier = ">=2.3" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
@@ -1841,12 +1843,14 @@ version = "0.1.0"
 source = { editable = "packages/swarm" }
 dependencies = [
     { name = "claude-agent-sdk" },
+    { name = "jsonschema" },
     { name = "swarmify-kernel" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "claude-agent-sdk", specifier = "==0.2.174" },
+    { name = "jsonschema", specifier = ">=4.26" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
 

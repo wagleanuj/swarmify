@@ -1648,6 +1648,14 @@ export interface components {
             created_at: string | null;
             /** Health */
             health: string | null;
+            /** Types */
+            types: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Input Types */
+            input_types: (string | null)[];
             /** Missing */
             missing: string[];
         };
@@ -2061,6 +2069,14 @@ export interface components {
             };
             /** Stage Types */
             stage_types: ("swarm" | "connector")[];
+            /** Types */
+            types?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Input Types */
+            input_types?: (string | null)[];
         };
         /** NewEval */
         NewEval: {
@@ -2488,6 +2504,14 @@ export interface components {
             created_at: string | null;
             /** Health */
             health: string | null;
+            /** Types */
+            types: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Input Types */
+            input_types: (string | null)[];
             /** Missing */
             missing: string[];
             check: components["schemas"]["KeyCheck"] | null;

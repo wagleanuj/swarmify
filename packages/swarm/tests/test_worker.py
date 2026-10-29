@@ -284,6 +284,54 @@ def test_a_pass_projects_the_declared_output_type_with_source_references(
     assert [n for n, *_ in files.typed].count("idea-the-chase.md") == 2
 
 
+RECIPE = {
+    "type": "object",
+    "properties": {"steps": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+    "required": ["steps"],
+}
+"""A type a fixture connector declares (issue 133), to show nothing in it is video."""
+COOKED = {**STAGE, "output_type": "recipe", "produces": ["recipe.md"], "output_schema": RECIPE}
+
+
+def _soup(steps: list[str]) -> Answer:
+    item = {"title": "Soup", "body": "Boil, then season.", "rank": 1, "sources": []}
+    return Answer(
+        {"passed": True, "reasons": ["A recipe."], "items": [{**item, "fields": {"steps": steps}}]}
+    )
+
+
+def test_a_declared_type_is_projected_through_the_judges_structured_output(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    script = Script([GRAPH, CLAIM, FINISH], [_soup(["Boil.", "Season."])])
+    files = DiskFiles(tmp_path)
+    _run(Swarm(board, SdkRuntime(transport=script.transport), files), tmp_path, COOKED)
+    judge = script.sessions[1]
+    item = (judge.output_format or {})["schema"]["properties"]["items"]["items"]
+    assert item["properties"]["fields"] == RECIPE and "fields" in item["required"]
+    assert "exactly as its JSON schema asks" in script.prompts[1]
+    recipe = (tmp_path / W / "runs" / R / S / "artifacts" / "recipe.md").read_text()
+    assert '"steps": [\n    "Boil.",\n    "Season."\n  ]' in recipe
+    assert [(n, t) for n, t, *_ in files.typed] == [
+        ("verdict-1.md", "verdict"),
+        ("recipe.md", "recipe"),
+    ]
+
+
+def test_a_projection_that_does_not_fit_its_type_fails_the_judge_session(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    script = Script([GRAPH, CLAIM, FINISH], [_soup([])], [_soup([])])
+    with pytest.raises(StageError, match="judge failed 2 sessions"):
+        _run(_swarm(board, tmp_path, script), tmp_path, COOKED)
+    errors = [e.detail for e in board.list_log(S) if e.kind == "error"]
+    assert errors and all("item 1 does not fit its type at steps" in e for e in errors)
+    assert len(script.sessions) == 3  # the worker, a judge, and the judge that replaced it
+    assert not (tmp_path / W / "runs" / R / S / "artifacts" / "recipe.md").exists()
+
+
 def test_a_worker_that_stops_with_tasks_left_fails_the_stage_unjudged(
     board: SqliteStorage, tmp_path: Path
 ) -> None:

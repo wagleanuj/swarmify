@@ -28,6 +28,11 @@ class Connector:
     created_at: str | None = None
     health: str | None = None
     """The tool that checks what the connector depends on, answering `checks`; built-ins only."""
+    types: dict[str, Any] = field(default_factory=dict)
+    """Named input types it declares, each a JSON Schema, as `script` (issue 133)."""
+    input_types: list[str | None] = field(default_factory=list)
+    """The declared type of a stage's `input`, or of each of its `inputs` in order; None or
+    left out is untyped."""
 
     @property
     def has_server(self) -> bool:

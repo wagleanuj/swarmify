@@ -21,6 +21,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from jsonschema.exceptions import SchemaError
+from jsonschema.validators import validator_for
+
 from swarmify_connectors import publish, remotion, speech
 from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
@@ -62,6 +65,8 @@ __all__ = [
 ]
 
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,59}$")
+TYPE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+"""A declared type's name, as a swarm stage's `output_type` names it."""
 
 
 def _builtin(
@@ -134,6 +139,8 @@ BUILTINS = [
             builtin=True,
             about=m["about"],
             health=m.get("health"),
+            types=m.get("types", {}),
+            input_types=m.get("input_types", []),
         )
         for m in MANIFESTS.values()
     ),
@@ -203,6 +210,12 @@ class Connectors:
     def find(self, world_id: str, name: str) -> Connector | None:
         return next((c for c in self.list_all(world_id) if c.name == name), None)
 
+    def type_schema(self, world_id: str, name: str) -> dict[str, Any] | None:
+        """The JSON Schema of type `name` as the world's connectors declare it; None when none
+        does, or two declare it differently (the workflow check reports that)."""
+        found = [c.types[name] for c in self.list_all(world_id) if name in c.types]
+        return found[0] if found and all(f == found[0] for f in found) else None
+
     def get(self, connector_id: str) -> Connector | None:
         builtin = next((c for c in BUILTINS if c.id == connector_id), None)
         return builtin or self.storage.get_connector(connector_id)
@@ -215,6 +228,8 @@ class Connectors:
         server: str,
         credentials: list[str],
         stage_types: list[str],
+        declared: dict[str, Any] | None = None,
+        input_types: list[str | None] | None = None,
     ) -> Connector:
         """A validated, unsaved connector. Raises ValueError naming the first problem."""
         name, server = name.strip(), server.strip()
@@ -239,6 +254,17 @@ class Connectors:
             raise ValueError(f"allowed stage types are some of {', '.join(STAGE_TYPES)}")
         if kind == "publish" and types != ["connector"]:
             raise ValueError("a publish connector runs only in connector stages, after a gate")
+        declared, input_types = declared or {}, input_types or []
+        for type_name, schema in declared.items():
+            if not TYPE_NAME.match(type_name):
+                raise ValueError(f"a type name is lower_snake_case, as output_type: {type_name!r}")
+            try:
+                validator_for(schema).check_schema(schema)
+            except SchemaError as exc:
+                raise ValueError(f"type {type_name} is not a JSON Schema: {exc.message}") from exc
+        unknown = [t for t in input_types if t is not None and t not in declared]
+        if unknown:
+            raise ValueError(f"input types it does not declare: {', '.join(unknown)}")
         return Connector(
             new_id("conn"),
             world_id,
@@ -249,6 +275,8 @@ class Connectors:
             list(dict.fromkeys(credentials)),
             types,
             created_at=_now(),
+            types=declared,
+            input_types=list(input_types),
         )
 
     def test(self, connector: Connector, secrets: dict[str, str]) -> list[Tool]:

@@ -17,6 +17,7 @@ from mcp.server.mcpserver.exceptions import ToolError as McpToolError
 from mcp.types import CallToolResult
 from pydantic import BaseModel, Field
 
+from swarmify_connectors import Connectors
 from swarmify_swarm import (
     AgentRuntime,
     AgentTool,
@@ -51,7 +52,8 @@ and edit the one they have. Answer only with the JSON the schema asks for.
 A workflow is YAML: `name`, optional `schedule` (cron, UTC), `budget_usd`, `agents`, and
 `stages`, a list where each stage is `- <type>: <stage name>` plus its fields:
 - swarm: goal, done_when; optional tools (connector names such as web_search, graph), graphs,
-  output_type (idea or list[idea]), produces (artifact file names).
+  output_type (idea or list[idea], or a type a connector declares, below), produces (artifact
+  file names).
 - gate: ask; optional kind: pick | approve | confirm (approve by default); an approve gate may set
   max_send_backs, how often it may send the run back (2 by default).
 - connector: calls (connector name, defaults to the stage name); optional input, output, params;
@@ -188,7 +190,31 @@ def parse_answer(output: Any) -> tuple[str, str | None]:
     return str(output["reply"]).strip(), (yaml if yaml and yaml.strip() else None)
 
 
-def router(worlds: Worlds, runtime: AgentRuntime, server: MCPServer) -> APIRouter:
+def typed_inputs(connectors: Connectors, world_id: str) -> str:
+    """The planner's view of the world's typed contracts (issue 133): which connector input
+    takes which declared type, so it drafts `output_type` on the swarm stage that writes it."""
+    lines = [
+        f"- {c.name}: input {n + 1} is type {t}"
+        for c in connectors.list_all(world_id)
+        for n, t in enumerate(c.input_types)
+        if t
+    ]
+    if not lines:
+        return ""
+    return "\n".join(
+        [
+            "Typed inputs: a swarm stage that produces a file one of these connector inputs reads"
+            " (input, or the nth of inputs) must declare that type as its output_type, as"
+            " `output_type: script`; the check refuses the workflow otherwise. The judge then"
+            " writes the file in the connector's shape.",
+            *lines,
+        ]
+    )
+
+
+def router(
+    worlds: Worlds, runtime: AgentRuntime, server: MCPServer, connectors: Connectors
+) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["planner"])
     allowed = [tool_id(t) for t in TOOLS]
 
@@ -202,7 +228,12 @@ def router(worlds: Worlds, runtime: AgentRuntime, server: MCPServer) -> APIRoute
         saves: list[dict[str, Any]] = []
         folder = worlds.folder(world_id)
         spec = SessionSpec(
-            system_prompt=f"{SYSTEM}\n\nThe world's id is {world_id}.",
+            system_prompt="\n\n".join(
+                filter(
+                    None,
+                    [SYSTEM, typed_inputs(connectors, world_id), f"The world's id is {world_id}."],
+                )
+            ),
             prompt=_prompt(body),
             cwd=folder,
             plugin=folder,
