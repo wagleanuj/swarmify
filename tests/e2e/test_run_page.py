@@ -8,18 +8,18 @@ from playwright.sync_api import Page, expect
 
 VOICED = """name: Voice then build
 stages:
-  - swarm: research
-    goal: Find 5 ideas.
-    done_when: 5 ideas ranked
-    output_type: list[idea]
-    produces: [ideas.md]
+  - swarm: script
+    goal: Write a two scene script.
+    done_when: A script.
+    output_type: script
+    produces: [script.md]
   - connector: voice
     calls: speech
-    input: ideas.md
+    input: script.md
     output: timings.json
   - connector: video
     calls: remotion_build
-    inputs: [ideas.md, timings.json]
+    inputs: [script.md, timings.json]
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve

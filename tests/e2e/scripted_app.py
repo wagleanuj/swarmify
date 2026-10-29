@@ -54,7 +54,29 @@ IDEAS = [
     },
     {"title": "The chase", "body": "A chase in 30 seconds.", "rank": 2, "sources": []},
 ]
-JUDGE = [Answer({"passed": True, "reasons": ["Two ideas, ranked."], "items": IDEAS})]
+SCRIPT = {
+    "title": "The hedgehog",
+    "body": "Who sleeps all winter? A hedgehog.",
+    "rank": 1,
+    "sources": [],
+    "fields": {
+        "scenes": [
+            {"id": "hook", "lines": [{"text": "Who sleeps all winter?", "pause_after": 0.3}]},
+            {"id": "fact", "lines": [{"text": "A hedgehog.", "pause_after": 0.3}]},
+        ]
+    },
+}
+
+
+def _verdict(options: ClaudeAgentOptions) -> dict[str, Any]:
+    """Two ideas, or for a stage promising the speech connector's `script` type, a script in
+    that type's schema (issue 133)."""
+    if '"scenes"' in json.dumps(options.output_format):
+        return {"passed": True, "reasons": ["A script."], "items": [SCRIPT]}
+    return {"passed": True, "reasons": ["Two ideas, ranked."], "items": IDEAS}
+
+
+JUDGE = [Answer(_verdict)]
 BUILDER = [
     Call("Bash", {"command": "npm install"}),
     Call("Write", {"file_path": "src/Main.tsx", "content": "export const Main = () => null;"}),
