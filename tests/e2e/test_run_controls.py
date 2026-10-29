@@ -100,7 +100,7 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         # An ad hoc run from a typed goal (story 20), then saved as a workflow (story 21).
         page.goto(f"{base_url}/worlds/{world}")
         page.get_by_role("textbox", name="Goal").fill("Find five hooks for next week's short.")
-        page.get_by_role("button", name="Run this goal").click()
+        page.get_by_role("button", name="Run goal").click()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_role("heading", level=1)).to_contain_text("ad hoc")
         page.get_by_role("button", name="Save as workflow").click()

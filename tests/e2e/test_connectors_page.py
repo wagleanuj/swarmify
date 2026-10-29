@@ -24,7 +24,7 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Video"}).json()
     try:
         page.goto(f"{base_url}/worlds/{world['id']}")
-        page.get_by_role("link", name="Manage connectors").click()
+        page.get_by_role("navigation", name="Main").get_by_role("link", name="Connectors").click()
         expect(page.get_by_test_id("connector-list")).to_contain_text("Web search")
 
         page.get_by_role("textbox", name="Name", exact=True).fill("echo")
