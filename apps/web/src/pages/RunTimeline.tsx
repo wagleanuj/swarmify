@@ -2,13 +2,14 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { dropGate, useOpenGates } from "../api/gates";
 import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
 import { actOn, type Call, current, duration, type Gate, money, type Run, statusLine, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { LABEL } from "./Connectors";
-import { GateCard } from "./Gates";
+import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
 import { type MenuItem, Menu } from "./Menu";
 import { kindOf, Result, resultStage, StagePanel, stepMeta } from "./StagePanel";
@@ -53,6 +54,9 @@ export function RunTimeline() {
   const [saved, setSaved] = useState<string | null>(null);
   const [artifactsSeen, setArtifactsSeen] = useState(0);
   const [baseline, setBaseline] = useState<Run | null>(null);
+  // The gate answered here last: its step shows what you decided until you move on yourself.
+  const [answered, setAnswered] = useState<{ stageId: string; said: string; at: string } | null>(null);
+  const openGates = useOpenGates().gates ?? [];
   const chosen = run?.stages.find((s) => s.id === search.stage);
   const stage = run ? (chosen ?? arrivalStage(run, loaded)) : undefined;
   const stageId = stage?.id;
@@ -242,12 +246,15 @@ export function RunTimeline() {
     setSaved(data.workflow_id);
   }
 
-  async function answer(g: Gate, send: () => Promise<string | null>) {
+  const answer: Answer = async (g, send, said = "You answered it") => {
     setError(null);
     const refused = await send();
     if (refused) return setError(refused);
-    if (g.kind !== "budget") setGate(null);
-  }
+    if (g.kind === "budget") return;
+    setGate(null);
+    dropGate(g.stage_id);
+    setAnswered({ stageId: g.stage_id, said, at: new Date().toISOString() });
+  };
 
   if (run === undefined) {
     return (
@@ -278,7 +285,8 @@ export function RunTimeline() {
   const made = stage ? artifacts.filter((a) => a.stage === stage.id) : [];
   const gateStage = gate ? run.stages.find((s) => s.id === gate.stage_id) : undefined;
   const open = gate && gate.stage_id === stageId ? gate : null;
-  const isResult = !open && !!stage && resultStage(run, artifacts)?.id === stage.id;
+  const done = !open && answered && answered.stageId === stageId ? answered : null;
+  const isResult = !open && !done && !!stage && resultStage(run, artifacts)?.id === stage.id;
   const started = run.stages.find((s) => s.started_at)?.started_at;
   const seconds = duration(run);
   const items: MenuItem[] = [];
@@ -402,6 +410,15 @@ export function RunTimeline() {
                 <ul className="gate-list inline-gate" aria-label="Answer the gate">
                   <GateCard gate={open} world={world?.name ?? worldId} onAnswer={answer} bare />
                 </ul>
+              ) : done && stage ? (
+                <AnsweredLead
+                  stage={stage}
+                  said={done.said}
+                  at={done.at}
+                  live={live}
+                  next={openGates.find((g) => g.stage_id !== done.stageId)}
+                  onWatch={select}
+                />
               ) : isResult ? (
                 <Result run={run} artifacts={artifacts} worldId={worldId} />
               ) : undefined
@@ -412,6 +429,42 @@ export function RunTimeline() {
         )}
       </div>
     </main>
+  );
+}
+
+/** A gate just answered here: what you decided and when, where the run went, and the ways on.
+ * The gate's record below keeps your note. You stay on this step until you pick a way on. */
+function AnsweredLead(p: {
+  stage: Stage;
+  said: string;
+  at: string;
+  live: Stage | undefined;
+  next: Gate | undefined;
+  onWatch: (id: string) => void;
+}) {
+  const { stage, live, next } = p;
+  const moved = live && live.id !== stage.id ? live : undefined;
+  const when = new Date(p.at).toLocaleTimeString([], { timeStyle: "short" });
+  return (
+    <div className="answered" data-testid="answered">
+      <p className="notice ok" role="status">
+        {p.said} at {when}.
+        {moved && (moved.index < stage.index ? ` ${moved.name} is running again.` : ` The run moved on to ${moved.name}.`)}
+      </p>
+      <div className="answer-bar">
+        {next && (
+          <Link to="/gates" search={{ gate: next.stage_id }} className="button primary">
+            Next decision: {next.stage_name} on {next.run_name}
+          </Link>
+        )}
+        {moved && (
+          <button type="button" onClick={() => p.onWatch(moved.id)}>
+            Watch {moved.name}
+          </button>
+        )}
+        <span className="faint">You stay on this step until you choose.</span>
+      </div>
+    </div>
   );
 }
 

@@ -137,3 +137,8 @@ svg.glyph { color: var(--accent); }
   .take-list audio { grid-column: 1 / -1; }
   .board { grid-template-columns: 1fr; }
 }
+
+/* A gate just answered on this step: what you decided, then the ways on */
+.answered { display: grid; gap: 12px; }
+.notice.ok { box-shadow: inset 2px 0 0 var(--accent); }
+.answer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 16px; border-top: 1px solid var(--rule); }

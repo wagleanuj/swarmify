@@ -181,6 +181,84 @@ test("at a gate: the status line asks the gate's question, and the gate's panel 
   expect(router.state.location.search).toEqual({ stage: "stage_3" });
 });
 
+test("answered on the run page: you stay on the step, see what you decided, and choose where to go", async () => {
+  const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
+  const other = gate("pick", { run_id: "run_2", run_name: "Bedtime story", stage_id: "stage_9", stage_name: "pick idea" });
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
+    "GET /api/gates": () => Response.json([gate("approve", { stage_index: 3, stage_id: "stage_3", earlier_stages: ["video"] }), other]),
+    "POST /api/runs/run_1/decision": () => Response.json(waiting),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_3");
+  const panel = screen.getByTestId("stage-panel");
+  const scrolled = window.scrollY;
+  await panel.getByLabelText(/^Note/).fill("Good pace.");
+  await panel.getByRole("button", { name: "Approve" }).click();
+  const answered = panel.getByTestId("answered");
+  await expect.element(answered).toMatchTextContent(/^You approved it at \d/);
+  // Another gate is open elsewhere: the next decision opens it in Needs you.
+  await expect
+    .element(answered.getByRole("link", { name: "Next decision: pick idea on Bedtime story" }))
+    .toHaveAttribute("href", "/gates?gate=stage_9");
+  expect(panel.getByRole("button", { name: "Approve" }).query()).toBeNull();
+
+  // The run moves on; the page does not.
+  FakeEventSource.emit("run.updated", {
+    payload: run("running", [research("done"), voice("done"), video("done"), review("done"), publish("running", timed(9, null))], {
+      updated_at: at(30),
+      decisions: [{ id: "d1", stage_index: 3, stage_name: "review", kind: "approve", choice: null, note: "Good pace.", send_back_to: null, path: "/x", decided_at: at(9) }],
+    }),
+  });
+  await expect.element(answered).toMatchTextContent(/The run moved on to publish\./);
+  await expect.element(panel.getByTestId("decision")).toHaveTextContent("You approved. Your note: Good pace.");
+  expect(router.state.location.search).toEqual({ stage: "stage_3" });
+  expect(window.scrollY).toBe(scrolled);
+  await answered.getByRole("button", { name: "Watch publish" }).click();
+  await expect.element(screen.getByRole("button", { name: /^Step 5, publish/ })).toHaveAttribute("aria-pressed", "true");
+  expect(router.state.location.search).toEqual({ stage: "stage_4" });
+});
+
+test("answered by a send back: it names the target, does not select it, and offers no next decision when none is open", async () => {
+  const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
+    "GET /api/gates": () => Response.json([gate("approve", { stage_index: 3, stage_id: "stage_3", earlier_stages: ["video"] })]),
+    "POST /api/runs/run_1/decision": () => Response.json(waiting),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_3");
+  const panel = screen.getByTestId("stage-panel");
+  await panel.getByRole("button", { name: "Send back to..." }).click();
+  await panel.getByRole("menuitem", { name: /^video/ }).click();
+  const answered = panel.getByTestId("answered");
+  await expect.element(answered).toMatchTextContent(/^You sent it back to video at \d/);
+  FakeEventSource.emit("run.updated", {
+    payload: run("running", [research("done"), voice("done"), video("running", timed(3, null)), review("pending")], { updated_at: at(30) }),
+  });
+  await expect.element(answered).toMatchTextContent(/video is running again\./);
+  await expect.element(answered.getByRole("button", { name: "Watch video" })).toBeVisible();
+  expect(answered.getByRole("link", { name: /^Next decision/ }).query()).toBeNull();
+  expect(router.state.location.search).toEqual({ stage: "stage_3" });
+});
+
+test("answered by a pick: the step says what you picked", async () => {
+  const pickStage = stage(1, "choose", "gate", "waiting", { ...timed(2, null), ask: "Pick one idea." });
+  const waiting = run("waiting_gate", [research("done"), pickStage]);
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "GET /api/runs/run_1/artifacts": () => Response.json([]),
+    "GET /api/gates": () => Response.json([gate("pick", { stage_name: "choose" })]),
+    "POST /api/runs/run_1/decision": () => Response.json(waiting),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  const panel = screen.getByTestId("stage-panel");
+  await panel.getByLabelText("Your pick").fill("idea 2");
+  await panel.getByRole("button", { name: "Continue with this pick" }).click();
+  await expect.element(panel.getByTestId("answered")).toMatchTextContent(/^You picked "idea 2" at \d/);
+  expect(router.state.location.search).toEqual({ stage: "stage_1" });
+});
+
 test("done with a video: the run's time, where it was posted, and the video in place", async () => {
   const done = run("done", [research("done"), voice("done"), video("done"), review("done"), publish("done")], {
     budget_usd: 40,
