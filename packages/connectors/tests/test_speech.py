@@ -223,10 +223,37 @@ def test_a_speech_stage_is_checked_for_its_script_output_and_params(
     ok = {"calls": "speech", "input": "script.md", "output": "timings.json", "params": {"seed": 7}}
     assert connectors.stage_problems("w", ok) == []
     assert connectors.stage_problems("w", {"calls": "speech", "params": {"speed": 2}}) == [
-        "speech needs an input, the script",
-        "speech needs an output, its timings file: timings.json",
+        f"speech needs an input, {sp.MANIFEST['inputs'][0]}",
+        f"speech needs an output, {sp.MANIFEST['outputs'][0]}",
         "speech does not take params.speed",
     ]
+
+
+def test_a_stage_is_checked_against_its_manifest_not_its_name(
+    connectors: Connectors, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # what #111 moves into a package: the core reads the rules from the manifest alone
+    monkeypatch.setitem(sp.MANIFEST, "inputs", ["the words"])
+    monkeypatch.setitem(sp.MANIFEST, "outputs", ["voice.json"])
+    monkeypatch.setitem(sp.MANIFEST["params"], "properties", {"speed": {"type": "number"}})
+    assert connectors.stage_problems("w", {"calls": "speech", "params": {"seed": 1}}) == [
+        "speech needs an input, the words",
+        "speech needs an output, voice.json",
+        "speech does not take params.seed",
+    ]
+
+
+def test_a_built_in_gets_the_settings_its_manifest_declares(
+    connectors: Connectors, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    speech = connectors.find("w", "speech")
+    assert speech is not None
+    assert sp.MANIFEST["settings"] == ["SPEECH_ENDPOINTS"]
+    monkeypatch.setenv("SPEECH_ENDPOINTS", "http://a")
+    monkeypatch.setenv("OTHER_SETTING", "x")
+    assert connectors._env(speech) == {"SPEECH_ENDPOINTS": "http://a"}
+    monkeypatch.setitem(sp.MANIFEST, "settings", ["OTHER_SETTING"])
+    assert connectors._env(speech) == {"OTHER_SETTING": "x"}
 
 
 def test_health_lists_each_engine(connectors: Connectors, transport: FakeTransport) -> None:

@@ -37,6 +37,7 @@ MANIFEST: dict[str, Any] = {
     " speech engine (README, Speech engines).",
     "command": [sys.executable, "-m", "swarmify_connectors.speech"],
     "credentials": [],
+    "settings": ["SPEECH_ENDPOINTS"],
     "params": {
         "type": "object",
         "properties": {

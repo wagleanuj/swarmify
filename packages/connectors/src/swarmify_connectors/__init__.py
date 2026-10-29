@@ -85,6 +85,10 @@ def _builtin(
     )
 
 
+# Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019): the core
+# reads only these fields, so moving one into a package moves its module and this entry.
+MANIFESTS: dict[str, dict[str, Any]] = {m["name"]: m for m in (speech.MANIFEST,)}
+
 BUILTINS = [
     _builtin("web_search", "tool", "swarm", "Built into Claude. No key."),
     _builtin("graph", "tool", "swarm", "This world's graph, read only."),
@@ -118,17 +122,20 @@ BUILTINS = [
         ["npx", "-y", "@upload-post/mcp@0.11.4"],
         ["UPLOAD_POST_API_KEY"],
     ),
-    Connector(
-        f"builtin_{speech.MANIFEST['name']}",
-        None,
-        speech.MANIFEST["name"],
-        speech.MANIFEST["kind"],
-        speech.MANIFEST["command"],
-        credentials=speech.MANIFEST["credentials"],
-        stage_types=speech.MANIFEST["stage_types"],
-        builtin=True,
-        about=speech.MANIFEST["about"],
-        health=speech.MANIFEST["health"],
+    *(
+        Connector(
+            f"builtin_{m['name']}",
+            None,
+            m["name"],
+            m["kind"],
+            m["command"],
+            credentials=m["credentials"],
+            stage_types=m["stage_types"],
+            builtin=True,
+            about=m["about"],
+            health=m.get("health"),
+        )
+        for m in MANIFESTS.values()
     ),
 ]
 
@@ -155,6 +162,22 @@ def _progress(value: Any, before: float | None) -> float | None:
         return min(max(float(value), 0.0), 1.0)
     except (TypeError, ValueError):
         return before
+
+
+def _manifest_problems(
+    manifest: dict[str, Any], config: dict[str, Any], params: dict[str, Any]
+) -> list[str]:
+    """A stage's input, output and params against what its connector's manifest declares."""
+    name, out = manifest["name"], []
+    if manifest.get("inputs") and not (config.get("input") or config.get("inputs")):
+        out.append(f"{name} needs an input, {manifest['inputs'][0]}")
+    if manifest.get("outputs") and not config.get("output"):
+        out.append(f"{name} needs an output, {manifest['outputs'][0]}")
+    schema = manifest.get("params") or {}
+    if schema.get("additionalProperties") is False:
+        allowed = {*(schema.get("properties") or {}), "tool"}
+        out += [f"{name} does not take params.{k}" for k in params if k not in allowed]
+    return out
 
 
 class Connectors:
@@ -315,8 +338,10 @@ class Connectors:
         env = {n: values[n] for n in connector.credentials}
         if connector.builtin and connector.name == "remotion_render":
             env["SWARMIFY_DATA_DIR"] = str(self.data_dir)  # where its templates live
-        if connector.builtin and connector.name == "speech" and os.environ.get("SPEECH_ENDPOINTS"):
-            env["SPEECH_ENDPOINTS"] = os.environ["SPEECH_ENDPOINTS"]  # a setting, not a secret
+        manifest = MANIFESTS.get(connector.name) if connector.builtin else None
+        for setting in (manifest or {}).get("settings", []):  # non-secret, from the app's env
+            if os.environ.get(setting):
+                env[setting] = os.environ[setting]
         return env
 
     def health(self, connector: Connector) -> list[HealthCheck]:
@@ -373,22 +398,8 @@ class Connectors:
                 except ValueError as exc:
                     out.append(str(exc))
             return out
-        if connector.builtin and connector.name == "speech":
-            out = (
-                []
-                if config.get("input") or config.get("inputs")
-                else ["speech needs an input, the script"]
-            )
-            if not config.get("output"):
-                out.append("speech needs an output, its timings file: timings.json")
-            allowed = speech.MANIFEST["params"]["properties"]
-            out += [
-                f"speech does not take params.{k}"
-                for k in params
-                if k not in allowed and k != "tool"
-            ]
-            return out
-        return []
+        manifest = MANIFESTS.get(connector.name) if connector.builtin else None
+        return _manifest_problems(manifest, config, params) if manifest else []
 
     def publish_result(self, call: Call) -> dict[str, Any]:
         """A finished publish call's links, normalized across connectors."""

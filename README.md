@@ -441,8 +441,10 @@ connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
 
 `speech` is a built-in stage connector, a plain MCP server (`python -m
 swarmify_connectors.speech`). Everything Swarmify knows about it (name, kind, stage types,
-command, credentials, a JSON schema of its params, inputs, outputs, health tool) is its
-`MANIFEST`, the shape of a V2 connector package (ADR 0019).
+command, credentials, the non-secret settings it reads from the app's environment
+(`SPEECH_ENDPOINTS`), a JSON schema of its params, inputs, outputs, health tool) is its
+`MANIFEST`, the shape of a V2 connector package (ADR 0019). The core reads only that manifest
+and never names `speech`, so moving the connector into a package is a move.
 
 ```yaml
 - connector: voice
