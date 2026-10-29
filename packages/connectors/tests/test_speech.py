@@ -627,7 +627,8 @@ def voiced(
         if path == "/health":
             return httpx.Response(200, json={"status": "ok", "clips": clips})
         if path == "/v1/audio/voices":
-            return httpx.Response(200, json={"voices": presets}) if presets else httpx.Response(404)
+            listed = [{"id": p, "name": p} for p in presets or []]  # Kokoro-FastAPI's real shape
+            return httpx.Response(200, json={"voices": listed}) if presets else httpx.Response(404)
         if path == "/dev/captioned_speech":
             return httpx.Response(404)
         if path == "/v1/audio/align" or path == "/v1/align":

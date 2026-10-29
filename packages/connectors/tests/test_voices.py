@@ -11,10 +11,20 @@ from swarmify_connectors import speech as sp
 from swarmify_connectors import voices
 
 
+def test_voice_names_reads_plain_names_and_kokoros_objects() -> None:
+    assert sp.voice_names(["a", {"id": "b"}, {"name": "c"}, {"x": 1}, 3]) == {"a", "b", "c"}
+    assert sp.voice_names(None) == set()
+
+
 def kokoro(spoken: list[str], short: str = "") -> httpx.Client:
     def handle(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/audio/voices":
-            return httpx.Response(200, json={"voices": ["af_heart", "bm_fable", "bf_lily"]})
+            # Kokoro-FastAPI's real shape: objects, not plain names.
+            listed = [
+                {"id": v, "name": v, "overall_grade": "B"}
+                for v in ("af_heart", "bm_fable", "bf_lily")
+            ]
+            return httpx.Response(200, json={"voices": listed})
         body = json.loads(request.content)
         spoken.append(body["voice"])
         assert body["input"] == voices.SENTENCE and body["response_format"] == "wav"

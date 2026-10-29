@@ -376,6 +376,19 @@ def _words(found: Any) -> set[str]:
     return {t for t in found if isinstance(t, str)} if isinstance(found, list) else set()
 
 
+def voice_names(found: Any) -> set[str]:
+    """The voice names an engine lists: plain names, or objects with an `id` or `name` as
+    Kokoro-FastAPI's `/v1/audio/voices` answers (`{"voices": [{"id": "af_heart", ...}]}`)."""
+    if not isinstance(found, list):
+        return set()
+    names = (
+        v if isinstance(v, str) else v.get("id") or v.get("name")
+        for v in found
+        if isinstance(v, str | dict)
+    )
+    return {n for n in names if isinstance(n, str) and n}
+
+
 def engine_tags(http: httpx.Client, base: str) -> set[str]:
     """The tags the engine at `base` advertises in its `/health` (`"tags": [...]`), else none."""
     return _words(_get(http, f"{base}/health").get("tags"))
@@ -573,7 +586,7 @@ def voice_run(
             if chosen is not None:
                 # an engine has a preset when it lists it, as Kokoro-FastAPI's voices do
                 presets = (
-                    _words(_get(http, f"{base}/v1/audio/voices").get("voices"))
+                    voice_names(_get(http, f"{base}/v1/audio/voices").get("voices"))
                     if any(v["preset"] for v in voices)
                     else set()
                 )
