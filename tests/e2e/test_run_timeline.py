@@ -36,7 +36,7 @@ def test_start_a_run_and_watch_it_reach_its_gate_live(page: Page, base_url: str)
         expect(timeline.locator("[data-status=done]")).to_contain_text("render")
         expect(timeline.locator("[data-status=waiting]")).to_contain_text("pick")
 
-        page.get_by_role("link", name="runs").click()
+        page.get_by_role("navigation", name="Main").get_by_role("link", name="Runs").click()
         expect(page.get_by_test_id("run-list")).to_contain_text("needs you")
         expect(page.get_by_test_id("run-list")).to_contain_text("1 of 3 stages")
     finally:

@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 
 import { api } from "../api/client";
+import { dropGate, reloadGates, useOpenGates } from "../api/gates";
 import type { ArtifactFile } from "../api/events";
 import { actOn, decide, type Gate, money, setBudget } from "../api/runs";
 import type { components } from "../api/schema";
@@ -14,21 +15,12 @@ type PublishPreview = components["schemas"]["PublishPreview"];
 type Proposal = components["schemas"]["Proposal"];
 
 export function Gates() {
-  const [gates, setGates] = useState<Gate[] | null>(null);
+  const open = useOpenGates();
+  const gates = open.gates;
   const [worlds, setWorlds] = useState<World[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  const error = refused ?? (open.failed ? "Could not load the gates. Is the API running?" : null);
 
-  const load = useCallback(() => {
-    api
-      .GET("/api/gates")
-      .then(({ data, error }) => {
-        if (error || !data) throw new Error("load failed");
-        setGates(data);
-      })
-      .catch(() => setError("Could not load the gates. Is the API running?"));
-  }, []);
-
-  useEffect(load, [load]);
   useEffect(() => {
     api
       .GET("/api/worlds")
@@ -36,28 +28,13 @@ export function Gates() {
       .catch(() => undefined);
   }, []);
 
-  // Gates live across worlds, so follow the one all-worlds stream and refetch the inbox
-  // whenever a run moves (ADR 0002: skins render events, never tables). A stream per world
-  // held all six of the browser's connections per host and queued every answer behind them.
-  // `since=now` skips history: replaying it refetched the inbox once per past run.updated.
-  useEffect(() => {
-    const source = new EventSource("/api/events?since=now");
-    source.addEventListener("run.updated", load);
-    return () => source.close();
-  }, [load]);
-
   async function answer(gate: Gate, send: () => Promise<string | null>) {
-    setError(null);
-    const refused = await send();
-    if (refused) setError(refused);
+    setRefused(null);
+    const why = await send();
+    if (why) setRefused(why);
     // A budget gate stays until the run resumes; it can still be aborted, so refetch.
-    if (refused || gate.kind === "budget") {
-      load();
-    } else {
-      // Hide the answered card now; the run's next run.updated refetches the inbox. Refetching
-      // here could beat the workflow to the message and show the answered gate again.
-      setGates((gs) => gs?.filter((g) => g.stage_id !== gate.stage_id) ?? gs);
-    }
+    if (why || gate.kind === "budget") reloadGates();
+    else dropGate(gate.stage_id);
   }
 
   const worldName = (id: string) => worlds.find((w) => w.id === id)?.name ?? id;
@@ -66,9 +43,6 @@ export function Gates() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> / needs you
-          </div>
           <h1>Needs you</h1>
           <p className="sub">
             Every open gate from every world and run, newest first. Answer here and the run moves

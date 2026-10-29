@@ -75,5 +75,5 @@ test("with no eval yet the page says how to run one, and the worlds page links h
   const { screen } = await mountAt("/evals");
   await expect.element(screen.getByTestId("no-evals")).toMatchTextContent(/uv run swarmify-eval --k 3/);
   const worlds = await mountAt("/");
-  await expect.element(worlds.screen.getByRole("link", { name: "Evals" })).toHaveAttribute("href", "/evals");
+  await expect.element(worlds.screen.getByRole("main").getByRole("link", { name: "Evals" })).toHaveAttribute("href", "/evals");
 });

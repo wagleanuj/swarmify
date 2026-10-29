@@ -28,7 +28,8 @@ test("the swarm stage's whiteboard shows its columns and follows the world strea
   await expect.element(screen.getByTestId("col-open")).toMatchTextContent(/Open 2.*Pull top shorts.*added by richard/);
   await expect.element(screen.getByTestId("col-open")).toMatchTextContent(/Rank hooks.*waiting on 1 task/);
   await expect.element(screen.getByTestId("col-claimed")).toHaveTextContent("Claimed 0Nothing in flight.");
-  expect(FakeEventSource.open).toHaveLength(1);
+  // The world stream, beside the shell's one all-worlds stream.
+  expect(FakeEventSource.open).toHaveLength(2);
 
   FakeEventSource.emit("task.updated", {
     payload: task("task_1", "claimed", { title: "Pull top shorts", updated_at: later }),

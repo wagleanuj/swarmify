@@ -16,11 +16,11 @@ def test_create_open_and_delete_a_world(page: Page, base_url: str, data_dir: Pat
     # The overview renders the world's own SSE stream, so creation shows up as activity.
     expect(page.get_by_test_id("activity")).to_contain_text("World created")
 
-    page.get_by_role("link", name="worlds").click()
-    expect(page.get_by_role("link", name="Video")).to_be_visible()
+    page.get_by_role("link", name="All worlds").click()
+    expect(page.get_by_role("main").get_by_role("link", name="Video")).to_be_visible()
     expect(page.get_by_test_id("empty")).not_to_be_visible()
 
-    page.get_by_role("link", name="Video").click()
+    page.get_by_role("main").get_by_role("link", name="Video").click()
     folder = data_dir / "worlds" / page.url.rstrip("/").split("/")[-1]
     assert folder.is_dir()
     page.once("dialog", lambda dialog: dialog.accept())

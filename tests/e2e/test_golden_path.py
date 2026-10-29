@@ -52,7 +52,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     page.get_by_role("button", name="Save as version 1").click()
     expect(page.get_by_test_id("versions")).to_contain_text("v1")
 
-    page.get_by_role("link", name="golden").click()
+    page.get_by_role("navigation", name="Main").get_by_role("link", name="Overview").click()
     page.get_by_role("button", name="Start a run of Weekly short").click()
     status = page.get_by_test_id("status-line")
     expect(status).to_have_text("Waiting for you: Pick one idea.", timeout=20_000)

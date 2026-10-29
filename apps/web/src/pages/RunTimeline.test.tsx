@@ -103,9 +103,9 @@ test("running: the status line says which stage works, the step and the time, an
   await expect.element(screen.getByRole("button", { name: "Step 1, research, starting" })).toHaveAttribute("aria-current", "step");
   // Arriving with no step pins the picked one in the address.
   await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_0" }));
-  await expect.element(screen.getByRole("link", { name: "kids videos" })).toHaveAttribute("href", "/worlds/world_1");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Render then pick v2");
-  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
+  // Beside the shell's one all-worlds stream.
+  expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events"]);
 
   const running = run("running", [research("done"), voice("done"), video("running", timed(3, null))], { updated_at: at(4) });
   FakeEventSource.emit("run.updated", { payload: running });

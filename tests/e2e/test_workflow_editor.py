@@ -59,7 +59,7 @@ def _run(page: Page, base_url: str) -> None:
     page.get_by_role("button", name="Open v1").click()
     expect(editor).to_have_value(starter)
 
-    page.get_by_role("link", name="video").click()
+    page.get_by_role("navigation", name="Main").get_by_role("link", name="Overview").click()
     expect(page.get_by_test_id("workflow-list")).to_contain_text("Daily short")
     expect(page.get_by_test_id("workflow-list")).to_contain_text("v2")
     expect(page.get_by_test_id("activity")).to_contain_text("Workflow saved")

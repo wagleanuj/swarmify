@@ -84,9 +84,11 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
             .slice(0, 5).map(e => e.tagName + '.' + e.className)"""
     )
     assert wide <= 0, f"{path} scrolls sideways by {wide}px: {culprits}"
-    # The way back is a thumb tap: WCAG 2.5.8 asks for 24px targets.
-    crumbs = phone.locator(".crumb a").evaluate_all("as => as.map(a => a.offsetHeight)")
-    assert all(h >= 24 for h in crumbs), f"{path} has breadcrumb links {crumbs}px tall"
+    # The sidebar folds behind the menu button; every way out is a thumb tap (WCAG 2.5.8: 24px).
+    expect(phone.get_by_role("navigation", name="Main")).to_be_hidden()
+    phone.get_by_role("button", name="Menu").click()
+    links = phone.locator(".nav-item").evaluate_all("as => as.map(a => a.offsetHeight)")
+    assert links and all(h >= 24 for h in links), f"{path} has menu links {links}px tall"
 
 
 def test_a_gate_is_answered_from_a_phone_as_the_stream_moves(phone: Page, ids: dict) -> None:

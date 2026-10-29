@@ -4,6 +4,7 @@ import { api } from "./api/client";
 
 type State = { kind: "loading" } | { kind: "ok"; version: string } | { kind: "down" };
 
+/** The sidebar's health line: whether the API answers, and its version. */
 export function Health() {
   const [state, setState] = useState<State>({ kind: "loading" });
 
@@ -22,11 +23,17 @@ export function Health() {
     };
   }, []);
 
-  if (state.kind === "loading") return <p role="status">Checking the API...</p>;
-  if (state.kind === "down") return <p role="alert">API is not reachable.</p>;
+  // Plain text, not a live region: it sits on every screen beside the page's own status.
   return (
-    <p role="status">
-      API is up, version <span data-testid="version">{state.version}</span>
-    </p>
+    <div className="nav-health" data-testid="health">
+      <span className={`dot ${state.kind === "ok" ? "live" : state.kind === "down" ? "bad" : ""}`} />
+      {state.kind === "loading" && "Checking the API..."}
+      {state.kind === "down" && "API is not reachable"}
+      {state.kind === "ok" && (
+        <span>
+          API up, version <span data-testid="version">{state.version}</span>
+        </span>
+      )}
+    </div>
   );
 }

@@ -98,7 +98,6 @@ export function WorkflowEditor() {
     workflowId?: string;
   };
   const router = useRouter();
-  const [world, setWorld] = useState<World | null>(null);
   const [worlds, setWorlds] = useState<World[]>([]);
   const [versions, setVersions] = useState<WorkflowVersion[]>([]);
   const [text, setText] = useState<string | null>(workflowId ? null : STARTER);
@@ -114,10 +113,6 @@ export function WorkflowEditor() {
   const latestCheck = useRef(0);
 
   useEffect(() => {
-    api
-      .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setWorld(data ?? null))
-      .catch(() => setError("Could not load this world. Is the API running?"));
     api
       .GET("/api/worlds")
       .then(({ data }) => setWorlds(data ?? []))
@@ -290,13 +285,6 @@ export function WorkflowEditor() {
     <main className="editor-page">
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {world?.name.toLowerCase() ?? "world"}
-            </Link>{" "}
-            / workflows
-          </div>
           <h1>{title}</h1>
           <p className="sub">
             Describe it to Richard, build the stage list by hand, or write the YAML: three views

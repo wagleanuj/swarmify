@@ -142,9 +142,6 @@ export function Connectors() {
   if (world === null) {
     return (
       <main>
-        <div className="crumb">
-          <Link to="/">worlds</Link>
-        </div>
         <h1>No such world</h1>
         <p className="sub">
           It may have been deleted. <Link to="/">Back to your worlds.</Link>
@@ -157,13 +154,6 @@ export function Connectors() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {world?.name.toLowerCase() ?? "world"}
-            </Link>{" "}
-            / connectors
-          </div>
           <h1>Connectors</h1>
           <p className="sub">
             Each connector is an MCP server, its keys, and which stage types may use it. Keys live

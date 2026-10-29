@@ -49,6 +49,10 @@ def _serve(data_dir: Path, **env: str) -> Iterator[str]:
         "scripted_app:create_app",
         "--port",
         str(port),
+        # The sidebar holds an event stream open on every page; without a cap the server waits
+        # on it forever when a test stops it (the dev task caps it the same way).
+        "--timeout-graceful-shutdown",
+        "3",
     ]
     with subprocess.Popen(cmd, env=env) as server:
         try:

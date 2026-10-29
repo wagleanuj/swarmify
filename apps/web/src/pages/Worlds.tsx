@@ -3,7 +3,6 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Health } from "../Health";
 
 type World = components["schemas"]["World"];
 
@@ -47,7 +46,6 @@ export function Worlds() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">swarmify</div>
           <h1>Your worlds</h1>
           <p className="sub">
             A world is one long memory and the connectors it may use. Runs come and go. The world
@@ -61,7 +59,6 @@ export function Worlds() {
           <Link to="/evals" className="button">
             Evals
           </Link>
-          <Health />
         </div>
       </header>
       {error && <p role="alert">{error}</p>}

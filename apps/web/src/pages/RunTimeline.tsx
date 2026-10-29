@@ -248,22 +248,9 @@ export function RunTimeline() {
     window.scrollTo({ top: 0 });
   }
 
-  const crumb = (
-    <div className="crumb">
-      <Link to="/">worlds</Link> /{" "}
-      <Link to="/worlds/$worldId" params={{ worldId }}>
-        {world?.name.toLowerCase() ?? "world"}
-      </Link>{" "}
-      /{" "}
-      <Link to="/worlds/$worldId/runs" params={{ worldId }}>
-        runs
-      </Link>
-    </div>
-  );
   if (run === undefined) {
     return (
       <main>
-        {crumb}
         {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
       </main>
     );
@@ -271,7 +258,6 @@ export function RunTimeline() {
   if (run === null) {
     return (
       <main>
-        {crumb}
         <h1>No such run</h1>
         <p className="sub">
           Its world may have been deleted.{" "}
@@ -294,8 +280,7 @@ export function RunTimeline() {
     <main className="run-page">
       <header className="page">
         <div>
-          {crumb}
-          <h1>
+            <h1>
             {run.name} <span className="faint-title">{version(run)}</span>
           </h1>
           <Lineage run={run} worldId={worldId} />

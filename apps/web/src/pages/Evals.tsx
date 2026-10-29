@@ -33,9 +33,6 @@ export function Evals() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">swarmify</Link> / evals
-          </div>
           <h1>Evals: Hooli baseline against the swarm</h1>
           <p className="sub">
             Each task runs as the weekly short in a fresh world, k times one agent alone and k times the swarm. Only

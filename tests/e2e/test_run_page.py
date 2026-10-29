@@ -41,7 +41,9 @@ def test_a_voiced_build_shows_its_takes_its_build_and_its_video_then_the_gate_is
         expect(status).to_have_text(
             "Waiting for you: Watch it. Approve or send back.", timeout=20_000
         )
-        expect(page.locator(".crumb")).to_have_text("worlds / shorts / runs")
+        nav = page.get_by_role("navigation", name="Main")
+        expect(nav.get_by_test_id("world-switcher")).to_contain_text("Shorts")
+        expect(nav.get_by_role("link", name="Runs")).to_have_attribute("aria-current", "page")
         expect(page.get_by_test_id("result").get_by_test_id("player")).to_be_visible()
         expect(page.get_by_test_id("budget")).to_have_text(
             re.compile(r"^\$0\.\d\d of \$5\.00 budget$")

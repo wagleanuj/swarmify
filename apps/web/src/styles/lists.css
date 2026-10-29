@@ -1,0 +1,59 @@
+/* Runs */
+.run-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.run-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; gap: 8px 16px; align-items: center; padding: 10px 14px; }
+.run-list li > a { font-weight: 600; text-decoration: none; }
+.run-list li > a:hover { text-decoration: underline; }
+.run-list time { font-variant-numeric: tabular-nums; }
+
+/* Connectors */
+.connector-list { list-style: none; padding: 0; margin: 0 0 24px; display: grid; gap: 8px; }
+.connector-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 14px; }
+.connector-main { display: grid; gap: 2px; flex: 1 1 16rem; min-width: 0; }
+.connector-main .mono { font-family: inherit; }
+.chips button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
+.add-connector { max-width: 44rem; gap: 12px; }
+.kind { flex: 1 1 11rem; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; padding: 8px 10px; cursor: pointer; font-weight: 500; }
+.kind .faint { grid-column: 2; }
+.kind.picked { border-color: var(--text); }
+.kind input { accent-color: var(--accent); }
+.tool-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+.set-keys { display: grid; gap: 8px; flex-basis: 100%; }
+.key-check { flex-basis: 100%; font-size: 13px; }
+.health { flex-basis: 100%; list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 13px; }
+.connector-list .health li { background: none; border: 0; padding: 0; display: block; }
+
+/* Graph */
+.communities, .surprises { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.communities .gods li { justify-content: flex-start; }
+.surprises li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 24px; align-items: start; }
+.ask-row { display: flex; gap: 8px; }
+.ask-row input { flex: 1; min-width: 0; }
+.answer { margin: 16px 0; }
+.answer figcaption { margin-bottom: 4px; }
+.answer pre { font: inherit; font-size: 14px; white-space: pre-wrap; }
+.gods { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.gods li { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.gods li span { font-variant-numeric: tabular-nums; }
+.gods button.link { font-size: 14px; color: var(--text); }
+
+/* Library */
+.filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; margin-bottom: 16px; font-size: 14px; }
+.filters label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.filters input[type="date"], .filters select { padding: 5px 8px; min-height: 32px; }
+.promote { display: grid; gap: 8px; justify-items: start; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 14px; }
+.promote label { display: flex; align-items: center; gap: 6px; }
+.promote label:has(textarea) { display: grid; width: 100%; }
+
+/* Cast and skills */
+.cast-list { list-style: none; padding: 0; margin: 0 0 24px; display: grid; gap: 12px; }
+.cast-member h3 .faint-title { font-size: 13px; margin-left: 6px; }
+.cast-edit { display: grid; gap: 8px; margin-top: 4px; }
+.skills { display: grid; gap: 8px; margin-bottom: 16px; }
+.skill-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.skill-list li { display: grid; gap: 2px; padding: 10px 14px; }
+
+@media (max-width: 48rem) {
+  .graph-layout { grid-template-columns: 1fr; }
+  .run-list li { grid-template-columns: minmax(0, 1fr) auto; }
+}

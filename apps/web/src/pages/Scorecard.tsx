@@ -68,11 +68,6 @@ export function Scorecard() {
       <header className="page">
         <div>
           <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              world
-            </Link>{" "}
-            /{" "}
             <Link to="/worlds/$worldId/workflows/$workflowId" params={{ worldId, workflowId }}>
               {card?.name.toLowerCase() ?? "workflow"}
             </Link>{" "}

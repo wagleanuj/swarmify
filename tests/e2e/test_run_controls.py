@@ -94,7 +94,7 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         page.get_by_text("Compare with one agent").click()
         expect(page.get_by_test_id("baseline")).to_contain_text("One agent with no graph did this")
-        page.get_by_role("link", name="runs").click()
+        page.get_by_role("navigation", name="Main").get_by_role("link", name="Runs").click()
         expect(page.get_by_test_id("run-list")).to_contain_text("Hooli baseline")
 
         # An ad hoc run from a typed goal (story 20), then saved as a workflow (story 21).

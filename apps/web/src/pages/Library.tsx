@@ -6,7 +6,6 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
 
-type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["Workflow"];
 type Item = components["schemas"]["LibraryItem"];
 type StageDef = components["schemas"]["WorkflowModel"]["stages"][number];
@@ -33,7 +32,6 @@ function filter(items: Item[], f: Filters): Item[] {
 export function Library() {
   const { worldId } = libraryRoute.useParams();
   const router = useRouter();
-  const [world, setWorld] = useState<World | null>(null);
   const [items, setItems] = useState<Item[] | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [filters, setFilters] = useState<Filters>(NONE);
@@ -44,10 +42,6 @@ export function Library() {
   const [said, setSaid] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setWorld(data ?? null))
-      .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
       .then(({ data }) => setWorkflows(data ?? []))
@@ -90,13 +84,6 @@ export function Library() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {world?.name.toLowerCase() ?? worldId}
-            </Link>{" "}
-            / library
-          </div>
           <h1>Library</h1>
           <p className="sub">
             Everything this world's runs have made: ideas, scripts, verdicts, decisions, files. Pin
