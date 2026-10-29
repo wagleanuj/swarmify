@@ -48,7 +48,7 @@ svg.glyph { color: var(--accent); }
 @keyframes pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .step-running .dot, .step-waiting .dot { animation: none; } }
 .spend { display: grid; gap: 8px; }
-.spend .panel-head { justify-content: space-between; }
+.run-page .spend .panel-head { justify-content: space-between; }
 .spend meter { width: 100%; }
 .spend .compare summary { margin: 0; font-size: 13px; }
 .compare p { margin-top: 4px; }
@@ -77,10 +77,10 @@ svg.glyph { color: var(--accent); }
 .inline-gate .gate-actions { padding-top: 16px; border-top: 1px solid var(--rule); }
 .stage-error, .warn { font-size: 13px; color: var(--negative); }
 .warn { color: var(--warning); }
-.panel { display: grid; gap: 14px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
-.panel .agents, .panel .whiteboard { margin: 0; padding: 0; background: none; border: 0; }
-.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
-.panel p { margin: 0; }
+.run-page .panel { display: grid; gap: 14px; }
+.run-page .panel .agents, .run-page .panel .whiteboard { margin: 0; padding: 0; background: none; border: 0; }
+.run-page .panel-head { justify-content: flex-start; margin: 0; }
+.run-page .panel p { margin: 0; }
 .stage-failure { display: grid; gap: 8px; color: var(--negative); }
 .stage-log { max-height: 20rem; overflow-y: auto; color: var(--text); }
 .agent-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); align-items: start; }
