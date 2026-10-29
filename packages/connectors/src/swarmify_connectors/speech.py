@@ -42,6 +42,9 @@ SCRIPT: dict[str, Any] = {
             "minItems": 1,
             "items": {
                 "type": "object",
+                "additionalProperties": True,
+                "description": "Other keys, such as a visual note for a later build stage, pass"
+                " through untouched",
                 "properties": {
                     "id": {
                         "type": "string",
