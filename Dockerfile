@@ -46,6 +46,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/api apps/api
+COPY docker/needs.sh docker/needs.sh
 RUN uv sync --locked --no-dev --all-packages \
   && python -c "import sqlite3; assert sqlite3.sqlite_version_info >= (3, 42), sqlite3.sqlite_version"
 # The Claude Code CLI the Agent SDK bundles, on PATH for graphify's claude-cli backend

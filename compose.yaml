@@ -3,7 +3,8 @@
 x-env: &env
   SWARMIFY_DATA_DIR: /data
   # Headless Claude Code on the subscription: `claude setup-token` prints it (ADR 0010).
-  CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?run `claude setup-token` and put CLAUDE_CODE_OAUTH_TOKEN in .env}
+  # Checked per service by docker/needs.sh, so `docker compose up kokoro` works without it.
+  CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
 
 services:
   api:
@@ -16,6 +17,9 @@ services:
     # bubblewrap sandboxes a remotion_build stage's Bash and render (ADR 0018): it needs user
     # namespaces and its own /proc, which Docker's default profiles refuse. Without these a
     # build stage fails rather than run unsandboxed.
+    entrypoint: ["/app/docker/needs.sh", "CLAUDE_CODE_OAUTH_TOKEN", "SWARMIFY_PASSWORD", "--"]
+    # A compose entrypoint clears the image's CMD, so the start command is repeated here.
+    command: ["uvicorn", "--factory", "swarmify_api.main:create_app", "--host", "0.0.0.0", "--port", "8000"]
     security_opt:
       - seccomp=unconfined
       - apparmor=unconfined
@@ -24,7 +28,7 @@ services:
       <<: *env
       SWARMIFY_GRAPH_WRITER: external
       SWARMIFY_USER: ${SWARMIFY_USER:-swarmify}
-      SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:?set SWARMIFY_PASSWORD in .env, the LAN must sign in}
+      SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:-}  # required, see entrypoint
       SWARMIFY_BASE_URL: ${SWARMIFY_BASE_URL:-http://localhost:8000}
       # Speech engines in the order the speech connector tries them (README, Speech engines):
       # Chatterbox running natively on the Mac host, then Kokoro below.
@@ -37,6 +41,7 @@ services:
     volumes:
       - data:/data
     environment: *env
+    entrypoint: ["/app/docker/needs.sh", "CLAUDE_CODE_OAUTH_TOKEN", "--"]
     command: ["swarmify-graph-writer"]
     healthcheck:
       disable: true
