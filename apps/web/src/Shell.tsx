@@ -49,7 +49,7 @@ export function Shell() {
   const { pathname, hash } = useLocation();
   // `/worlds/<id>/<area>`, or a global route: `/` (all worlds), `/gates`, `/evals`.
   const [, top, routeWorld, area] = pathname.split("/");
-  const current = top === "worlds" ? (area ?? (hash === "workflows" ? "workflows" : "overview")) : top || "worlds";
+  const current = top === "worlds" ? (area ?? "overview") : top || "worlds";
   const inWorld = top === "worlds" ? routeWorld : undefined;
 
   const gates = useOpenGates().gates;
@@ -116,7 +116,7 @@ export function Shell() {
             <>
               {item("overview", "Overview", { to: "/worlds/$worldId", params })}
               {item("runs", "Runs", { to: "/worlds/$worldId/runs", params })}
-              {item("workflows", "Workflows", { to: "/worlds/$worldId", params, hash: "workflows" })}
+              {item("workflows", "Workflows", { to: "/worlds/$worldId/workflows", params })}
               {item("library", "Library", { to: "/worlds/$worldId/library", params })}
               {item("graph", "Memory", { to: "/worlds/$worldId/graph", params })}
             </>

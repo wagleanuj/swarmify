@@ -1,28 +1,40 @@
-/* Workflow editor: three views of one text, and its scorecard */
+/* Workflow editor: Stages first, then Richard, YAML and the scorecard, over one text; and the workflows list */
 main.editor-page { max-width: 80rem; }
-.editor { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 24px; align-items: start; }
-.editor aside { display: grid; gap: 24px; }
-.editor aside h2 { margin-bottom: 8px; }
-.editor-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.editor-page .tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.editor-page .tab { position: relative; min-height: 0; padding: 0 0 10px; border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 13px; }
+.editor-page .tab:hover { background: none; color: var(--text); }
+.editor-page .tab[aria-selected="true"] { color: var(--text); }
+.editor-page .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--accent); }
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 24px; align-items: start; }
+.editor > section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.editor aside { display: grid; gap: 16px; }
+.editor aside > section { padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); display: grid; gap: 10px; }
+.editor-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.checks { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--faint); font-size: 12px; }
 .problems { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--negative); }
 .problems code { color: var(--muted); }
-.stage-rail { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
-.stage-rail li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-field); font-size: 14px; }
 .versions { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .versions li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
-.versions button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
-.views { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
-.views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 12px; margin-bottom: -1px; color: var(--muted); background: none; }
-.views button:hover { color: var(--text); background: none; }
-.views button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+.versions button, .stage-panel .row-start button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 12px; margin-bottom: 12px; }
-.fields label, .stage-card label { display: grid; gap: 6px; margin: 0; }
-.stage-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
-.stage-card { padding: 12px 14px; display: grid; gap: 10px; }
-.stage-card .row b { font-size: 13px; font-weight: 500; color: var(--muted); }
-.stage-card .row button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
-.stage-card .fields { margin: 0; }
-.add-stage { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.fields label, .stage-panel label { display: grid; gap: 6px; margin: 0; }
+.stage-rows { list-style: none; padding: 6px; margin: 0; display: grid; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
+.stage-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 14px; border: 0; border-left: 1px solid transparent; border-radius: 6px; background: none; text-align: left; font-weight: 400; }
+.stage-row[aria-current="true"] { background: var(--raised); border-left-color: var(--accent); }
+.stage-main { display: grid; gap: 4px; min-width: 0; }
+.stage-top { display: flex; align-items: center; gap: 8px; }
+.stage-main .muted { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-contract { display: grid; justify-items: end; text-align: right; flex: none; max-width: 40%; }
+.stage-contract .ink { color: var(--text); }
+.pill.type-swarm { color: var(--pill-positive-ink); background: var(--pill-positive-bg); }
+.pill.type-gate { color: var(--pill-warning-ink); background: var(--pill-warning-bg); }
+.pill.type-connector, .pill.type-workflow, .pill.type-unknown { color: var(--muted); background: var(--raised); }
+.stage-panel .row { flex-wrap: nowrap; }
+.stage-panel .row-start { display: flex; gap: 8px; flex-wrap: wrap; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 12px; }
+.kv dt { color: var(--faint); }
+.kv dd { margin: 0; }
+.add-stage { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .chat { display: grid; gap: 12px; }
 .chat-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; max-height: 28rem; overflow: auto; }
 .chat-log li { padding: 8px 12px; max-width: 44rem; white-space: pre-wrap; }
@@ -30,10 +42,20 @@ main.editor-page { max-width: 80rem; }
 .chat-log li b { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 2px; }
 .chat form { display: flex; gap: 8px; align-items: flex-start; }
 .chat form textarea { flex: 1; }
-.copy { display: grid; gap: 8px; }
+.rel { position: relative; display: inline-block; }
+.copy .menu { position: absolute; left: 0; top: calc(100% + 6px); min-width: 240px; padding: 6px; background: var(--surface); border: 1px solid var(--control); border-radius: 8px; z-index: 10; display: grid; }
+.copy .menu button { display: grid; justify-items: start; gap: 2px; min-height: 0; padding: 8px 10px; border: 0; border-radius: 6px; background: none; text-align: left; }
+.copy .menu button:hover { background: var(--raised); }
+.copy .menu small { color: var(--faint); font-size: 11px; font-weight: 400; }
 .trend { margin: 0 0 16px; max-width: 62ch; }
+a.button.primary { background: var(--accent); color: var(--primary-ink); border-color: var(--accent); font-weight: 600; text-decoration: none; }
+a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
+.scores.workflows td { vertical-align: middle; }
+.scores td.action { text-align: right; }
 
 @media (max-width: 48rem) {
-  .editor { grid-template-columns: 1fr; }
+  .editor { grid-template-columns: minmax(0, 1fr); }
   .chat-log li { max-width: 100%; }
+  .stage-row { flex-wrap: wrap; }
+  .stage-contract { justify-items: start; text-align: left; max-width: none; }
 }

@@ -46,18 +46,27 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("a new workflow opens with a starter, checks it inline and shows the stage rail", async () => {
+test("a new workflow opens on Stages: each step with what it does, needs and makes, and a quiet checks line", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": check,
   });
   const { screen } = await mountAt("/worlds/world_1/workflows/new");
   await expect.element(screen.getByRole("heading", { name: "Weekly short", level: 1 })).toBeVisible();
-  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(STARTER);
-  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/No problems/);
-  await expect.element(screen.getByTestId("stage-rail")).toMatchTextContent(/research.*swarm.*pick.*gate/);
+  await expect.element(screen.getByRole("tab", { name: "Stages" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "Scorecard" }).elements()).toHaveLength(0);
+  expect(screen.getByLabelText("Workflow YAML").elements()).toHaveLength(0);
+  const rows = screen.getByTestId("stage-rows").getByRole("button");
+  await expect.element(rows.first()).toMatchTextContent(/swarm.*research.*Find 5 short-form.*makes list\[idea\]/);
+  await expect.element(rows.nth(1)).toMatchTextContent(/gate.*pick.*Pick one idea.*needs list\[idea\].*makes list\[idea\] \(one picked\)/);
+  await expect.element(rows.first()).toHaveAttribute("aria-current", "true");
+  await expect.element(screen.getByTestId("stage-contract")).toMatchTextContent(/Needs.*nothing, it starts the run.*Makes.*list\[idea\]/);
+  await expect.element(screen.getByTestId("problems")).toHaveTextContent("Checks pass: every step gets the type it needs.");
   await expect.element(screen.getByText("Version 1 is created when you save.")).toBeVisible();
   await expect.element(screen.getByRole("button", { name: "Save as version 1" })).toBeEnabled();
+
+  await screen.getByRole("tab", { name: "YAML" }).click();
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(STARTER);
 });
 
 test("violations appear inline as you type and block saving until fixed", async () => {
@@ -65,9 +74,9 @@ test("violations appear inline as you type and block saving until fixed", async 
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": check,
   });
-  const { screen } = await mountAt("/worlds/world_1/workflows/new");
+  const { screen } = await mountAt("/worlds/world_1/workflows/new?tab=yaml");
   const editor = screen.getByLabelText("Workflow YAML");
-  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/No problems/);
+  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/Checks pass/);
 
   await editor.fill(`${STARTER}  - connector: youtube\n`);
   await expect.element(screen.getByRole("heading", { name: "1 problem to fix before saving" })).toBeVisible();
@@ -78,15 +87,17 @@ test("violations appear inline as you type and block saving until fixed", async 
 
   await editor.fill("name: [[\n");
   await expect.element(screen.getByTestId("problems")).toMatchTextContent(/not valid YAML at line 2/);
-  await expect.element(screen.getByText("The stage list appears as soon as the YAML parses.")).toBeVisible();
+  await screen.getByRole("tab", { name: "Stages" }).click();
+  await expect.element(screen.getByTestId("stages-unavailable")).toBeVisible();
+  await screen.getByRole("tab", { name: "YAML" }).click();
 
   await editor.fill(STARTER);
-  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/No problems/);
+  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/Checks pass/);
   await expect.element(screen.getByRole("button", { name: "Save as version 1" })).toBeEnabled();
   expect(calls.filter((c) => c.startsWith("POST /api/worlds/world_1/workflows/check")).length).toBeGreaterThan(2);
 });
 
-test("saving a new workflow posts the YAML and opens the saved workflow's editor", async () => {
+test("saving a new workflow posts the YAML and stays in its editor with the version stamp", async () => {
   let posted: unknown = null;
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
@@ -103,7 +114,10 @@ test("saving a new workflow posts the YAML and opens the saved workflow's editor
   expect(posted).toEqual({ yaml: STARTER });
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
   await expect.element(screen.getByRole("button", { name: "Save as version 2" })).toBeDisabled();
-  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Saved as version 1.");
+  await expect.element(screen.getByTestId("check-status")).toHaveTextContent(
+    "Saved as version 1; runs already started keep their version.",
+  );
+  await expect.element(screen.getByRole("tab", { name: "Stages" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("an existing workflow loads its latest version, saves a new one and can open old ones", async () => {
@@ -120,10 +134,12 @@ test("an existing workflow loads its latest version, saves a new one and can ope
       return Response.json(v3, { status: 201 });
     },
   });
-  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
+  const { screen, router } = await mountAt("/worlds/world_1/workflows/wf_1");
+  await expect.element(screen.getByRole("heading", { name: "Daily short v2", level: 1 })).toBeVisible();
+  await screen.getByRole("tab", { name: "YAML" }).click();
+  expect(router.state.location.search).toEqual({ tab: "yaml" });
   const editor = screen.getByLabelText("Workflow YAML");
   await expect.element(editor).toHaveValue(v2.yaml);
-  await expect.element(screen.getByRole("heading", { name: "Daily short", level: 1 })).toBeVisible();
   await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v2.*open.*v1.*Open v1/);
   await expect.element(screen.getByRole("button", { name: "Save as version 3" })).toBeDisabled();
 
@@ -133,7 +149,10 @@ test("an existing workflow loads its latest version, saves a new one and can ope
   await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v2.*Open v2.*v1.*open/);
   await editor.fill(`${STARTER}# v3\n`);
   await screen.getByRole("button", { name: "Save as version 3" }).click();
-  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Saved as version 3.");
+  await expect.element(screen.getByTestId("check-status")).toHaveTextContent(
+    "Saved as version 3; runs already started keep their version.",
+  );
+  expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
   await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v3.*open.*v2.*Open v2.*v1.*Open v1/);
   await expect.element(screen.getByRole("button", { name: "Save as version 4" })).toBeDisabled();
 });
@@ -175,9 +194,8 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
     "POST /api/worlds/world_1/workflows/check": check,
   });
   const { screen } = await mountAt("/worlds/world_1/workflows/new");
-  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/No problems/);
-  await screen.getByRole("tab", { name: "Stages" }).click();
-  await expect.element(screen.getByTestId("stage-cards")).toMatchTextContent(/swarm.*gate/);
+  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/Checks pass/);
+  await expect.element(screen.getByTestId("stage-rows")).toMatchTextContent(/swarm.*gate/);
   await expect.element(screen.getByLabelText("Goal of research")).toHaveValue(
     "Find 5 short-form video ideas trending this week. Check the graph for what we already published.",
   );
@@ -185,11 +203,16 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
 
   await screen.getByLabelText("Done when of research").fill("3 ideas ranked");
   await screen.getByLabelText("Tools of research").fill("web_search");
+  await screen.getByTestId("stage-rows").getByRole("button", { name: /pick/ }).click();
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/pick.*gate/);
   await screen.getByLabelText("Move pick up").click();
-  await expect.element(screen.getByTestId("stage-cards")).toMatchTextContent(/gate.*swarm/);
+  await expect.element(screen.getByTestId("stage-rows")).toMatchTextContent(/gate.*swarm/);
+  // the selection follows the moved stage
+  await expect.element(screen.getByTestId("stage-rows").getByRole("button").first()).toHaveAttribute("aria-current", "true");
+  await screen.getByLabelText("Remove pick").click();
   await screen.getByLabelText("Stage type to add").selectOptions("connector");
   await screen.getByRole("button", { name: "Add stage" }).click();
-  await screen.getByLabelText("Remove pick").click();
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/render.*connector/);
 
   await screen.getByRole("tab", { name: "YAML" }).click();
   const yaml = screen.getByLabelText("Workflow YAML");
@@ -211,6 +234,7 @@ stages:
   // and the other way round: YAML typed by hand lands in the list
   await yaml.fill(planned);
   await screen.getByRole("tab", { name: "Stages" }).click();
+  await screen.getByTestId("stage-rows").getByRole("button", { name: /pick/ }).click();
   await expect.element(screen.getByLabelText("Ask of pick")).toHaveValue("Pick one.");
   await expect.element(screen.getByLabelText("Schedule (cron, UTC)")).toHaveValue("0 8 * * 1");
 });
@@ -269,7 +293,6 @@ test("Richard drafts through the planner endpoint and his YAML becomes the edito
   await screen.getByRole("button", { name: "Send" }).click();
   await expect.element(screen.getByTestId("chat-log")).toMatchTextContent(/You.*A weekly short.*Richard.*Here is a draft\./);
   await expect.element(screen.getByTestId("check-status")).toMatchTextContent(/Richard updated the draft/);
-  await expect.element(screen.getByTestId("stage-rail")).toMatchTextContent(/research.*pick/);
   expect(sent[0]).toMatchObject({ message: "A weekly short, I pick the idea.", yaml: STARTER, workflow_id: null, session_id: null });
 
   await screen.getByRole("tab", { name: "YAML" }).click();
@@ -282,7 +305,7 @@ test("Richard drafts through the planner endpoint and his YAML becomes the edito
   expect(sent[1]).toMatchObject({ message: "Save it.", yaml: planned, session_id: "session-1" });
   await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v1/);
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
-  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Saved as version 1.");
+  await expect.element(screen.getByTestId("check-status")).toMatchTextContent(/^Saved as version 1;/);
 });
 
 test("a planner that does not answer is an alert and the message stays to resend", async () => {
@@ -301,7 +324,7 @@ test("a planner that does not answer is an alert and the message stays to resend
   await expect.element(screen.getByLabelText("Message to Richard")).toHaveValue("Hello");
 });
 
-test("copying puts the workflow in another world and opens it there", async () => {
+test("copying puts the workflow in another world and keeps you here, with a link to the copy", async () => {
   const other = { ...video, id: "world_2", name: "Marketing" };
   let copied: unknown = null;
   fakeFetch({
@@ -318,11 +341,16 @@ test("copying puts the workflow in another world and opens it there", async () =
     },
   });
   const { screen, router } = await mountAt("/worlds/world_1/workflows/wf_1");
-  await expect.element(screen.getByLabelText("World to copy to")).toHaveValue("world_2");
-  await screen.getByRole("button", { name: "Copy the current version" }).click();
-  await expect.element(screen.getByRole("heading", { name: "Weekly short", level: 1 })).toBeVisible();
+  await screen.getByRole("button", { name: "Copy to another world" }).click();
+  const item = screen.getByRole("menuitem", { name: /Marketing/ });
+  await expect.element(item).toHaveTextContent("MarketingCreates a copy there; you stay here");
+  await item.click();
+  await expect.element(screen.getByTestId("copied")).toMatchTextContent(/Copied to Marketing as a new workflow at version 1/);
   expect(copied).toEqual({ world_id: "world_2" });
-  expect(router.state.location.pathname).toBe("/worlds/world_2/workflows/wf_9");
+  expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
+  await expect
+    .element(screen.getByRole("link", { name: "Open the copy" }))
+    .toHaveAttribute("href", "/worlds/world_2/workflows/wf_9");
 });
 
 test("a copy the other world refuses names what it lacks", async () => {
@@ -339,7 +367,8 @@ test("a copy the other world refuses names what it lacks", async () => {
       ),
   });
   const { screen, router } = await mountAt("/worlds/world_1/workflows/wf_1");
-  await screen.getByRole("button", { name: "Copy the current version" }).click();
+  await screen.getByRole("button", { name: "Copy to another world" }).click();
+  await screen.getByRole("menuitem", { name: /Marketing/ }).click();
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/cannot run this workflow yet: no connector named 'render_video'/);
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
 });

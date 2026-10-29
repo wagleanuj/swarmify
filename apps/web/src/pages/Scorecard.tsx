@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
-import { scorecardRoute } from "../router";
 
 type Card = components["schemas"]["Scorecard"];
 type Score = components["schemas"]["RunScore"];
@@ -46,8 +45,8 @@ export function trendLine(runs: Score[]): string | null {
   return `Last ${RECENT} runs against the ${swarm.length - RECENT} before: ${parts.join(", ")}.`;
 }
 
-export function Scorecard() {
-  const { worldId, workflowId } = scorecardRoute.useParams();
+/** The editor's Scorecard tab: every run of the workflow, oldest first. */
+export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId: string }) {
   const [card, setCard] = useState<Card | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,29 +63,18 @@ export function Scorecard() {
   const runs = card?.runs ?? [];
   const trend = trendLine(runs);
   return (
-    <main>
-      <header className="page">
-        <div>
-          <div className="crumb">
-            <Link to="/worlds/$worldId/workflows/$workflowId" params={{ worldId, workflowId }}>
-              {card?.name.toLowerCase() ?? "workflow"}
-            </Link>{" "}
-            / scorecard
-          </div>
-          <h1>Scorecard{card ? `: ${card.name}` : ""}</h1>
-          <p className="sub">
-            Every run of this workflow, oldest first: how often Erlich passed a stage first try,
-            how often you sent one back, what Russ counted, how long it took, and what the published
-            piece did. Cost is the runtime's estimate, not billing.
-          </p>
-        </div>
-      </header>
+    <div data-testid="scorecard">
+      <p className="sub trend">
+        How often Erlich passed a stage first try, how often you sent one back, what Russ counted,
+        how long it took, and what the published piece did. Cost is the runtime's estimate, not
+        billing.
+      </p>
       {error && <p role="alert">{error}</p>}
       {card === null && !error && <p role="status">Loading...</p>}
       {card && runs.length === 0 && (
         <div className="empty" data-testid="no-scores">
           <p>No runs yet. The first row lands here when a run of this workflow starts.</p>
-          <Link to="/worlds/$worldId" params={{ worldId }} className="button">
+          <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button">
             Start a run
           </Link>
         </div>
@@ -137,6 +125,6 @@ export function Scorecard() {
           </div>
         </>
       )}
-    </main>
+    </div>
   );
 }

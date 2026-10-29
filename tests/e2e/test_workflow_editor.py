@@ -24,10 +24,11 @@ def _run(page: Page, base_url: str) -> None:
 
     page.get_by_role("link", name="New workflow").click()
     expect(page.get_by_role("heading", name="Weekly short", level=1)).to_be_visible()
-    expect(page.get_by_test_id("problems")).to_contain_text("No problems")
-    expect(page.get_by_test_id("stage-rail")).to_contain_text("research")
+    expect(page.get_by_test_id("problems")).to_contain_text("Checks pass")
+    expect(page.get_by_test_id("stage-rows")).to_contain_text("research")
 
     # A publish connector before the gate, fed an artifact nobody made: both rules fire inline.
+    page.get_by_role("tab", name="YAML").click()
     editor = page.get_by_label("Workflow YAML")
     starter = editor.input_value()
     assert GATE in starter
@@ -46,15 +47,17 @@ def _run(page: Page, base_url: str) -> None:
     expect(problems).not_to_contain_text("must come right after a gate")
 
     editor.fill(starter)
-    expect(problems).to_contain_text("No problems")
+    expect(problems).to_contain_text("Checks pass")
     page.get_by_role("button", name="Save as version 1").click()
     expect(page.get_by_test_id("versions")).to_contain_text("v1")
     expect(page).to_have_url(re.compile(r"/workflows/wf_"))
 
     editor.fill(starter.replace("Weekly short", "Daily short"))
-    expect(page.get_by_role("heading", name="Daily short", level=1)).to_be_visible()
+    expect(page.get_by_role("heading", name="Daily short v1", level=1)).to_be_visible()
     page.get_by_role("button", name="Save as version 2").click()
-    expect(page.get_by_test_id("check-status")).to_have_text("Saved as version 2.")
+    expect(page.get_by_test_id("check-status")).to_have_text(
+        "Saved as version 2; runs already started keep their version."
+    )
     expect(page.get_by_test_id("versions")).to_contain_text("v2")
     page.get_by_role("button", name="Open v1").click()
     expect(editor).to_have_value(starter)

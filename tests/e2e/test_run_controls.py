@@ -105,6 +105,6 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         expect(page.get_by_role("heading", level=1)).to_contain_text("ad hoc")
         page.get_by_role("button", name="Save as workflow").click()
         expect(page.get_by_test_id("versions")).to_contain_text("v1")
-        expect(page.get_by_label("Workflow YAML")).to_contain_text("Find five hooks")
+        expect(page.get_by_test_id("stage-rows")).to_contain_text("Find five hooks")
     finally:
         api.delete(f"/worlds/{world}")

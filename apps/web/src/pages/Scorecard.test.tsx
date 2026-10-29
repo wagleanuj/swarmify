@@ -38,13 +38,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("one row per run with first try, send-backs, cost, duration and outcome, plus the trend", async () => {
+const editor = {
+  "GET /api/workflows/wf_1/versions": () => Response.json([]),
+  "POST /api/worlds/world_1/workflows/check": () => Response.json({ violations: [], model: null }),
+};
+
+test("the old scorecard address opens the editor on its Scorecard tab: one row per run, plus the trend", async () => {
   fakeFetch({
+    ...editor,
     "GET /api/workflows/wf_1/scorecard": () =>
       Response.json({ workflow_id: "wf_1", world_id: "world_1", name: "Short", runs }),
   });
-  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1/scorecard");
-  await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Scorecard: Short");
+  const { screen, router } = await mountAt("/worlds/world_1/workflows/wf_1/scorecard");
+  await expect.element(screen.getByRole("tab", { name: "Scorecard" })).toHaveAttribute("aria-selected", "true");
+  expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
+  expect(router.state.location.search).toEqual({ tab: "scorecard" });
   const rows = screen.getByTestId("score");
   expect(rows.elements()).toHaveLength(6);
   await expect.element(rows.first()).toMatchTextContent(/v1.*done.*0 of 2.*2.*\$0\.80.*5 min.*1,200 views/);
@@ -61,10 +69,13 @@ test("the trend needs more than three swarm runs and the empty state says what l
   expect(trendLine(runs.slice(0, 4))).toBeNull();
   expect(trendLine(runs.slice(0, 5))).toMatch(/^Last 3 runs against the 1 before/);
   fakeFetch({
+    ...editor,
     "GET /api/workflows/wf_1/scorecard": () =>
       Response.json({ workflow_id: "wf_1", world_id: "world_1", name: "Short", runs: [] }),
   });
-  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1/scorecard");
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1?tab=scorecard");
   await expect.element(screen.getByTestId("no-scores")).toMatchTextContent(/No runs yet/);
-  await expect.element(screen.getByRole("link", { name: "Start a run" })).toHaveAttribute("href", "/worlds/world_1");
+  await expect
+    .element(screen.getByRole("link", { name: "Start a run" }))
+    .toHaveAttribute("href", "/worlds/world_1/workflows");
 });
