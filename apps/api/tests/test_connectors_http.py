@@ -204,3 +204,19 @@ def test_progress_streams_on_the_world_events(live_url: str, transport: FakeTran
                 if seen[-1][0] == "done":
                     break
     assert seen == [("running", None), ("polling", 0.0), ("polling", 0.5), ("done", 1.0)]
+
+
+def test_the_speech_connector_reports_each_engine_s_health(
+    client: TestClient, transport: FakeTransport
+) -> None:
+    listed = {c["name"]: c for c in client.get(f"/api/worlds/{world(client)}/connectors").json()}
+    assert listed["speech"]["health"] == "speech_health" and listed["youtube"]["health"] is None
+    transport.outputs["speech_health"] = [
+        {"checks": [{"name": "http://kokoro:8880", "ok": False, "message": "refused"}]},
+        ConnectorError("speech: could not start"),
+    ]
+    health = client.get("/api/connectors/builtin_speech/health")
+    assert health.json() == [{"name": "http://kokoro:8880", "ok": False, "message": "refused"}]
+    assert client.get("/api/connectors/builtin_speech/health").status_code == 502
+    assert client.get("/api/connectors/builtin_youtube/health").json() == []
+    assert client.get("/api/connectors/nope/health").status_code == 404

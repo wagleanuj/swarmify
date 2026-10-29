@@ -26,6 +26,8 @@ class Connector:
     builtin: bool = False
     about: str = ""
     created_at: str | None = None
+    health: str | None = None
+    """The tool that checks what the connector depends on, answering `checks`; built-ins only."""
 
     @property
     def has_server(self) -> bool:
@@ -65,6 +67,15 @@ class Call:
     attempts: int = 0
     polls: int = 0
     visit: int = 0
+
+
+@dataclass(frozen=True)
+class HealthCheck:
+    """One thing a connector depends on, such as a speech engine, and whether it answers."""
+
+    name: str
+    ok: bool
+    message: str
 
 
 @dataclass(frozen=True)
