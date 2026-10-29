@@ -2,6 +2,9 @@
 session is started with (sandbox, path rules, environment) and what its hooks refuse."""
 
 import asyncio
+import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,7 @@ from swarmify_swarm import (
 )
 from swarmify_swarm.fake import Call, Say, Script, Step
 
+STARTER = Path(__file__).parents[2] / "connectors/src/swarmify_connectors/remotion_starter"
 W, R, S = "world_1", "run_1", "stage_1"
 
 
@@ -252,3 +256,33 @@ def test_a_spent_budget_stops_the_build_before_it_starts(board: SqliteStorage, d
     with pytest.raises(Stopped, match="spent"):
         _build(board, data, SdkRuntime(transport=script.transport), budget=lambda _: "spent")
     assert script.sessions == []
+
+
+VOICE_RULES = ["createTikTokStyleCaptions", "white-space: pre", "trimBefore", "durationInFrames"]
+
+
+def test_speech_timings_make_the_brief_voice_first(tmp_path: Path) -> None:
+    script, timings = tmp_path / "script.md", tmp_path / "timings.json"
+    plain = build.prompt(script, "Main", "", [], [tmp_path / "notes.md"], [])
+    assert not any(rule in plain for rule in VOICE_RULES)
+    voiced = build.prompt(script, "Main", "", [], [timings], [])
+    assert all(rule in voiced for rule in VOICE_RULES)
+    assert build.VOICE_EXAMPLE.read_text() in voiced  # the spike's composition, as a sample
+
+
+@pytest.mark.skipif(not shutil.which("npm"), reason="no npm here")
+def test_the_starter_builds_with_the_voice_first_example(tmp_path: Path) -> None:
+    """The starter installs from its lockfile and type-checks with the example as its Main,
+    reading a timings.json in the speech connector's shape."""
+    folder = tmp_path / "build"
+    shutil.copytree(STARTER, folder, ignore=shutil.ignore_patterns("node_modules"))
+    shutil.copy(build.VOICE_EXAMPLE, folder / "src/Main.tsx")
+    word = {"startMs": 0, "endMs": 400, "timestampMs": None, "confidence": None}
+    line = {"pause_after": 0.3, "cut_in": 0.0, "cut_out": 0.5, "joined_next": False}
+    take = {"scene": "hook", "file": "narration/hook.wav", "duration": 0.6}
+    take["lines"] = [{**line, "text": "Shh!", "words": [{**word, "text": "Shh!"}]}]
+    (folder / "public").mkdir()
+    (folder / "public/timings.json").write_text(json.dumps({"takes": [take]}))
+    for argv in (["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], ["npx", "tsc"]):
+        done = subprocess.run(argv, cwd=folder, capture_output=True, text=True)
+        assert done.returncode == 0, done.stdout + done.stderr
