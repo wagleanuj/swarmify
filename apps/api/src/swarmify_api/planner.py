@@ -86,8 +86,10 @@ The built-in connector stages and their params:
   [advertisement], are voiced by engines that support them and never read aloud;
   output timings.json. Voices one take per scene into narration/ beside timings.json, which
   holds each line's words (Remotion Caption shape) and cut points; give remotion_build both the
-  script and timings.json as inputs. Optional params: voice, engines (the configured speech
-  endpoints to try, in order), seed.
+  script and timings.json as inputs. Optional params: voice (fixes the voice for every script:
+  a name from the world's voice catalog, else an engine's own voice as af_heart; left out, the
+  script's own voice speaks, which its judge picks when the world has voices), engines (the
+  configured speech endpoints to try, in order), seed.
 - youtube: input is the video; params title (required unless metadata names a file an earlier
   stage produced whose frontmatter has title and description), description, visibility
   (public, unlisted or private), schedule (ISO 8601 with a timezone, or 09:00, or +1d 09:00;
@@ -201,6 +203,13 @@ def typed_inputs(connectors: Connectors, world_id: str) -> str:
     ]
     if not lines:
         return ""
+    # What a connector says about its types in this world (issue 140), as the voices a world
+    # has; the core passes it on unread.
+    notes = [
+        f"- {c.name}: {note}"
+        for c in connectors.list_all(world_id)
+        if c.world_types and (note := connectors.for_world(world_id, c)[1])
+    ]
     return "\n".join(
         [
             "Typed inputs: a swarm stage that produces a file one of these connector inputs reads"
@@ -208,6 +217,7 @@ def typed_inputs(connectors: Connectors, world_id: str) -> str:
             " `output_type: script`; the check refuses the workflow otherwise. The judge then"
             " writes the file in the connector's shape.",
             *lines,
+            *(["In this world, the connectors say:", *notes] if notes else []),
         ]
     )
 

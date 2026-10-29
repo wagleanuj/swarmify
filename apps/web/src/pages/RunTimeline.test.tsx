@@ -282,6 +282,20 @@ test("speech panel: a row per scene with its take, length and engine, and a warn
   await expect.element(takes.nth(1)).not.toMatchTextContent(/no silence/);
 });
 
+test("speech panel: the voice that spoke, the one chosen when it could not, and the catalog's warnings", async () => {
+  const body = JSON.parse(timings.body) as Record<string, unknown>;
+  const voiced = { ...timings, body: JSON.stringify({ ...body, voice: "heart", chosen: "narrator", warnings: ["voice 4 in voices.json is ignored: stranger has no consent"] }) };
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("done", [voice("done"), video("done")])),
+    "GET /api/runs/run_1/artifacts": () => Response.json([voiced, mp4]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  const speech = screen.getByTestId("stage-panel").getByTestId("speech");
+  await expect.element(speech.getByTestId("voice")).toHaveTextContent("voiced by heart");
+  await expect.element(speech).toMatchTextContent(/\(chosen narrator, which localhost:8881 cannot speak\)/);
+  await expect.element(speech.getByRole("note").first()).toMatchTextContent(/stranger has no consent/);
+});
+
 test("build panel: the builder's session in words with its cost, the render's frames live, then the video and its folder", async () => {
   const building = run("running", [voice("done"), video("running", timed(3, null))]);
   fakeFetch({

@@ -178,11 +178,27 @@ type Take = {
   lines?: { text: string; joined_next?: boolean }[];
 };
 
-/** The speech connector's timings.json: one take per scene, voiced by one engine. */
-function takes(a: ArtifactFile): { engine: string; takes: Take[] } | null {
+type Timings = {
+  engine: string;
+  takes: Take[];
+  /** The voice that spoke, a catalog name or an engine's own; null for the engine's default. */
+  voice: string | null;
+  /** The voice the stage or the script asked for, when it differs from the one that spoke. */
+  chosen: string | null;
+  warnings: string[];
+};
+
+/** The speech connector's timings.json: one take per scene, voiced by one engine in one voice. */
+function takes(a: ArtifactFile): Timings | null {
   try {
-    const t = JSON.parse(a.body) as { engine?: string; takes?: Take[] };
-    return { engine: t.engine ?? "an unnamed engine", takes: t.takes ?? [] };
+    const t = JSON.parse(a.body) as Partial<Timings>;
+    return {
+      engine: t.engine ?? "an unnamed engine",
+      takes: t.takes ?? [],
+      voice: t.voice ?? null,
+      chosen: t.chosen ?? null,
+      warnings: t.warnings ?? [],
+    };
   } catch {
     return null;
   }
@@ -203,8 +219,17 @@ export function SpeechTakes({ timings, worldId }: { timings: ArtifactFile; world
       <p>
         <b>
           {t.takes.length} {t.takes.length === 1 ? "scene" : "scenes"} · {total.toFixed(1)} s of narration
-        </b>
+        </b>{" "}
+        · <span data-testid="voice">{t.voice ? `voiced by ${t.voice}` : "the engine's default voice"}</span>
+        {t.chosen && t.chosen !== t.voice && (
+          <span className="faint"> (chosen {t.chosen}, which {engineName(t.engine)} cannot speak)</span>
+        )}
       </p>
+      {t.warnings.map((w) => (
+        <p key={w} className="warn" role="note">
+          {w}
+        </p>
+      ))}
       <ul className="take-list">
         {t.takes.map((k) => {
           const joined = (k.lines ?? []).flatMap((l, i) => (l.joined_next ? [i + 1] : []));

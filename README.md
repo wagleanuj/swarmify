@@ -22,6 +22,7 @@ behind a pipe, so the web tests silently never run.
 |---|---|
 | `mise run dev` | API with reload on :8000 and Vite on :5173 (proxies `/api`); with `SWARMIFY_SPEECH=chatterbox` also the speech service |
 | `mise run speech` | installs and runs the Chatterbox Turbo speech service on :8881 (see Speech engines) |
+| `mise run voices:seed -- <world id> [presets...]` | gives a world starter voices from Kokoro presets (see Voices) |
 | `mise run lint` | ruff, ruff format, pyright, import-boundary check, tsc |
 | `mise run test` | pytest with an 85 percent coverage gate, then Vitest (browser mode) |
 | `mise run e2e` | builds the web skin and runs Playwright against the real API |
@@ -333,6 +334,15 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   keeps the generic projection. The check refuses a workflow, and a run start re-checks it
   (#102), when a typed input comes from a swarm stage without that `output_type`. Agents still
   work freely in notes; only the judge's projection is typed (ADR 0011).
+- World-dependent types (issue 140): a connector may name a tool (`world_types` in its manifest
+  or its `POST` body) that answers its types for one world. The registry calls it with `world`
+  (the id) and `assets_path` (the world's assets folder) at the workflow check (only for a type
+  some swarm stage promises), at the run-start re-check and when the judge projects, and expects
+  `{"types": {name: schema}, "note": "..."}`. Only a type the connector declares may change, and
+  only to a valid JSON Schema; a type it does not answer, or every type when the call fails,
+  keeps the declared schema. `note`, when there is one, goes to the planner. The core passes the
+  schema on unread: `speech` uses it for the world's voices (below), a publish connector could
+  list the channels a world has keys for.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors` saves it and merges the given credential
   values into the file (an empty value means the file already has it). `DELETE
@@ -505,7 +515,11 @@ connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
   `/dev/captioned_speech` returns with its speech. faster-whisper (`small.en`, CPU) hears the words
   and they are matched back to the text, so the text's spelling wins; words it missed or merged
   share the gap between their heard neighbours. Speech takes an optional `seed` for repeatable
-  takes; it returns WAV only, and Turbo speaks its built-in voice whatever `voice` says.
+  takes; it returns 16-bit WAV only, and Turbo speaks its built-in voice whatever `voice` says,
+  unless the request is a multipart form (the same fields) with a `reference` file: then it
+  clones that clip (5 to 10 s of speech; a shorter one is a 400), conditioning Turbo once per
+  clip and caching it, and `/health` says `"clips": true`. `test_speech_server.py` checks this
+  with a fake model.
 - On a host without an Apple GPU, Compose runs Chatterbox too: `docker compose --profile
   chatterbox up -d --build`, with `SPEECH_ENDPOINTS=http://chatterbox:8881,http://kokoro:8880` in
   `.env`. Its models stay in the `speech-models` volume. It needs about 7 GB of memory on the CPU
@@ -535,7 +549,7 @@ and never names `speech`, so moving the connector into a package is a move.
   calls: speech
   input: script.md
   output: timings.json
-  params: {seed: 7}           # optional: voice, engines, seed
+  params: {seed: 7}           # optional: voice (wins over the script's), engines, seed
 - connector: video
   calls: remotion_build
   inputs: [script.md, timings.json]
@@ -565,13 +579,15 @@ and never names `speech`, so moving the connector into a package is a move.
 - One take per scene. The engines are tried in the order of `SPEECH_ENDPOINTS` (or of
   `params.engines`, which may only reorder or narrow that list, since the script is sent there);
   when one fails, the whole run is redone on the next, so one video never mixes two voices.
-  `voice` and `seed` go to the engine.
+  `seed` goes to the engine; the voice is resolved per engine (Voices, below).
 - Word times come with the speech when the engine serves Kokoro-FastAPI's
   `/dev/captioned_speech`, else from its `/v1/align`. Either way they are matched back to the
   script, whose spelling wins; words the engine missed or merged share the gap between their
   neighbours.
 - It writes the takes to `narration/<scene id>.wav` beside `timings.json`, which holds `engine`,
-  `voice`, `seed` and per take its `file`, `duration` (seconds) and `lines`: each line's `text`,
+  `voice` (the voice that spoke: a catalog name, an engine's own voice, or null for the engine's
+  default), `chosen` (the voice asked for), `seed`, `warnings` (catalog entries it ignored, and
+  a script voice no longer in the catalog) and per take its `file`, `duration` (seconds) and `lines`: each line's `text`,
   `pause_after`, `directions` (its tags, as `["whispering"]`), `unrecognized`, `words` in
   Remotion's `Caption` shape (`text` with the space before it,
   `startMs` and `endMs` from the take's start, `timestampMs` and `confidence` null), and
@@ -581,9 +597,59 @@ and never names `speech`, so moving the connector into a package is a move.
   has `joined_next: true`, and the call's `joined` and `message` name it: cut there and the
   word edge shows, so keep the two lines together or voice them again.
 - The workflow check wants an input and an output and refuses params outside the manifest's.
+- The run page's speech panel shows the voice that spoke, the one chosen when the engine could
+  not speak it, and the warnings.
 - Measured on an M3 Max with both engines warm, the spike's four scenes (11 lines): Kokoro 6.6 s
   for 17.7 s of speech, Chatterbox Turbo 33 s for 20.6 s, which flagged "sleep all winter
   long." running into "Good night" as the spike heard it. The health check takes 0.4 s.
+
+### Voices
+
+A voice is chosen per piece of content, and only the speech connector knows what a voice is. A
+world's catalog is `assets/voices/voices.json`, a list of entries, with the clips beside it:
+
+```json
+[
+  {"name": "narrator", "description": "Warm and calm, for bedtime facts",
+   "tags": ["warm", "calm"], "engine": "chatterbox", "clip": "narrator.wav",
+   "consent": "My own recording, 2026-10-29."},
+  {"name": "af_heart", "description": "Warm, friendly American woman",
+   "tags": ["warm", "friendly"], "engine": "chatterbox", "clip": "af_heart.wav",
+   "preset": "af_heart", "consent": "synthetic: Kokoro preset af_heart, Apache 2.0"}
+]
+```
+
+- `name` is letters, digits, `_` or `-`; `description` and `tags` tell the judge what it fits;
+  `engine` is the engine it was made for. `clip` is a reference recording in the same folder
+  (Chatterbox clones from 5 to 10 s of clear speech) and `preset` an engine's own voice name
+  (Kokoro's `af_heart`); an entry needs one of them, and may have both.
+- `consent` is required: a short statement of the right to use the voice (your own recording, or
+  a license that allows synthesis). An entry without it, or with a clip that is not in the
+  folder, a name used twice or a field of the wrong kind, is ignored, and a warning names it in
+  the speech stage's `timings.json`, its call's message and the run page.
+- With a catalog, the connector answers its `script` type for the world with an optional
+  top-level `voice` whose enum is the catalog's names, described by each one's description and
+  tags (`speech_types`), so the judge of the stage writing the script picks one that fits. It is
+  a typed field, so it shows on the script's approval gate and in the script's frontmatter. The
+  planner is told the world's voices.
+- Selection order: the speech stage's `params.voice` wins (a catalog name, else an engine's own
+  voice as before), then the script's `voice`, then the engine's default. A script voice no
+  longer in the catalog speaks the default, with a warning.
+- Per engine: an engine whose `/health` says `"clips": true` (the Chatterbox service) gets the
+  clip as an upload; an engine that lists the preset in `GET /v1/audio/voices` (Kokoro-FastAPI)
+  gets the preset. When the engine a run falls back to cannot speak the chosen voice, it speaks
+  the catalog entry it can that shares the most tags with it, else its default, and
+  `timings.json` records which voice spoke.
+- Starter voices without recording anyone: `mise run voices:seed -- <world id> [presets...]` has
+  Kokoro (`KOKORO_URL`, default `http://localhost:8880`; started with `docker compose up -d
+  kokoro` when it is not up, or it says so when Docker is unavailable) speak one neutral 9 s
+  sentence in each preset, by default eight varied ones (`af_heart` and `am_michael` warm,
+  `af_bella` and `am_puck` bright, `am_onyx` and `am_fenrir` deep, `bf_emma` British, `bm_fable`
+  a calm narrator), each checked against the engine's voices. It saves each take as
+  `<preset>.wav` in the world's `assets/voices/` and writes its entry, clip and preset both, so
+  Chatterbox clones the clip and Kokoro speaks the preset itself and a fallback keeps the voice,
+  with consent `synthetic: Kokoro preset <name>, Apache 2.0`. Entries of other names stay. It
+  reads `SWARMIFY_DATA_DIR` like the app.
 
 ## Publishing
 
@@ -921,7 +987,8 @@ included. `GET /api/worlds/<id>/assets` lists them by path (`assets/<name>`) wit
 `GET /api/worlds/<id>/files/<path>` serves one, as it serves run files.
 
 Agents never write there. Swarm agents list them (`list_assets`) to name one in a script; a
-connector stage gets the folder as `assets_path`; the `remotion_build` session reads them (its
+connector stage gets the folder as `assets_path` (the speech connector alone gives `voices/` a
+meaning, see Voices); the `remotion_build` session reads them (its
 sandbox and hooks allow reads in the world's folder and writes only in the build folder) and is
 given their paths to copy into `public/`. Nothing about them is video-specific, and they are
 kept out of the graph.

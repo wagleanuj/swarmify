@@ -1656,6 +1656,8 @@ export interface components {
             };
             /** Input Types */
             input_types: (string | null)[];
+            /** World Types */
+            world_types: string | null;
             /** Missing */
             missing: string[];
         };
@@ -2077,6 +2079,8 @@ export interface components {
             };
             /** Input Types */
             input_types?: (string | null)[];
+            /** World Types */
+            world_types?: string | null;
         };
         /** NewEval */
         NewEval: {
@@ -2512,6 +2516,8 @@ export interface components {
             };
             /** Input Types */
             input_types: (string | null)[];
+            /** World Types */
+            world_types: string | null;
             /** Missing */
             missing: string[];
             check: components["schemas"]["KeyCheck"] | null;

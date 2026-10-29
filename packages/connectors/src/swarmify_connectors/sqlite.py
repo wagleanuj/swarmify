@@ -28,6 +28,7 @@ def _connector(row: sqlite3.Row) -> Connector:
         created_at=row["created_at"],
         types=json.loads(row["types"]),
         input_types=json.loads(row["input_types"]),
+        world_types=row["world_types"],
     )
 
 
@@ -50,8 +51,8 @@ class SqliteStorage:
             try:
                 conn.execute(
                     "INSERT INTO connectors (id, world_id, name, kind, command, url, credentials,"
-                    " stage_types, created_at, types, input_types)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " stage_types, created_at, types, input_types, world_types)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         connector.id,
                         connector.world_id,
@@ -64,6 +65,7 @@ class SqliteStorage:
                         connector.created_at,
                         json.dumps(connector.types),
                         json.dumps(connector.input_types),
+                        connector.world_types,
                     ),
                 )
             except sqlite3.IntegrityError as exc:

@@ -42,15 +42,12 @@ def validate(
     produced: set[str] = set()
     swarm_made: dict[str, SwarmStage] = {}
     """The swarm stage that last produced each file, for typed contracts (issue 133)."""
-    schemas: dict[str, list[tuple[str, object]]] = {}
-    for ref in connectors.values():
-        for type_name, schema in ref.types.items():
-            schemas.setdefault(type_name, []).append((ref.name, schema))
-    conflicts = {
-        t: [n for n, _ in found]
-        for t, found in schemas.items()
-        if any(s != found[0][1] for _, s in found)
-    }
+
+    def conflict(type_name: str) -> list[str]:
+        """The connectors declaring `type_name` when they differ. Only a promised type's schemas
+        are read: a world-dependent one costs a call to its connector (issue 140)."""
+        found = [(r.name, r.types[type_name]) for r in connectors.values() if type_name in r.types]
+        return [n for n, _ in found] if any(s != found[0][1] for _, s in found) else []
 
     def check_connector(name: str, stage_type: str, stage: str) -> ConnectorRef | None:
         ref = connectors.get(name)
@@ -84,11 +81,11 @@ def validate(
             swarm_made |= dict.fromkeys(stage.produces, stage)
             promised = "".join((stage.output_type or "").split())
             named = promised.removeprefix("list[").removesuffix("]")
-            if named in conflicts:
+            if differ := conflict(named):
                 out.append(
                     Violation(
                         "type_conflict",
-                        f"connectors {' and '.join(conflicts[named])} declare type {named}"
+                        f"connectors {' and '.join(differ)} declare type {named}"
                         " with different schemas",
                         stage.name,
                     )

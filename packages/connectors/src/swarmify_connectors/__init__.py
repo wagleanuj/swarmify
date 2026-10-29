@@ -11,6 +11,7 @@ A long job is a tool answer carrying `job_id` and `poll`, the tool to poll with
 `progress` (0 to 1), `message` and `error`.
 """
 
+import logging
 import os
 import re
 import shlex
@@ -64,6 +65,7 @@ __all__ = [
     "Tool",
 ]
 
+log = logging.getLogger(__name__)
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,59}$")
 TYPE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 """A declared type's name, as a swarm stage's `output_type` names it."""
@@ -141,6 +143,7 @@ BUILTINS = [
             health=m.get("health"),
             types=m.get("types", {}),
             input_types=m.get("input_types", []),
+            world_types=m.get("world_types"),
         )
         for m in MANIFESTS.values()
     ),
@@ -158,6 +161,14 @@ def _account(connector: str, answer: dict[str, Any]) -> str:
     if isinstance(account, dict) and account.get("email"):
         return f"Signed in to Upload-Post as {account['email']}."
     return "The keys work."
+
+
+def _is_schema(schema: dict[str, Any]) -> bool:
+    try:
+        validator_for(schema).check_schema(schema)
+    except SchemaError:
+        return False
+    return True
 
 
 def _now() -> str:
@@ -211,10 +222,37 @@ class Connectors:
         return next((c for c in self.list_all(world_id) if c.name == name), None)
 
     def type_schema(self, world_id: str, name: str) -> dict[str, Any] | None:
-        """The JSON Schema of type `name` as the world's connectors declare it; None when none
-        does, or two declare it differently (the workflow check reports that)."""
-        found = [c.types[name] for c in self.list_all(world_id) if name in c.types]
+        """The JSON Schema of type `name` as the world's connectors declare it for this world;
+        None when none does, or two declare it differently (the workflow check reports that)."""
+        found = [
+            self.for_world(world_id, c)[0][name] for c in self.list_all(world_id) if name in c.types
+        ]
         return found[0] if found and all(f == found[0] for f in found) else None
+
+    def for_world(self, world_id: str, connector: Connector) -> tuple[dict[str, Any], str]:
+        """The connector's declared types as it answers them for this world, and its note for
+        the planner (issue 140). Its `world_types` tool gets the world's id and assets folder;
+        each type it declares and answers with a JSON Schema takes that schema, every other
+        keeps the declared one, as do all when the tool fails. The core never reads inside a
+        schema, so a world-dependent enum means nothing to it."""
+        if not connector.world_types:
+            return connector.types, ""
+        assets = self.data_dir / "worlds" / world_id / "assets"  # the run's `assets_path`
+        args = {"world": world_id, "assets_path": str(assets)}
+        try:
+            answer = self.transport.call(
+                connector, connector.world_types, args, self._env(connector)
+            )
+        except ConnectorError as exc:
+            log.warning("%s could not answer its types for %s: %s", connector.name, world_id, exc)
+            return connector.types, ""
+        answered = answer.get("types")
+        types = dict(connector.types)
+        for name, schema in answered.items() if isinstance(answered, dict) else ():
+            if name in types and isinstance(schema, dict) and _is_schema(schema):
+                types[name] = schema
+        note = answer.get("note")
+        return types, note.strip() if isinstance(note, str) else ""
 
     def get(self, connector_id: str) -> Connector | None:
         builtin = next((c for c in BUILTINS if c.id == connector_id), None)
@@ -230,6 +268,7 @@ class Connectors:
         stage_types: list[str],
         declared: dict[str, Any] | None = None,
         input_types: list[str | None] | None = None,
+        world_types: str | None = None,
     ) -> Connector:
         """A validated, unsaved connector. Raises ValueError naming the first problem."""
         name, server = name.strip(), server.strip()
@@ -265,6 +304,9 @@ class Connectors:
         unknown = [t for t in input_types if t is not None and t not in declared]
         if unknown:
             raise ValueError(f"input types it does not declare: {', '.join(unknown)}")
+        world_types = (world_types or "").strip() or None
+        if world_types and not declared:
+            raise ValueError("world_types answers declared types: declare types first")
         return Connector(
             new_id("conn"),
             world_id,
@@ -277,6 +319,7 @@ class Connectors:
             created_at=_now(),
             types=declared,
             input_types=list(input_types),
+            world_types=world_types,
         )
 
     def test(self, connector: Connector, secrets: dict[str, str]) -> list[Tool]:

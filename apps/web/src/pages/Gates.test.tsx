@@ -324,3 +324,25 @@ test("a pick gate offers the earlier stage's cards and an approve gate plays the
     expect(bodies.run_2).toEqual({ note: "", artifact: "runs/run_2/stage_2/artifacts/short.mp4.md" }),
   );
 });
+
+test("an approve gate shows a typed script's top-level text, as the voice its judge chose", async () => {
+  const value = { voice: "narrator", description: "Why hedgehogs sleep.", scenes: [{ id: "s01", lines: [] }] };
+  const script = {
+    ...short,
+    name: "script.md",
+    path: "runs/run_2/stage_1/artifacts/script.md",
+    type: "script",
+    title: "Hedgehogs",
+    fields: { voice: "narrator" },
+    body: `# Hedgehogs\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\nWho sleeps all winter?`,
+  };
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([inbox[1]!]),
+    "GET /api/runs/run_2/artifacts": () => Response.json([script]),
+  });
+  const { screen } = await mountAt("/gates");
+  const typed = screen.getByTestId("gate-run_2").getByTestId("typed-text");
+  await expect.element(typed).toMatchTextContent(/voice\s*narrator\s*description\s*Why hedgehogs sleep\./);
+  await expect.element(typed).not.toMatchTextContent(/scenes/);
+});

@@ -23,7 +23,7 @@ from test_build_http import _installs, fake_cli, opened, settled  # noqa: F401  
 
 from fake_graph import fake_extract
 from swarmify_api.main import create_app
-from swarmify_connectors import FakeTransport
+from swarmify_connectors import ConnectorError, FakeTransport
 from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
 
@@ -144,6 +144,67 @@ def test_a_promised_type_is_projected_in_its_schema_and_reaches_the_connector(
     assert fenced == {"steps": ["Boil.", "Season."]} and "Boil it, I guess." not in text
     ((name, _, args, _),) = [c for c in transport.calls if c[0] == "cook"]
     assert args["input_path"] == str(recipe)
+
+
+# World-dependent types (issue 140): the fixture cook answers its recipe for a world, with the
+# pots that world has as an enum. The core passes the schema on and never reads it.
+POTS = {
+    **RECIPE,
+    "properties": {**RECIPE["properties"], "pot": {"type": "string", "enum": ["wok", "stockpot"]}},
+}
+WORLD_COOK = {**COOK, "world_types": "recipe_types"}
+
+
+def test_the_judge_projects_the_type_as_the_connector_answers_it_for_the_world(
+    running: TestClient, script: Script, transport: FakeTransport
+) -> None:
+    transport.outputs["recipe_types"] = [{"types": {"recipe": POTS}}]
+    script.scripts = [PLAN, WORK, judged({"steps": ["Boil."], "pot": "wok"})]
+    world = world_with_cook(running, WORLD_COOK)
+    saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": recipe_flow()}).json()
+    run = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={}).json()
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    assert running.get(f"/api/runs/{run['id']}").json()["status"] == "done"
+    item = (script.sessions[2].output_format or {})["schema"]["properties"]["items"]["items"]
+    assert item["properties"]["fields"] == POTS
+    asked = [c for c in transport.calls if c[1] == "recipe_types"]
+    assert asked and all(c[2]["world"] == world for c in asked)
+
+
+def test_a_connector_that_cannot_answer_for_the_world_falls_back_to_its_declared_type(
+    running: TestClient, script: Script, transport: FakeTransport
+) -> None:
+    transport.outputs["recipe_types"] = [ConnectorError("cook: could not start")]
+    script.scripts = [PLAN, WORK, judged({"steps": ["Boil."]})]
+    world = world_with_cook(running, WORLD_COOK)
+    saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": recipe_flow()}).json()
+    run = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={}).json()
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    assert running.get(f"/api/runs/{run['id']}").json()["status"] == "done"
+    item = (script.sessions[2].output_format or {})["schema"]["properties"]["items"]["items"]
+    assert item["properties"]["fields"] == RECIPE
+
+
+def test_the_check_and_the_run_start_compare_the_types_as_answered_for_the_world(
+    running: TestClient, transport: FakeTransport
+) -> None:
+    transport.outputs["recipe_types"] = [{"types": {"recipe": RECIPE}}]
+    world = world_with_cook(running, WORLD_COOK)
+    bake = {**COOK, "name": "bake"}  # declares the same recipe, never world-dependent
+    assert running.post(f"/api/worlds/{world}/connectors", json=bake).status_code == 201
+    check = f"/api/worlds/{world}/workflows/check"
+    untyped = "name: Plain\nstages:\n  - swarm: s\n    goal: g\n    done_when: d\n"
+    assert running.post(check, json={"yaml": untyped}).json()["violations"] == []
+    assert not [c for c in transport.calls if c[1] == "recipe_types"]  # nothing promised
+    saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": recipe_flow()})
+    assert saved.status_code == 201, saved.json()
+
+    transport.outputs["recipe_types"] = [{"types": {"recipe": POTS}}]  # the world changed
+    found = running.post(check, json={"yaml": recipe_flow()}).json()["violations"]
+    assert [v["rule"] for v in found] == ["type_conflict"]
+    started = running.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={})
+    assert started.status_code == 409
+    assert [v["rule"] for v in started.json()["violations"]] == ["type_conflict"]
 
 
 # The speech connector voicing a projected script, then remotion_build, all real but the model.

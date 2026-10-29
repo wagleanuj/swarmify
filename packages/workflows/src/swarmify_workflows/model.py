@@ -94,7 +94,8 @@ class ConnectorRef:
         default=lambda _: [], compare=False, repr=False
     )
     types: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
-    """The input types it declares, each a JSON Schema by name (issue 133)."""
+    """The input types it declares, each a JSON Schema by name (issue 133), as this world's
+    connector answers them (issue 140); the check reads only the schemas of promised types."""
     input_types: Sequence[str | None] = ()
     """The declared type of a stage's `input`, or of each of its `inputs` in order."""
 

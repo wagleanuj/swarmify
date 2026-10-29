@@ -30,6 +30,10 @@ dir = "services/speech-chatterbox"
 env = { VIRTUAL_ENV = "", PYTORCH_ENABLE_MPS_FALLBACK = "1" }
 run = ["uv sync --frozen", "uv run --frozen uvicorn server:app --port 8881"]
 
+[tasks."voices:seed"]
+description = "Give a world starter voices from Kokoro presets: voices:seed -- <world id> [presets...] (README, Voices)"
+run = "uv run python -m swarmify_connectors.voices"
+
 [tasks."dev:speech"]
 description = "Run the speech service when SWARMIFY_SPEECH=chatterbox, else nothing"
 run = '[ "${SWARMIFY_SPEECH:-}" != chatterbox ] || mise run speech'

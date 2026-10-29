@@ -34,6 +34,9 @@ class NewConnector(BaseModel):
     input_types: list[str | None] = Field(default_factory=list, max_length=20)
     """The declared type of a stage's `input`, or of each of its `inputs` in order; null for
     an untyped one. A swarm stage that produces a typed input must declare that output_type."""
+    world_types: str | None = Field(default=None, max_length=60)
+    """A tool answering its types for one world, given `world` and `assets_path`, as
+    `{"types": {name: schema}, "note": "..."}`; a type it declares changes only there."""
 
 
 class ConnectorView(BaseModel):
@@ -54,6 +57,8 @@ class ConnectorView(BaseModel):
     """Input types it declares, a JSON Schema by name."""
     input_types: list[str | None]
     """The declared type of a stage's `input`, or of each of its `inputs` in order."""
+    world_types: str | None
+    """The tool that answers its types for one world; None when they never depend on it."""
     missing: list[str]
     """Credential names the credentials file does not hold yet."""
 
@@ -96,6 +101,7 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
                 list(body.stage_types),
                 body.types,
                 body.input_types,
+                body.world_types,
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
