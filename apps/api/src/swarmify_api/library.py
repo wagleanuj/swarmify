@@ -1,13 +1,15 @@
 """HTTP face of the Library (Memory context): every artifact of a world across its runs, each
 with the run and stage that made it so the page can filter by type, workflow, stage, run and
-date; and Pins, the flag that makes an artifact required reading for later swarm stages."""
+date; Pins, the flag that makes an artifact required reading for later swarm stages; and the
+world's Assets, the operator's reusable files (music beds, sound effects, logos) that agents read
+and never write."""
 
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -37,6 +39,14 @@ class LibraryItem:
     workflow_version: int | None
     stage_index: int | None
     stage_name: str
+
+
+@dataclass(frozen=True)
+class Asset:
+    path: str
+    """Relative to the world folder, as `/files/` serves it."""
+    name: str
+    bytes: int
 
 
 class PinBody(BaseModel):
@@ -87,13 +97,37 @@ def router(memory: Memory, worlds: Worlds, list_runs: Callable[[str], list[Run]]
 
     @api.get("/worlds/{world_id}/files/{path:path}", response_class=FileResponse)
     def file(world_id: str, path: str) -> FileResponse:
-        """A run file as it is on disk, by its Library path: the video a gate plays, an image,
-        a note a card cites. Only files under the world's runs are served."""
+        """A run file or asset as it is on disk, by its Library path: the video a gate plays,
+        an image, a note a card cites, a music bed. Only files under the world's runs and
+        assets are served."""
         world_or_404(world_id)
         try:
             return FileResponse(memory.file(world_id, path))
         except ValueError as exc:
             raise HTTPException(404, "file not found") from exc
+
+    def asset(world_id: str, path: str) -> Asset:
+        file = memory.world_folder(world_id) / path
+        return Asset(path, file.name, file.stat().st_size)
+
+    @api.get("/worlds/{world_id}/assets")
+    def assets(world_id: str) -> list[Asset]:
+        """The world's assets folder, subfolders included, by path."""
+        world_or_404(world_id)
+        return [asset(world_id, p) for p in memory.assets(world_id)]
+
+    @api.put("/worlds/{world_id}/assets/{name}", status_code=201, responses={422: {}})
+    async def add_asset(world_id: str, name: str, request: Request) -> Asset:
+        """Upload an asset: the request body is the file, `name` a plain file name. A name
+        already there is replaced."""
+        world_or_404(world_id)
+        # ponytail: the whole body in memory; stream it to disk if assets grow past a few
+        # hundred MB.
+        try:
+            path = memory.add_asset(world_id, name, await request.body())
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return asset(world_id, path)
 
     @api.post("/worlds/{world_id}/pins")
     def pin(world_id: str, body: PinBody) -> LibraryItem:

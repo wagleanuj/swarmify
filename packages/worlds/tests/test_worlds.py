@@ -25,6 +25,7 @@ def test_create_gives_the_world_a_folder_a_row_and_a_created_event(worlds: World
     assert world.id.startswith("world_")
     assert (world.name, world.purpose) == ("Video", "Weekly shorts for the attraction channel.")
     assert worlds.folder(world.id).is_dir()
+    assert (worlds.folder(world.id) / "assets").is_dir()  # empty: nothing is seeded
     assert worlds.get(world.id) == world
     assert worlds.list_all() == [world]
     [event] = worlds.events_after(world.id)

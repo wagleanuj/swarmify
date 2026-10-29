@@ -90,6 +90,11 @@ class Files(Protocol):
         """The world's pinned artifacts, required reading, as paths relative to its folder."""
         ...
 
+    def assets(self, world_id: str) -> list[str]:
+        """The world's read-only assets (music, sound effects, logos), as paths relative to
+        its folder."""
+        ...
+
     def write_note(
         self,
         world_id: str,
@@ -317,6 +322,12 @@ TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
             body=_str("Details"),
             depends_on={"type": "array", "items": {"type": "string"}, "description": "Task ids"},
         ),
+    ),
+    "list_assets": (
+        "The world's assets: reusable files the operator added (music beds, sound effects,"
+        " logos), read-only, as paths relative to the world folder. Name one in a script or"
+        " brief for a later stage to use.",
+        _obj(),
     ),
     "write_note": (
         "Write what you learned as a markdown note in the run folder.",
@@ -650,6 +661,7 @@ class Swarm:
         cast = (CastEntry(builds.AGENT, builds.ROLE, model=model),)
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         decisions = _decisions(world_folder, run_id)
+        assets = [world_folder / a for a in self.files.assets(world_id)]
         hooks = _BuildHooks(
             self.board, stage_id, builds.AGENT, builds.TOOLS, world_folder,
             lambda: self.budget(run_id), graph_first=False, clock=self.clock,
@@ -659,7 +671,7 @@ class Swarm:
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
                 system_prompt=builds.SYSTEM,
-                prompt=builds.prompt(script, composition, brief, decisions, inputs),
+                prompt=builds.prompt(script, composition, brief, decisions, inputs, assets),
                 cwd=folder,
                 # No skills plugin: Claude Code refuses Write and Edit inside a plugin folder,
                 # and the build folder lies inside the world folder.
@@ -914,6 +926,7 @@ class Swarm:
                     depends_on=tuple(str(d) for d in a.get("depends_on") or []),
                 )
             ),
+            "list_assets": lambda a: json.dumps(files.assets(world_id)),
             "write_note": lambda a: (
                 "Wrote "
                 + files.write_note(

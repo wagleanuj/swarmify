@@ -29,6 +29,10 @@ class DiskFiles:
     def pinned(self, world_id: str) -> list[str]:
         return list(self.pins)
 
+    def assets(self, world_id: str) -> list[str]:
+        world = self.root / world_id
+        return sorted(str(p.relative_to(world)) for p in world.glob("assets/**/*") if p.is_file())
+
     def stage_folder(self, world_id: str, run_id: str, stage_id: str) -> Path:
         folder = self.root / world_id / "runs" / run_id / stage_id
         folder.mkdir(parents=True, exist_ok=True)

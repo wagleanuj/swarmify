@@ -114,6 +114,38 @@ def test_the_stages_other_inputs_are_named_in_the_prompt(board: SqliteStorage, d
     assert str(timings) in sdk.prompts[0]
 
 
+def test_the_world_assets_are_named_in_the_prompt_as_read_only(
+    board: SqliteStorage, data: Path
+) -> None:
+    assert "read-only" not in _scripted(board, data, [Say("Done.")]).prompts[0]
+    bed = data / "worlds" / W / "assets" / "bed-calm.mp3"
+    bed.parent.mkdir()
+    bed.write_bytes(b"ID3")
+    sdk = _scripted(board, data, [Say("Done.")])
+    assert str(bed) in sdk.prompts[0] and "read-only" in sdk.prompts[0]
+
+
+def test_the_world_assets_are_readable_and_never_writable(tmp_path: Path) -> None:
+    world = tmp_path / "worlds/w"
+    folder, bed = world / "runs/r/s/build", world / "assets/bed.mp3"
+    folder.mkdir(parents=True)
+    bed.parent.mkdir()
+    bed.write_bytes(b"ID3")
+    for tool, input in [
+        ("Read", {"file_path": str(bed)}),
+        ("Glob", {"pattern": "*.mp3", "path": str(bed.parent)}),
+        ("Grep", {"pattern": "x", "path": str(bed.parent)}),
+        ("Bash", {"command": f"cp {bed.resolve()} public/bed.mp3"}),
+    ]:
+        assert build.refusal(tool, input, folder, world, tmp_path) is None, tool
+    for tool in ("Write", "Edit"):
+        got = build.refusal(tool, {"file_path": str(bed)}, folder, world, tmp_path)
+        assert got == f"{tool} is limited to the build folder {folder.resolve()}."
+    rules = build.sandbox(folder, world, tmp_path, tmp_path / "npm-cache", [])["filesystem"]
+    assert any(bed.resolve().is_relative_to(p) for p in rules["allowRead"])
+    assert not any(bed.resolve().is_relative_to(p) for p in rules["allowWrite"])
+
+
 def test_the_run_decisions_are_required_reading(board: SqliteStorage, data: Path) -> None:
     decision = data / "worlds" / W / "runs" / R / "s1" / "decision.md"
     decision.parent.mkdir(parents=True)

@@ -226,3 +226,20 @@ def test_a_promoted_typed_artifact_lands_under_the_name_the_stage_takes(
     until(lambda: get(running, run["id"])["status"] in ("done", "failed"))
     assert get(running, run["id"])["status"] == "done", get(running, run["id"])
     assert Path(transport.calls[-1][2]["input_path"]).read_text().endswith("The chase.")
+
+
+def test_assets_are_uploaded_listed_and_served_by_the_operator(running: TestClient) -> None:
+    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    url = f"/api/worlds/{world}/assets"
+    assert running.get(url).json() == []
+    put = running.put(f"{url}/bed-calm.mp3", content=b"ID3")
+    bed = {"path": "assets/bed-calm.mp3", "name": "bed-calm.mp3", "bytes": 3}
+    assert put.status_code == 201 and put.json() == bed
+    assert running.get(url).json() == [bed]
+    assert running.get(f"/api/worlds/{world}/files/assets/bed-calm.mp3").content == b"ID3"
+    assert running.get(f"/api/worlds/{world}/library").json() == []  # not an artifact
+    refused = running.put(f"{url}/.env", content=b"KEY=x")
+    assert refused.status_code == 422 and "plain file name" in refused.json()["detail"]
+    assert running.put(f"{url}/..%2F..%2Fswarmify.db", content=b"x").status_code in (404, 422)
+    assert running.get("/api/worlds/world_nope/assets").status_code == 404
+    assert running.put("/api/worlds/world_nope/assets/x.mp3", content=b"x").status_code == 404

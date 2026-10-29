@@ -219,3 +219,18 @@ def test_a_pin_works_when_the_data_root_is_a_symlink_or_relative(
     brief = memory.write_artifact("w1", "r1", "s1", "worker-1", "brief.md", "Brief")
     assert [a.path for a in memory.library("w1")] == [brief]
     assert memory.pin("w1", brief).pinned and memory.pinned("w1") == [brief]
+
+
+def test_assets_are_the_operators_files_listed_served_and_never_a_path(memory: Memory) -> None:
+    assert memory.assets("w1") == []
+    assert memory.add_asset("w1", "bed-calm.mp3", b"ID3") == "assets/bed-calm.mp3"
+    assets = memory.world_folder("w1") / "assets"
+    (assets / "sfx").mkdir()
+    (assets / "sfx/whoosh.wav").write_bytes(b"RIFF")  # dropped in by hand
+    (assets / ".DS_Store").write_bytes(b"")
+    assert memory.assets("w1") == ["assets/bed-calm.mp3", "assets/sfx/whoosh.wav"]
+    assert memory.file("w1", "assets/sfx/whoosh.wav").read_bytes() == b"RIFF"
+    for bad in ("../x.mp3", "sfx/x.mp3", ".env", ""):
+        with pytest.raises(ValueError):
+            memory.add_asset("w1", bad, b"x")
+    assert memory.library("w1") == []  # not run artifacts
