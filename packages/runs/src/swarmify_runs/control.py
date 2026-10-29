@@ -35,7 +35,7 @@ from swarmify_runs.machine import (
     SentBack,
     transition,
 )
-from swarmify_runs.model import Decision, Gate, PublishPreview, Run, StageDef
+from swarmify_runs.model import Decision, Gate, Pinned, PublishPreview, Run, StageDef
 from swarmify_runs.ports import Notifier, Storage
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,11 @@ Spend = Callable[[list[str]], float]
 """The estimated agent cost of the given runs, summed. The composition root reads it from the
 Swarm context, whose agents carry the cost."""
 
+
+Pin = Callable[..., Pinned]
+"""(workflow id, version number or None for the current one) to that version as Runs starts it.
+Raises KeyError for an unknown workflow or version and ValueError when the version fails today's
+workflow check, so every run start of a version refuses one that breaks a rule now."""
 
 Monthly = Callable[[str], float | None]
 """(world id) to the world's Monthly Budget, None for no ceiling. The composition root reads
@@ -155,6 +160,8 @@ class RunControl:
         self.previews = previews
         self.spend = spend
         self._client: DBOSClient | None = None
+        self.pin: Pin | None = None
+        """Set by the composition root; a fork of a workflow run re-checks its version with it."""
 
     def start(
         self,
@@ -222,6 +229,8 @@ class RunControl:
                 f"stage {unfinished[0].name} has not finished, so the run cannot fork from"
                 f" {source.stages[index].name}"
             )
+        if source.workflow_id is not None and self.pin is not None:
+            self.pin(source.workflow_id, source.workflow_version)  # today's check, or raises
         # A fork copies the run, its Budget included, as the workflow's default.
         budget_usd = self.budget_for(source.world_id, workflow=source.budget_usd)
         now = datetime.now(UTC).isoformat()

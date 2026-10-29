@@ -121,7 +121,17 @@ fields above the list when filled. `POST /api/worlds/<id>/runs` with `{"goal": "
 with every connector of the world that swarm stages may use as its tools, no workflow pinned
 (`workflow_id` and `workflow_version` are null, the runs page says `ad hoc`), its notes feeding
 the world's graph like any run's. The world overview has the form, its button "Run this goal"
-with an optional budget. Each run is one DBOS workflow (ADR 0014) with the run id as
+with an optional budget.
+
+Every start of a run of a workflow version (start, promote, fork, a scheduled tick, a child run,
+MCP `start_run` and `fork_run`) first runs today's workflow check on that version, since rules
+and connectors change after a version is saved. A version with violations is refused: 409 over
+HTTP with `detail` and `violations`, the reason in the skin, `{"violations": [...]}` from MCP; a
+scheduled tick logs it and starts nothing, and a child run's workflow stage fails with it.
+`GET /api/worlds/<id>/workflows` lists each workflow's current `violations`, and the world
+overview marks a workflow that fails the check.
+
+Each run is one DBOS workflow (ADR 0014) with the run id as
 its workflow id and one DBOS step per side effect: load the run, save each new state, execute a
 stage. A crash or restart resumes at the last completed step, so a finished stage never runs again.
 Runs wait on their world's own DBOS queue, at most the world's run cap running at once (two by

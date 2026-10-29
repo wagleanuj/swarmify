@@ -311,7 +311,8 @@ export interface paths {
         put?: never;
         /**
          * Start Run
-         * @description 409 when the world's Monthly Budget is spent.
+         * @description 409 when the world's Monthly Budget is spent, or with the violations when the
+         *     version fails today's workflow check.
          */
         post: operations["start_run_api_workflows__workflow_id__runs_post"];
         delete?: never;
@@ -375,7 +376,8 @@ export interface paths {
         /**
          * Fork
          * @description A new run of the same workflow version that copies this one, rows and files, up to
-         *     `stage` and runs on from there. Every earlier stage must have finished.
+         *     `stage` and runs on from there. Every earlier stage must have finished. 409 with the
+         *     violations when that version fails today's workflow check.
          */
         post: operations["fork_api_runs__run_id__fork_post"];
         delete?: never;
@@ -396,7 +398,7 @@ export interface paths {
         /**
          * Promote
          * @description A run that starts at `stage` with `artifact` as its input; the earlier stages are
-         *     skipped.
+         *     skipped. 409 with the violations when the version fails today's workflow check.
          */
         post: operations["promote_api_workflows__workflow_id__promote_post"];
         delete?: never;
@@ -1879,6 +1881,25 @@ export interface components {
             stage_name: string;
         };
         /**
+         * ListedWorkflow
+         * @description A workflow as its world lists it, with what its current version breaks by today's check:
+         *     a version saved before a rule or with a connector since removed is refused at run start.
+         */
+        ListedWorkflow: {
+            /** Id */
+            id: string;
+            /** World Id */
+            world_id: string;
+            /** Name */
+            name: string;
+            /** Current Version */
+            current_version: number;
+            /** Created At */
+            created_at: string;
+            /** Violations */
+            violations?: components["schemas"]["Violation"][];
+        };
+        /**
          * LogEntry
          * @description One line of a stage's live log: a session starting or ending, or one tool call the hooks
          *     saw, allowed (`tool`) or refused (`denied`, with the reason in `detail`).
@@ -3206,7 +3227,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Workflow"][];
+                    "application/json": components["schemas"]["ListedWorkflow"][];
                 };
             };
             /** @description Validation Error */
@@ -3689,6 +3710,13 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

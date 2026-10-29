@@ -77,6 +77,7 @@ def test_save_creates_versions_that_can_be_listed_and_fetched(client: TestClient
     assert (
         listed["id"] == wf and listed["name"] == "Weekly short" and listed["current_version"] == 1
     )
+    assert listed.pop("violations") == []  # its current version passes today's check
     assert client.get(f"/api/workflows/{wf}").json() == listed
 
     renamed = WEEKLY.replace("Weekly short", "Weekly short v2")
