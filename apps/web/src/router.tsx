@@ -2,7 +2,6 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Outlet,
   type RouterHistory,
 } from "@tanstack/react-router";
 
@@ -19,8 +18,9 @@ import { Settings } from "./pages/Settings";
 import { WorkflowEditor } from "./pages/WorkflowEditor";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
+import { Shell } from "./Shell";
 
-const rootRoute = createRootRoute({ component: () => <Outlet /> });
+const rootRoute = createRootRoute({ component: Shell });
 
 export const worldsRoute = createRoute({
   getParentRoute: () => rootRoute,

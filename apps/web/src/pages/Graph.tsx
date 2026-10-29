@@ -116,9 +116,6 @@ export function Graph() {
   if (world === undefined) {
     return (
       <main>
-        <div className="crumb">
-          <Link to="/">worlds</Link>
-        </div>
         {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
       </main>
     );
@@ -140,13 +137,6 @@ export function Graph() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {world.name.toLowerCase()}
-            </Link>{" "}
-            / middle-out
-          </div>
           <h1>Middle-out</h1>
           <p className="sub">
             Everything this world has learned, as one graph. Agents query it instead of re-reading

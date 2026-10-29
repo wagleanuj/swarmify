@@ -1,0 +1,39 @@
+/* Workflow editor: three views of one text, and its scorecard */
+main.editor-page { max-width: 80rem; }
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 24px; align-items: start; }
+.editor aside { display: grid; gap: 24px; }
+.editor aside h2 { margin-bottom: 8px; }
+.editor-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.problems { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--negative); }
+.problems code { color: var(--muted); }
+.stage-rail { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.stage-rail li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-field); font-size: 14px; }
+.versions { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.versions li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
+.versions button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
+.views { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 12px; margin-bottom: -1px; color: var(--muted); background: none; }
+.views button:hover { color: var(--text); background: none; }
+.views button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 12px; margin-bottom: 12px; }
+.fields label, .stage-card label { display: grid; gap: 6px; margin: 0; }
+.stage-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.stage-card { padding: 12px 14px; display: grid; gap: 10px; }
+.stage-card .row b { font-size: 13px; font-weight: 500; color: var(--muted); }
+.stage-card .row button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
+.stage-card .fields { margin: 0; }
+.add-stage { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.chat { display: grid; gap: 12px; }
+.chat-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; max-height: 28rem; overflow: auto; }
+.chat-log li { padding: 8px 12px; max-width: 44rem; white-space: pre-wrap; }
+.chat-log li.you { justify-self: end; background: var(--pill-positive-bg); border-color: transparent; }
+.chat-log li b { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 2px; }
+.chat form { display: flex; gap: 8px; align-items: flex-start; }
+.chat form textarea { flex: 1; }
+.copy { display: grid; gap: 8px; }
+.trend { margin: 0 0 16px; max-width: 62ch; }
+
+@media (max-width: 48rem) {
+  .editor { grid-template-columns: 1fr; }
+  .chat-log li { max-width: 100%; }
+}

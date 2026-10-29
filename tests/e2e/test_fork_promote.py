@@ -54,7 +54,7 @@ def test_fork_from_the_pick_then_pin_filter_and_promote_from_the_library(
         expect(page.get_by_test_id("forks")).to_contain_text("Research then pick")
         page.get_by_test_id("timeline").get_by_role("button", name=pick).click()
         expect(page.get_by_test_id("decision")).to_have_text('You picked "Hook first".')
-        page.get_by_role("link", name="runs").click()
+        page.get_by_role("navigation", name="Main").get_by_role("link", name="Runs").click()
         expect(page.get_by_test_id("fork-of")).to_contain_text("fork of Research then pick")
 
         # The library: every run's artifacts, filtered, pinned and promoted.

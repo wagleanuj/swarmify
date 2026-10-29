@@ -184,13 +184,6 @@ export function Cast() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {name.toLowerCase()}
-            </Link>{" "}
-            / cast
-          </div>
           <h1>Cast</h1>
           <p className="sub">
             Who works in {name}: Richard plans, the workers claim tasks, Erlich judges. Records

@@ -36,8 +36,7 @@ test("shows the world, its tiles and live activity from the world's event stream
   const { screen } = await mountAt("/worlds/world_1");
   await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
   await expect.element(screen.getByText("Weekly shorts.")).toBeVisible();
-  await expect.element(screen.getByText("Needs you")).toBeVisible();
-  await expect.element(screen.getByRole("link", { name: "worlds" })).toHaveAttribute("href", "/");
+  await expect.element(screen.getByRole("main").getByText("Needs you")).toBeVisible();
   await expect.element(screen.getByTestId("no-workflows")).toMatchTextContent(/recipe a run follows/);
   await expect
     .element(screen.getByRole("link", { name: "New workflow" }))
@@ -49,7 +48,8 @@ test("shows the world, its tiles and live activity from the world's event stream
     .element(screen.getByRole("link", { name: "Open settings" }))
     .toHaveAttribute("href", "/worlds/world_1/settings");
 
-  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/worlds/world_1/events"]);
+  // Beside the shell's one all-worlds stream.
+  expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events"]);
   FakeEventSource.emit("world.created", { seq: 1, type: "world.created", ts: video.created_at });
   await expect.element(screen.getByTestId("activity")).toMatchTextContent(/World created/);
 });

@@ -126,13 +126,6 @@ export function Settings() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {name.toLowerCase()}
-            </Link>{" "}
-            / settings
-          </div>
           <h1>Settings</h1>
           <p className="sub">What {name} may spend and run, how long it keeps files, and how it reaches you.</p>
         </div>

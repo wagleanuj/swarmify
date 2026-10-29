@@ -6,7 +6,6 @@ import { duration, money, progress, type Run, type RunLink, STATUS_LABEL, took, 
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
 
-type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["Workflow"];
 
 const AD_HOC = "ad-hoc";
@@ -20,7 +19,6 @@ function elapsed(r: Run): string | null {
 
 export function Runs() {
   const { worldId } = runsRoute.useParams();
-  const [world, setWorld] = useState<World | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -28,10 +26,6 @@ export function Runs() {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    api
-      .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setWorld(data ?? null))
-      .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
       .then(({ data }) => setWorkflows(data ?? []))
@@ -66,13 +60,6 @@ export function Runs() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> /{" "}
-            <Link to="/worlds/$worldId" params={{ worldId }}>
-              {world?.name.toLowerCase() ?? worldId}
-            </Link>{" "}
-            / runs
-          </div>
           <h1>Runs</h1>
           <p className="sub">Every run of this world, newest first. Statuses update live.</p>
         </div>

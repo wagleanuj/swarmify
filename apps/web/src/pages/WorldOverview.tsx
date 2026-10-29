@@ -2,7 +2,8 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import type { Gate, Run } from "../api/runs";
+import { useOpenGates } from "../api/gates";
+import type { Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
 
@@ -31,7 +32,7 @@ export function WorldOverview() {
   const [activity, setActivity] = useState<Activity[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runIds, setRunIds] = useState<Set<string>>(new Set());
-  const [gates, setGates] = useState<Gate[]>([]);
+  const gates = (useOpenGates().gates ?? []).filter((g) => g.world_id === worldId);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
@@ -65,28 +66,16 @@ export function WorldOverview() {
       .catch(() => undefined);
   }, [worldId]);
 
-  const loadGates = () =>
-    api
-      .GET("/api/gates")
-      .then(({ data }) => data && setGates(data.filter((g) => g.world_id === worldId)))
-      .catch(() => undefined);
-  useEffect(() => {
-    void loadGates();
-  }, [worldId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Skins render events, they never poll tables (ADR 0002). Native EventSource, no library.
   useEffect(() => {
-    // The activity feed wants history, so this stream replays it. One gates refetch per burst,
-    // not per event, or opening a busy world fired one GET /api/gates per past run.updated.
+    // The activity feed wants history, so this stream replays it. The gates follow the shared
+    // all-worlds stream instead, or opening a busy world refetched them per past run.updated.
     const source = new EventSource(`/api/worlds/${worldId}/events`);
-    let gatesTimer: number | undefined;
     const onEvent = (e: Event) => {
       const data = JSON.parse((e as MessageEvent<string>).data) as Activity & { payload?: Run };
       const run = data.payload;
       if (data.type === "run.updated" && run) {
         setRunIds((prev) => new Set(prev).add(run.id));
-        clearTimeout(gatesTimer);
-        gatesTimer = window.setTimeout(() => void loadGates(), 100);
       }
       setActivity((prev) => (prev.some((a) => a.seq === data.seq) ? prev : [...prev, data]));
       if (data.type === "workflow.saved") {
@@ -101,10 +90,7 @@ export function WorldOverview() {
     for (const type of types) {
       source.addEventListener(type, onEvent);
     }
-    return () => {
-      clearTimeout(gatesTimer);
-      source.close();
-    };
+    return () => source.close();
   }, [worldId]);
 
   async function start(workflowId: string, baseline = false) {
@@ -167,9 +153,6 @@ export function WorldOverview() {
   if (world === undefined) {
     return (
       <main>
-        <div className="crumb">
-          <Link to="/">worlds</Link>
-        </div>
         {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
       </main>
     );
@@ -177,9 +160,6 @@ export function WorldOverview() {
   if (world === null) {
     return (
       <main>
-        <div className="crumb">
-          <Link to="/">worlds</Link>
-        </div>
         <h1>No such world</h1>
         <p className="sub">
           It may have been deleted. <Link to="/">Back to your worlds.</Link>
@@ -192,9 +172,6 @@ export function WorldOverview() {
     <main>
       <header className="page">
         <div>
-          <div className="crumb">
-            <Link to="/">worlds</Link> / {world.name.toLowerCase()}
-          </div>
           <h1>{world.name}</h1>
           <p className="sub">{world.purpose || "No purpose written yet."}</p>
         </div>
@@ -296,7 +273,7 @@ export function WorldOverview() {
           </button>
         </div>
       </form>
-      <section aria-label="Workflows" className="workflows">
+      <section aria-label="Workflows" className="workflows" id="workflows">
         <div className="row">
           <h2>Workflows</h2>
           <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button">
