@@ -135,7 +135,10 @@ def with_agents(stages: list[StageDef], agents: int | None) -> list[StageDef]:
 
 def pinner(workflows: Workflows) -> Callable[..., Pinned]:
     """A workflow version as Runs starts it: the given version, the current one by default.
-    Raises KeyError for an unknown workflow or version."""
+    Every run start of a version comes through here (start, promote, fork, schedule, child run,
+    MCP), so it runs today's workflow check first: rules and connectors change after a version
+    is saved. Raises KeyError for an unknown workflow or version, Invalid when the version
+    fails the check."""
 
     def pin(workflow_id: str, number: int | None = None) -> Pinned:
         workflow = workflows.get(workflow_id)
@@ -144,6 +147,9 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
         version = workflows.version(workflow_id, number or workflow.current_version)
         if version is None:
             raise KeyError(f"version not found: {workflow_id} v{number}")
+        violations = workflows.check(workflow.world_id, version.yaml, workflow_id).violations
+        if violations:
+            raise Invalid(violations)
         stages = with_agents([stage_def(s) for s in version.model.stages], version.model.agents)
         return Pinned(
             workflow.world_id,
@@ -205,8 +211,21 @@ def act(action: Callable[[], Run]) -> Run:
         raise HTTPException(404, "run not found") from exc
     except Illegal as exc:
         raise HTTPException(409, str(exc)) from exc
+    except Invalid:
+        raise  # a run start's refusal, see `starting`
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+def starting(start: Callable[[], Run]) -> Run | JSONResponse:
+    """A run start as `act` answers it, plus a workflow version that fails today's check: 409
+    with its violations, and a `detail` the skin shows as the reason."""
+    try:
+        return act(start)
+    except Invalid as exc:
+        detail = f"This version fails today's workflow check: {exc}"
+        violations = jsonable_encoder(exc.violations)
+        return JSONResponse(status_code=409, content={"detail": detail, "violations": violations})
 
 
 def router(
@@ -226,16 +245,31 @@ def router(
     def stages(defs: list[StageDef], baseline: bool = False) -> list[StageDef]:
         return with_retro(defs, baseline) if retro else defs
 
-    @api.post("/workflows/{workflow_id}/runs", status_code=201, responses={404: {}, 409: {}})
-    def start_run(workflow_id: str, body: StartRun) -> Run:
-        """409 when the world's Monthly Budget is spent."""
+    def pin_or_404(workflow_id: str, number: int | None) -> Pinned:
         try:
-            p = pin(workflow_id, body.version)
+            return pin(workflow_id, number)
         except KeyError as exc:
             what = "version" if workflows.get(workflow_id) else "workflow"
             raise HTTPException(404, f"{what} not found") from exc
-        return act(
-            lambda: start_pinned(runner, p, retro, body.budget_usd, body.agents, body.baseline)
+
+    @api.post(
+        "/workflows/{workflow_id}/runs",
+        status_code=201,
+        responses={404: {}, 409: {}},
+        response_model=Run,
+    )
+    def start_run(workflow_id: str, body: StartRun) -> Run | JSONResponse:
+        """409 when the world's Monthly Budget is spent, or with the violations when the
+        version fails today's workflow check."""
+        return starting(
+            lambda: start_pinned(
+                runner,
+                pin_or_404(workflow_id, body.version),
+                retro,
+                body.budget_usd,
+                body.agents,
+                body.baseline,
+            )
         )
 
     @api.post("/worlds/{world_id}/runs", status_code=201, responses={404: {}, 409: {}})
@@ -280,27 +314,34 @@ def router(
             monthly_budget_usd=world.monthly_budget_usd,
         )
 
-    @api.post("/runs/{run_id}/fork", status_code=201, responses=ACTION_ERRORS)
-    def fork(run_id: str, body: Fork) -> Run:
+    @api.post("/runs/{run_id}/fork", status_code=201, responses=ACTION_ERRORS, response_model=Run)
+    def fork(run_id: str, body: Fork) -> Run | JSONResponse:
         """A new run of the same workflow version that copies this one, rows and files, up to
-        `stage` and runs on from there. Every earlier stage must have finished."""
-        return act(lambda: runner.fork(run_id, body.stage))
+        `stage` and runs on from there. Every earlier stage must have finished. 409 with the
+        violations when that version fails today's workflow check."""
+        return starting(lambda: runner.fork(run_id, body.stage))
 
-    @api.post("/workflows/{workflow_id}/promote", status_code=201, responses={404: {}, 422: {}})
-    def promote(workflow_id: str, body: Promote) -> Run:
+    @api.post(
+        "/workflows/{workflow_id}/promote",
+        status_code=201,
+        responses={404: {}, 409: {}, 422: {}},
+        response_model=Run,
+    )
+    def promote(workflow_id: str, body: Promote) -> Run | JSONResponse:
         """A run that starts at `stage` with `artifact` as its input; the earlier stages are
-        skipped."""
-        try:
-            p = pin(workflow_id, body.version)
-        except KeyError as exc:
-            what = "version" if workflows.get(workflow_id) else "workflow"
-            raise HTTPException(404, f"{what} not found") from exc
-        folder = worlds.folder(p.world_id)
-        file = (folder / body.artifact).resolve()
-        if not file.is_relative_to((folder / "runs").resolve()) or not file.is_file():
-            raise HTTPException(404, "artifact not found")
-        pinned = replace(p, stages=stages(p.stages))
-        return act(lambda: runner.promote(pinned, body.stage, file, body.artifact))
+        skipped. 409 with the violations when the version fails today's workflow check."""
+
+        def start() -> Run:
+            p = pin_or_404(workflow_id, body.version)
+            folder = worlds.folder(p.world_id)
+            file = (folder / body.artifact).resolve()
+            if not file.is_relative_to((folder / "runs").resolve()) or not file.is_file():
+                raise HTTPException(404, "artifact not found")
+            return runner.promote(
+                replace(p, stages=stages(p.stages)), body.stage, file, body.artifact
+            )
+
+        return starting(start)
 
     @api.post(
         "/runs/{run_id}/workflow",

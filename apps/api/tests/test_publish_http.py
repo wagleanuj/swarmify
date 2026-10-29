@@ -266,9 +266,10 @@ def test_the_editor_refuses_a_publish_stage_without_a_gate(client: TestClient, c
     assert saved.status_code == 422
 
 
-def test_the_runner_refuses_a_connector_that_turned_publish_after_the_save(
+def test_a_start_refuses_a_connector_that_turned_publish_after_the_save(
     running: TestClient, transport: FakeTransport
 ) -> None:
+    """Today's workflow check at run start (#102) catches it before any stage runs."""
     yaml = "name: Sneaky\nstages:\n  - connector: post\n    calls: poster\n"
     poster = {**MAKER, "name": "poster"}
     world, workflow = setup(running, "name: x\nstages:\n  - connector: m\n    calls: maker\n")
@@ -278,8 +279,8 @@ def test_the_runner_refuses_a_connector_that_turned_publish_after_the_save(
     publishing = {**poster, "kind": "publish"}
     assert running.post(f"/api/worlds/{world}/connectors", json=publishing).status_code == 201
 
-    run = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={}).json()
-    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "failed")
-    error = running.get(f"/api/runs/{run['id']}").json()["stages"][0]["error"]
-    assert "calls a publish connector, so it runs only right after an answered gate" in error
+    refused = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={})
+    assert refused.status_code == 409
+    assert "publish connector 'poster' must come right after a gate" in refused.json()["detail"]
+    assert running.get(f"/api/worlds/{world}/runs").json() == []
     assert transport.calls == []

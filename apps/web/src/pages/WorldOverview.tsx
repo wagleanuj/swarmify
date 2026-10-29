@@ -7,7 +7,7 @@ import type { components } from "../api/schema";
 import { worldRoute } from "../router";
 
 type World = components["schemas"]["World"];
-type Workflow = components["schemas"]["Workflow"];
+type Workflow = components["schemas"]["ListedWorkflow"];
 type Activity = { seq: number; type: string; ts: string };
 
 /** "run.updated" as "Run updated". */
@@ -110,7 +110,7 @@ export function WorldOverview() {
   async function start(workflowId: string, baseline = false) {
     setStarting(workflowId);
     setError(null);
-    const { data, error } = await api.POST("/api/workflows/{workflow_id}/runs", {
+    const { data, error, response } = await api.POST("/api/workflows/{workflow_id}/runs", {
       params: { path: { workflow_id: workflowId } },
       // Blank fields are left out: the workflow's budget and agents, else the world's, apply.
       body: {
@@ -121,7 +121,8 @@ export function WorldOverview() {
     });
     setStarting(null);
     if (error || !data) {
-      setError("Could not start the run. Try again.");
+      const detail = (error as { detail?: unknown } | undefined)?.detail;
+      setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
       return;
     }
     void router.navigate({
@@ -329,6 +330,11 @@ export function WorldOverview() {
                   >
                     {w.name}
                   </Link>
+                  {w.violations?.slice(0, 1).map((v) => (
+                    <span key={v.rule} className="chip warn" data-testid={`fails-check-${w.id}`}>
+                      Fails today's check: {v.message}. Save a new version to run it.
+                    </span>
+                  ))}
                   <span className="actions">
                     <span className="faint">v{w.current_version}</span>
                     <Link

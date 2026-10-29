@@ -93,6 +93,23 @@ def test_a_fork_after_a_gate_keeps_its_decision(
     assert fetch(runner, fork.id).stages[1].status == "done"
 
 
+def test_a_fork_rechecks_its_workflow_version_and_starts_nothing_when_it_fails(
+    runner: Runner, tmp_path: Path
+) -> None:
+    source = finished_short(runner, tmp_path)
+    checked: list[tuple[str, int | None]] = []
+
+    def pin(workflow_id: str, number: int | None = None) -> Pinned:
+        checked.append((workflow_id, number))
+        raise ValueError("render_video is not a connector of this world")
+
+    runner.pin = pin
+    with pytest.raises(ValueError, match="render_video"):
+        runner.fork(source.id, 1)
+    assert checked == [("wf", 1)]
+    assert [r.id for r in runner.list_all("world_a")] == [source.id]
+
+
 def test_a_fork_needs_every_earlier_stage_finished(runner: Runner) -> None:
     source = runner.start("world_a", "wf", 1, "Short", STAGES)
     at(runner, source.id, "waiting_gate")

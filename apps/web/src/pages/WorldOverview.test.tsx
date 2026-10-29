@@ -176,6 +176,33 @@ test("a workflow run starts with the budget and worker count typed over the work
   ]);
 });
 
+test("a workflow whose current version fails today's check is marked and its refusal shown", async () => {
+  const stale = {
+    id: "wf_1", world_id: "world_1", name: "Kids clickbait short", current_version: 1, created_at: video.created_at,
+    violations: [{ rule: "connector", message: "render_video is not a connector of this world", stage: "render" }],
+  };
+  const fine = { ...stale, id: "wf_2", name: "Weekly short", violations: [] };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([stale, fine]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "POST /api/workflows/wf_1/runs": () =>
+      Response.json(
+        { detail: "This version fails today's workflow check: render_video is not a connector of this world", violations: stale.violations },
+        { status: 409 },
+      ),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  await expect
+    .element(screen.getByTestId("fails-check-wf_1"))
+    .toMatchTextContent(/Fails today's check: render_video is not a connector of this world/);
+  expect(screen.getByTestId("fails-check-wf_2").elements()).toHaveLength(0);
+  await screen.getByRole("button", { name: "Start a run of Kids clickbait short" }).click();
+  await expect
+    .element(screen.getByRole("alert"))
+    .toMatchTextContent("Not started: This version fails today's workflow check: render_video is not a connector of this world.");
+});
+
 test("a typed goal starts an ad hoc run and opens its timeline", async () => {
   const bodies: unknown[] = [];
   const started = {

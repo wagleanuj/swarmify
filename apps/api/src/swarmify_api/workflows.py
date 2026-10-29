@@ -1,6 +1,7 @@
 """HTTP face of the Workflows context: save YAML as versions, check it, list and read versions,
 copy a workflow to another world."""
 
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -48,6 +49,14 @@ def next_run(model: WorkflowModel | None) -> str | None:
     return next_fire(model.schedule).isoformat()
 
 
+@dataclass(frozen=True)
+class ListedWorkflow(Workflow):
+    """A workflow as its world lists it, with what its current version breaks by today's check:
+    a version saved before a rule or with a connector since removed is refused at run start."""
+
+    violations: list[Violation] = field(default_factory=list)
+
+
 INVALID: dict[int | str, dict[str, Any]] = {
     422: {"model": Report, "description": "The workflow breaks one or more rules"}
 }
@@ -74,9 +83,14 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
             return JSONResponse(status_code=422, content=jsonable_encoder(report))
 
     @api.get("/worlds/{world_id}/workflows")
-    def list_workflows(world_id: str) -> list[Workflow]:
+    def list_workflows(world_id: str) -> list[ListedWorkflow]:
         world_or_404(world_id)
-        return workflows.list_all(world_id)
+        listed = []
+        for w in workflows.list_all(world_id):
+            current = workflows.version(w.id, w.current_version)
+            draft = workflows.check(w.world_id, current.yaml if current else "", w.id)
+            listed.append(ListedWorkflow(**asdict(w), violations=draft.violations))
+        return listed
 
     @api.post(
         "/worlds/{world_id}/workflows",

@@ -16,6 +16,8 @@ EVERY_SECOND = "* * * * * *"
 
 
 def pin(workflow_id: str, number: int | None = None) -> Pinned:
+    if workflow_id == "wf_stale":  # saved before a rule it now breaks
+        raise ValueError("a swarm stage cannot build a video")
     if workflow_id not in ("wf_1", "wf_dropped"):
         raise KeyError(workflow_id)
     # wf_dropped's current version no longer has a schedule, but DBOS still holds the old cron.
@@ -65,6 +67,15 @@ def test_a_schedule_starts_runs_of_the_current_version_until_removed(runner: Run
 def test_a_fired_schedule_for_a_deleted_workflow_starts_nothing(runner: Runner) -> None:
     runner.schedule("wf_gone", EVERY_SECOND)
     time.sleep(2.5)
+    assert runner.list_all("world_1") == []
+
+
+def test_a_tick_of_a_version_that_fails_todays_check_logs_it_and_starts_nothing(
+    runner: Runner, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner.schedule("wf_stale", EVERY_SECOND)
+    wait_for(lambda: "fails today's workflow check" in caplog.text)
+    assert "cannot build a video" in caplog.text
     assert runner.list_all("world_1") == []
 
 

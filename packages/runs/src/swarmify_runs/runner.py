@@ -39,6 +39,7 @@ from swarmify_runs.control import (
     WAKE,
     Monthly,
     OverBudget,
+    Pin,
     Previews,
     RunControl,
     Spend,
@@ -92,8 +93,6 @@ OverBudget when the run's Budget stopped its agents."""
 Retro = Callable[[Run, str, StageDef], bool]
 """Runs the retro stage of a run, with the same arguments. True when it recorded a proposal:
 the stage then waits at a gate of kind `skill` until a person decides it (ADR 0008)."""
-Pin = Callable[[str], Pinned]
-"""The current version of a workflow, by id. Raises KeyError for an unknown workflow."""
 Take = Callable[[Run, Run, str, list[str]], None]
 """Copies the named artifacts of a child run into its parent's stage. Arguments: the child, the
 parent, the parent's stage id and the names. Raises to fail the stage."""
@@ -318,6 +317,14 @@ def _start_scheduled(workflow_id: str, fired_at: str) -> tuple[str, str] | None:
         pinned = runner.pin(workflow_id)
     except KeyError:
         log.warning("schedule fired for %s at %s, but it no longer exists", workflow_id, fired_at)
+        return None
+    except ValueError as exc:
+        log.warning(
+            "schedule fired for %s at %s, but its current version fails today's workflow check: %s",
+            workflow_id,
+            fired_at,
+            exc,
+        )
         return None
     if pinned.schedule is None:
         # DBOS learns of a dropped schedule only at its next poll; a tick in that gap would

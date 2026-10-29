@@ -33,11 +33,12 @@ def server(
     """`control` acts on runs hosted by the API process, and records the runs it starts queued
     for that process to adopt; `delete` is the composition root's world delete
     (`main.world_deleter`), the world's row and folder only when not given. With `retro`, a
-    started run ends with the Retro stage, as over HTTP."""
+    started run ends with the Retro stage, as over HTTP. A fork through `control` re-checks
+    its workflow version with this server's pin."""
     delete = delete or worlds.delete
     root = control.data_dir
     memory = memory or Memory(root / "swarmify.db", root)
-    pin = pinner(workflows)
+    pin = control.pin = pinner(workflows)
     mcp = MCPServer(
         "swarmify",
         instructions="Drive swarmify: worlds, workflows, runs (start, fork, artifacts), swarm stage"
@@ -138,8 +139,11 @@ def server(
             raise ValueError(f"stage not found in run {run_id}: {stage_id}") from exc
 
     def run_or_fail(action: Callable[[], Any]) -> dict[str, Any]:
+        """The run, or the violations when a run start's workflow version fails today's check."""
         try:
             return asdict(action())
+        except Invalid as exc:
+            return {"violations": [asdict(v) for v in exc.violations]}
         except (KeyError, Illegal) as exc:
             raise ValueError(str(exc)) from exc
 
@@ -147,7 +151,8 @@ def server(
         description="Start a run of a workflow version, the current one by default. budget_usd"
         " overrides the workflow's Budget; agents (1 to 8) its workers per swarm stage; baseline"
         " runs every swarm stage with one agent and no graph. The run starts queued; the API"
-        " process picks it up within its sweep (15 seconds)."
+        " process picks it up within its sweep (15 seconds). A version that fails today's"
+        " workflow check is refused with its violations."
     )
     def start_run(
         workflow_id: str,
@@ -160,16 +165,17 @@ def server(
             raise ValueError("budget_usd must be above 0")
         if agents is not None and not 1 <= agents <= MAX_AGENTS:
             raise ValueError(f"agents must be 1 to {MAX_AGENTS}")
-        try:
-            p = pin(workflow_id, version)
-        except KeyError as exc:
-            raise ValueError(str(exc)) from exc
-        return run_or_fail(lambda: start_pinned(control, p, retro, budget_usd, agents, baseline))
+        return run_or_fail(
+            lambda: start_pinned(
+                control, pin(workflow_id, version), retro, budget_usd, agents, baseline
+            )
+        )
 
     @mcp.tool(
         description="Fork a run: a new run of the same workflow version that copies it, notes"
         " and artifacts included, up to stage `stage` (0-based) and runs on from there. Every"
-        " earlier stage must have finished."
+        " earlier stage must have finished. A version that fails today's workflow check is"
+        " refused with its violations."
     )
     def fork_run(run_id: str, stage: int) -> dict[str, Any]:
         return run_or_fail(lambda: control.fork(run_id, stage))
