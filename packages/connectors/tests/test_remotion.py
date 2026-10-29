@@ -6,8 +6,11 @@ import os
 import shutil
 import subprocess
 import time
+from collections.abc import Iterator
 from contextlib import closing
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from typing import Any
 
 import pytest
@@ -302,6 +305,35 @@ def test_a_built_project_is_never_installed_outside_the_sandbox(
     with pytest.raises(ConnectorError, match="the build left no node_modules"):
         connectors.run_stage(W, "run_1", "stage_2", config)
     assert not (project / "node_modules").exists()
+
+
+@pytest.fixture
+def port_3000() -> Iterator[None]:
+    """Something else on Remotion's default port, as an open-webui container was."""
+    try:
+        server = ThreadingHTTPServer(("localhost", 3000), SimpleHTTPRequestHandler)
+    except OSError:  # already held, which is the point
+        yield
+        return
+    Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("built", [False, True])
+def test_a_render_uses_a_free_port_not_one_another_server_holds(
+    tmp_path: Path, db: Path, real: Connectors, fake_npx: Path, port_3000: None, built: bool
+) -> None:
+    """Template renders and remotion_build's sandboxed renders alike."""
+    if built and not (shutil.which("sandbox-exec") or shutil.which("bwrap")):
+        pytest.skip("no OS sandbox here")
+    connectors, config = (
+        (_built(tmp_path, fake_npx, db)[:2]) if built else (real, stage(tmp_path, fake_npx))
+    )
+    assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
 
 
 def test_with_no_sandbox_a_built_project_does_not_render(
