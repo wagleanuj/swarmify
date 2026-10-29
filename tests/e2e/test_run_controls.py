@@ -41,7 +41,7 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
         page.get_by_test_id("child-run").get_by_role("link", name="Brief").click()
         expect(page.get_by_test_id("child-of")).to_contain_text("child of Parent")
         expect(status).to_have_text("Waiting for you: Go?")
-        child = page.url.rstrip("/").split("/")[-1]
+        child = page.url.split("?")[0].rstrip("/").split("/")[-1]
 
         # Pause at the gate, then resume (story 31).
         page.get_by_role("button", name="Pause").click()

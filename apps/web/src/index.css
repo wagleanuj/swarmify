@@ -132,6 +132,8 @@ legend { font-size: 14px; font-weight: 500; margin-bottom: 6px; padding: 0; }
 .pill.dim { color: var(--faint); }
 
 /* Run page: status line, result, spend, the stage rail, the selected step's panel */
+.follow { display: inline-flex; align-items: center; gap: 8px; padding: 3px 3px 3px 12px; border-radius: 999px; background: var(--panel); color: var(--muted); font-size: 12px; }
+.follow button { min-height: 26px; padding: 2px 10px; border-radius: 999px; font-size: 12px; }
 .status-block { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: -8px 0 20px; }
 p.status-line { margin: 0; font-size: 18px; line-height: 1.35; color: var(--ink); max-width: 52rem; }
 .state-waiting_gate p.status-line { color: var(--warn); }

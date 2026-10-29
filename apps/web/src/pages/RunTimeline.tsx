@@ -15,11 +15,15 @@ import { Result, resultStage, StagePanel, stepMeta } from "./StagePanel";
 type World = components["schemas"]["World"];
 type Stage = Run["stages"][number];
 
-/** The step selected when the URL names none: the current one, else the one that made the
- * result, else the last. */
-function defaultStage(run: Run, artifacts: ArtifactFile[]): Stage | undefined {
-  const live = run.status === "done" ? undefined : current(run);
-  return live ?? resultStage(run, artifacts) ?? run.stages.at(-1);
+/** The step the run is at now: the one waiting for you, else the one working. */
+function liveStage(run: Run): Stage | undefined {
+  return run.stages.find((s) => s.status === "waiting") ?? run.stages.find((s) => s.status === "running");
+}
+
+/** The step picked on arrival when the URL names none: the live one, else the last finished,
+ * else the first. It is pinned in the URL then, so it never moves by itself. */
+function arrivalStage(run: Run): Stage | undefined {
+  return liveStage(run) ?? run.stages.filter((s) => s.status === "done" || s.status === "failed").at(-1) ?? run.stages[0];
 }
 
 export function RunTimeline() {
@@ -39,8 +43,10 @@ export function RunTimeline() {
   const [artifacts, setArtifacts] = useState<ArtifactFile[]>([]);
   const [artifactsSeen, setArtifactsSeen] = useState(0);
   const [baseline, setBaseline] = useState<Run | null>(null);
-  const stage = run ? (run.stages.find((s) => s.id === search.stage) ?? defaultStage(run, artifacts)) : undefined;
+  const chosen = run?.stages.find((s) => s.id === search.stage);
+  const stage = run ? (chosen ?? arrivalStage(run)) : undefined;
   const stageId = stage?.id;
+  const live = run ? liveStage(run) : undefined;
   const swarmId = stage?.type === "swarm" ? stage.id : undefined;
   const [, tick] = useState(0);
   const moving = run?.status === "running";
@@ -184,6 +190,11 @@ export function RunTimeline() {
     [router, worldId, runId],
   );
 
+  // Arriving with no step (or one this run lacks) pins the picked one; nothing else writes it.
+  useEffect(() => {
+    if (stageId && !chosen) select(stageId);
+  }, [stageId, chosen, select]);
+
   async function act(action: "pause" | "resume" | "abort") {
     if (!run) return;
     if (action === "abort" && !window.confirm(`Abort ${run.name}? Any child runs it started stop too. Finished stages keep their artifacts.`)) {
@@ -289,6 +300,14 @@ export function RunTimeline() {
           </h1>
           <Lineage run={run} worldId={worldId} />
         </div>
+        {live && live.id !== stageId && (
+          <span className="follow" data-testid="follow">
+            Now at {live.name} ·{" "}
+            <button type="button" onClick={() => select(live.id)}>
+              Go there
+            </button>
+          </span>
+        )}
       </header>
       <div className={`status-block state-${run.status}`}>
         <p role="status" data-testid="status-line" className="status-line">

@@ -39,7 +39,7 @@ def test_approve_an_edited_skill_proposal_and_see_skills_records_and_scores(
             " Approve it, edit it, or reject it.",
             timeout=20_000,
         )
-        run = page.url.rstrip("/").split("/")[-1]
+        run = page.url.split("?")[0].rstrip("/").split("/")[-1]
 
         page.get_by_role("button", name="Answer now").first.click()
         card = page.get_by_test_id(f"gate-{run}")
