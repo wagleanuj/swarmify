@@ -40,17 +40,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("lists the built-ins as ready and an added connector with its missing key", async () => {
+test("lists connectors by kind with their steps and health, and flags a missing key with Set keys", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, fal]),
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
-  const list = screen.getByTestId("connector-list");
-  await expect.element(list).toMatchTextContent(/Web search\s*Built into Claude\. No key\.\s*swarm\s*ready/);
-  await expect.element(list).toMatchTextContent(/Middle-out/);
-  await expect.element(list).toMatchTextContent(/YouTube.*connector\s*gate first, always\s*not installed/);
-  await expect.element(list).toMatchTextContent(/fal_video\s*uvx fal-mcp · FAL_KEY\s*connector\s*FAL_KEY missing/);
+  await expect.element(screen.getByText(/4 connectors, 1 waiting on a key\./)).toBeVisible();
+  const tools = screen.getByRole("list", { name: "Tools agents use inside a swarm step" });
+  await expect.element(tools).toMatchTextContent(/Web search\s*Built into Claude\. No key\.\s*swarm steps\s*Ready/);
+  await expect.element(tools).toMatchTextContent(/Middle-out/);
+  await expect
+    .element(screen.getByRole("region", { name: "Publishing" }))
+    .toMatchTextContent(/Always after a gate\..*YouTube.*connector steps\s*Not installed/);
+  const added = screen.getByRole("list", { name: "Steps of their own" }).getByRole("listitem");
+  await expect.element(added).toMatchTextContent(/fal_video\s*uvx fal-mcp · FAL_KEY not set\s*connector steps\s*Needs a key\s*Set keys/);
+  await expect.element(added.getByRole("button", { name: "Set keys for fal_video" })).toHaveTextContent("Set keys");
   await expect.element(screen.getByRole("button", { name: "Remove fal_video" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Remove web_search" }).elements()).toHaveLength(0);
 });
@@ -72,6 +77,7 @@ test("tests a draft, shows its tools, and saves it only after a passing test", a
     },
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Add a connector" }).click();
   await screen.getByRole("textbox", { name: "Name" }).fill("fal_video");
   await screen.getByRole("textbox", { name: "MCP server" }).fill("uvx fal-mcp");
   await screen.getByRole("textbox", { name: /Keys/ }).fill("FAL_KEY=s3cret\nFAL_ORG");
@@ -96,7 +102,7 @@ test("tests a draft, shows its tools, and saves it only after a passing test", a
   await screen.getByRole("button", { name: "Test and list tools" }).click();
   await screen.getByRole("button", { name: "Save connector" }).click();
 
-  await expect.element(screen.getByTestId("connector-list")).toMatchTextContent(/fal_video.*ready/);
+  await expect.element(screen.getByTestId("connector-list")).toMatchTextContent(/fal_video.*Ready/);
   expect(bodies[2]).toEqual(bodies[0]);
   expect(calls.filter((c) => c === "GET /api/worlds/world_1/connectors")).toHaveLength(2);
   await expect.element(screen.getByRole("textbox", { name: "Name" })).toHaveValue("");
@@ -110,6 +116,7 @@ test("a failed test says why and offers no save", async () => {
       Response.json({ detail: "fal_video: FileNotFoundError: uvx" }, { status: 422 }),
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Add a connector" }).click();
   await screen.getByRole("textbox", { name: "Name" }).fill("fal_video");
   await screen.getByRole("textbox", { name: "MCP server" }).fill("uvx fal-mcp");
   await screen.getByRole("button", { name: "Test and list tools" }).click();
@@ -128,6 +135,7 @@ test("a publish connector is only ever allowed in connector stages", async () =>
     },
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Add a connector" }).click();
   await screen.getByRole("checkbox", { name: "swarm stages" }).click();
   await screen.getByRole("radio", { name: /Publish/ }).click();
   await expect.element(screen.getByRole("checkbox", { name: "swarm stages" })).toBeDisabled();
@@ -158,7 +166,7 @@ test("a built-in publish connector takes its keys in place, and the list shows t
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
   const row = screen.getByTestId("connector-list").getByRole("listitem").nth(1);
-  await expect.element(row).toMatchTextContent(/YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN missing/);
+  await expect.element(row).toMatchTextContent(/YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN not set.*Needs a key/);
   await row.getByRole("button", { name: "Set keys for youtube" }).click();
   const form = row.getByRole("form", { name: "Keys for youtube" });
   await form.getByLabelText("YOUTUBE_CLIENT_ID").fill("id");
@@ -167,7 +175,7 @@ test("a built-in publish connector takes its keys in place, and the list shows t
   await vi.waitFor(() =>
     expect(sent).toEqual({ credentials: { YOUTUBE_CLIENT_ID: "id", YOUTUBE_CLIENT_SECRET: "", YOUTUBE_REFRESH_TOKEN: "r" } }),
   );
-  await expect.element(row).toMatchTextContent(/ready/);
+  await expect.element(row).toMatchTextContent(/Ready/);
   await expect.element(row.getByRole("status")).toHaveTextContent("Keys saved. Posts to the YouTube channel Hooks Daily.");
   await expect.element(row.getByRole("button", { name: "Set keys for youtube" })).toHaveTextContent("Change keys");
 });

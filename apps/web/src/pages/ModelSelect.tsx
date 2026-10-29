@@ -17,9 +17,11 @@ export function useModels(): Models | null {
   return models;
 }
 
-/** A model picker whose empty value falls back to `fallback`; "" means no choice here. */
+/** A model picker whose empty value falls back to `fallback`; "" means no choice here. A hidden
+ * label still names it, for a table cell whose column says what it is. */
 export function ModelSelect(props: {
   label: string;
+  hideLabel?: boolean;
   value: string;
   fallback: string;
   models: Models | null;
@@ -29,7 +31,7 @@ export function ModelSelect(props: {
   const extra = props.value && !known.includes(props.value) ? [props.value] : [];
   return (
     <label>
-      {props.label}
+      <span className={props.hideLabel ? "visually-hidden" : undefined}>{props.label}</span>
       <select value={props.value} onChange={(e) => props.onChange(e.target.value)}>
         <option value="">{props.fallback}</option>
         {[...known, ...extra].map((m) => (

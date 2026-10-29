@@ -30,27 +30,39 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("lists the cast by their skin names with each record beside its reference", async () => {
+test("lists the cast as a table by their skin names, each row with its record and model", async () => {
   fakeFetch({
-    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/models": () => Response.json({ default: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5"] }),
+    "GET /api/worlds/world_1": () => Response.json({ ...video, worker_model: "claude-sonnet-5-5" }),
     "GET /api/worlds/world_1/cast": () => Response.json(cast),
   });
   const { screen } = await mountAt("/worlds/world_1/cast");
   await expect.element(screen.getByRole("heading", { name: "Cast", level: 1 })).toBeVisible();
-  await expect.element(screen.getByRole("heading", { name: /Richard/ })).toBeVisible();
-  await expect.element(screen.getByRole("heading", { name: /Erlich/ })).toBeVisible();
-  await expect
-    .element(screen.getByTestId("cast-worker-1"))
-    .toMatchTextContent(/Gilfoyle.*v1, default.*3 tasks done · 1 of 2 stages passed first try · 1 send-back · \$0\.7100 est\./);
-  await expect.element(screen.getByTestId("cast-worker-2")).toMatchTextContent(/Dinesh.*No record yet/);
-  await expect.element(screen.getByTestId("cast-planner")).toMatchTextContent(/Estimated cost so far: \$0\.5000/);
-  await expect.element(screen.getByTestId("cast-judge")).toMatchTextContent(/No sessions yet/);
+  await expect.element(screen.getByText(/4 agents work in Video.*\$1\.2100 so far/)).toBeVisible();
+  const cells = (name: string) =>
+    [...screen.getByTestId(`cast-${name}`).element().querySelectorAll("tr:first-child td")].map((td) => td.textContent?.trim());
+  await expect.element(screen.getByTestId("cast-worker-1")).toMatchTextContent(/Gilfoyle/);
+  // Agent, then (past the model) tasks, judged, first try, send backs, cost
+  const [agent, , ...record] = cells("worker-1");
+  expect([agent, ...record.slice(0, 5)]).toEqual([
+    "Gilfoyleclaims tasks, writes notes and artifacts · v1, default",
+    "3",
+    "2",
+    "1 of 2",
+    "1",
+    "$0.7100",
+  ]);
+  expect(cells("worker-2").slice(2, 7)).toEqual(["0", "0", "-", "0", "$0.0000"]);
+  expect(cells("planner")[6]).toBe("$0.5000");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Gilfoyle" })).toHaveDisplayValue("claude-sonnet-5-5");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Dinesh" })).toHaveDisplayValue("claude-sonnet-5-5");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Richard" })).toHaveDisplayValue("World's: claude-opus-5-5");
   await expect
     .element(screen.getByRole("link", { name: "Change the agent count" }))
     .toHaveAttribute("href", "/worlds/world_1/settings");
 });
 
-test("an edit asks for confirmation naming the version, then saves it and shows the history", async () => {
+test("an edit asks for confirmation naming the version, then saves it with a stamp in its row and shows the history", async () => {
   const bodies: unknown[] = [];
   const edited = member("worker-1", "worker", {
     version: 2,
@@ -81,10 +93,9 @@ test("an edit asks for confirmation naming the version, then saves it and shows 
 
   expect(confirm.mock.calls[0]?.[0]).toContain("Save version 2 of Gilfoyle?");
   expect(bodies).toEqual([{ prompt: "Write hooks first.", tools: ["graph"], confirm: true }]);
-  await expect.element(screen.getByRole("status")).toMatchTextContent(/Saved version 2 of Gilfoyle/);
-  await expect
-    .element(screen.getByTestId("cast-worker-1"))
-    .toMatchTextContent(/v2.*Standing instructions: Write hooks first\..*Tools: graph/);
+  const row = screen.getByTestId("cast-worker-1");
+  await expect.element(row.getByRole("status")).toHaveTextContent("Saved version 2 of Gilfoyle. It applies from the next stage on.");
+  await expect.element(row).toMatchTextContent(/Gilfoyle.*v2/);
 
   await screen.getByRole("button", { name: "History of Gilfoyle" }).click();
   await expect.element(screen.getByTestId("history")).toMatchTextContent(/v1 default.*no instructions.*v2.*Write hooks first/);
@@ -148,7 +159,7 @@ test("with no skills it says where the first one comes from", async () => {
   await expect.element(screen.getByTestId("no-skills")).toMatchTextContent(/approve a retro proposal or promote/);
 });
 
-test("each role may run on its own model, over the world's", async () => {
+test("a model change saves itself from its row; the workers share one and the retro has its own", async () => {
   const bodies: unknown[] = [];
   const world = { ...video, model: "claude-sonnet-5-5", judge_model: "claude-opus-5-5" };
   fakeFetch({
@@ -163,16 +174,15 @@ test("each role may run on its own model, over the world's", async () => {
     },
   });
   const { screen } = await mountAt("/worlds/world_1/cast");
-  const judge = screen.getByRole("combobox", { name: "Judge model" });
+  const judge = screen.getByRole("combobox", { name: "Model for Erlich" });
   await expect.element(judge).toHaveDisplayValue("claude-opus-5-5");
   await expect.element(screen.getByRole("combobox", { name: "Retro model" })).toHaveDisplayValue("World's: claude-sonnet-5-5");
-  await screen.getByRole("combobox", { name: "Planner model" }).selectOptions("claude-haiku-4-5");
+  await screen.getByRole("combobox", { name: "Model for Gilfoyle" }).selectOptions("claude-haiku-4-5");
+  await expect.element(screen.getByTestId("cast-worker-1").getByRole("status")).toHaveTextContent("Saved");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Dinesh" })).toHaveDisplayValue("claude-haiku-4-5");
   await judge.selectOptions("World's: claude-sonnet-5-5");
-  await screen.getByRole("button", { name: "Save models" }).click();
-  await expect.element(screen.getByRole("status")).toMatchTextContent(/Models saved/);
-  expect(bodies).toEqual([
-    { planner_model: "claude-haiku-4-5", worker_model: null, judge_model: null, retro_model: null },
-  ]);
+  await expect.element(screen.getByTestId("cast-judge").getByRole("status")).toHaveTextContent("Saved");
+  expect(bodies).toEqual([{ worker_model: "claude-haiku-4-5" }, { judge_model: null }]);
 });
 
 test("a skill's history lists its versions and restores an older one as the next version", async () => {

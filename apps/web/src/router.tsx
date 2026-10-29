@@ -100,6 +100,11 @@ export const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/library",
   component: Library,
+  // `type` is the tab, `q` the search, `item` the path of the artifact in the preview
+  validateSearch: (search: Record<string, unknown>): { type?: string; q?: string; item?: string } =>
+    Object.fromEntries(
+      (["type", "q", "item"] as const).flatMap((k) => (typeof search[k] === "string" && search[k] ? [[k, search[k]]] : [])),
+    ),
 });
 
 export const castRoute = createRoute({

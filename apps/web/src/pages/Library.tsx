@@ -1,10 +1,11 @@
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
+import { IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
 
 type Workflow = components["schemas"]["Workflow"];
 type Item = components["schemas"]["LibraryItem"];
@@ -12,14 +13,13 @@ type StageDef = components["schemas"]["WorkflowModel"]["stages"][number];
 type Asset = components["schemas"]["Asset"];
 
 const ANY = "";
-type Filters = { type: string; workflow: string; stage: string; run: string; from: string; to: string };
-const NONE: Filters = { type: ANY, workflow: ANY, stage: ANY, run: ANY, from: ANY, to: ANY };
+type Filters = { workflow: string; stage: string; run: string; from: string; to: string };
+const NONE: Filters = { workflow: ANY, stage: ANY, run: ANY, from: ANY, to: ANY };
 
 /** The items that pass every set filter; dates compare on the calendar day. */
 function filter(items: Item[], f: Filters): Item[] {
   return items.filter(
     (i) =>
-      (!f.type || i.type === f.type) &&
       (!f.workflow || i.workflow_id === f.workflow) &&
       (!f.stage || i.stage_name === f.stage) &&
       (!f.run || i.run_id === f.run) &&
@@ -28,17 +28,20 @@ function filter(items: Item[], f: Filters): Item[] {
   );
 }
 
-/** Every artifact of the world across its runs (Memory's Library), with pins and promotes. */
+const when = (ts: string) =>
+  new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** Every artifact of the world across its runs (Memory's Library): type tabs, a search and a list
+ * beside the preview of the item the address names, with pins, skills and runs started from it. */
 export function Library() {
   const { worldId } = libraryRoute.useParams();
-  const router = useRouter();
+  const search = libraryRoute.useSearch();
+  const navigate = useNavigate({ from: libraryRoute.fullPath });
   const [items, setItems] = useState<Item[] | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [filters, setFilters] = useState<Filters>(NONE);
   const [error, setError] = useState<string | null>(null);
   const [seen, setSeen] = useState(0);
-  const [promoting, setPromoting] = useState<string | null>(null);
-  const [drafting, setDrafting] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,21 +67,18 @@ export function Library() {
     },
   });
 
-  async function pin(item: Item) {
-    setError(null);
-    const { data, error } = await api.POST("/api/worlds/{world_id}/pins", {
-      params: { path: { world_id: worldId } },
-      body: { path: item.path, pinned: !item.pinned },
-    });
-    if (error || !data) return setError(`Could not ${item.pinned ? "unpin" : "pin"} ${item.title}. Try again.`);
-    setItems((prev) => (prev ?? []).map((i) => (i.path === data.path ? data : i)));
-  }
-
+  const all = items ?? [];
   const set = (key: keyof Filters) => (value: string) => setFilters((f) => ({ ...f, [key]: value }));
-  const shown = filter(items ?? [], filters);
+  const term = (search.q ?? "").toLowerCase();
+  // Pinned first; the API lists the rest newest first and a stable sort keeps that.
+  const shown = filter(all, filters)
+    .filter((i) => (!search.type || i.type === search.type) && (!term || i.title.toLowerCase().includes(term)))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned));
   const active = Object.values(filters).some(Boolean);
   const options = (pick: (i: Item) => [string, string]) =>
-    [...new Map((items ?? []).map(pick)).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    [...new Map(all.map(pick)).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const types = [...new Set(all.map((i) => i.type))];
+  const selected = all.find((i) => i.path === search.item);
 
   return (
     <main>
@@ -86,13 +86,12 @@ export function Library() {
         <div>
           <h1>Library</h1>
           <p className="sub">
-            Everything this world's runs have made: ideas, scripts, verdicts, decisions, files. Pin
-            one and Richard and Gilfoyle read it before every later stage. Promote one to start a
-            workflow from it without redoing the earlier stages.
+            {items
+              ? `${items.length} ${items.length === 1 ? "thing" : "things"} the runs in this world made, ${items.filter((i) => i.pinned).length} pinned.`
+              : "Everything this world's runs have made."}
           </p>
         </div>
       </header>
-      <Assets worldId={worldId} />
       {error && <p role="alert">{error}</p>}
       {said && (
         <p role="status" className="ok">
@@ -113,8 +112,29 @@ export function Library() {
       )}
       {items && items.length > 0 && (
         <>
+          <nav className="tabs" aria-label="Types">
+            {[ANY, ...types].map((t) => (
+              <Link
+                key={t}
+                to="/worlds/$worldId/library"
+                params={{ worldId }}
+                search={(s) => ({ ...s, type: t || undefined })}
+                activeOptions={{ exact: true }}
+                className="tab"
+              >
+                {t ? t.replace(/_/g, " ") : "All"}{" "}
+                <span className="num">{t ? all.filter((i) => i.type === t).length : all.length}</span>
+              </Link>
+            ))}
+          </nav>
           <form className="filters" aria-label="Filters" onSubmit={(e) => e.preventDefault()}>
-            <Select label="Type" value={filters.type} onChange={set("type")} options={options((i) => [i.type, i.type])} />
+            <input
+              type="search"
+              aria-label="Search the library"
+              placeholder="Search titles"
+              value={search.q ?? ""}
+              onChange={(e) => void navigate({ search: (s) => ({ ...s, q: e.target.value || undefined }), replace: true })}
+            />
             <Select
               label="Workflow"
               value={filters.workflow}
@@ -143,76 +163,191 @@ export function Library() {
               </button>
             )}
           </form>
-          {shown.length === 0 && <p className="faint">No artifact matches these filters.</p>}
-          <ul className="cards" data-testid="library">
-            {shown.map((i) => (
-              <li key={i.path} className="card" data-testid="artifact" data-pinned={i.pinned}>
-                <span className="chips">
-                  <span className="chip">{i.type}</span>
-                  {i.pinned && <span className="chip pinned">pinned</span>}
-                </span>
-                <b>{i.title}</b>
-                <span className="faint">
-                  from{" "}
-                  <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: i.run_id }}>
-                    {i.run_name}
-                  </Link>
-                  {i.stage_index !== null && ` · stage ${i.stage_index + 1} ${i.stage_name}`}
-                  {i.workflow_version !== null && ` · v${i.workflow_version}`}
-                </span>
-                {i.created && (
-                  <time className="faint" dateTime={i.created}>
-                    {new Date(i.created).toLocaleString()}
-                  </time>
-                )}
-                <span className="chips">
-                  <button type="button" onClick={() => pin(i)} aria-label={`${i.pinned ? "Unpin" : "Pin"} ${i.title}`}>
-                    {i.pinned ? "Unpin" : "Pin"}
-                  </button>
-                  <button
-                    type="button"
-                    aria-expanded={promoting === i.path}
-                    aria-label={`Promote ${i.title}`}
-                    onClick={() => setPromoting((p) => (p === i.path ? null : i.path))}
-                  >
-                    Promote...
-                  </button>
-                  {i.type !== "skill_proposal" && (
-                    <button
-                      type="button"
-                      aria-expanded={drafting === i.path}
-                      aria-label={`Make a skill from ${i.title}`}
-                      onClick={() => setDrafting((p) => (p === i.path ? null : i.path))}
+          <div className={selected ? "lib-grid has-sel" : "lib-grid"}>
+            <section className="panel lib-list" aria-label="Items">
+              {shown.length === 0 && <p className="faint">No artifact matches these filters.</p>}
+              <ul data-testid="library">
+                {shown.map((i) => (
+                  <li key={i.path}>
+                    <Link
+                      to="/worlds/$worldId/library"
+                      params={{ worldId }}
+                      search={(s) => ({ ...s, item: i.path })}
+                      className="lib-row"
+                      data-testid="artifact"
+                      data-pinned={i.pinned}
                     >
-                      Make a skill...
-                    </button>
-                  )}
-                </span>
-                {drafting === i.path && (
-                  <SkillDraftForm
-                    item={i}
-                    worldId={worldId}
-                    onSaved={(skill) => {
-                      setDrafting(null);
-                      setSaid(`Saved ${skill.name} as version ${skill.version}. Every stage that starts from now on loads it.`);
-                    }}
-                  />
-                )}
-                {promoting === i.path && (
-                  <PromoteForm
-                    item={i}
-                    workflows={workflows}
-                    onStarted={(runId) =>
-                      void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId } })
-                    }
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
+                      <span className="pill">{i.type.replace(/_/g, " ")}</span>
+                      <span className="lib-title">
+                        <b>
+                          {i.pinned && "Pinned · "}
+                          {i.title}
+                        </b>
+                        <span className="faint">
+                          {i.run_name}
+                          {i.stage_index !== null && ` · stage ${i.stage_index + 1} ${i.stage_name}`}
+                          {i.workflow_version !== null && ` · v${i.workflow_version}`}
+                        </span>
+                      </span>
+                      {i.created && (
+                        <time className="faint num" dateTime={i.created}>
+                          {when(i.created)}
+                        </time>
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            {selected ? (
+              <Detail
+                key={selected.path}
+                item={selected}
+                worldId={worldId}
+                workflows={workflows}
+                onPinned={(data) => setItems((prev) => (prev ?? []).map((i) => (i.path === data.path ? data : i)))}
+                onSkill={(skill) =>
+                  setSaid(`Saved ${skill.name} as version ${skill.version}. Every stage that starts from now on loads it.`)
+                }
+              />
+            ) : (
+              <section className="panel lib-detail">
+                <p className="faint">
+                  Choose an item to read it. Pin one and Richard and Gilfoyle read it before every later stage;
+                  start a run from one to skip the stages that made it.
+                </p>
+              </section>
+            )}
+          </div>
         </>
       )}
+      <Assets worldId={worldId} />
     </main>
+  );
+}
+
+/** The chosen item: what it is, where it came from, its body, and what to do with it. Pinning
+ * keeps you here with a stamp; starting a run names the stage it starts at. */
+function Detail({
+  item,
+  worldId,
+  workflows,
+  onPinned,
+  onSkill,
+}: {
+  item: Item;
+  worldId: string;
+  workflows: Workflow[];
+  onPinned: (item: Item) => void;
+  onSkill: (skill: Skill) => void;
+}) {
+  const router = useRouter();
+  const [stamp, setStamp] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function pin() {
+    setError(null);
+    setStamp(null);
+    const { data, error } = await api.POST("/api/worlds/{world_id}/pins", {
+      params: { path: { world_id: worldId } },
+      body: { path: item.path, pinned: !item.pinned },
+    });
+    if (error || !data) return setError(`Could not ${item.pinned ? "unpin" : "pin"} ${item.title}. Try again.`);
+    onPinned(data);
+    setStamp(data.pinned ? "Pinned. Later stages read it." : "Unpinned.");
+  }
+
+  return (
+    <section className="panel lib-detail" aria-labelledby="item-title" data-testid="preview">
+      <Link to="/worlds/$worldId/library" params={{ worldId }} search={({ item: _, ...s }) => s} className="phone-only">
+        Back to the list
+      </Link>
+      <div className="panel-head">
+        <h2 id="item-title">{item.title}</h2>
+        <span className="pill">{item.type.replace(/_/g, " ")}</span>
+      </div>
+      <dl className="kv">
+        <dt>File</dt>
+        <dd className="mono">{item.name}</dd>
+        <dt>From</dt>
+        <dd>
+          <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: item.run_id }}>
+            {item.run_name}
+          </Link>
+          {item.stage_index !== null && ` · stage ${item.stage_index + 1} ${item.stage_name}`}
+          {item.workflow_version !== null && ` · v${item.workflow_version}`}
+        </dd>
+        {item.created && (
+          <>
+            <dt>Made</dt>
+            <dd>
+              {when(item.created)}
+              {item.author && ` by ${item.author}`}
+            </dd>
+          </>
+        )}
+      </dl>
+      <Preview item={item} worldId={worldId} />
+      <div className="actions">
+        <button type="button" onClick={() => void pin()} aria-label={`${item.pinned ? "Unpin" : "Pin"} ${item.title}`}>
+          {item.pinned ? "Unpin" : "Pin"}
+        </button>
+        <StartFrom
+          item={item}
+          workflows={workflows}
+          onStarted={(runId) => void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId } })}
+        />
+        {item.type !== "skill_proposal" && (
+          <button
+            type="button"
+            className="link"
+            aria-expanded={drafting}
+            aria-label={`Make a skill from ${item.title}`}
+            onClick={() => setDrafting((d) => !d)}
+          >
+            Make a skill
+          </button>
+        )}
+        {stamp && (
+          <span role="status" className="faint">
+            {stamp}
+          </span>
+        )}
+      </div>
+      {error && <p role="alert">{error}</p>}
+      {drafting && (
+        <SkillDraftForm
+          item={item}
+          worldId={worldId}
+          onSaved={(skill) => {
+            setDrafting(false);
+            onSkill(skill);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+/** The item as a person reads it: a player, the image, rendered markdown, or a link. */
+function Preview({ item, worldId }: { item: Item; worldId: string }) {
+  const url = rawUrl(worldId, item);
+  if (item.fields.deleted) return <p className="faint">{item.name} was deleted by retention; its record stays.</p>;
+  if (item.type === "video" || VIDEO.test(item.name)) return <video controls preload="metadata" src={url} />;
+  if (IMAGE.test(item.name)) return <img src={url} alt={item.title} />;
+  if (item.name.endsWith(".md") && item.body.trim()) {
+    return (
+      <div className="lib-body">
+        <TypedText body={item.body} />
+        <Markdown text={item.body} />
+      </div>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      Open {item.name}
+    </a>
   );
 }
 
@@ -254,7 +389,7 @@ function Assets({ worldId }: { worldId: string }) {
   }
 
   return (
-    <section className="workflows" aria-label="Assets">
+    <section className="panel assets" aria-label="Assets">
       <div className="row">
         <h2>Assets</h2>
         <label className="button">
@@ -269,7 +404,7 @@ function Assets({ worldId }: { worldId: string }) {
       {assets.length === 0 ? (
         <p className="faint">No assets yet. Upload a file, or drop it into the world's assets folder.</p>
       ) : (
-        <ul className="activity">
+        <ul className="asset-list">
           {assets.map((a) => (
             <li key={a.path}>
               <a href={`/api/worlds/${worldId}/files/${a.path}`}>{a.path.replace(/^assets\//, "")}</a>
@@ -368,43 +503,42 @@ function SkillDraftForm({ item, worldId, onSaved }: { item: Item; worldId: strin
   );
 }
 
-/** Start a workflow at a chosen stage with this artifact as the input of the stages before it. */
-function PromoteForm({
-  item,
-  workflows,
-  onStarted,
-}: {
-  item: Item;
-  workflows: Workflow[];
-  onStarted: (runId: string) => void;
-}) {
-  const [workflowId, setWorkflowId] = useState(
-    workflows.some((w) => w.id === item.workflow_id) ? item.workflow_id : (workflows[0]?.id ?? ""),
-  );
-  const [stages, setStages] = useState<StageDef[] | null>(null);
+type Start = { workflow: Workflow; stage: StageDef; index: number };
+
+/** "Start a run from here" as a menu: one item per stage a new run can start at, naming the stage
+ * and the workflow, with this artifact standing in for the skipped stages' output. The item's own
+ * workflow comes first and starts after the stage that made it. */
+function StartFrom({ item, workflows, onStarted }: { item: Item; workflows: Workflow[]; onStarted: (runId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [starts, setStarts] = useState<Start[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const workflow = workflows.find((w) => w.id === workflowId);
 
   useEffect(() => {
-    setStages(null);
-    if (!workflow) return;
-    api
-      .GET("/api/workflows/{workflow_id}/versions/{number}", {
-        params: { path: { workflow_id: workflow.id, number: workflow.current_version } },
-      })
-      .then(({ data }) => setStages(data?.model.stages ?? []))
-      .catch(() => setError("Could not load the workflow's stages."));
-  }, [workflow]);
+    if (!open || starts) return;
+    const ordered = [...workflows].sort((a, b) => Number(b.id === item.workflow_id) - Number(a.id === item.workflow_id));
+    Promise.all(
+      ordered.map((w) =>
+        api
+          .GET("/api/workflows/{workflow_id}/versions/{number}", {
+            params: { path: { workflow_id: w.id, number: w.current_version } },
+          })
+          .then(({ data }) => {
+            const after = w.id === item.workflow_id && item.stage_index !== null ? item.stage_index + 1 : 1;
+            return (data?.model.stages ?? []).flatMap((stage, index) => (index >= Math.max(1, after) ? [{ workflow: w, stage, index }] : []));
+          }),
+      ),
+    )
+      .then((lists) => setStarts(lists.flat()))
+      .catch(() => setError("Could not load the workflows' stages."));
+  }, [open, starts, workflows, item]);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    const stage = Number(new FormData(e.currentTarget as HTMLFormElement).get("stage"));
+  async function start(s: Start) {
     setBusy(true);
     setError(null);
     const { data, error, response } = await api.POST("/api/workflows/{workflow_id}/promote", {
-      params: { path: { workflow_id: workflowId } },
-      body: { artifact: item.path, stage },
+      params: { path: { workflow_id: s.workflow.id } },
+      body: { artifact: item.path, stage: s.index },
     });
     setBusy(false);
     if (error || !data) {
@@ -414,38 +548,26 @@ function PromoteForm({
     onStarted(data.id);
   }
 
-  const starts = (stages ?? []).slice(1);
   return (
-    <form className="promote" aria-label={`Promote ${item.title}`} onSubmit={submit}>
-      <label>
-        Workflow{" "}
-        <select value={workflowId} onChange={(e) => setWorkflowId(e.target.value)}>
-          {workflows.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name} v{w.current_version}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Start at{" "}
-        <select name="stage" disabled={stages === null}>
-          {starts.map((s, n) => (
-            <option key={s.name} value={n + 1}>
-              {n + 1}. {s.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <span className="faint">
-        {starts.length === 0 && stages !== null
-          ? "This workflow has one stage, so there is nothing to skip. Start a run instead."
-          : `${item.name} stands in for the skipped stages' output.`}
-      </span>
-      <button type="submit" disabled={busy || !workflow || starts.length === 0}>
-        {busy ? "Starting..." : "Start run"}
+    <span className="rel" onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
+      <button type="button" aria-haspopup="menu" aria-expanded={open} disabled={workflows.length === 0 || busy} onClick={() => setOpen((o) => !o)}>
+        {busy ? "Starting..." : "Start a run from here"}
       </button>
-      {error && <p role="alert">{error}</p>}
-    </form>
+      {open && (
+        <span className="menu" role="menu" aria-label="Start a run from here">
+          {starts === null && !error && <span className="faint">Loading stages...</span>}
+          {starts?.length === 0 && <span className="faint">No later stage to start at. Start a run of the workflow instead.</span>}
+          {starts?.map((s) => (
+            <button key={`${s.workflow.id} ${s.index}`} type="button" role="menuitem" disabled={busy} onClick={() => void start(s)}>
+              {s.stage.name}
+              <small>
+                Opens a new run of {s.workflow.name} at {s.stage.name}, using this {item.type.replace(/_/g, " ")}
+              </small>
+            </button>
+          ))}
+        </span>
+      )}
+      {error && <span role="alert">{error}</span>}
+    </span>
   );
 }

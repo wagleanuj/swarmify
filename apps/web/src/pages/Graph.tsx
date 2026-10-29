@@ -33,7 +33,7 @@ function Sources({ node, worldId }: { node: Node; worldId: string }) {
         <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: node.run_id }} className="faint">
           run
         </Link>
-      )}
+      )}{" "}
       {node.source_file && (
         <a href={`/api/worlds/${worldId}/files/${file}`} target="_blank" rel="noreferrer" className="faint">
           note
@@ -133,32 +133,20 @@ export function Graph() {
 
   const rebuilt = view?.rebuilt;
   const empty = view !== null && view.nodes === 0;
+  const top = Math.max(1, ...(view?.god_nodes ?? []).map((g) => g.degree));
   return (
     <main>
       <header className="page">
         <div>
-          <h1>Middle-out</h1>
-          <p className="sub">
-            Everything this world has learned, as one graph. Agents query it instead of re-reading
-            files. You can too.
+          <h1>Memory</h1>
+          <p className="sub" data-testid="rebuilt">
+            {rebuilt
+              ? `${WRITER} rebuilt it ${ago(rebuilt.at)}: ${signed(rebuilt.nodes_added)} nodes, ${signed(rebuilt.edges_added)} edges in ${rebuilt.seconds}s, est. ${usd(rebuilt.cost_usd)}`
+              : view
+                ? "Not built yet"
+                : "Everything this world has learned, as one graph."}
           </p>
         </div>
-        {view && (
-          <div className="pills" data-testid="graph-size">
-            <span className="pill">{view.nodes.toLocaleString()} nodes</span>
-            <span className="pill">{view.edges.toLocaleString()} edges</span>
-            <span className="pill dim" data-testid="rebuilt">
-              {rebuilt
-                ? `${WRITER} rebuilt it ${ago(rebuilt.at)}: ${signed(rebuilt.nodes_added)} nodes, ${signed(rebuilt.edges_added)} edges in ${rebuilt.seconds}s, est. ${usd(rebuilt.cost_usd)}`
-                : "Not built yet"}
-            </span>
-            {view.spent.rebuilds > 0 && (
-              <span className="pill dim" data-testid="spent">
-                {`${view.spent.rebuilds} rebuild${view.spent.rebuilds === 1 ? "" : "s"} so far: ${took(view.spent.seconds)} of extraction, est. ${usd(view.spent.cost_usd)}`}
-              </span>
-            )}
-          </div>
-        )}
       </header>
       {view?.failed && !view.failed.shrink && (
         <p role="alert" data-testid="failed">
@@ -184,67 +172,110 @@ export function Graph() {
       )}
       {error && <p role="alert">{error}</p>}
 
-      <div className="graph-layout">
-        <section aria-label="Query">
-          <form className="ask" onSubmit={submit}>
-            <label htmlFor="question">Ask the graph</label>
-            <div className="ask-row">
-              <input
-                id="question"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder='e.g. "what keeps viewers past three seconds?"'
-                maxLength={500}
-              />
-              <button type="submit" className="primary" disabled={asking || !question.trim()}>
-                {asking ? "Asking..." : "Ask"}
-              </button>
+      {view && (
+        <dl className="kpis" data-testid="graph-size">
+          <div className="kpi">
+            <dt>Nodes</dt>
+            <dd className="num">{view.nodes.toLocaleString()}</dd>
+          </div>
+          <div className="kpi">
+            <dt>Edges</dt>
+            <dd className="num">{view.edges.toLocaleString()}</dd>
+          </div>
+          <div className="kpi">
+            <dt>Rebuilds</dt>
+            <dd className="num">{view.spent.rebuilds}</dd>
+          </div>
+          <div className="kpi" data-testid="spent" title={`${took(view.spent.seconds)} of extraction`}>
+            <dt>Spent on memory</dt>
+            <dd className="num">{usd(view.spent.cost_usd)}</dd>
+          </div>
+        </dl>
+      )}
+
+      <section className="panel" aria-label="Query">
+        <form className="ask-row" onSubmit={submit}>
+          <input
+            aria-label="Ask the graph"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="What keeps viewers past three seconds?"
+            maxLength={500}
+          />
+          <button type="submit" disabled={asking || !question.trim()}>
+            {asking ? "Asking..." : "Ask"}
+          </button>
+        </form>
+        {answer && (
+          <figure className="answer" data-testid="answer">
+            <figcaption className="faint">{answer.question}</figcaption>
+            <pre>{answer.text}</pre>
+          </figure>
+        )}
+      </section>
+
+      {empty && (
+        <div className="empty" data-testid="graph-empty">
+          <p>
+            The graph grows from the notes and artifacts agents write. {WRITER} folds them in
+            about 30 seconds after the last one lands.
+          </p>
+          <ul className="faint">
+            <li>Start a run of a workflow; every note it writes becomes memory.</li>
+            <li>Drop a markdown brief into the world folder to seed what it knows.</li>
+          </ul>
+          <Link to="/worlds/$worldId" params={{ worldId }} className="button">
+            Start a run
+          </Link>
+        </div>
+      )}
+      {view && !empty && (
+        <div className="mem-cols">
+          <section className="panel" aria-labelledby="gods">
+            <div className="panel-head">
+              <h2 id="gods">Most connected notes</h2>
+              <span className="faint">Links</span>
             </div>
-          </form>
-          {answer && (
-            <figure className="answer" data-testid="answer">
-              <figcaption className="faint">{answer.question}</figcaption>
-              <pre>{answer.text}</pre>
-            </figure>
-          )}
-          {empty && (
-            <div className="empty" data-testid="graph-empty">
-              <p>
-                The graph grows from the notes and artifacts agents write. {WRITER} folds them in
-                about 30 seconds after the last one lands.
-              </p>
-              <ul className="faint">
-                <li>Start a run of a workflow; every note it writes becomes memory.</li>
-                <li>Drop a markdown brief into the world folder to seed what it knows.</li>
-              </ul>
-              <Link to="/worlds/$worldId" params={{ worldId }} className="button">
-                Start a run
-              </Link>
-            </div>
-          )}
-          {view && !empty && (
-            <section aria-label="Communities">
-              <h2>Communities</h2>
-              <p className="faint">
-                Clusters of what this world knows. Each node links to the run and the note it came from.
-              </p>
+            <ol className="mem-rows" data-testid="god-nodes">
+              {view.god_nodes.map((g) => (
+                <li key={g.label} className="bar-row">
+                  <span className="bar-label">
+                    <button type="button" className="link" onClick={() => askAbout(g.label)}>
+                      {g.label}
+                    </button>
+                    <span className="thin-bar" style={{ width: `${(g.degree / top) * 100}%` }} />
+                  </span>
+                  <span className="num">{g.degree}</span>
+                </li>
+              ))}
+            </ol>
+            {view.god_nodes.length === 0 && <p className="faint">None yet.</p>}
+          </section>
+          <div className="mem-side">
+            <section className="panel" aria-labelledby="communities">
+              <div className="panel-head">
+                <h2 id="communities">Communities</h2>
+                <span className="faint">Nodes</span>
+              </div>
               {view.communities.length > 0 ? (
-                <ul className="communities" data-testid="communities">
+                <ul className="mem-rows" data-testid="communities">
                   {view.communities.map((c) => (
-                    <li key={c.id} className="card">
-                      <h3>
-                        {c.name} <span className="faint">{c.size} nodes</span>
-                      </h3>
-                      <ul className="gods">
-                        {c.nodes.map((n) => (
-                          <li key={`${n.label} ${n.source_file}`}>
-                            <button type="button" className="link" onClick={() => askAbout(n.label)}>
-                              {n.label}
-                            </button>
-                            <Sources node={n} worldId={worldId} />
-                          </li>
-                        ))}
-                      </ul>
+                    <li key={c.id}>
+                      <span className="mem-main">
+                        <b>{c.name}</b>
+                        <span className="faint">
+                          {c.nodes.map((n, i) => (
+                            <span key={`${n.label} ${n.source_file}`}>
+                              {i > 0 && ", "}
+                              <button type="button" className="link" onClick={() => askAbout(n.label)}>
+                                {n.label}
+                              </button>{" "}
+                              <Sources node={n} worldId={worldId} />
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                      <span className="num">{c.size}</span>
                     </li>
                   ))}
                 </ul>
@@ -253,51 +284,34 @@ export function Graph() {
                   No communities yet. {WRITER} finds them when he rebuilds the graph.
                 </p>
               )}
-              {view.surprises.length > 0 && (
-                <>
-                  <h2>Surprising connections</h2>
-                  <p className="faint">Links that cross notes or clusters. Worth a second look.</p>
-                  <ul className="surprises" data-testid="surprises">
-                    {view.surprises.map((x) => (
-                      <li key={`${x.source.label} ${x.relation} ${x.target.label}`}>
+            </section>
+            {view.surprises.length > 0 && (
+              <section className="panel" aria-labelledby="surprises">
+                <div className="panel-head">
+                  <h2 id="surprises">Surprising links</h2>
+                  <span className="faint num">{view.surprises.length}</span>
+                </div>
+                <ul className="mem-rows" data-testid="surprises">
+                  {view.surprises.map((x) => (
+                    <li key={`${x.source.label} ${x.relation} ${x.target.label}`}>
+                      <span className="mem-main">
                         <span>
-                          {x.source.label} <span className="faint">{x.relation || "links to"}</span>{" "}
+                          {x.source.label} <span className="faint">{(x.relation || "links to").replace(/_/g, " ")}</span>{" "}
                           {x.target.label}
                         </span>
-                        <Sources node={x.source} worldId={worldId} />
-                        <Sources node={x.target} worldId={worldId} />
-                        {x.why && <span className="faint">{x.why}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </section>
-          )}
-        </section>
-        <aside aria-label="God nodes" className="card">
-          <h2>God nodes</h2>
-          <p className="faint">What this world's knowledge revolves around. Pick one to ask about it.</p>
-          {view && view.god_nodes.length > 0 ? (
-            <ul className="gods" data-testid="god-nodes">
-              {view.god_nodes.map((g) => (
-                <li key={g.label}>
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => askAbout(g.label)}
-                  >
-                    {g.label}
-                  </button>
-                  <span className="faint">{g.degree} links</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="faint">None yet.</p>
-          )}
-        </aside>
-      </div>
+                        <span className="faint">
+                          {x.why && `${x.why} `}
+                          <Sources node={x.source} worldId={worldId} /> <Sources node={x.target} worldId={worldId} />
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

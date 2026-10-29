@@ -26,6 +26,7 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         page.goto(f"{base_url}/worlds/{world['id']}")
         page.get_by_role("navigation", name="Main").get_by_role("link", name="Connectors").click()
         expect(page.get_by_test_id("connector-list")).to_contain_text("Web search")
+        page.get_by_role("button", name="Add a connector").click()
 
         page.get_by_role("textbox", name="Name", exact=True).fill("echo")
         command = shlex.join([sys.executable, str(ECHO), str(tmp_path)])
@@ -36,7 +37,7 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         expect(tools).to_contain_text("offers 5 tools", timeout=15_000)
         expect(tools).to_contain_text("render_status")
         page.get_by_role("button", name="Save connector").click()
-        expect(page.locator("[data-name=echo]")).to_contain_text("ready")
+        expect(page.locator("[data-name=echo]")).to_contain_text("Ready")
 
         created = httpx.post(
             f"{base_url}/api/worlds/{world['id']}/workflows", json={"yaml": RENDER}
