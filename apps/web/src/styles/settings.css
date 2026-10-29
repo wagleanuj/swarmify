@@ -1,2 +1,24 @@
-/* Settings */
-.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 16px 24px; margin: 4px 0 8px; }
+/* Settings: a label column beside one panel per area, each with its own save. */
+.set-row { display: grid; grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); gap: 12px var(--gap); padding: 20px 0; border-top: 1px solid var(--border); max-width: 64rem; }
+.set-row:first-of-type { border-top: 0; padding-top: 0; }
+.set-label { display: grid; gap: 4px; align-content: start; }
+.set-panel { align-content: start; }
+.set-panel > label { display: grid; gap: 6px; }
+.set-save { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px 12px; }
+.set-save.start { justify-content: flex-start; }
+.set-save p { margin: 0 auto 0 0; }
+.set-save.start p { margin: 0; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 16px 24px; }
+@media (max-width: 760px) { .set-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* All worlds: the table beside the new-world form; eval worlds folded under it. */
+.worlds-layout { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--gap); align-items: start; }
+.worlds-layout .panel h2 { margin-bottom: 4px; }
+.eval-worlds summary { margin: 12px 0 4px; }
+.pill.current, .pill.positive { color: var(--pill-positive-ink); background: var(--pill-positive-bg); }
+.pill.negative { color: var(--pill-negative-ink); background: var(--pill-negative-bg); }
+@media (max-width: 960px) { .worlds-layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Evals: one panel per report, newest first. */
+.eval-list { display: grid; gap: 16px; }
+.eval-list .panel-head { justify-content: space-between; }

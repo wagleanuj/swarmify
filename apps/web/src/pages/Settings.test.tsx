@@ -73,7 +73,7 @@ test("shows why Slack refused the test and why a webhook was rejected", async ()
 
 const models = { default: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] };
 
-test("the world card shows spend beside the budget and saves the settings and the model", async () => {
+test("each panel saves only its own settings, stays on the page and stamps the save", async () => {
   const bodies: unknown[] = [];
   const world = { ...video, retention_days: 90, monthly_budget_usd: null, run_cap: 2, agent_count: 4, model: null };
   fakeFetch({
@@ -88,24 +88,41 @@ test("the world card shows spend beside the budget and saves the settings and th
       return Response.json({ ...world, ...body });
     },
   });
-  const { screen } = await mountAt("/worlds/world_1/settings");
+  const { screen, router } = await mountAt("/worlds/world_1/settings");
   await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate.");
-  await screen.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("25");
-  await screen.getByRole("spinbutton", { name: "Runs at once" }).fill("1");
-  await screen.getByRole("spinbutton", { name: "Keep videos and images for, days" }).fill("30");
-  await screen.getByRole("spinbutton", { name: "Workers per stage" }).fill("2");
-  const model = screen.getByRole("combobox", { name: "Model" });
+  const worldPanel = screen.getByRole("form", { name: "World" });
+  await worldPanel.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("25");
+  await worldPanel.getByRole("spinbutton", { name: "Keep videos and images for, days" }).fill("30");
+  const model = worldPanel.getByRole("combobox", { name: "Model" });
   await expect.element(model).toHaveDisplayValue("Default: claude-opus-5-5");
   await model.selectOptions("claude-sonnet-5-5");
-  await screen.getByRole("button", { name: "Save settings" }).click();
-  await expect.element(screen.getByRole("status")).toMatchTextContent(/Settings saved/);
-  expect(bodies).toEqual([
-    { monthly_budget_usd: 25, run_cap: 1, retention_days: 30, agent_count: 2, model: "claude-sonnet-5-5" },
-  ]);
+  await worldPanel.getByRole("button", { name: "Save" }).click();
+  await expect.element(worldPanel.getByRole("status")).toMatchTextContent(/^Saved at \d/);
+  expect(bodies).toEqual([{ monthly_budget_usd: 25, retention_days: 30, model: "claude-sonnet-5-5" }]);
   await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate of $25.00.");
+
+  const runs = screen.getByRole("form", { name: "Runs at once" });
+  await runs.getByRole("spinbutton", { name: "Run cap" }).fill("1");
+  await runs.getByRole("spinbutton", { name: "Workers per stage" }).fill("2");
+  await runs.getByRole("button", { name: "Save" }).click();
+  await expect.element(runs.getByRole("status")).toMatchTextContent(/^Saved at \d/);
+  expect(bodies[1]).toEqual({ run_cap: 1, agent_count: 2 });
+  expect(router.state.location.pathname).toBe("/worlds/world_1/settings");
 });
 
-test("a refused setting is shown as the API's reason", async () => {
+test("the run cap says a run waiting at a gate holds a slot", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  await expect
+    .element(screen.getByRole("region", { name: "Runs at once" }))
+    .toMatchTextContent(/A run waiting at a gate keeps its slot/);
+  await expect.element(screen.getByTestId("run-cap-help")).toMatchTextContent(/waiting at a gate hold a slot/);
+});
+
+test("a refused setting is shown as the API's reason in its own panel", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
@@ -113,7 +130,39 @@ test("a refused setting is shown as the API's reason", async () => {
       Response.json({ detail: "the run cap is 1 to 8, got 9" }, { status: 422 }),
   });
   const { screen } = await mountAt("/worlds/world_1/settings");
-  await screen.getByRole("spinbutton", { name: "Runs at once" }).fill("8");
-  await screen.getByRole("button", { name: "Save settings" }).click();
-  await expect.element(screen.getByRole("alert")).toHaveTextContent("Not saved: the run cap is 1 to 8, got 9.");
+  const runs = screen.getByRole("form", { name: "Runs at once" });
+  await runs.getByRole("spinbutton", { name: "Run cap" }).fill("8");
+  await runs.getByRole("button", { name: "Save" }).click();
+  await expect.element(runs.getByRole("alert")).toHaveTextContent("Not saved: the run cap is 1 to 8, got 9.");
+});
+
+test("delete sits last, says what goes and asks by the world's name before deleting", async () => {
+  const asked: string[] = [];
+  let answer = false;
+  vi.spyOn(window, "confirm").mockImplementation((q) => {
+    asked.push(String(q));
+    return answer;
+  });
+  const calls = fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+    "DELETE /api/worlds/world_1": () => new Response(null, { status: 204 }),
+    "GET /api/worlds": () => Response.json([]),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/settings");
+  const rows = screen.getByRole("main").getByRole("region");
+  const danger = rows.last();
+  await expect.element(danger).toHaveAccessibleName("Danger");
+  await expect.element(danger).toMatchTextContent(/removes its folder, runs, library and memory/);
+  const remove = danger.getByRole("button", { name: "Delete Video" });
+
+  await remove.click();
+  expect(asked[0]).toMatch(/^Delete Video\? .*cannot be undone/);
+  expect(calls).not.toContain("DELETE /api/worlds/world_1");
+
+  answer = true;
+  await remove.click();
+  await expect.element(screen.getByRole("heading", { name: "Your worlds" })).toBeVisible();
+  expect(calls).toContain("DELETE /api/worlds/world_1");
+  expect(router.state.location.pathname).toBe("/");
 });

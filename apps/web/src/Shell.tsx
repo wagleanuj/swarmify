@@ -1,5 +1,5 @@
 import { Link, type LinkProps, Outlet, useLocation } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { createContext, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "./api/client";
 import { useOpenGates } from "./api/gates";
@@ -40,6 +40,9 @@ const Mark = () => (
     Swarmify
   </span>
 );
+
+/** The world the switcher shows, for global screens that mark it. */
+export const CurrentWorld = createContext<string | undefined>(undefined);
 
 /** The app shell: a labelled sidebar around every screen, folded to a top bar on a phone. */
 export function Shell() {
@@ -133,7 +136,9 @@ export function Shell() {
         </div>
       </nav>
       <div className="canvas">
-        <Outlet />
+        <CurrentWorld.Provider value={worldId}>
+          <Outlet />
+        </CurrentWorld.Provider>
       </div>
     </div>
   );
