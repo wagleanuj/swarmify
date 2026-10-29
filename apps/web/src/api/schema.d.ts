@@ -1813,6 +1813,11 @@ export interface components {
             /** Parent Run Id */
             parent_run_id?: string | null;
             parent?: components["schemas"]["RunLink"] | null;
+            /**
+             * Max Send Backs
+             * @default 2
+             */
+            max_send_backs: number;
             publish?: components["schemas"]["PublishPreview"] | null;
             /** Budget Usd */
             budget_usd?: number | null;
@@ -1833,6 +1838,8 @@ export interface components {
              * @default approve
              */
             kind: string;
+            /** Max Send Backs */
+            max_send_backs?: number | null;
             /**
              * Type
              * @default gate

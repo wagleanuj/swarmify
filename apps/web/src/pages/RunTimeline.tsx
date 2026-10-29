@@ -269,7 +269,7 @@ export function RunTimeline() {
           )}
           <p className="sub" role="status" data-testid="status-line">
             {statusLine(run)}
-            {run.send_backs > 0 && ` Sent back ${run.send_backs} of 2 times.`}
+            {run.send_backs > 0 && ` Sent back ${run.send_backs === 1 ? "once" : `${run.send_backs} times`}.`}
           </p>
           {run.spent_usd > 0 && (
             <p className="faint" data-testid="run-cost">

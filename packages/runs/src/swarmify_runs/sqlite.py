@@ -295,7 +295,7 @@ class SqliteStorage:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT s.id, s.idx, s.name, s.config, s.started_at, s.run_id,"
-                " r.world_id, r.name AS run_name, r.send_backs, r.parent_run_id, r.over_budget"
+                " r.world_id, r.name AS run_name, r.parent_run_id, r.over_budget"
                 " FROM run_stages s JOIN runs r ON r.id = s.run_id"
                 " WHERE s.status = 'waiting' AND (s.type IN ('gate', 'retro') OR r.over_budget = 1)"
                 " ORDER BY s.started_at DESC, s.id DESC"
@@ -307,6 +307,12 @@ class SqliteStorage:
                     (g["run_id"], g["idx"]),
                 ).fetchall()
                 config = json.loads(g["config"])
+                limit = int(config.get("max_send_backs") or MAX_SEND_BACKS)
+                (sent,) = conn.execute(
+                    "SELECT count(*) FROM gate_decisions WHERE run_id = ? AND stage_index = ?"
+                    " AND send_back_to IS NOT NULL",
+                    (g["run_id"], g["idx"]),
+                ).fetchone()
                 gate = Gate(
                     g["run_id"],
                     g["world_id"],
@@ -317,10 +323,11 @@ class SqliteStorage:
                     config.get("kind") or "approve",
                     config.get("ask") or "",
                     g["started_at"] or "",
-                    MAX_SEND_BACKS - g["send_backs"],
+                    max(limit - sent, 0),
                     [e["name"] for e in earlier],
                     g["parent_run_id"],
                     _link(conn, g["parent_run_id"]),
+                    max_send_backs=limit,
                 )
                 if g["over_budget"]:  # RunControl.gates adds the money from the top run
                     gate = replace(gate, kind="budget", send_backs_left=0, earlier_stages=[])

@@ -52,7 +52,8 @@ A workflow is YAML: `name`, optional `schedule` (cron, UTC), `budget_usd`, `agen
 `stages`, a list where each stage is `- <type>: <stage name>` plus its fields:
 - swarm: goal, done_when; optional tools (connector names such as web_search, graph), graphs,
   output_type (idea or list[idea]), produces (artifact file names).
-- gate: ask; optional kind: pick | approve | confirm (approve by default).
+- gate: ask; optional kind: pick | approve | confirm (approve by default); an approve gate may set
+  max_send_backs, how often it may send the run back (2 by default).
 - connector: calls (connector name, defaults to the stage name); optional input, output, params;
   inputs (a list of artifact names, each produced by an earlier stage) instead of input when
   the connector takes several files.

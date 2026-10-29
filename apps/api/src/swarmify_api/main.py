@@ -383,9 +383,10 @@ def create_app(
 
     def build_stage(run: Run, stage_id: str, stage: StageDef) -> None:
         """`remotion_build` (ADR 0018): seed `<stage>/build/` from the template `base` or the
-        starter, run one sandboxed coding session in it (swarmify_swarm.build), then render
-        its composition through `remotion_render` like any render stage, sandboxed because the
-        project lies under a world (remotion.built). A call already rendering or done for this
+        starter (or, on a send-back, from the last build to revise), run one sandboxed coding
+        session in it (swarmify_swarm.build), then render its composition through
+        `remotion_render` like any render stage, sandboxed because the project lies under a
+        world (remotion.built). A call already rendering or done for this
         visit skips the session, so a restart resumes the render. The folder stays, without
         its node_modules once the video is out, for a person to open."""
         folder = world_svc.folder(run.world_id)
@@ -401,8 +402,18 @@ def create_app(
         composition = str(params.get("composition") or "Main")
         call = registry.call_for(stage_id)
         if call is None or call.visit != run.send_backs or call.status == "failed":
+            # A send-back revises the last good build, kept as build.v<n> (n counting visits
+            # from 1); a stage never run, or one whose last render failed, starts fresh.
+            last = call if call is not None and call.status == "done" else None
+            previous = project.with_name(f"build.v{last.visit + 1}") if last else None
+            video = Path(params["output_path"])
+            sent = next((d for d in reversed(run.decisions) if d.send_back_to), None)
             try:
-                remotion.seed(project, params.get("base"), root)
+                if previous and (previous.exists() or project.exists()):
+                    remotion.keep(project, previous, video)
+                else:
+                    previous = None
+                    remotion.seed(project, params.get("base"), root)
                 limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
             except ValueError as exc:
                 raise ConnectorError(str(exc)) from exc
@@ -427,6 +438,10 @@ def create_app(
                     model=params.get("model") or (world.model_for("worker") if world else None),
                     max_turns=int(limits.get("max_turns", build.MAX_TURNS)),
                     minutes=limits.get("minutes", build.MINUTES),
+                    revises=[previous, previous.with_name(previous.name + video.suffix)]
+                    if previous
+                    else [],
+                    note=sent.note if sent and sent.send_back_to == stage.name else "",
                 )
             except Stopped as exc:
                 raise OverBudget(str(exc)) from exc

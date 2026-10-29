@@ -261,9 +261,10 @@ def test_a_send_back_reworks_the_swarm_stage_with_the_note(
     assert "sent the stage back with this note: Fewer ideas." in script.prompts[4]
     stage = running.get(url).json()["stages"][0]["id"]
     tasks = running.get(f"{url}/stages/{stage}/tasks").json()
-    assert [(t["title"], t["body"], t["status"]) for t in tasks][-1] == (
-        "Rework after send-back 1",
-        "Fewer ideas.",
-        "done",
-    )
+    title, body, status = [(t["title"], t["body"], t["status"]) for t in tasks][-1]
+    assert (title, status) == ("Rework after send-back 1", "done")
+    # a revision of the stage's own previous artifacts, not a fresh start
+    assert body.startswith("This is a revision, not a fresh start.") and "Fewer ideas." in body
+    previous = tmp_path / "worlds" / world / "runs" / run["id"] / stage / "artifacts/verdict-1.md"
+    assert f"required reading before you change anything: {previous}." in body
     assert len(running.get(f"{url}/stages/{stage}/verdicts").json()) == 2

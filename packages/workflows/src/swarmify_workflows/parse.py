@@ -20,7 +20,7 @@ from swarmify_workflows.schedule import CRON_RULE, cron_problem
 TOP_FIELDS = {"name", "schedule", "budget_usd", "agents", "stages"}
 STAGE_FIELDS: dict[str, set[str]] = {
     "swarm": {"goal", "done_when", "tools", "graphs", "output_type", "produces", "model"},
-    "gate": {"ask", "kind"},
+    "gate": {"ask", "kind", "max_send_backs"},
     "connector": {"calls", "input", "inputs", "output", "params"},
     "workflow": {"runs", "take"},
 }
@@ -153,10 +153,13 @@ def _parse_stage(index: int, raw: Any, out: list[Violation]) -> tuple[str | None
     elif kind == "gate":
         ask = f.text("ask", required=True)
         gate_kind = f.text("kind") or "approve"
+        limit = f.number("max_send_backs", integer=True)
         if gate_kind not in GATE_KINDS:
             f.fail(f"kind must be one of {', '.join(GATE_KINDS)}")
+        elif limit is not None and gate_kind != "approve":
+            f.fail(f"max_send_backs needs an approve gate; a {gate_kind} gate cannot send back")
         elif ask:
-            stage = GateStage(stage_name, ask, gate_kind)
+            stage = GateStage(stage_name, ask, gate_kind, None if limit is None else int(limit))
     elif kind == "connector":
         calls = f.text("calls") or stage_name
         input_, output, inputs = f.text("input"), f.text("output"), f.names("inputs")

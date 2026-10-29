@@ -31,6 +31,8 @@ class GateStage:
     name: str
     ask: str
     kind: str = "approve"
+    max_send_backs: int | None = None
+    """How often an approve gate may send the run back (None: twice); the next is refused."""
     type: Literal["gate"] = "gate"
 
 

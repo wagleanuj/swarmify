@@ -287,11 +287,13 @@ function GateCard({
                   <button type="button" onClick={() => setSendBack(true)} disabled={busy}>
                     Send back...
                   </button>
-                  <span className="faint">{gate.send_backs_left} of 2 send-backs left</span>
+                  <span className="faint">
+                    {gate.send_backs_left} of {gate.max_send_backs} revisions left
+                  </span>
                 </>
               ) : (
                 <span className="faint">
-                  Sent back twice already. Approve, or abort the run from its timeline.
+                  No revisions left at this gate. Approve, or abort the run from its timeline.
                 </span>
               )}
             </>

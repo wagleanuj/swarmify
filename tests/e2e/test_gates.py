@@ -32,12 +32,12 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
         page.goto(f"{base_url}/gates")
         card = page.get_by_test_id(f"gate-{run.json()['id']}")
         expect(card).to_contain_text("Watch it. Approve or send back.", timeout=15_000)
-        expect(card).to_contain_text("2 of 2 send-backs left")
+        expect(card).to_contain_text("2 of 2 revisions left")
 
         card.get_by_role("button", name="Send back...").click()
         card.get_by_label(r"Note").fill("Darker.")
         card.get_by_role("button", name="Send back", exact=True).click()
-        expect(card).to_contain_text("1 of 2 send-backs left", timeout=15_000)
+        expect(card).to_contain_text("1 of 2 revisions left", timeout=15_000)
 
         card.get_by_role("button", name="Approve").click()
         empty = page.get_by_test_id("no-gates")
@@ -45,7 +45,7 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
 
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run.json()['id']}")
         expect(page.get_by_test_id("status-line")).to_have_text(
-            "Done. All 3 stages finished. Sent back 1 of 2 times.", timeout=15_000
+            "Done. All 3 stages finished. Sent back once.", timeout=15_000
         )
         expect(page.get_by_test_id("timeline")).to_contain_text("Sent back with: Darker.")
         expect(page.get_by_test_id("timeline")).to_contain_text("You approved.")

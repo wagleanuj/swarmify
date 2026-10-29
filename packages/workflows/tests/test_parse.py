@@ -139,3 +139,19 @@ def test_a_connector_stage_names_input_or_inputs_not_both() -> None:
     assert rules("name: P\nstages:\n  - connector: video\n    inputs: a.json\n") == [
         ("schema", "video", "inputs must be a list of names")
     ]
+
+
+def test_an_approve_gate_may_set_how_often_it_sends_back() -> None:
+    text = "name: N\nstages:\n  - gate: review\n    ask: Ok?\n    {field}\n"
+    model, violations = parse_workflow(text.format(field="max_send_backs: 5"))
+    assert violations == [] and model is not None
+    assert model.stages == [GateStage("review", "Ok?", "approve", 5)]
+    model, _ = parse_workflow(text.format(field="kind: approve"))
+    assert model is not None and model.stages == [GateStage("review", "Ok?", "approve", None)]
+    for bad in ("0", "1.5", "lots", "true"):
+        assert rules(text.format(field=f"max_send_backs: {bad}")) == [
+            ("schema", "review", "max_send_backs must be a positive whole number")
+        ], bad
+    assert rules(text.format(field="kind: pick\n    max_send_backs: 3")) == [
+        ("schema", "review", "max_send_backs needs an approve gate; a pick gate cannot send back")
+    ]
