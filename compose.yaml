@@ -26,6 +26,9 @@ services:
       SWARMIFY_USER: ${SWARMIFY_USER:-swarmify}
       SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:?set SWARMIFY_PASSWORD in .env, the LAN must sign in}
       SWARMIFY_BASE_URL: ${SWARMIFY_BASE_URL:-http://localhost:8000}
+      # Speech engines in the order the speech connector tries them (README, Speech engines):
+      # Chatterbox running natively on the Mac host, then Kokoro below.
+      SPEECH_ENDPOINTS: ${SPEECH_ENDPOINTS:-http://host.docker.internal:8881,http://kokoro:8880}
     restart: unless-stopped
 
   # The single writer of every world's graph (ADR 0003), graphify on the Claude CLI backend.
@@ -39,5 +42,26 @@ services:
       disable: true
     restart: unless-stopped
 
+  # Kokoro-FastAPI, the second speech engine (Apache 2.0, CPU). Bound to this host only: it has no
+  # sign-in.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.1
+    ports:
+      - "127.0.0.1:8880:8880"
+    restart: unless-stopped
+
+  # Chatterbox Turbo on the CPU, for hosts without an Apple GPU: `docker compose --profile
+  # chatterbox up -d` and SPEECH_ENDPOINTS=http://chatterbox:8881,http://kokoro:8880 in .env. On a
+  # Mac run it natively instead (`mise run speech`) to use the GPU.
+  chatterbox:
+    profiles: [chatterbox]
+    build: services/speech-chatterbox
+    ports:
+      - "127.0.0.1:8881:8881"
+    volumes:
+      - speech-models:/models
+    restart: unless-stopped
+
 volumes:
   data:
+  speech-models:
