@@ -31,7 +31,7 @@ ENDED = ("done", "failed", "aborted")
 
 @dataclass(frozen=True)
 class Settings:
-    budget_usd: float = 3.0
+    budget_usd: float = 5.0
     """Each trial's Budget; a trial that spends it is aborted."""
     timeout_s: float = 45 * 60
     poll_s: float = 5.0
