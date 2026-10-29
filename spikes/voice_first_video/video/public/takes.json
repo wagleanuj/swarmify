@@ -1,0 +1,418 @@
+{
+ "title": "Can You Find the Sleepy Hedgehog?",
+ "takes": [
+  {
+   "scene": "hook",
+   "file": "take_hook.wav",
+   "duration": 4.4,
+   "lines": [
+    {
+     "text": "Shh! Someone is sleeping in these leaves.",
+     "pause_after": 0.5,
+     "first": 0.0,
+     "last": 2.22,
+     "words": [
+      {
+       "text": "Shh!",
+       "start": 0.0,
+       "end": 0.74
+      },
+      {
+       "text": "Someone",
+       "start": 0.86,
+       "end": 1.02
+      },
+      {
+       "text": "is",
+       "start": 1.02,
+       "end": 1.2
+      },
+      {
+       "text": "sleeping",
+       "start": 1.2,
+       "end": 1.42
+      },
+      {
+       "text": "in",
+       "start": 1.42,
+       "end": 1.66
+      },
+      {
+       "text": "these",
+       "start": 1.66,
+       "end": 1.84
+      },
+      {
+       "text": "leaves.",
+       "start": 1.84,
+       "end": 2.22
+      }
+     ],
+     "cut_in": 0.0,
+     "cut_out": 2.654541666666667
+    },
+    {
+     "text": "Can you find the sleepy hedgehog?",
+     "pause_after": 1.2,
+     "first": 2.72,
+     "last": 4.02,
+     "words": [
+      {
+       "text": "Can",
+       "start": 2.72,
+       "end": 2.82
+      },
+      {
+       "text": "you",
+       "start": 2.82,
+       "end": 2.96
+      },
+      {
+       "text": "find",
+       "start": 2.96,
+       "end": 3.14
+      },
+      {
+       "text": "the",
+       "start": 3.14,
+       "end": 3.3
+      },
+      {
+       "text": "sleepy",
+       "start": 3.3,
+       "end": 3.56
+      },
+      {
+       "text": "hedgehog?",
+       "start": 3.56,
+       "end": 4.02
+      }
+     ],
+     "cut_in": 2.654541666666667,
+     "cut_out": 4.17
+    }
+   ]
+  },
+  {
+   "scene": "search",
+   "file": "take_search.wav",
+   "duration": 5.4,
+   "lines": [
+    {
+     "text": "Is it under the red leaf?",
+     "pause_after": 0.6,
+     "first": 0.0,
+     "last": 1.08,
+     "words": [
+      {
+       "text": "Is",
+       "start": 0.0,
+       "end": 0.22
+      },
+      {
+       "text": "it",
+       "start": 0.22,
+       "end": 0.32
+      },
+      {
+       "text": "under",
+       "start": 0.32,
+       "end": 0.46
+      },
+      {
+       "text": "the",
+       "start": 0.46,
+       "end": 0.66
+      },
+      {
+       "text": "red",
+       "start": 0.66,
+       "end": 0.82
+      },
+      {
+       "text": "leaf?",
+       "start": 0.82,
+       "end": 1.08
+      }
+     ],
+     "cut_in": 0.0,
+     "cut_out": 1.3789166666666666
+    },
+    {
+     "text": "No!",
+     "pause_after": 0.5,
+     "first": 1.58,
+     "last": 1.86,
+     "words": [
+      {
+       "text": "No!",
+       "start": 1.58,
+       "end": 1.86
+      }
+     ],
+     "cut_in": 1.3789166666666666,
+     "cut_out": 2.4364166666666667
+    },
+    {
+     "text": "Is it by the big brown log?",
+     "pause_after": 0.6,
+     "first": 2.54,
+     "last": 4.02,
+     "words": [
+      {
+       "text": "Is",
+       "start": 2.54,
+       "end": 2.62
+      },
+      {
+       "text": "it",
+       "start": 2.62,
+       "end": 2.76
+      },
+      {
+       "text": "by",
+       "start": 2.76,
+       "end": 2.92
+      },
+      {
+       "text": "the",
+       "start": 2.92,
+       "end": 3.06
+      },
+      {
+       "text": "big",
+       "start": 3.06,
+       "end": 3.32
+      },
+      {
+       "text": "brown",
+       "start": 3.32,
+       "end": 3.66
+      },
+      {
+       "text": "log?",
+       "start": 3.66,
+       "end": 4.02
+      }
+     ],
+     "cut_in": 2.4364166666666667,
+     "cut_out": 4.498666666666667
+    },
+    {
+     "text": "Not there!",
+     "pause_after": 0.8,
+     "first": 4.6,
+     "last": 5.1,
+     "words": [
+      {
+       "text": "Not",
+       "start": 4.6,
+       "end": 4.78
+      },
+      {
+       "text": "there!",
+       "start": 4.78,
+       "end": 5.1
+      }
+     ],
+     "cut_in": 4.498666666666667,
+     "cut_out": 5.25
+    }
+   ]
+  },
+  {
+   "scene": "countdown",
+   "file": "take_countdown.wav",
+   "duration": 2.68,
+   "lines": [
+    {
+     "text": "Three, two, one...",
+     "pause_after": 0.9,
+     "first": 0.0,
+     "last": 1.38,
+     "words": [
+      {
+       "text": "Three,",
+       "start": 0.0,
+       "end": 0.38
+      },
+      {
+       "text": "two,",
+       "start": 0.46,
+       "end": 0.76
+      },
+      {
+       "text": "one...",
+       "start": 1.16,
+       "end": 1.38
+      }
+     ],
+     "cut_in": 0.0,
+     "cut_out": 1.8319166666666666
+    },
+    {
+     "text": "There he is!",
+     "pause_after": 0.8,
+     "first": 1.84,
+     "last": 2.38,
+     "words": [
+      {
+       "text": "There",
+       "start": 1.84,
+       "end": 2.06
+      },
+      {
+       "text": "he",
+       "start": 2.06,
+       "end": 2.2
+      },
+      {
+       "text": "is!",
+       "start": 2.2,
+       "end": 2.38
+      }
+     ],
+     "cut_in": 1.8319166666666666,
+     "cut_out": 2.53
+    }
+   ]
+  },
+  {
+   "scene": "fact",
+   "file": "take_fact.wav",
+   "duration": 8.08,
+   "lines": [
+    {
+     "text": "In autumn, hedgehogs get very sleepy.",
+     "pause_after": 0.4,
+     "first": 0.0,
+     "last": 2.46,
+     "words": [
+      {
+       "text": "In",
+       "start": 0.0,
+       "end": 0.22
+      },
+      {
+       "text": "autumn,",
+       "start": 0.22,
+       "end": 0.58
+      },
+      {
+       "text": "hedgehogs",
+       "start": 1.2,
+       "end": 1.56
+      },
+      {
+       "text": "get",
+       "start": 1.56,
+       "end": 1.78
+      },
+      {
+       "text": "very",
+       "start": 1.78,
+       "end": 2.08
+      },
+      {
+       "text": "sleepy.",
+       "start": 2.08,
+       "end": 2.46
+      }
+     ],
+     "cut_in": 0.0,
+     "cut_out": 3.2314166666666666
+    },
+    {
+     "text": "They curl up in warm leaves and sleep all winter long.",
+     "pause_after": 0.6,
+     "first": 3.28,
+     "last": 5.94,
+     "words": [
+      {
+       "text": "They",
+       "start": 3.28,
+       "end": 3.38
+      },
+      {
+       "text": "curl",
+       "start": 3.38,
+       "end": 3.62
+      },
+      {
+       "text": "up",
+       "start": 3.62,
+       "end": 3.82
+      },
+      {
+       "text": "in",
+       "start": 3.82,
+       "end": 4.0
+      },
+      {
+       "text": "warm",
+       "start": 4.0,
+       "end": 4.22
+      },
+      {
+       "text": "leaves",
+       "start": 4.22,
+       "end": 4.56
+      },
+      {
+       "text": "and",
+       "start": 4.56,
+       "end": 4.82
+      },
+      {
+       "text": "sleep",
+       "start": 4.82,
+       "end": 5.06
+      },
+      {
+       "text": "all",
+       "start": 5.06,
+       "end": 5.32
+      },
+      {
+       "text": "winter",
+       "start": 5.32,
+       "end": 5.64
+      },
+      {
+       "text": "long.",
+       "start": 5.64,
+       "end": 5.94
+      }
+     ],
+     "cut_in": 3.2314166666666666,
+     "cut_out": 5.94
+    },
+    {
+     "text": "Good night, hedgehog!",
+     "pause_after": 1.5,
+     "first": 5.94,
+     "last": 7.6,
+     "words": [
+      {
+       "text": "Good",
+       "start": 5.94,
+       "end": 7.24
+      },
+      {
+       "text": "night,",
+       "start": 7.24,
+       "end": 7.24
+      },
+      {
+       "text": "hedgehog!",
+       "start": 7.24,
+       "end": 7.6
+      }
+     ],
+     "cut_in": 5.94,
+     "cut_out": 7.75
+    }
+   ]
+  }
+ ]
+}

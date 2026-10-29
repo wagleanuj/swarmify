@@ -1,0 +1,18 @@
+{"title": "Can You Find the Sleepy Hedgehog?",
+ "scenes": [
+  {"id": "hook", "lines": [
+    {"text": "Shh! Someone is sleeping in these leaves.", "pause_after": 0.5},
+    {"text": "Can you find the sleepy hedgehog?", "pause_after": 1.2}]},
+  {"id": "search", "lines": [
+    {"text": "Is it under the red leaf?", "pause_after": 0.6},
+    {"text": "No!", "pause_after": 0.5},
+    {"text": "Is it by the big brown log?", "pause_after": 0.6},
+    {"text": "Not there!", "pause_after": 0.8}]},
+  {"id": "countdown", "lines": [
+    {"text": "Three, two, one...", "pause_after": 0.9},
+    {"text": "There he is!", "pause_after": 0.8}]},
+  {"id": "fact", "lines": [
+    {"text": "In autumn, hedgehogs get very sleepy.", "pause_after": 0.4},
+    {"text": "They curl up in warm leaves and sleep all winter long.", "pause_after": 0.6},
+    {"text": "Good night, hedgehog!", "pause_after": 1.5}]}
+ ]}

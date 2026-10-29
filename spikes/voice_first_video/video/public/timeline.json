@@ -1,0 +1,536 @@
+{
+ "title": "Can You Find the Sleepy Hedgehog?",
+ "duration": 29.0,
+ "clips": [
+  {
+   "src": "take_hook.wav",
+   "from": 0.4,
+   "trimBefore": 0.0,
+   "trimAfter": 2.654541666666667
+  },
+  {
+   "src": "take_hook.wav",
+   "from": 3.5545416666666667,
+   "trimBefore": 2.654541666666667,
+   "trimAfter": 4.17
+  },
+  {
+   "src": "take_search.wav",
+   "from": 6.27,
+   "trimBefore": 0.0,
+   "trimAfter": 1.3789166666666666
+  },
+  {
+   "src": "take_search.wav",
+   "from": 8.248916666666666,
+   "trimBefore": 1.3789166666666666,
+   "trimAfter": 2.4364166666666667
+  },
+  {
+   "src": "take_search.wav",
+   "from": 9.806416666666667,
+   "trimBefore": 2.4364166666666667,
+   "trimAfter": 4.498666666666667
+  },
+  {
+   "src": "take_search.wav",
+   "from": 12.468666666666667,
+   "trimBefore": 4.498666666666667,
+   "trimAfter": 5.25
+  },
+  {
+   "src": "take_countdown.wav",
+   "from": 14.020000000000001,
+   "trimBefore": 0.0,
+   "trimAfter": 1.8319166666666666
+  },
+  {
+   "src": "take_countdown.wav",
+   "from": 16.751916666666666,
+   "trimBefore": 1.8319166666666666,
+   "trimAfter": 2.53
+  },
+  {
+   "src": "take_fact.wav",
+   "from": 18.25,
+   "trimBefore": 0.0,
+   "trimAfter": 3.2314166666666666
+  },
+  {
+   "src": "take_fact.wav",
+   "from": 21.881416666666667,
+   "trimBefore": 3.2314166666666666,
+   "trimAfter": 5.94
+  },
+  {
+   "src": "take_fact.wav",
+   "from": 25.19,
+   "trimBefore": 5.94,
+   "trimAfter": 7.75
+  }
+ ],
+ "captions": [
+  {
+   "line": 0,
+   "text": " Shh!",
+   "startMs": 400,
+   "endMs": 1140,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 0,
+   "text": " Someone",
+   "startMs": 1260,
+   "endMs": 1420,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 0,
+   "text": " is",
+   "startMs": 1420,
+   "endMs": 1600,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 0,
+   "text": " sleeping",
+   "startMs": 1600,
+   "endMs": 1820,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 0,
+   "text": " in",
+   "startMs": 1820,
+   "endMs": 2060,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 0,
+   "text": " these",
+   "startMs": 2060,
+   "endMs": 2240,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 0,
+   "text": " leaves.",
+   "startMs": 2240,
+   "endMs": 2620,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 1,
+   "text": " Can",
+   "startMs": 3620,
+   "endMs": 3720,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 1,
+   "text": " you",
+   "startMs": 3720,
+   "endMs": 3860,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 1,
+   "text": " find",
+   "startMs": 3860,
+   "endMs": 4040,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 1,
+   "text": " the",
+   "startMs": 4040,
+   "endMs": 4200,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 1,
+   "text": " sleepy",
+   "startMs": 4200,
+   "endMs": 4460,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 1,
+   "text": " hedgehog?",
+   "startMs": 4460,
+   "endMs": 4920,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 2,
+   "text": " Is",
+   "startMs": 6270,
+   "endMs": 6490,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 2,
+   "text": " it",
+   "startMs": 6490,
+   "endMs": 6590,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 2,
+   "text": " under",
+   "startMs": 6590,
+   "endMs": 6730,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 2,
+   "text": " the",
+   "startMs": 6730,
+   "endMs": 6930,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 2,
+   "text": " red",
+   "startMs": 6930,
+   "endMs": 7090,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 2,
+   "text": " leaf?",
+   "startMs": 7090,
+   "endMs": 7350,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 3,
+   "text": " No!",
+   "startMs": 8450,
+   "endMs": 8730,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " Is",
+   "startMs": 9910,
+   "endMs": 9990,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " it",
+   "startMs": 9990,
+   "endMs": 10130,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " by",
+   "startMs": 10130,
+   "endMs": 10290,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " the",
+   "startMs": 10290,
+   "endMs": 10430,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " big",
+   "startMs": 10430,
+   "endMs": 10690,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " brown",
+   "startMs": 10690,
+   "endMs": 11030,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 4,
+   "text": " log?",
+   "startMs": 11030,
+   "endMs": 11390,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 5,
+   "text": " Not",
+   "startMs": 12570,
+   "endMs": 12750,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 5,
+   "text": " there!",
+   "startMs": 12750,
+   "endMs": 13070,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 6,
+   "text": " Three,",
+   "startMs": 14020,
+   "endMs": 14400,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 6,
+   "text": " two,",
+   "startMs": 14480,
+   "endMs": 14780,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 6,
+   "text": " one...",
+   "startMs": 15180,
+   "endMs": 15400,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 7,
+   "text": " There",
+   "startMs": 16760,
+   "endMs": 16980,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 7,
+   "text": " he",
+   "startMs": 16980,
+   "endMs": 17120,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 7,
+   "text": " is!",
+   "startMs": 17120,
+   "endMs": 17300,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 8,
+   "text": " In",
+   "startMs": 18250,
+   "endMs": 18470,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 8,
+   "text": " autumn,",
+   "startMs": 18470,
+   "endMs": 18830,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 8,
+   "text": " hedgehogs",
+   "startMs": 19450,
+   "endMs": 19810,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 8,
+   "text": " get",
+   "startMs": 19810,
+   "endMs": 20030,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 8,
+   "text": " very",
+   "startMs": 20030,
+   "endMs": 20330,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 8,
+   "text": " sleepy.",
+   "startMs": 20330,
+   "endMs": 20710,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " They",
+   "startMs": 21930,
+   "endMs": 22030,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " curl",
+   "startMs": 22030,
+   "endMs": 22270,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " up",
+   "startMs": 22270,
+   "endMs": 22470,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " in",
+   "startMs": 22470,
+   "endMs": 22650,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " warm",
+   "startMs": 22650,
+   "endMs": 22870,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " leaves",
+   "startMs": 22870,
+   "endMs": 23210,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " and",
+   "startMs": 23210,
+   "endMs": 23470,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " sleep",
+   "startMs": 23470,
+   "endMs": 23710,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " all",
+   "startMs": 23710,
+   "endMs": 23970,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " winter",
+   "startMs": 23970,
+   "endMs": 24290,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 9,
+   "text": " long.",
+   "startMs": 24290,
+   "endMs": 24590,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 10,
+   "text": " Good",
+   "startMs": 25190,
+   "endMs": 26490,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 10,
+   "text": " night,",
+   "startMs": 26490,
+   "endMs": 26490,
+   "timestampMs": null,
+   "confidence": null
+  },
+  {
+   "line": 10,
+   "text": " hedgehog!",
+   "startMs": 26490,
+   "endMs": 26850,
+   "timestampMs": null,
+   "confidence": null
+  }
+ ],
+ "scenes": [
+  {
+   "id": "hook",
+   "start": 0.4,
+   "end": 6.27
+  },
+  {
+   "id": "search",
+   "start": 6.27,
+   "end": 14.020000000000001
+  },
+  {
+   "id": "countdown",
+   "start": 14.020000000000001,
+   "end": 18.25
+  },
+  {
+   "id": "fact",
+   "start": 18.25,
+   "end": 28.5
+  }
+ ]
+}
