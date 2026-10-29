@@ -295,3 +295,13 @@ def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
     with pytest.raises(RuntimeError) as other:
         writer_module.run_graphify(Path("/w"))
     assert not isinstance(other.value, ShrinkRefused)
+
+
+def test_the_assets_are_files_not_knowledge_so_the_graph_skips_them(tmp_path: Path) -> None:
+    cmd = extract_command(tmp_path)
+    excluded = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--exclude"]
+    assert excluded == [f"{GRAPH_OUT}/", "assets/"]
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets/bed.mp3").write_bytes(b"ID3")
+    (tmp_path / "notes.md").write_text("x")
+    assert list(writer_module.snapshot(tmp_path)) == ["notes.md"]

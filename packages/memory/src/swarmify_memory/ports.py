@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 GRAPH_OUT = "graphify-out"
+ASSETS = "assets"
+"""The world folder's read-only assets: files, not knowledge, so the graph skips them."""
 """The graph output folder inside a world folder. Never input to its own rebuild."""
 GRAPH_TOOLS = (
     "query_graph",

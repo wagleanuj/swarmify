@@ -1,15 +1,15 @@
 """GraphWriter: the single writer of every world's graph (ADR 0003).
 
-It watches the world folders by polling a snapshot of their files (the graph output folder
-excluded), waits until a world has been quiet for DEBOUNCE seconds after its last change, then
-runs graphify's headless extract with the Claude CLI backend named explicitly. One thread does
+It watches the world folders by polling a snapshot of their files (the graph output folder and the
+assets excluded), waits until a world has been quiet for DEBOUNCE seconds after its last change,
+then runs graphify's headless extract with the Claude CLI backend named explicitly. One thread does
 every rebuild in turn, so rebuilds are serialized per world and queued across worlds. A queued
 world's snapshot is taken as its rebuild starts, so changes made while it waited are absorbed by
 that one rebuild. Each rebuild appends `graph.rebuilt` (sizes, deltas, extraction seconds and
 tokens) or `graph.failed` (error, seconds, and whether graphify's shrink guard refused it) to the
 world's events; a failed rebuild waits for the next change. Accepting a shrink appends
-`graph.shrink_accepted`, which the writer polls for, so it works from another process too: the
-world is rebuilt at once with graphify's `--allow-partial`, that once. A deleted world (its
+`graph.shrink_accepted`, which the writer polls for, so it works from another process too: the world
+is rebuilt at once with graphify's `--allow-partial`, that once. A deleted world (its
 `world.deleted` event) is dropped from the queue, and a rebuild it outlived records nothing and
 removes the folder graphify recreated.
 """
@@ -29,7 +29,7 @@ from pathlib import Path
 from swarmify_kernel import Event
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
-from swarmify_memory.ports import GRAPH_OUT, graph_file, graph_size
+from swarmify_memory.ports import ASSETS, GRAPH_OUT, graph_file, graph_size
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class ShrinkRefused(RuntimeError):
 def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
     """graphify never auto-detects the Claude CLI backend, so it is named here (research note on
     graphify internals). graphify also skips graphify-out itself; the explicit exclude keeps
-    that true if its defaults change."""
+    that true if its defaults change. The assets are files, not knowledge."""
     return [
         sys.executable,
         "-m",
@@ -64,6 +64,8 @@ def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
         "claude-cli",
         "--exclude",
         f"{GRAPH_OUT}/",
+        "--exclude",
+        f"{ASSETS}/",
         *(["--allow-partial"] if allow_shrink else []),
     ]
 
@@ -90,10 +92,10 @@ def run_graphify(folder: Path, allow_shrink: bool = False) -> Usage:
 def snapshot(folder: Path) -> Snapshot:
     # ponytail: a full stat walk per world per poll; switch to FSEvents/inotify (watchdog) when a
     # world holds tens of thousands of files.
-    out = folder / GRAPH_OUT
+    skipped = (folder / GRAPH_OUT, folder / ASSETS)
     files: Snapshot = {}
     for path in folder.rglob("*"):
-        if path.is_file() and not path.is_relative_to(out):
+        if path.is_file() and not any(path.is_relative_to(s) for s in skipped):
             stat = path.stat()
             files[str(path.relative_to(folder))] = (stat.st_mtime, stat.st_size)
     return files

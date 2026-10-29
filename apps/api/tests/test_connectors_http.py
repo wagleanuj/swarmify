@@ -164,6 +164,7 @@ def test_a_connector_stage_records_its_raw_call_keyed_by_the_stage_id(
         "output": "clip.mp4",
         "output_path": str(tmp_path / files / "clip.mp4"),
         "frontmatter": {"world": run["world_id"], "run": run["id"], "stage": stage_id},
+        "assets_path": str(tmp_path / f"worlds/{run['world_id']}/assets"),
     }
     assert call["response"] == {"status": "done", "url": "https://cdn/clip.mp4"}
     assert (call["status"], call["polls"], call["tool"]) == ("done", 2, "fal_video")

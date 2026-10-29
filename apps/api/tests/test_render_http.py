@@ -187,6 +187,8 @@ def test_input_is_the_newest_run_file_of_that_name(tmp_path: Path) -> None:
         "run": "run_1",
         "stage": "stage_2",
     }
+    assert config["params"]["assets_path"] == str(tmp_path / "assets")
+    assert (tmp_path / "assets").is_dir()  # a world older than its assets folder gets one
 
 
 def test_an_input_no_earlier_stage_left_fails_clearly(tmp_path: Path) -> None:
@@ -202,7 +204,7 @@ def test_a_file_name_that_is_a_path_is_refused(tmp_path: Path, key: str, name: s
     assert not (tmp_path / "runs").exists()
 
 
-@pytest.mark.parametrize("key", ["input_path", "output_path", "frontmatter"])
+@pytest.mark.parametrize("key", ["input_path", "output_path", "frontmatter", "assets_path"])
 def test_params_may_not_set_the_run_paths(tmp_path: Path, key: str) -> None:
     config = {"output": "clip.mp4", "params": {key: "/etc/passwd"}}
     with pytest.raises(ConnectorError, match=f"params.{key} is set by the run"):

@@ -32,7 +32,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); }
 main { max-width: 68rem; margin: 0 auto; padding: 24px 24px 64px; }
 a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line2); }
 a:hover { text-decoration-color: currentColor; }
-:focus-visible { outline: 2px solid var(--pp); outline-offset: 2px; }
+:focus-visible, label.button:has(:focus-visible) { outline: 2px solid var(--pp); outline-offset: 2px; }
 code { font-family: var(--mono); font-size: 0.92em; }
 b { font-weight: 600; }
 
@@ -64,8 +64,8 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
 input:disabled, select:disabled, textarea:disabled { color: var(--muted); }
 textarea { width: 100%; resize: vertical; line-height: 1.5; }
 textarea#yaml, .proposal textarea, .promote textarea { font: 13px/1.6 var(--mono); tab-size: 2; }
-button, a.button { font: inherit; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 12px; border-radius: var(--rc); border: 1px solid var(--line2); background: transparent; color: inherit; cursor: pointer; text-decoration: none; transition: border-color 150ms ease, background-color 150ms ease; }
-button:hover, a.button:hover { border-color: var(--faint); background: var(--panel); }
+button, a.button, label.button { font: inherit; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 12px; border-radius: var(--rc); border: 1px solid var(--line2); background: transparent; color: inherit; cursor: pointer; text-decoration: none; transition: border-color 150ms ease, background-color 150ms ease; }
+button:hover, a.button:hover, label.button:hover { border-color: var(--faint); background: var(--panel); }
 button.primary { background: var(--pp); color: var(--pp-ink); border-color: var(--pp); font-weight: 600; }
 button.primary:hover { background: #3bd48d; border-color: #3bd48d; }
 button.danger { color: var(--bad); border-color: var(--bad); }

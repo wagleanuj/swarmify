@@ -952,11 +952,53 @@ export interface paths {
         };
         /**
          * File
-         * @description A run file as it is on disk, by its Library path: the video a gate plays, an image,
-         *     a note a card cites. Only files under the world's runs are served.
+         * @description A run file or asset as it is on disk, by its Library path: the video a gate plays,
+         *     an image, a note a card cites, a music bed. Only files under the world's runs and
+         *     assets are served.
          */
         get: operations["file_api_worlds__world_id__files__path__get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Assets
+         * @description The world's assets folder, subfolders included, by path.
+         */
+        get: operations["assets_api_worlds__world_id__assets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/assets/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add Asset
+         * @description Upload an asset: the request body is the file, `name` a plain file name. A name
+         *     already there is replaced.
+         */
+        put: operations["add_asset_api_worlds__world_id__assets__name__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1366,6 +1408,15 @@ export interface components {
              * @default false
              */
             pinned: boolean;
+        };
+        /** Asset */
+        Asset: {
+            /** Path */
+            path: string;
+            /** Name */
+            name: string;
+            /** Bytes */
+            bytes: number;
         };
         /**
          * Call
@@ -4813,6 +4864,67 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    assets_api_worlds__world_id__assets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Asset"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_asset_api_worlds__world_id__assets__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Asset"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

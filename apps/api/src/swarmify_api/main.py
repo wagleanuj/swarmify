@@ -63,6 +63,7 @@ from swarmify_learning import MIGRATIONS as LEARNING_MIGRATIONS
 from swarmify_learning import Learning
 from swarmify_learning import SqliteStorage as LearningStorage
 from swarmify_memory import (
+    ASSETS,
     DEBOUNCE,
     GraphIndex,
     GraphWriter,
@@ -301,11 +302,12 @@ def run_file(world_folder: Path, run: Run, name: str) -> Path:
 def with_files(world_folder: Path, run: Run, stage_id: str, config: dict[str, Any]) -> dict:
     """A connector stage exchanges files through the run folder. `output` lands in this stage's
     `artifacts/` (created for it), `input` is the newest run file of that name (`run_file`), as
-    is each of `inputs` (`input_paths`, in order), and the frontmatter a sidecar needs rides
-    along. All join the call's params. Workflow YAML is Planner-authored, so a path in `output`
-    or a run-owned key in `params` is refused."""
+    is each of `inputs` (`input_paths`, in order), `assets_path` is the world's read-only
+    assets folder, and the frontmatter a sidecar needs rides along. All join the call's params.
+    Workflow YAML is Planner-authored, so a path in `output` or a run-owned key in `params` is
+    refused."""
     params = dict(config.get("params") or {})
-    for key in ("input_path", "input_paths", "output_path", "frontmatter"):
+    for key in ("input_path", "input_paths", "output_path", "frontmatter", "assets_path"):
         if key in params:
             raise ConnectorError(f"params.{key} is set by the run, not the workflow")
     output = str(config.get("output") or "")
@@ -320,6 +322,9 @@ def with_files(world_folder: Path, run: Run, stage_id: str, config: dict[str, An
         out.parent.mkdir(parents=True, exist_ok=True)
         params["output_path"] = str(out)
     params["frontmatter"] = {"world": run.world_id, "run": run.id, "stage": stage_id}
+    assets = world_folder / ASSETS
+    assets.mkdir(parents=True, exist_ok=True)
+    params["assets_path"] = str(assets)
     return {**config, "params": params}
 
 

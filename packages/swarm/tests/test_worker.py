@@ -105,6 +105,16 @@ def test_graph_query_then_claim_then_write_then_finish(
     assert kinds[0] == "session" and kinds[-1] == "result"
 
 
+def test_a_worker_lists_the_world_assets(board: SqliteStorage, tmp_path: Path) -> None:
+    _seed(board)
+    (_world(tmp_path) / "assets/sfx").mkdir(parents=True)
+    (tmp_path / W / "assets/sfx/whoosh.wav").write_bytes(b"RIFF")
+    script = Script([GRAPH, CLAIM, Call(tool_id("list_assets")), FINISH, Say("Done.")], PASS)
+    _run(_swarm(board, tmp_path, script, graphs=DiskGraphs(tmp_path)), tmp_path)
+    assert not any(o.is_error for o in script.outcomes), script.outcomes
+    assert json.loads(script.outcomes[2].text) == ["assets/sfx/whoosh.wav"]
+
+
 def test_the_planner_seeds_an_empty_board_from_its_json_answer(
     board: SqliteStorage, tmp_path: Path
 ) -> None:

@@ -1,15 +1,15 @@
 """The one coding session Swarmify runs: a build stage writing a Remotion project (ADR 0018).
 
-Swarm agents have no shell. A build session does, inside its build folder only: the Agent SDK's
-OS sandbox (Seatbelt on macOS, bubblewrap on Linux) runs every Bash command with no way out
-(`allowUnsandboxedCommands: false`, `failIfUnavailable`), writes limited to the build folder and
-the npm cache, reads of the data directory denied except the build folder, the npm cache and the
-stage's own world, and network limited to the npm registry and Google Fonts. The PreToolUse hooks
-enforce the same path rules on the file tools, so a sandbox that is off or misconfigured still
-cannot write outside the folder or read the data directory's `.env`; for Bash they refuse an
-unsandboxed command and, as a tripwire, one that names the data directory or a `.env` file. The
-environment carries no connector keys: the composition root blanks them, and the sandbox unsets
-them and the model credentials for every command.
+Swarm agents have no shell. A build session does, inside its build folder only: the Agent SDK's OS
+sandbox (Seatbelt on macOS, bubblewrap on Linux) runs every Bash command with no way out
+(`allowUnsandboxedCommands: false`, `failIfUnavailable`), writes limited to the build folder and the
+npm cache, reads of the data directory denied except the build folder, the npm cache and the stage's
+own world (its read-only `assets/` included), and network limited to the npm registry and Google
+Fonts. The PreToolUse hooks enforce the same path rules on the file tools, so a sandbox that is off
+or misconfigured still cannot write outside the folder or read the data directory's `.env`; for Bash
+they refuse an unsandboxed command and, as a tripwire, one that names the data directory or a `.env`
+file. The environment carries no connector keys: the composition root blanks them, and the sandbox
+unsets them and the model credentials for every command.
 """
 
 import re
@@ -98,9 +98,14 @@ def refusal(
 
 
 def prompt(
-    script: Path, composition: str, brief: str, decisions: list[str], inputs: Sequence[Path] = ()
+    script: Path,
+    composition: str,
+    brief: str,
+    decisions: list[str],
+    inputs: Sequence[Path] = (),
+    assets: Sequence[Path] = (),
 ) -> str:
-    """`inputs` are the stage's other input files, beside the script."""
+    """`inputs` are the stage's other input files, beside the script; `assets` the world's."""
     lines = [
         f"Build the Remotion project in this folder (your working directory) so that"
         f" composition `{composition}` turns the script at {script} into a finished short video.",
@@ -110,6 +115,10 @@ def prompt(
         "The stage's other inputs, also yours to read (copy what the render needs into public/):"
         f" {', '.join(map(str, inputs))}."
         if inputs
+        else "",
+        "The world's assets, read-only files the operator added (music beds, sound effects,"
+        f" logos); copy what the video uses into public/: {', '.join(map(str, assets))}."
+        if assets
         else "",
         *decisions,
         f"The operator's brief: {brief}" if brief else "",

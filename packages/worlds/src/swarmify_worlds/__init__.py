@@ -1,9 +1,10 @@
 """Worlds context: a World is one long-lived memory plus the connectors and cast allowed in it.
 
-Each world owns a folder under `<data_dir>/worlds/<id>` (files are memory, ADR 0001) and a row
-plus an event stream in SQLite (state). Deleting a world removes both. Its settings (monthly
-budget, run cap, retention, agent count, models) and the edits to its Cast live on the row and in
-`cast_edits`; every change is an event on the world's stream.
+Each world owns a folder under `<data_dir>/worlds/<id>` (files are memory, ADR 0001), with an
+empty `assets/` for the operator's reusable files, and a row plus an event stream in SQLite
+(state). Deleting a world removes both. Its settings (monthly budget, run cap, retention, agent
+count, models) and the edits to its Cast live on the row and in `cast_edits`; every change is an
+event on the world's stream.
 """
 
 import re
@@ -103,7 +104,7 @@ class Worlds:
             payload={"id": world.id, "name": name, "purpose": purpose},
         )
         self.storage.add_world(world, event)
-        self.folder(world.id).mkdir(parents=True)
+        (self.folder(world.id) / "assets").mkdir(parents=True)  # the operator's files, empty
         return world
 
     def list_all(self) -> list[World]:

@@ -297,8 +297,9 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
 A connector stage's call also carries `output_path` (`worlds/<w>/runs/<run>/<stage>/artifacts/<output>`,
 folder created; `output` must be a bare file name), `input_path` (the newest file named like
 `input` any stage of the run left; the stage fails if there is none), `input_paths` (the same for
-each of `inputs`, in their order, so one connector can take a script and its voice timings) and
-`frontmatter` (world, run, stage) for a sidecar. Workflow params may not set these four. When the call is done and the
+each of `inputs`, in their order, so one connector can take a script and its voice timings),
+`assets_path` (the world's assets folder, see Assets below, for the connector to read) and
+`frontmatter` (world, run, stage) for a sidecar. Workflow params may not set these five. When the call is done and the
 output file exists, an `artifact.created` event announces it, typed by its sidecar.
 
 ## Remotion render
@@ -358,8 +359,8 @@ The stage copies `base` (else a minimal starter shipped in the repo,
 `packages/connectors/src/swarmify_connectors/remotion_starter`, composition `Main`), without its
 `node_modules` or `.git`, into a fresh `<stage folder>/build/`, and runs one session there as
 agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the script path (the first of
-`inputs`, whose other paths the prompt names too), the brief and the run's gate decisions as
-required reading. It is logged, costed against the run's Budget and
+`inputs`, whose other paths the prompt names too), the world's assets by path (when it has any,
+to copy into `public/`), the brief and the run's gate decisions as required reading. It is logged, costed against the run's Budget and
 stopped by it like any agent; failing twice, or running out of time, fails the stage with the
 builder's last log lines. Then the render runs as a `remotion_render` call on the build folder
 (its call shows on the timeline as usual, a failed render fails the stage with the CLI's last
@@ -371,7 +372,7 @@ The session's sandbox:
 - Bash runs in the Agent SDK's OS sandbox (Seatbelt on macOS, bubblewrap on Linux), with
   `allowUnsandboxedCommands: false` and `failIfUnavailable`, so a command never runs outside it.
   Writes reach only the build folder and the npm cache; the data directory is unreadable except
-  the build folder, the npm cache and the stage's own world (the script and decisions); the
+  the build folder, the npm cache and the stage's own world (the script, decisions and assets); the
   network reaches only `registry.npmjs.org`, `fonts.googleapis.com` and `fonts.gstatic.com`.
 - The PreToolUse hooks enforce the same paths without the sandbox: Write and Edit only inside
   the build folder, Read, Glob and Grep only inside it or the world's folder (resolved, so `..`
@@ -571,8 +572,8 @@ default. The model a session reports at its start is stored on the agent (`model
 the run page shows it beside each agent.
 
 - In-process tools (`mcp__swarmify__<name>`): `query_graph`, `list_tasks`, `claim_task` (the named
-  task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `write_note`,
-  `write_artifact`. Notes land in `worlds/<w>/runs/<run>/<stage>/notes/`, artifacts in
+  task or the next ready one), `heartbeat`, `finish_task`, `add_task`, `list_assets` (the
+  world's assets by path, read-only), `write_note`, `write_artifact`. Notes land in `worlds/<w>/runs/<run>/<stage>/notes/`, artifacts in
   `.../artifacts/`, each as markdown with frontmatter (a non-markdown artifact gets a `.md`
   sidecar), and each write appends an `artifact.created` event. Graph tools (`query_graph`,
   `get_node`, `get_neighbors`, `god_nodes`, `shortest_path`, `graph_stats`) are described under
@@ -608,7 +609,8 @@ dependency of `packages/memory`) from the world's files.
 
 - GraphWriter (Anton in the skin, ADR 0003) is the only writer. It polls the world folders every
   2 s, waits until a world has been quiet for 30 s after its last change, then runs
-  `python -m graphify extract <world> --backend claude-cli --exclude graphify-out/`. One thread
+  `python -m graphify extract <world> --backend claude-cli --exclude graphify-out/ --exclude
+  assets/` (assets are files, not knowledge, so adding one triggers no rebuild either). One thread
   does every rebuild in turn: serialized per world, queued across worlds. A queued world is
   snapshotted as its rebuild starts, so changes made while it waited are absorbed by that one
   rebuild rather than queueing another. Each rebuild appends `graph.rebuilt` (`nodes`, `edges`,
@@ -755,6 +757,26 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
   that takes `script.md`), and the run carries `promoted_from`. A stage with several `inputs` is
   refused (422): one file cannot stand in for them. `n` must skip at least one stage and start at or before the last (422). The
   Library's "Promote..." picks the workflow and the stage.
+
+### Assets
+
+Each world has `worlds/<id>/assets/`: the operator's reusable files, such as music beds, sound
+effects and logos. Nothing is seeded; a new world's folder is empty. Add files on the Library
+page ("Upload files"), with `PUT /api/worlds/<id>/assets/<name>` (the body is the file, `name` a
+plain file name; the same name replaces it) or by dropping them into the folder, subfolders
+included. `GET /api/worlds/<id>/assets` lists them by path (`assets/<name>`) with their size, and
+`GET /api/worlds/<id>/files/<path>` serves one, as it serves run files.
+
+Agents never write there. Swarm agents list them (`list_assets`) to name one in a script; a
+connector stage gets the folder as `assets_path`; the `remotion_build` session reads them (its
+sandbox and hooks allow reads in the world's folder and writes only in the build folder) and is
+given their paths to copy into `public/`. Nothing about them is video-specific, and they are
+kept out of the graph.
+
+Free CC0 (public domain, no credit needed) beds and effects: [Freesound](https://freesound.org)
+with the "Creative Commons 0" license filter, [Kenney's audio packs](https://kenney.nl/assets/category:Audio),
+[OpenGameArt](https://opengameart.org) filtered to CC0, and the [Free Music
+Archive](https://freemusicarchive.org) filtered to CC0. Check each file's license on its page.
 
 ## Learning: retro, skills, scorecard
 

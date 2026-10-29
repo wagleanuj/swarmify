@@ -14,6 +14,10 @@ file's sidecar stays, saying when it went, so the graph and the library keep the
 0001). Outcomes (`record_outcome`) are written into a publish artifact's frontmatter and body, the
 body because graphify reads bodies only.
 
+Assets are the operator's reusable files (music beds, sound effects, logos) in
+`<data_dir>/worlds/<world>/assets/`: added over HTTP or by hand, read by connector stages and the
+build session, listed to swarm agents, never written by an agent and never part of the graph.
+
 The world Graph is built from those files by the GraphWriter alone (ADR 0003) and read through
 the GraphIndex port.
 """
@@ -33,6 +37,7 @@ from swarmify_kernel.sqlite import connect
 from swarmify_memory.fake import FakeGraphIndex
 from swarmify_memory.graph import McpGraphIndex
 from swarmify_memory.ports import (
+    ASSETS,
     EMPTY,
     GRAPH_OUT,
     GRAPH_TOOLS,
@@ -53,6 +58,7 @@ from swarmify_memory.writer import (
 )
 
 __all__ = [
+    "ASSETS",
     "DEBOUNCE",
     "EMPTY",
     "ArtifactFile",
@@ -277,12 +283,33 @@ class Memory:
         return self._artifacts(world_id, [p for p in folder.glob("decision*.md") if p.is_file()])
 
     def file(self, world_id: str, path: str) -> Path:
-        """The run file at `path` (relative to the world folder), for serving it as it is.
-        Raises ValueError when there is no such file under the world's runs."""
+        """The run file or asset at `path` (relative to the world folder), for serving it as it
+        is. Raises ValueError when there is no such file under the world's runs or assets."""
         file = self._inside(world_id, path)
-        if not file.is_relative_to((self.world_folder(world_id) / "runs").resolve()):
-            raise ValueError(f"{path} is not a run file of this world")
+        world = self.world_folder(world_id).resolve()
+        if not any(file.is_relative_to(world / f) for f in ("runs", ASSETS)):
+            raise ValueError(f"{path} is not a run file or asset of this world")
         return file
+
+    def assets(self, world_id: str) -> list[str]:
+        """The world's assets, subfolders included, as paths relative to its folder."""
+        world = self.world_folder(world_id)
+        files = [p for p in (world / ASSETS).rglob("*") if p.is_file()]
+        return sorted(
+            str(p.relative_to(world))
+            for p in files
+            if not any(part.startswith(".") for part in p.relative_to(world).parts)
+        )
+
+    def add_asset(self, world_id: str, name: str, data: bytes) -> str:
+        """Write (or replace) the asset `name`, a plain file name. Returns its path relative to
+        the world folder. Raises ValueError for a name that is a path or a dotfile."""
+        if not _NAME.match(name):
+            raise ValueError(f"an asset needs a plain file name, got '{name}'")
+        folder = self.world_folder(world_id) / ASSETS
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+        return f"{ASSETS}/{name}"
 
     def library(self, world_id: str) -> list[ArtifactFile]:
         """The Library: every artifact of the world across its runs, newest first, gate

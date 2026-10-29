@@ -1,5 +1,5 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
@@ -10,6 +10,7 @@ type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["Workflow"];
 type Item = components["schemas"]["LibraryItem"];
 type StageDef = components["schemas"]["WorkflowModel"]["stages"][number];
+type Asset = components["schemas"]["Asset"];
 
 const ANY = "";
 type Filters = { type: string; workflow: string; stage: string; run: string; from: string; to: string };
@@ -104,6 +105,7 @@ export function Library() {
           </p>
         </div>
       </header>
+      <Assets worldId={worldId} />
       {error && <p role="alert">{error}</p>}
       {said && (
         <p role="status" className="ok">
@@ -224,6 +226,72 @@ export function Library() {
         </>
       )}
     </main>
+  );
+}
+
+const size = (bytes: number) =>
+  bytes < 1e6 ? `${Math.max(1, Math.round(bytes / 1e3))} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
+
+/** A file name the API takes: "Calm Bed (loop).mp3" becomes "Calm-Bed-loop-.mp3". */
+export const plainName = (name: string) => name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "");
+
+/** The world's assets folder: files the operator adds for any stage to use, never agents. */
+function Assets({ worldId }: { worldId: string }) {
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [seen, setSeen] = useState(0);
+
+  useEffect(() => {
+    api
+      .GET("/api/worlds/{world_id}/assets", { params: { path: { world_id: worldId } } })
+      .then(({ data }) => setAssets(data ?? []))
+      .catch(() => undefined);
+  }, [worldId, seen]);
+
+  async function upload(e: ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = "";
+    setBusy(true);
+    setError(null);
+    const failed: string[] = [];
+    for (const file of files) {
+      // the body is the file itself, which the typed client cannot send
+      const url = `/api/worlds/${encodeURIComponent(worldId)}/assets/${encodeURIComponent(plainName(file.name))}`;
+      const response = await globalThis.fetch(url, { method: "PUT", body: file }).catch(() => null);
+      if (!response?.ok) failed.push(file.name);
+    }
+    setBusy(false);
+    if (failed.length) setError(`Could not upload ${failed.join(", ")}. Try again.`);
+    setSeen((n) => n + 1);
+  }
+
+  return (
+    <section className="workflows" aria-label="Assets">
+      <div className="row">
+        <h2>Assets</h2>
+        <label className="button">
+          {busy ? "Uploading..." : "Upload files"}
+          <input type="file" multiple className="visually-hidden" disabled={busy} onChange={upload} aria-label="Upload files" />
+        </label>
+      </div>
+      <p className="faint">
+        Music beds, sound effects, logos: files any stage of this world can use. Agents read them and never change them.
+      </p>
+      {error && <p role="alert">{error}</p>}
+      {assets.length === 0 ? (
+        <p className="faint">No assets yet. Upload a file, or drop it into the world's assets folder.</p>
+      ) : (
+        <ul className="activity">
+          {assets.map((a) => (
+            <li key={a.path}>
+              <a href={`/api/worlds/${worldId}/files/${a.path}`}>{a.path.replace(/^assets\//, "")}</a>
+              <span className="faint">{size(a.bytes)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
