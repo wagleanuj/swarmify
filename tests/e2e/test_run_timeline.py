@@ -38,6 +38,7 @@ def test_start_a_run_and_watch_it_reach_its_gate_live(page: Page, base_url: str)
 
         page.get_by_role("navigation", name="Main").get_by_role("link", name="Runs").click()
         expect(page.get_by_test_id("run-list")).to_contain_text("needs you")
-        expect(page.get_by_test_id("run-list")).to_contain_text("1 of 3 stages")
+        # The row's time strip has a segment per stage.
+        expect(page.get_by_test_id("run-list").get_by_role("img")).to_have_count(3)
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
