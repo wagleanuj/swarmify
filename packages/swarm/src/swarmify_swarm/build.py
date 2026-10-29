@@ -32,6 +32,8 @@ ROLE: AgentRole = "worker"
 AGENT = "builder"
 MAX_TURNS, MINUTES = 80, 20.0
 """A build stage's defaults; its params `max_turns` and `minutes` override them."""
+VOICE_EXAMPLE = Path(__file__).with_name("voice_first.tsx")
+"""The spike's voice-first composition (2026-10-28), reading the speech connector's timings."""
 
 
 def sandbox(
@@ -120,10 +122,39 @@ def prompt(
         f" logos); copy what the video uses into public/: {', '.join(map(str, assets))}."
         if assets
         else "",
+        *(voice_first(t) for t in inputs if t.name == "timings.json"),
         *decisions,
         f"The operator's brief: {brief}" if brief else "",
     ]
     return "\n".join(line for line in lines if line)
+
+
+def voice_first(timings: Path) -> str:
+    """The build rules for narration the speech connector voiced into `timings`."""
+    return f"""The video is voice first: {timings} is the narration, one take per scene, and the
+picture follows the voice, never the other way round.
+- Copy {timings.name} into public/, and each take it names (`file`, relative to its folder, as
+  narration/hook.wav) to the same path under public/.
+- The voice sets the length: each line is a clip of its take from `cut_in` to `cut_out` (seconds),
+  placed after the previous line's clip and its pause, and the composition's durationInFrames
+  comes from that timeline, never a fixed number.
+- Each clip is an `<Audio src={{staticFile(take.file)}} trimBefore trimAfter>` (in frames) inside a
+  `<Sequence from durationInFrames>`. Never trim or stretch speech to fit a picture.
+- `pause_after` is the script's pause; scale the pauses for the style (shorter for a fast cut,
+  longer before a reveal). A line with `joined_next: true` runs into the next with no silence to
+  cut in: keep the two back to back, with no pause.
+- Captions are karaoke: each line's `words` are Remotion Captions (ms from the take's start, so
+  move them onto the timeline), paged per line with createTikTokStyleCaptions from
+  @remotion/captions (`npm install @remotion/captions` if the project lacks it) so a page never
+  crosses lines, the spoken word highlighted; words are inline-block spans with white-space: pre,
+  or their leading spaces vanish. Scaling the spoken word up covers the spaces beside it: pad it
+  sideways by what the scale adds, or highlight by colour alone.
+- Music: a bed from the world's assets, when it has one, under the whole video and ducked under
+  speech (about 0.45 between lines, 0.12 while a line plays). No bed, no music.
+A sample composition doing all this, to adapt to the script and the brief:
+```tsx
+{VOICE_EXAMPLE.read_text().strip()}
+```"""
 
 
 SYSTEM = """You are the builder of Swarmify: you write a Remotion (React) project that renders a

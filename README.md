@@ -374,6 +374,16 @@ builder's last log lines. Then the render runs as a `remotion_render` call on th
 lines), the video gets its sidecar and becomes the stage's artifact, and the build folder stays
 for a person to open, without its `node_modules` (`npm ci` brings them back).
 
+When one of `inputs` is a `timings.json` (the speech connector's, below), the brief turns voice
+first, as the spike on branch `spike/voice-first-video` proved: copy the timings and their takes
+into `public/`, take the composition's length from the voice timeline, play each line as a trimmed
+`<Audio>` in a `<Sequence>` spaced by its pause (scaled for the style, none after a
+`joined_next` line), page karaoke captions per line with `createTikTokStyleCaptions` and
+`white-space: pre`, and duck a music bed from the world's assets under speech. The prompt carries a
+sample composition doing all of it,
+`packages/swarm/src/swarmify_swarm/voice_first.tsx`, which a test type-checks in the starter. The
+starter ships `@remotion/captions`.
+
 The session's sandbox:
 
 - Bash runs in the Agent SDK's OS sandbox (Seatbelt on macOS, bubblewrap on Linux), with
