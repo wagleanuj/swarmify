@@ -1120,7 +1120,8 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    SWARMIFY_PORT=8000                         # optional: the host port
    ```
 
-   Compose refuses to start without the token or the password, naming the missing one.
+   The api and graph-writer containers refuse to start without the token or the password, naming
+   the missing one (`docker/needs.sh`); `docker compose up -d kokoro` alone needs neither.
 3. `docker compose up -d --build`, then open `http://<host>:8000` from any device on the LAN,
    phone included, and sign in. `docker compose logs -f` shows both services; the api container
    is healthy once `/api/health` answers (the only path open without the password).
