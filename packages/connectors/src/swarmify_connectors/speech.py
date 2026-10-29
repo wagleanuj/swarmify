@@ -33,6 +33,10 @@ SCRIPT: dict[str, Any] = {
     "type": "object",
     "description": "A voice-over script: scenes, each voiced as one take, of spoken lines.",
     "properties": {
+        "description": {
+            "type": "string",
+            "description": "One or two sentences describing the piece, used where it is published",
+        },
         "scenes": {
             "type": "array",
             "minItems": 1,
@@ -73,7 +77,7 @@ SCRIPT: dict[str, Any] = {
                 },
                 "required": ["id", "lines"],
             },
-        }
+        },
     },
     "required": ["scenes"],
 }
