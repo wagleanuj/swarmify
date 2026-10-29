@@ -17,7 +17,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("renders each gate kind with its own control and posts the decision", async () => {
+test("the queue opens the next decision after each answer and says what was decided", async () => {
   const bodies: Record<string, unknown> = {};
   const decision = (id: string) => async (req: Request) => {
     bodies[id] = await req.json();
@@ -26,25 +26,42 @@ test("renders each gate kind with its own control and posts the decision", async
   const calls = fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
     "GET /api/gates": () => Response.json(inbox),
+    "GET /api/worlds/world_1/runs": () =>
+      Response.json([run("running", [], { id: "run_7", name: "Nightly short" }), run("done", [], { id: "run_8", name: "Old one" })]),
     "POST /api/runs/run_1/decision": decision("run_1"),
     "POST /api/runs/run_2/decision": decision("run_2"),
     "POST /api/runs/run_3/decision": decision("run_3"),
   });
-  const { screen } = await mountAt("/gates");
+  const { router, screen } = await mountAt("/gates");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Needs you");
-  const list = screen.getByTestId("gate-list");
-  await expect.element(list).toMatchTextContent(/Publish it.*Weekly short.*Weekly short/);
+  await expect.element(screen.getByText(/3 decisions waiting, oldest .* ago\. Answering one opens the next\./)).toBeVisible();
   // One stream for every world: a stream per world exhausts the browser's six connections.
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events?since=now"]);
+  const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
+  await expect
+    .element(queue)
+    .toMatchTextContent(/Video.*ago.*Confirm before it goes out.*Publish it.*Review and approve.*Weekly short.*Pick an idea.*Weekly short/);
+  // The open decision is the first, and carries the selection line.
+  await expect.element(queue.getByRole("link", { name: /Publish it/ })).toHaveAttribute("aria-current");
+  await expect.element(screen.getByTestId("gate-run_2")).not.toBeInTheDocument();
 
-  const pick = screen.getByTestId("gate-run_1");
-  await expect.element(pick).toMatchTextContent(/Pick one idea\./);
-  await pick.getByLabelText("Your pick").fill("idea 2");
-  await pick.getByLabelText("Note (optional)").fill("Less text on screen.");
-  await pick.getByRole("button", { name: "Continue with this pick" }).click();
-  await vi.waitFor(() => expect(bodies.run_1).toEqual({ choice: "idea 2", note: "Less text on screen." }));
-
+  const confirm = screen.getByTestId("gate-run_3");
+  await expect.element(confirm).toMatchTextContent(/Nothing goes out until you confirm\./);
+  await confirm.getByRole("button", { name: "Confirm" }).click();
+  await vi.waitFor(() => expect(bodies.run_3).toEqual({ note: "" }));
+  // The next one opens, a line says what was just decided, and both live in the address.
   const approve = screen.getByTestId("gate-run_2");
+  await expect.element(approve).toBeVisible();
+  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You confirmed it at .*\./);
+  await expect
+    .element(screen.getByTestId("answered").getByRole("link", { name: "Open that run" }))
+    .toHaveAttribute("href", "/worlds/world_1/runs/run_3");
+  expect(router.state.location.search).toEqual({ gate: "s2", done: "s3" });
+  // Answered items sort last, dimmed.
+  await expect.element(queue).toMatchTextContent(/Review and approve.*Pick an idea.*Answered.*Publish it/);
+  await expect.element(queue.getByRole("link", { name: /Publish it/ })).toHaveClass("done");
+  await expect.element(queue.getByRole("link", { name: /Review and approve/ })).toHaveAttribute("aria-current");
+
   await expect.element(approve).toMatchTextContent(/1 of 5 revisions left/);
   await approve.getByRole("button", { name: "Send back..." }).click();
   await expect.element(approve.getByLabelText(/Send back to/)).toHaveValue("script");
@@ -54,14 +71,55 @@ test("renders each gate kind with its own control and posts the decision", async
   await vi.waitFor(() =>
     expect(bodies.run_2).toEqual({ note: "Too much text.", send_back_to: "research" }),
   );
+  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You sent it back to research at/);
 
-  const confirm = screen.getByTestId("gate-run_3");
-  await expect.element(confirm).toMatchTextContent(/Nothing goes out until you confirm\./);
-  await confirm.getByRole("button", { name: "Confirm" }).click();
-  await vi.waitFor(() => expect(bodies.run_3).toEqual({ note: "" }));
+  const pick = screen.getByTestId("gate-run_1");
+  await expect.element(pick).toMatchTextContent(/Pick one idea\./);
+  await pick.getByLabelText("Your pick").fill("idea 2");
+  await pick.getByLabelText("Note (optional)").fill("Less text on screen.");
+  await pick.getByRole("button", { name: "Continue with this pick" }).click();
+  await vi.waitFor(() => expect(bodies.run_1).toEqual({ choice: "idea 2", note: "Less text on screen." }));
+  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You picked "idea 2" at/);
+
+  // An empty queue says so and lists the runs still moving.
+  const empty = screen.getByTestId("no-gates");
+  await expect.element(empty).toMatchTextContent(/Nothing is waiting on you/);
+  await expect.element(empty.getByRole("link", { name: "Nightly short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_7");
+  await expect.element(empty.getByRole("link", { name: "Old one" })).not.toBeInTheDocument();
   // Each answer hides its card at once, without refetching before the run moves.
-  await expect.element(screen.getByTestId("no-gates")).toBeInTheDocument();
   expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
+});
+
+test("a world filter scopes the queue, and a queue item opens its gate", async () => {
+  const music = { ...video, id: "world_2", name: "Music" };
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video, music]),
+    "GET /api/gates": () => Response.json([inbox[0]!, { ...inbox[1]!, world_id: "world_2", run_name: "Album teaser" }]),
+  });
+  const { router, screen } = await mountAt("/gates");
+  const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
+  await expect.element(queue).toMatchTextContent(/Publish it.*Music.*Album teaser/);
+  await queue.getByRole("link", { name: /Album teaser/ }).click();
+  await expect.element(screen.getByTestId("gate-run_2")).toBeVisible();
+  expect(router.state.location.search).toEqual({ gate: "s2" });
+
+  await screen.getByRole("combobox", { name: /^World/ }).selectOptions("Video");
+  await expect.element(queue).not.toMatchTextContent(/Album teaser/);
+  await expect.element(screen.getByTestId("gate-run_3")).toBeVisible();
+  expect(router.state.location.search).toEqual({ world: "world_1" });
+  await expect.element(screen.getByText(/^One decision waiting/)).toBeVisible();
+});
+
+test("the world overview's Answer opens the gate itself", async () => {
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/gates": () => Response.json([inbox[1]!, { ...inbox[0]!, world_id: "world_2" }]),
+  });
+  const { router, screen } = await mountAt("/worlds/world_1");
+  await screen.getByTestId("needs-you").getByRole("link", { name: "Answer" }).click();
+  await expect.element(screen.getByTestId("gate-run_2")).toBeVisible();
+  expect(router.state.location.search).toEqual({ world: "world_1", gate: "s2" });
 });
 
 test("approve without revisions left says so, and a refused decision is an alert", async () => {
@@ -87,14 +145,11 @@ test("the inbox refetches when a run moves, and says what it is for when empty",
     "GET /api/gates": () => Response.json(open),
   });
   const { screen } = await mountAt("/gates");
-  await expect.element(screen.getByTestId("gate-list")).toMatchTextContent(/Publish it/);
+  await expect.element(screen.getByTestId("queue")).toMatchTextContent(/Publish it/);
   open = [];
   FakeEventSource.emit("run.updated", { payload: run("done", []) });
-  await expect.element(screen.getByTestId("no-gates")).toMatchTextContent(/Nothing is waiting on you/);
+  await expect.element(screen.getByTestId("no-gates")).toMatchTextContent(/Nothing is waiting on you.*No runs are moving\./);
   expect(calls.filter((c) => c === "GET /api/gates").length).toBeGreaterThanOrEqual(2);
-  await expect
-    .element(screen.getByRole("link", { name: "See your worlds" }))
-    .toHaveAttribute("href", "/");
 });
 
 test("a gate before a publish stage shows exactly what goes out, and refuses when it cannot", async () => {
@@ -152,15 +207,17 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
     ]),
   );
 
+  const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
+  await queue.getByRole("link", { name: /Weekly short/ }).first().click();
   const broken = screen.getByTestId("gate-run_2");
   await expect.element(broken).toMatchTextContent(/Upload-Post to tiktok/);
   await expect.element(broken).toMatchTextContent(/Now, as soon as you confirm/);
   await expect.element(broken.getByRole("alert")).toMatchTextContent(/This will not post:.*needs params\.user/);
   await expect.element(broken.getByRole("button", { name: "Confirm and post" })).toBeDisabled();
+  await queue.getByRole("link", { name: /Review and approve/ }).click();
   const approve = screen.getByTestId("gate-run_3");
   await expect.element(approve.getByRole("alert")).toMatchTextContent(/needs params\.title/);
   await expect.element(approve.getByRole("button", { name: "Approve" })).toBeDisabled();
-  await expect.element(card).not.toBeInTheDocument();
   expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });
 
@@ -293,11 +350,15 @@ test("a pick gate offers the earlier stage's cards and an approve gate plays the
     "POST /api/runs/run_1/decision": decision("run_1"),
     "POST /api/runs/run_2/decision": decision("run_2"),
   });
-  const { screen } = await mountAt("/gates");
+  const { screen } = await mountAt("/gates?gate=s1");
 
   const pick = screen.getByTestId("gate-run_1");
   const cards = pick.getByTestId("pick-card");
-  await expect.element(cards.first()).toMatchTextContent(/Erlich's #1 of 2.*Hook first.*Wait for it.*Why: Hooks win\./);
+  // A ranked list: rank, title and hook, the judge's reasoning folded into a disclosure.
+  await expect.element(cards.first()).toMatchTextContent(/Erlich's #1 of 2.*Hook first.*Wait for it.*Why it ranked here/);
+  await expect.element(cards.first().getByText("Why: Hooks win.")).not.toBeVisible();
+  await cards.first().getByText("Why it ranked here").click();
+  await expect.element(cards.first().getByText("Why: Hooks win.")).toBeVisible();
   await expect.element(cards.nth(1)).toMatchTextContent(/#2 of 2.*The chase/);
   await expect.element(pick.getByLabelText("Your pick")).not.toBeInTheDocument();
   expect(queries).toEqual(["?before=1"]);

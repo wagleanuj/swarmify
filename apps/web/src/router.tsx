@@ -32,6 +32,11 @@ export const gatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/gates",
   component: Gates,
+  // The open gate, the one just answered and the world filter live in the address.
+  validateSearch: (search: Record<string, unknown>): { gate?: string; done?: string; world?: string } =>
+    Object.fromEntries(
+      (["gate", "done", "world"] as const).flatMap((k) => (typeof search[k] === "string" ? [[k, search[k]]] : [])),
+    ),
 });
 
 export const evalsRoute = createRoute({
