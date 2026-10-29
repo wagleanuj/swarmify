@@ -21,6 +21,11 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run python tools/check_imports.py packages
+      # bubblewrap sandboxes the render of an agent-written project (remotion_build); Ubuntu
+      # keeps unprivileged user namespaces, which it needs, behind AppArmor by default.
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: uv run pytest
 
   web:

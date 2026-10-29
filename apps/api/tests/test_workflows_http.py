@@ -331,7 +331,7 @@ stages:
             "swarm_binary",
             "build video",
             "only a connector stage can make video.mp4: swarm agents write text, so produce a"
-            " script here and render it in a remotion_render stage",
+            " script here and build the video from it in a remotion_build stage",
         ),
         ("connector_params", "render", "the Remotion project /nowhere/at/all does not exist"),
         (

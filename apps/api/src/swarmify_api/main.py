@@ -11,6 +11,7 @@ app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` turns on b
 import asyncio
 import logging
 import os
+import shutil
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, closing, suppress
@@ -53,6 +54,7 @@ from swarmify_connectors import (
     Credentials,
     McpTransport,
     publish,
+    remotion,
 )
 from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
@@ -87,7 +89,7 @@ from swarmify_runs import (
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
-from swarmify_swarm import AgentRuntime, CastEntry, SdkRuntime, Stopped, Swarm
+from swarmify_swarm import AgentRuntime, CastEntry, SdkRuntime, Stopped, Swarm, build
 from swarmify_swarm import SqliteStorage as TaskStorage
 from swarmify_swarm.sdk import PRICES, default_model
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
@@ -371,7 +373,68 @@ def create_app(
     channels = notification_service(root)
     learning_svc = learning_service(root)
 
+    def build_stage(run: Run, stage_id: str, stage: StageDef) -> None:
+        """`remotion_build` (ADR 0018): seed `<stage>/build/` from the template `base` or the
+        starter, run one sandboxed coding session in it (swarmify_swarm.build), then render
+        its composition through `remotion_render` like any render stage, sandboxed because the
+        project lies under a world (remotion.built). A call already rendering or done for this
+        visit skips the session, so a restart resumes the render. The folder stays, without
+        its node_modules once the video is out, for a person to open."""
+        folder = world_svc.folder(run.world_id)
+        output = stage.config.get("output") or "video.mp4"
+        config = with_files(folder, run, stage_id, {**stage.config, "output": output})
+        params = config["params"]
+        if "input_path" not in params:
+            raise ConnectorError("remotion_build needs an input, the script")
+        project = folder / "runs" / run.id / stage_id / "build"
+        composition = str(params.get("composition") or "Main")
+        call = registry.call_for(stage_id)
+        if call is None or call.visit != run.send_backs or call.status == "failed":
+            try:
+                remotion.seed(project, params.get("base"), root)
+                limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
+            except ValueError as exc:
+                raise ConnectorError(str(exc)) from exc
+            world = world_svc.get(run.world_id)
+            cache = root / "npm-cache"
+            secrets = registry.secret_names(run.world_id) + ["SWARMIFY_PASSWORD"]
+            try:
+                swarm.build(
+                    run.world_id,
+                    run.id,
+                    stage_id,
+                    stage.name,
+                    folder,
+                    project,
+                    Path(params["input_path"]),
+                    composition=composition,
+                    brief=str(params.get("brief") or ""),
+                    sandbox=build.sandbox(project, folder, root, cache, secrets),
+                    env={**dict.fromkeys(secrets, ""), "npm_config_cache": str(cache)},
+                    data_dir=root,
+                    model=params.get("model") or (world.model_for("worker") if world else None),
+                    max_turns=int(limits.get("max_turns", build.MAX_TURNS)),
+                    minutes=limits.get("minutes", build.MINUTES),
+                )
+            except Stopped as exc:
+                raise OverBudget(str(exc)) from exc
+        keep = ("input_path", "output_path", "frontmatter")
+        render = {
+            "calls": "remotion_render",
+            "output": output,
+            "params": {
+                "project": str(project),
+                "composition": composition,
+                **{k: params[k] for k in keep},
+            },
+        }
+        registry.run_stage(run.world_id, run.id, stage_id, render, run.send_backs)
+        memory.record(run.world_id, run.id, stage_id, "remotion_build", Path(params["output_path"]))
+        shutil.rmtree(project / "node_modules", ignore_errors=True)
+
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
+        if stage.config.get("calls") == "remotion_build":
+            return build_stage(run, stage_id, stage)
         shown = registry.publish_preview(run.world_id, stage.config)
         if shown is None:
             folder = world_svc.folder(run.world_id)

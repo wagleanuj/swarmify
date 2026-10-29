@@ -3,6 +3,7 @@ fake Remotion CLI on PATH. `SWARMIFY_REMOTION_PROJECT` opts in to one real rende
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from contextlib import closing
@@ -11,7 +12,14 @@ from typing import Any
 
 import pytest
 
-from swarmify_connectors import BUILTINS, ConnectorError, Connectors, McpTransport, SqliteStorage
+from swarmify_connectors import (
+    BUILTINS,
+    ConnectorError,
+    Connectors,
+    McpTransport,
+    SqliteStorage,
+    remotion,
+)
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.remotion import alive, progress
 from swarmify_kernel.events import read_after
@@ -248,3 +256,100 @@ def test_a_saved_render_stage_names_its_project_and_composition(
     ]
     (tmp_path / "remotion" / "shorts").mkdir(parents=True)
     assert connectors.stage_problems(W, {**render, "params": named}) == []
+
+
+def _built(tmp_path: Path, fake_npx: Path, db: Path) -> tuple[Connectors, dict, Path]:
+    """A render stage of a project a build stage wrote: under the data directory's worlds. The
+    data directory is `data`, so the fake CLI in tmp_path/bin stays readable."""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / ".env").write_text("YOUTUBE_CLIENT_SECRET=s3cret\n")
+    (data / ".env").chmod(0o600)
+    connectors = Connectors(SqliteStorage(db), McpTransport(), Credentials(data / ".env"), 0.05)
+    project = data / "worlds/world_1/runs/run_1/stage_2/build"
+    project.parent.mkdir(parents=True)
+    fake_npx.rename(project)
+    shell = tmp_path / "bin" / "chrome-headless-shell"  # as in the image: nothing to download
+    shell.write_text("#!/bin/sh\n")
+    shell.chmod(0o755)
+    config = stage(tmp_path, project, "Snoop")
+    config["params"]["output_path"] = str(project.parent / "artifacts/video.mp4")
+    return connectors, config, project
+
+
+@pytest.mark.skipif(
+    not (shutil.which("sandbox-exec") or shutil.which("bwrap")), reason="no OS sandbox here"
+)
+def test_a_built_project_renders_in_a_sandbox_it_cannot_leave(
+    tmp_path: Path, db: Path, fake_npx: Path
+) -> None:
+    connectors, config, project = _built(tmp_path, fake_npx, db)
+    assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
+    rendered = json.loads(Path(config["params"]["output_path"]).read_text())
+    snooped = rendered["snooped"]
+    assert set(snooped) == {"read_keys", "write_outside", "network"}
+    assert all(v.startswith("refused") for v in snooped.values()), snooped
+    assert not (tmp_path / "data/planted.txt").exists()
+    assert rendered["browser"] == str(tmp_path / "bin" / "chrome-headless-shell")
+
+
+def test_a_built_project_is_never_installed_outside_the_sandbox(
+    tmp_path: Path, db: Path, fake_npx: Path
+) -> None:
+    """Its package.json is the agent's: `npm install` would run the agent's scripts."""
+    connectors, config, project = _built(tmp_path, fake_npx, db)
+    (project / "node_modules").rmdir()
+    with pytest.raises(ConnectorError, match="the build left no node_modules"):
+        connectors.run_stage(W, "run_1", "stage_2", config)
+    assert not (project / "node_modules").exists()
+
+
+def test_with_no_sandbox_a_built_project_does_not_render(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(remotion.shutil, "which", lambda _: None)
+    with pytest.raises(OSError, match="install bubblewrap"):
+        remotion.sandboxed(["npx"], tmp_path / "p", tmp_path / "o/v.mp4", tmp_path)
+
+
+def test_a_build_is_seeded_from_the_starter_or_a_template_by_name(tmp_path: Path) -> None:
+    folder = tmp_path / "worlds/w/runs/r/s/build"
+    remotion.seed(folder, None, tmp_path)
+    assert "registerRoot" in (folder / "src/index.ts").read_text()
+    assert 'id="Main"' in (folder / "src/Root.tsx").read_text()
+    assert (folder / "package-lock.json").is_file()
+
+    shorts = tmp_path / "remotion/shorts"
+    (shorts / "node_modules/x").mkdir(parents=True)
+    (shorts / "src").mkdir()
+    (shorts / "src/index.ts").write_text("// shorts")
+    remotion.seed(folder, "shorts", tmp_path)  # a fresh folder each time
+    assert (folder / "src/index.ts").read_text() == "// shorts"
+    assert not (folder / "node_modules").exists() and not (folder / "src/Root.tsx").exists()
+    for base in ("../shorts", str(shorts), "nope"):
+        with pytest.raises(ValueError):
+            remotion.seed(folder, base, tmp_path)
+
+
+def test_a_saved_build_stage_names_its_script_and_an_existing_template(
+    tmp_path: Path, connectors: Connectors
+) -> None:
+    build = {"calls": "remotion_build", "output": "video.mp4"}
+    assert connectors.stage_problems(W, build) == ["remotion_build needs an input, the script"]
+    build["input"] = "script.md"
+    assert connectors.stage_problems(W, build) == []
+    assert connectors.stage_problems(W, {**build, "params": {"base": "/etc"}}) == [
+        f"base must be a template name under {tmp_path / 'remotion'}, not a path"
+    ]
+    assert connectors.stage_problems(W, {**build, "params": {"base": "shorts"}}) == [
+        f"the Remotion template shorts does not exist in {tmp_path / 'remotion'}"
+    ]
+
+
+def test_secret_names_cover_the_file_and_every_declared_key(
+    tmp_path: Path, connectors: Connectors
+) -> None:
+    (tmp_path / ".env").write_text("OTHER_KEY=x\n")
+    (tmp_path / ".env").chmod(0o600)
+    names = connectors.secret_names(W)
+    assert {"OTHER_KEY", "YOUTUBE_REFRESH_TOKEN", "UPLOAD_POST_API_KEY"} <= set(names)

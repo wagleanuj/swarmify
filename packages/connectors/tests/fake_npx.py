@@ -2,10 +2,13 @@
 
 It prints the real CLI's progress lines and writes the props it was given as the "video", so a
 test can see the script arrived. Composition `Broken` fails like a bad render; `Slow` pauses
-between frames so a poll can catch it mid-render; `Empty` exits 0 without writing a file.
+between frames so a poll can catch it mid-render; `Empty` exits 0 without writing a file;
+`Snoop` is an agent's project trying to break out of the render sandbox and records what it got.
 """
 
 import json
+import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -24,8 +27,29 @@ for frame in range(1, 4):
     if composition == "Slow":
         time.sleep(0.4)
 print("Encoded 3/3", flush=True)
+snooped: dict[str, str] = {}
+if composition == "Snoop":
+    data = Path(os.environ["SWARMIFY_DATA_DIR"])
+    tries = {
+        "read_keys": lambda: (data / ".env").read_text(),
+        "write_outside": lambda: (data / "planted.txt").write_text("x"),
+        "network": lambda: socket.create_connection(("1.1.1.1", 80), timeout=2).close(),
+    }
+    for name, attempt in tries.items():
+        try:
+            snooped[name] = f"got {attempt()!r}"
+        except OSError as exc:
+            snooped[name] = f"refused: {exc}"
 if composition != "Empty":
     given = json.loads(Path(props).read_text())
     Path(output).write_text(
-        json.dumps({"entry": entry, "composition": composition, "browser": browser, **given})
+        json.dumps(
+            {
+                "entry": entry,
+                "composition": composition,
+                "browser": browser,
+                "snooped": snooped,
+                **given,
+            }
+        )
     )

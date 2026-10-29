@@ -162,13 +162,13 @@ class AgentTool:
 @dataclass(frozen=True)
 class SessionSpec:
     """One agent session. `plugin` is the world folder, loaded as a local plugin with host
-    settings off (ADR 0016); `resume` is the session id a replacement agent continues.
-    `allowed` lists the tools the stage allows: exact names, or a `prefix*`."""
+    settings off (ADR 0016), or None for none; `resume` is the session id a replacement agent
+    continues. `allowed` lists the tools the stage allows: exact names, or a `prefix*`."""
 
     system_prompt: str
     prompt: str
     cwd: Path
-    plugin: Path
+    plugin: Path | None
     tools: list[AgentTool]
     allowed: list[str]
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -179,6 +179,11 @@ class SessionSpec:
     """A JSON schema the session's final answer must follow (structured output)."""
     model: str | None = None
     """The model to run on; None leaves it to the runtime's default."""
+    sandbox: dict[str, Any] | None = None
+    """The OS sandbox of the session's Bash, in the Agent SDK's `SandboxSettings` shape (plus
+    the CLI's `filesystem` and `credentials` rules); None runs Bash, when allowed, unsandboxed."""
+    env: dict[str, str] = field(default_factory=dict)
+    """Over the inherited environment; an empty value blanks an inherited variable."""
 
 
 @dataclass(frozen=True)

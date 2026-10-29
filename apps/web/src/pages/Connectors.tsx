@@ -18,6 +18,7 @@ export const LABEL: Record<string, string> = {
   web_search: "Web search",
   graph: "Middle-out",
   remotion_render: "Remotion render",
+  remotion_build: "Remotion build",
   youtube: "YouTube",
   upload_post: "Upload-Post",
 };
@@ -43,7 +44,8 @@ export function parseKeys(text: string): Record<string, string> {
 
 function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
   if (c.missing.length > 0) return { text: `${c.missing.join(", ")} missing`, tone: "warn" };
-  if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url) {
+  // remotion_build runs inside swarmify (a session, then the render), so it has no server
+  if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && c.name !== "remotion_build") {
     return { text: "not installed", tone: "off" };
   }
   return { text: "ready", tone: "ok" };

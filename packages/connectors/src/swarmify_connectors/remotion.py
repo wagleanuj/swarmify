@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -36,6 +37,8 @@ TAIL = 40
 _STEP = re.compile(r"^(Rendered|Encoded) (\d+)/(\d+)", re.M)
 
 mcp = MCPServer("remotion_render")
+STARTER = Path(__file__).with_name("remotion_starter")
+"""The minimal Remotion project a build starts from when it names no template."""
 
 
 def _now() -> str:
@@ -46,6 +49,26 @@ def project_folder(project: str, data_dir: Path) -> Path:
     """A relative project is a template by name under `<data dir>/remotion/`."""
     path = Path(project).expanduser()
     return path if path.is_absolute() else data_dir / "remotion" / path
+
+
+def template(base: str, data_dir: Path) -> Path:
+    """A build's `base`: a template by bare name under `<data dir>/remotion/`, never a path,
+    since whatever it names is copied where the agent can read it. Raises ValueError."""
+    if Path(base).name != base or base in (".", ".."):
+        raise ValueError(f"base must be a template name under {data_dir / 'remotion'}, not a path")
+    folder = data_dir / "remotion" / base
+    if not folder.is_dir():
+        raise ValueError(f"the Remotion template {base} does not exist in {folder.parent}")
+    return folder
+
+
+def seed(folder: Path, base: str | None, data_dir: Path) -> None:
+    """A fresh build folder: a copy of the template `base` (see `template`), or of the starter,
+    without its node_modules or git history."""
+    source = template(base, data_dir) if base else STARTER
+    if folder.exists():
+        shutil.rmtree(folder)
+    shutil.copytree(source, folder, ignore=shutil.ignore_patterns("node_modules", ".git"))
 
 
 def _data_dir() -> Path:
@@ -234,33 +257,163 @@ def _sidecar(state: dict[str, Any], size: int) -> Path:
     return path
 
 
+def built(project: Path, data_dir: Path) -> bool:
+    """A project under the data directory's `worlds/` folder was written by an agent (a
+    `remotion_build` stage), so its code is untrusted."""
+    return project.resolve().is_relative_to((data_dir / "worlds").resolve())
+
+
+def _free_port() -> int:
+    """Remotion's own port probe misses a server listening on IPv6 only and then renders that
+    server's page; a port the OS just handed out is free on both."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _browser(data_dir: Path) -> tuple[list[list[str]], Path]:
+    """Chrome Headless Shell for a sandboxed render, which has no network to download its own:
+    the one on PATH (the Docker image's), else one Remotion downloads once into
+    `<data dir>/chrome` from the starter's pinned packages. Returns the steps still needed (run
+    in that folder, outside the sandbox: our own code, not the agent's) and the folder."""
+    folder = data_dir / "chrome"
+    if shutil.which("chrome-headless-shell") or (folder / "node_modules" / ".remotion").is_dir():
+        return [], folder
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in ("package.json", "package-lock.json"):
+        shutil.copy(STARTER / name, folder / name)
+    cache = f"--cache={data_dir / 'npm-cache'}"
+    install = ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund", cache]
+    return [install, ["npx", "--no", "remotion", "browser", "ensure"]], folder
+
+
+def _shell(folder: Path) -> str:
+    on_path = shutil.which("chrome-headless-shell")
+    if on_path:
+        return on_path
+    found = [
+        p
+        for p in (folder / "node_modules" / ".remotion").rglob("*")
+        if p.name in ("chrome-headless-shell", "headless_shell") and p.is_file()
+    ]
+    if not found:
+        raise FileNotFoundError(f"no Chrome Headless Shell under {folder}")
+    return str(found[0])
+
+
+def _seatbelt(data_dir: Path, readable: list[Path], writable: list[Path]) -> str:
+    def paths(kind: str, folders: list[Path]) -> str:
+        return " ".join(f"({kind} {json.dumps(str(f.resolve()))})" for f in folders)
+
+    # ponytail: allow-default with the escapes we know denied (network, the data directory,
+    # writes, other processes, Apple Events, Launch Services); a deny-default profile like the
+    # Agent SDK's breaks Chrome, which must register Mach services.
+    return "\n".join(
+        [
+            "(version 1)",
+            "(allow default)",
+            "(deny network*)",
+            '(allow network-bind network-inbound (local ip "localhost:*"))',
+            '(allow network-outbound (remote ip "localhost:*"))',
+            f"(deny file-read-data (subpath {json.dumps(str(data_dir.resolve()))}))",
+            f"(allow file-read-data {paths('subpath', readable)})",
+            '(deny file-write* (subpath "/"))',
+            '(allow file-write* (subpath "/private/tmp") (subpath "/private/var/folders")'
+            ' (literal "/dev/null") (subpath "/dev/fd") (literal "/dev/tty")'
+            ' (literal "/dev/dtracehelper"))',
+            f"(deny file-write* (subpath {json.dumps(str(data_dir.resolve()))}))",
+            f"(allow file-write* {paths('subpath', writable)})",
+            "(deny process-info*)",  # other processes' arguments and environment
+            "(allow process-info* (target same-sandbox))",
+            "(deny appleevent-send)",
+            "(deny lsopen)",
+            '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd")'
+            ' (global-name "com.apple.coreservices.appleevents"))',
+        ]
+    )
+
+
+def sandboxed(argv: list[str], project: Path, output: Path, data_dir: Path) -> list[str]:
+    """`argv` inside the OS sandbox an agent-written project renders in: no network beyond
+    loopback, nothing of the data directory readable but the project, the output's folder and
+    the shared browser, nothing writable but the project, the output's folder and temp. Raises
+    OSError where neither sandbox-exec (macOS) nor bwrap (Linux) is available."""
+    readable = [project, output.parent, data_dir / "chrome"]
+    writable = [project, output.parent]
+    if sys.platform == "darwin" and shutil.which("sandbox-exec"):
+        return ["sandbox-exec", "-p", _seatbelt(data_dir, readable, writable), *argv]
+    if shutil.which("bwrap"):
+        binds = [a for f in writable for a in ("--bind", str(f.resolve()), str(f.resolve()))]
+        browser = (data_dir / "chrome").resolve()
+        if browser.is_dir():
+            binds += ["--ro-bind", str(browser), str(browser)]
+        return [
+            "bwrap", "--die-with-parent", "--unshare-all", "--ro-bind", "/", "/",
+            "--dev", "/dev", "--proc", "/proc", "--bind", "/tmp", "/tmp",
+            "--tmpfs", str(data_dir.resolve()), *binds, "--remount-ro", str(data_dir.resolve()),
+            "--chdir", str(project.resolve()),
+            "--", *argv,
+        ]  # fmt: skip
+    raise OSError("no sandbox to render an agent's project in: install bubblewrap (bwrap)")
+
+
 def run_job(job: Path) -> None:
-    """The detached render: run the CLI, then record done (with a sidecar) or failed."""
+    """The detached render: run the CLI, then record done (with a sidecar) or failed. A built
+    project (`built`) never installs and renders inside `sandboxed`."""
     state = _read(job)
     output = Path(state["output"])
     project = Path(state["project"])
-    # ponytail: two first renders of one template at once both install; a lock if that bites.
-    lock = (project / "package-lock.json").is_file()
-    steps = [] if (project / "node_modules").is_dir() else [["npm", "ci" if lock else "install"]]
+    data_dir = _data_dir()
+    render = [*state["argv"], f"--port={_free_port()}"]
+    steps: list[tuple[list[str], Path]] = []
     code = 0
     with open(state["log"], "w") as log:
-        for argv in [*steps, state["argv"]]:
-            name = " ".join(argv[:2]) if argv[0] == "npm" else "remotion render"
-            try:
-                code = subprocess.run(
-                    argv, cwd=project, stdout=log, stderr=subprocess.STDOUT
-                ).returncode
-            except OSError as exc:
-                code, state["error"] = -1, f"could not start {name}: {exc}"
-            if code != 0:
-                state.setdefault("error", f"{name} exited with {code}")
-                break
+        if built(project, data_dir):
+            if not (project / "node_modules").is_dir():
+                code, state["error"] = -1, "the build left no node_modules: run npm install in it"
+            else:
+                install, folder = _browser(data_dir)
+                steps = [(argv, folder) for argv in install]
+                code = _steps(steps, log, state)
+                try:
+                    if code == 0:
+                        render = [a for a in render if not a.startswith("--browser-executable=")]
+                        render.append(f"--browser-executable={_shell(folder)}")
+                        render = sandboxed(render, project, output, data_dir)
+                except OSError as exc:
+                    code, state["error"] = -1, str(exc)
+        else:
+            # ponytail: two first renders of one template at once both install; a lock if that
+            # bites.
+            lock = (project / "package-lock.json").is_file()
+            if not (project / "node_modules").is_dir():
+                steps = [(["npm", "ci" if lock else "install"], project)]
+            code = _steps(steps, log, state)
+        if code == 0:
+            code = _steps([(render, project)], log, state, "remotion render")
     if code == 0 and output.is_file() and output.stat().st_size > 0:
         size = output.stat().st_size
         state = {**state, "status": "done", "bytes": size, "sidecar": str(_sidecar(state, size))}
     else:
         state = {"error": "remotion render wrote no video", **state, "status": "failed"}
     _write(job, {**state, "ended": _now()})
+
+
+def _steps(
+    steps: list[tuple[list[str], Path]], log: Any, state: dict[str, Any], name: str = ""
+) -> int:
+    """Run each command in its folder, its output in the log, until one fails; that one's
+    error lands in `state`."""
+    for argv, cwd in steps:
+        what = name or " ".join(argv[:2])
+        try:
+            code = subprocess.run(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT).returncode
+        except OSError as exc:
+            code, state["error"] = -1, f"could not start {what}: {exc}"
+        if code != 0:
+            state.setdefault("error", f"{what} exited with {code}")
+            return code
+    return 0
 
 
 if __name__ == "__main__":

@@ -22,11 +22,14 @@ FROM debian:bookworm-slim
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=3.12.15 UV_PYTHON_PREFERENCE=only-managed \
     UV_PYTHON_INSTALL_DIR=/opt/python PATH="/app/.venv/bin:$PATH"
-# Chrome's shared libraries, as Remotion's Docker guide lists them for Debian
+# Chrome's shared libraries, as Remotion's Docker guide lists them for Debian; bubblewrap and
+# socat for the sandbox of the remotion_build stage (the Agent SDK's for its Bash, ours for the
+# render)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev \
     libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
     fonts-noto-core fonts-noto-color-emoji \
+    bubblewrap socat \
   && rm -rf /var/lib/apt/lists/*
 # Node and npx for the Remotion render connector (`npx remotion render`)
 COPY --from=web /usr/local/bin/node /usr/local/bin/node

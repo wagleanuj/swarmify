@@ -22,6 +22,7 @@ with the world it came from.
 
 import asyncio
 import json
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -29,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
+from swarmify_swarm import build as builds
 from swarmify_swarm.model import AgentRole, Refused, Task, Verdict
 from swarmify_swarm.ports import (
     AgentRuntime,
@@ -620,6 +622,64 @@ class Swarm:
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         return self._short(at, name, "judge", prompt, schema, parse, system)
 
+    def build(
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        stage_name: str,
+        world_folder: Path,
+        folder: Path,
+        script: Path,
+        *,
+        composition: str,
+        brief: str,
+        sandbox: dict[str, Any],
+        env: dict[str, str],
+        data_dir: Path,
+        model: str | None = None,
+        max_turns: int = builds.MAX_TURNS,
+        minutes: float = builds.MINUTES,
+    ) -> None:
+        """One sandboxed coding session writing the Remotion project in `folder` (see build.py),
+        with the run's gate decisions as required reading. Logged, costed and budgeted like any
+        agent, as `builder`, whose closing summary ends the stage log. Raises StageError, with the
+        builder's last log lines, when two sessions fail or time runs out; Stopped when the
+        run's Budget stopped it."""
+        cast = (CastEntry(builds.AGENT, builds.ROLE, model=model),)
+        at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
+        decisions = _decisions(world_folder, run_id)
+        hooks = _BuildHooks(
+            self.board, stage_id, builds.AGENT, builds.TOOLS, world_folder,
+            lambda: self.budget(run_id), graph_first=False, clock=self.clock,
+        )  # fmt: skip
+        hooks.folder, hooks.data_dir = folder, data_dir
+
+        def spec(resume: str | None) -> SessionSpec:
+            return SessionSpec(
+                system_prompt=builds.SYSTEM,
+                prompt=builds.prompt(script, composition, brief, decisions),
+                cwd=folder,
+                # No skills plugin: Claude Code refuses Write and Edit inside a plugin folder,
+                # and the build folder lies inside the world folder.
+                plugin=None,
+                tools=[],
+                allowed=builds.TOOLS,
+                resume=resume,
+                max_turns=max_turns,
+                model=model,
+                sandbox=sandbox,
+                env=env,
+            )
+
+        try:
+            self._session(
+                at, builds.AGENT, builds.ROLE, spec, builds.TOOLS, lambda _: None,
+                fresh=True, hooks=hooks, timeout=minutes * 60,
+            )  # fmt: skip
+        except StageError as exc:
+            raise StageError(f"{exc}\n{builds.last_lines(self.board, stage_id)}") from exc
+
     def _short(
         self,
         at: "_At",
@@ -670,18 +730,21 @@ class Swarm:
         allowed: list[str],
         parse: Callable[[Any], T],
         fresh: bool = False,
+        hooks: "_Hooks | None" = None,
+        timeout: float | None = None,
     ) -> T:
         """Run the agent's session to a usable answer. A session that dies, errors or answers
         what `parse` refuses is replaced once by one resuming it; when both fail the stage
         fails. The first session continues the agent's stored session when it has one, unless
-        `fresh`: a planner or judge answer starts clean so verdicts do not carry each other."""
+        `fresh`: a planner or judge answer starts clean so verdicts do not carry each other.
+        `timeout` (seconds) bounds all its sessions together; running out fails the stage."""
         board = self.board
         before = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
         if reason := self.budget(at.run_id):
             board.log(at.stage_id, name, "session", f"Not started: {reason}")
             raise Stopped(reason)
         board.update_agent(at.stage_id, name, status="working")
-        hooks = _Hooks(
+        hooks = hooks or _Hooks(
             board,
             at.stage_id,
             name,
@@ -691,14 +754,22 @@ class Swarm:
             graph_first=not at.baseline,
             clock=self.clock,
         )
+        deadline = None if timeout is None else time.monotonic() + timeout
         for attempt in range(SESSIONS):
             stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
             resume = None if fresh and stored == before else stored
             if resume:
                 said = "A replacement resumes" if attempt else "Continuing"
                 board.log(at.stage_id, name, "session", f"{said} session {resume}.")
+            left = None if deadline is None else max(deadline - time.monotonic(), 0)
             try:
-                end = asyncio.run(self.runtime.run(spec(resume), hooks))
+                end = asyncio.run(asyncio.wait_for(self.runtime.run(spec(resume), hooks), left))
+            except TimeoutError:
+                assert timeout is not None
+                said = f"Out of time: the limit is {timeout / 60:g} minutes."
+                board.log(at.stage_id, name, "error", said)
+                board.update_agent(at.stage_id, name, status="failed")
+                raise StageError(f"{name} ran out of time ({timeout / 60:g} minutes)") from None
             except Exception as exc:
                 board.log(at.stage_id, name, "error", f"The session died: {exc}")
                 continue
@@ -968,3 +1039,18 @@ class _Hooks:
         ):
             return "Query the graph first: call query_graph about the work before your first claim."
         return None
+
+
+class _BuildHooks(_Hooks):
+    """A build session's hooks: the live log and the allowlist as for any agent, then the build
+    folder's path rules (build.py) instead of the world-folder Read rule."""
+
+    folder: Path
+    data_dir: Path
+
+    def _refusal(self, tool: str, input: dict[str, Any]) -> str | None:
+        if self.stopped:
+            return f"Stopped: {self.stopped}"
+        if not is_allowed(tool, self.allowed):
+            return f"{tool} is not allowed in this stage."
+        return builds.refusal(tool, input, self.folder, self.world_folder, self.data_dir)

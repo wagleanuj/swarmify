@@ -127,7 +127,7 @@ def test_a_swarm_stage_cannot_promise_a_binary_file(name: str) -> None:
     )
     assert [(v.rule, v.stage) for v in found] == [("swarm_binary", "build")]
     assert f"only a connector stage can make {name}" in found[0].message
-    assert "remotion_render" in found[0].message
+    assert "remotion_build" in found[0].message
 
 
 @pytest.mark.parametrize(
