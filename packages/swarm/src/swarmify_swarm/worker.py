@@ -23,7 +23,7 @@ with the world it came from.
 import asyncio
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -640,6 +640,7 @@ class Swarm:
         model: str | None = None,
         max_turns: int = builds.MAX_TURNS,
         minutes: float = builds.MINUTES,
+        inputs: Sequence[Path] = (),
     ) -> None:
         """One sandboxed coding session writing the Remotion project in `folder` (see build.py),
         with the run's gate decisions as required reading. Logged, costed and budgeted like any
@@ -658,7 +659,7 @@ class Swarm:
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
                 system_prompt=builds.SYSTEM,
-                prompt=builds.prompt(script, composition, brief, decisions),
+                prompt=builds.prompt(script, composition, brief, decisions, inputs),
                 cwd=folder,
                 # No skills plugin: Claude Code refuses Write and Edit inside a plugin folder,
                 # and the build folder lies inside the world folder.

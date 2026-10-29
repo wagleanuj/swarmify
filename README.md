@@ -53,7 +53,7 @@ stages:
   - gate: pick             # ask; optional kind: pick | approve | confirm
     ask: Pick one idea.
     kind: pick
-  - connector: render      # calls (defaults to the stage name); optional input, output, params
+  - connector: render      # calls (defaults to the stage name); optional input (or inputs: [a, b]), output, params
     calls: remotion_render
     input: ideas.md
     output: short.mp4
@@ -66,12 +66,13 @@ stages:
 Rules checked on every save and by the editor as you type, each reported with its stage and a
 rule name: a publish connector must come right after a gate (ADR 0007); workflow stages may not
 form a cycle and may nest at most two deep (ADR 0013); every connector must exist in the world and
-allow the stage type; a connector's `input` must be produced by an earlier stage; a swarm stage may `produce` only text files (`video.mp4` comes from
+allow the stage type; a connector's `input`, and each of its `inputs`, must be produced by an earlier stage (a stage names
+`input` or `inputs`, not both); a swarm stage may `produce` only text files (`video.mp4` comes from
 a connector stage, `remotion_build` from a script, since swarm agents write text); and a connector stage
 must pass its connector's own check (`connector_params`): a publish stage needs `title` or
 `metadata`, an `input` and valid params (the problems its gate would show), a `remotion_render`
 stage needs a `project` folder that exists and a `composition`, a `remotion_build` stage an
-`input` and, when it names one, a `base` template that exists. So a broken stage is caught when
+`input` (or `inputs`) and, when it names one, a `base` template that exists. So a broken stage is caught when
 the workflow is saved, not after the stages before it spent the budget. The editor's planner is
 told each built-in connector's params.
 `POST /api/worlds/<id>/workflows` creates, `POST /api/workflows/<id>/versions` appends,
@@ -280,7 +281,7 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   values into the file (an empty value means the file already has it). `DELETE
   /api/connectors/<id>` removes an added one.
 - A connector stage calls the tool named like its connector (or `params.tool`) with `params`, its
-  `input` and `output` artifact names and `idempotency_key` set to the stage id (`<stage id>.<n>`
+  `input` (or `inputs`) and `output` artifact names and `idempotency_key` set to the stage id (`<stage id>.<n>`
   on the run's nth send-back), through the ConnectorTransport port. The call is recorded once per
   visit to the stage: a finished call is never repeated, a crash mid-job resumes polling instead
   of calling again, and a send-back that reruns the stage calls the connector again.
@@ -294,8 +295,9 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
 
 A connector stage's call also carries `output_path` (`worlds/<w>/runs/<run>/<stage>/artifacts/<output>`,
 folder created; `output` must be a bare file name), `input_path` (the newest file named like
-`input` any stage of the run left; the stage fails if there is none) and `frontmatter` (world,
-run, stage) for a sidecar. Workflow params may not set these three. When the call is done and the
+`input` any stage of the run left; the stage fails if there is none), `input_paths` (the same for
+each of `inputs`, in their order, so one connector can take a script and its voice timings) and
+`frontmatter` (world, run, stage) for a sidecar. Workflow params may not set these four. When the call is done and the
 output file exists, an `artifact.created` event announces it, typed by its sidecar.
 
 ## Remotion render
@@ -340,6 +342,7 @@ script, then the render code above, not the agent, turns it into the stage's vid
   - connector: video
     calls: remotion_build
     input: script.md            # the script artifact an earlier stage produced
+    # or inputs: [script.md, timings.json], the script first, the rest named to the builder
     output: video.mp4           # the default
     params:                     # all optional
       base: shorts              # a template in <data dir>/remotion/ to start from (a name, not a path)
@@ -353,8 +356,9 @@ script, then the render code above, not the agent, turns it into the stage's vid
 The stage copies `base` (else a minimal starter shipped in the repo,
 `packages/connectors/src/swarmify_connectors/remotion_starter`, composition `Main`), without its
 `node_modules` or `.git`, into a fresh `<stage folder>/build/`, and runs one session there as
-agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the script path, the brief and the
-run's gate decisions as required reading. It is logged, costed against the run's Budget and
+agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the script path (the first of
+`inputs`, whose other paths the prompt names too), the brief and the run's gate decisions as
+required reading. It is logged, costed against the run's Budget and
 stopped by it like any agent; failing twice, or running out of time, fails the stage with the
 builder's last log lines. Then the render runs as a `remotion_render` call on the build folder
 (its call shows on the timeline as usual, a failed render fails the stage with the CLI's last
@@ -713,8 +717,9 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
   optional}`) starts a run at stage `n` with a Library artifact as its input: stages before `n`
   are inserted `skipped`, the file (with its sidecar, frontmatter kept as provenance) lands in the
   last skipped stage's `artifacts/` folder where later stages' `input` finds it (renamed to stage
-  `n`'s `input` when it names one, so `script-the-chase.md` reaches a render that takes
-  `script.md`), and the run carries `promoted_from`. `n` must skip at least one stage and start at or before the last (422). The
+  `n`'s `input`, or its one `inputs`, when it names one, so `script-the-chase.md` reaches a render
+  that takes `script.md`), and the run carries `promoted_from`. A stage with several `inputs` is
+  refused (422): one file cannot stand in for them. `n` must skip at least one stage and start at or before the last (422). The
   Library's "Promote..." picks the workflow and the stage.
 
 ## Learning: retro, skills, scorecard

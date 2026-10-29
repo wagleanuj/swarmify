@@ -70,6 +70,7 @@ def test_save_creates_versions_that_can_be_listed_and_fetched(client: TestClient
         "input": "script.md",
         "output": "short.mp4",
         "params": {"project": "/tmp", "composition": "Short"},
+        "inputs": [],
     }
 
     wf = v1["workflow_id"]

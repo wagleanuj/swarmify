@@ -336,7 +336,8 @@ class Connectors:
                 out.append("remotion_render needs params.composition, the composition ID")
             return out
         if connector.builtin and connector.name == "remotion_build":
-            out = [] if config.get("input") else ["remotion_build needs an input, the script"]
+            script = config.get("input") or config.get("inputs")
+            out = [] if script else ["remotion_build needs an input, the script"]
             if params.get("base"):
                 try:
                     remotion.template(str(params["base"]), self.data_dir)
@@ -425,7 +426,7 @@ class Connectors:
         # a new key per visit, so a connector that dedupes on it does the rework
         idempotency_key = f"{stage_id}.{visit}" if visit else stage_id
         request: dict[str, Any] = {**params, "idempotency_key": idempotency_key}
-        for key in ("input", "output"):
+        for key in ("input", "inputs", "output"):
             if config.get(key):
                 request[key] = config[key]
         if connector.kind == "publish" and connector.builtin:

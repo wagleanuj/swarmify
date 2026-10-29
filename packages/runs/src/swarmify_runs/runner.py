@@ -218,9 +218,10 @@ class Runner(RunControl):
         """Start a Promote: a run of `pinned` that starts at stage `index` with `artifact` as
         its input. The earlier stages are skipped and the file (with its sidecar) stands in for
         their output, in the last skipped stage's artifacts folder where later stages look for
-        inputs, renamed to stage `index`'s `input` when it names one. `promoted_from` is the
-        artifact's path in the world folder, kept as lineage.
-        Raises ValueError for an index that skips nothing or everything, or a missing file."""
+        inputs, renamed to stage `index`'s `input` (or its one `inputs`) when it names one.
+        `promoted_from` is the artifact's path in the world folder, kept as lineage.
+        Raises ValueError for an index that skips nothing or everything, a missing file, or a
+        stage taking several inputs, which one file cannot stand in for."""
         if not 1 <= index < len(pinned.stages):
             raise ValueError(
                 "a promote skips at least one stage and starts at or before the last; to run every"
@@ -228,6 +229,13 @@ class Runner(RunControl):
             )
         if not artifact.is_file():
             raise ValueError(f"no artifact at {promoted_from}")
+        config = pinned.stages[index].config
+        names = config.get("inputs") or [config.get("input") or ""]
+        if len(names) > 1:
+            raise ValueError(
+                f"stage '{pinned.stages[index].name}' takes {len(names)} inputs and a promote"
+                " brings one file; start a run or fork one instead"
+            )
         budget_usd = self.budget_for(pinned.world_id, workflow=pinned.budget_usd)
         now = datetime.now(UTC).isoformat()
         run = Run(
@@ -240,7 +248,7 @@ class Runner(RunControl):
         files = sorted(with_sidecar(artifact), key=lambda f: len(f.name))
         # The stage finds its input by exact name, but a typed artifact is `<type>-<slug>.md`:
         # the file goes in under the starting stage's `input`, its sidecar under that plus .md.
-        name = str(pinned.stages[index].config.get("input") or "")
+        name = str(names[0])
         if Path(name).name != name or name in ("", ".", ".."):
             name = files[0].name
         for file, target in zip(files, (name, name + ".md"), strict=False):

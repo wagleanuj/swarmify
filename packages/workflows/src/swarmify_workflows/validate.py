@@ -81,18 +81,20 @@ def validate(
                         stage.name,
                     )
                 )
-            if stage.input and stage.input not in produced:
-                out.append(
-                    Violation(
-                        "input_not_produced",
-                        f"input '{stage.input}' is not produced by an earlier stage",
-                        stage.name,
+            for name in stage.inputs or filter(None, [stage.input]):
+                if name not in produced:
+                    out.append(
+                        Violation(
+                            "input_not_produced",
+                            f"input '{name}' is not produced by an earlier stage",
+                            stage.name,
+                        )
                     )
-                )
             if ref is not None:
                 config = {
                     "calls": stage.calls,
                     "input": stage.input,
+                    "inputs": stage.inputs,
                     "output": stage.output,
                     "params": stage.params,
                 }

@@ -197,3 +197,28 @@ def test_a_promote_starts_after_the_first_stage_and_before_the_last(
     with pytest.raises(ValueError, match="no artifact at missing.md"):
         runner.promote(pinned, 1, tmp_path / "missing.md", "missing.md")
     assert runner.list_all("world_a") == []
+
+
+def test_a_promote_places_the_artifact_under_the_one_name_in_inputs(
+    runner: Runner, tmp_path: Path
+) -> None:
+    old = tmp_path / "worlds/world_a/runs/run_old/stage_x/artifacts"
+    old.mkdir(parents=True)
+    (old / "script-the-chase.md").write_text("A script.")
+    video = StageDef("video", "connector", {"calls": "remotion_build", "inputs": ["script.md"]})
+    pinned = Pinned("world_a", "wf", 1, "Short", [RESEARCH, video])
+    run = runner.promote(pinned, 1, old / "script-the-chase.md", "runs/x/script-the-chase.md")
+    folder = run_folder(tmp_path, run) / run.stages[0].id / "artifacts"
+    assert [p.name for p in folder.iterdir()] == ["script.md"]
+
+
+def test_a_promote_refuses_a_stage_that_takes_several_inputs(
+    runner: Runner, tmp_path: Path
+) -> None:
+    (tmp_path / "script.md").write_text("A script.")
+    inputs = ["script.md", "timings.json"]
+    video = StageDef("video", "connector", {"calls": "remotion_build", "inputs": inputs})
+    pinned = Pinned("world_a", "wf", 1, "Short", [RESEARCH, video])
+    with pytest.raises(ValueError, match="takes 2 inputs"):
+        runner.promote(pinned, 1, tmp_path / "script.md", "script.md")
+    assert runner.list_all("world_a") == []

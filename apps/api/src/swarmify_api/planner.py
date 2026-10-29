@@ -53,7 +53,9 @@ A workflow is YAML: `name`, optional `schedule` (cron, UTC), `budget_usd`, `agen
 - swarm: goal, done_when; optional tools (connector names such as web_search, graph), graphs,
   output_type (idea or list[idea]), produces (artifact file names).
 - gate: ask; optional kind: pick | approve | confirm (approve by default).
-- connector: calls (connector name, defaults to the stage name); optional input, output, params.
+- connector: calls (connector name, defaults to the stage name); optional input, output, params;
+  inputs (a list of artifact names, each produced by an earlier stage) instead of input when
+  the connector takes several files.
 - workflow: runs (a workflow id); optional take (artifact names to copy from the child).
 Rules: a publish connector (youtube, upload_post) must come right after a gate; a connector's
 input must be produced by an earlier stage; connectors must exist in the world. Swarm agents
@@ -62,12 +64,13 @@ or an image: a video comes from a remotion_build connector stage (or remotion_re
 operator has a finished template).
 
 The built-in connector stages and their params:
-- remotion_build: input is the script; output defaults to video.mp4. One sandboxed coding
-  session writes a Remotion project for this script (reading the run's gate decisions), then
-  swarmify renders it. Optional params: base (a template's name under the data directory's
-  remotion folder to start from, else a minimal starter), composition (default Main), brief
-  (free text for the builder: style, length, pacing), model, max_turns (default 80), minutes
-  (the session's time limit, default 20). It costs a coding session from the run's budget.
+- remotion_build: input is the script (or inputs, the script first, then files the builder
+  should also read); output defaults to video.mp4. One sandboxed coding session writes a
+  Remotion project for this script (reading the run's gate decisions), then swarmify renders
+  it. Optional params: base (a template's name under the data directory's remotion folder to
+  start from, else a minimal starter), composition (default Main), brief (free text for the
+  builder: style, length, pacing), model, max_turns (default 80), minutes (the session's time
+  limit, default 20). It costs a coding session from the run's budget.
 - remotion_render: input is the script; params project (a template's name under the data
   directory's remotion folder, or a folder path) and composition (its ID), both required;
   optional entry, codec, frames, props.

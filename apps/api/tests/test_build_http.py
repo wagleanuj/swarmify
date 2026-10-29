@@ -54,8 +54,14 @@ def _installs(options: Any) -> None:
 
 
 def build_run(
-    tmp_path: Path, runtime: AgentRuntime, params: str, opened: list[TestClient]
+    tmp_path: Path,
+    runtime: AgentRuntime,
+    params: str,
+    opened: list[TestClient],
+    inputs: str = "input: script.md",
 ) -> tuple[TestClient, dict]:
+    """`inputs` is the build stage's input line; a notes stage writing notes.md runs before it
+    when it names notes.md."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     (data / ".env").write_text("UPLOAD_POST_API_KEY=k3y\n")
@@ -76,14 +82,15 @@ def build_run(
         },
     )
     assert added.status_code == 201, added.text
+    notes = "  - connector: notes\n    calls: script_writer\n    output: notes.md\n"
     yaml = f"""name: Script then build
 stages:
   - connector: script
     calls: script_writer
     output: script.md
-  - connector: video
+{notes if "notes.md" in inputs else ""}  - connector: video
     calls: remotion_build
-    input: script.md
+    {inputs}
     params: {params}
 """
     workflow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
@@ -139,6 +146,21 @@ def test_the_builder_writes_the_project_and_the_render_makes_the_video(
     [artifact] = client.get(f"/api/runs/{run['id']}/stages/{video_id}/artifacts").json()
     assert (artifact["name"], artifact["type"]) == ("video.mp4", "video")
     assert run["spent_usd"] == pytest.approx(0.37)  # the builder's session, on the run budget
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_build_with_several_inputs_renders_the_first_and_names_the_rest(
+    tmp_path: Path, fake_cli: None, opened: list[TestClient]
+) -> None:
+    script = Script([Call("Bash", {"command": "npm install"}), Answer(_installs), Say("Done.")])
+    runtime = SdkRuntime(transport=script.transport)
+    client, run = build_run(tmp_path, runtime, "{}", opened, "inputs: [script.md, notes.md]")
+    assert run["status"] == "done", run
+    script_id, notes_id, video_id = (s["id"] for s in run["stages"])
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    rendered = json.loads((folder / video_id / "artifacts/video.mp4").read_text())
+    assert rendered["scriptPath"] == str(folder / script_id / "artifacts/script.md")
+    assert str(folder / notes_id / "artifacts/notes.md") in script.prompts[0]
 
 
 def test_a_failed_build_fails_the_stage_with_the_last_log_lines(

@@ -108,6 +108,12 @@ def test_the_session_is_sandboxed_in_its_build_folder_without_keys(
     assert (agent.name, agent.status, agent.cost_usd) == ("builder", "done", 0.01)
 
 
+def test_the_stages_other_inputs_are_named_in_the_prompt(board: SqliteStorage, data: Path) -> None:
+    timings = data / "worlds" / W / "runs" / R / "s1" / "artifacts" / "timings.json"
+    sdk = _scripted(board, data, [Say("Done.")], inputs=[timings])
+    assert str(timings) in sdk.prompts[0]
+
+
 def test_the_run_decisions_are_required_reading(board: SqliteStorage, data: Path) -> None:
     decision = data / "worlds" / W / "runs" / R / "s1" / "decision.md"
     decision.parent.mkdir(parents=True)
