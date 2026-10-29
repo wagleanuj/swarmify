@@ -51,7 +51,10 @@ MANIFEST: dict[str, Any] = {
         },
         "additionalProperties": False,
     },
-    "inputs": ["the script: fenced JSON scenes and lines, else paragraphs and sentences"],
+    "inputs": [
+        "the script: fenced JSON scenes and lines, else paragraphs and sentences; directions in"
+        " brackets, as (pause), (beat), (whispers), (laughs) or [sigh]"
+    ],
     "outputs": ["timings.json, with the takes in narration/ beside it"],
     "health": "speech_health",
 }
@@ -82,7 +85,8 @@ def endpoints() -> list[str]:
 def parse_script(text: str) -> list[dict[str, Any]]:
     """Scenes of lines from a script: the fenced JSON block (`scenes[].id`, `lines[].text`,
     optional `pause_after` seconds) when there is one, else each paragraph a scene and each
-    sentence a line. Raises ValueError naming what is wrong."""
+    sentence a line. Directions in the text are read (`directions`). Raises ValueError naming
+    what is wrong."""
     fenced = _FENCE.search(text)
     if fenced is None:
         body = _FRONTMATTER.sub("", text)
@@ -107,15 +111,105 @@ def parse_script(text: str) -> list[dict[str, Any]]:
         lines = scene.get("lines")
         if not isinstance(lines, list) or not lines:
             raise ValueError(f"scene {sid} has no lines")
-        kept = []
-        for line in lines:
-            words = str(line.get("text", "") if isinstance(line, dict) else "").split()
-            pause = line.get("pause_after", PAUSE) if isinstance(line, dict) else PAUSE
-            if not words or not isinstance(pause, int | float) or pause < 0:
-                raise ValueError(f"scene {sid}: each line needs text and a pause_after >= 0")
-            kept.append({"text": " ".join(words), "pause_after": float(pause)})
+        kept: list[dict[str, Any]] = []
+        for n, line in enumerate(lines, 1):
+            where = f"scene {sid}, line {n}"
+            if not isinstance(line, dict) or not isinstance(line.get("text"), str):
+                got = "a string" if isinstance(line, str) else json.dumps(line)[:60]
+                raise ValueError(
+                    f'{where}: expected {{"text": ..., "pause_after": ...}}, got {got}'
+                )
+            pause = line.get("pause_after", PAUSE)
+            if not isinstance(pause, int | float) or isinstance(pause, bool) or pause < 0:
+                raise ValueError(f"{where}: pause_after must be seconds >= 0, got {pause!r}")
+            if not _directed(line["text"], float(pause), kept):
+                raise ValueError(f"{where}: the text is empty")
         out.append({"id": sid, "lines": kept})
     return out
+
+
+_DIRECTION = re.compile(r"[(\[]([^()\[\]]*)[)\]]")
+_PAUSE_WORDS = re.compile(r"(long )?(?:pause|beat)(?: (\d+(?:\.\d+)?) ?s(?:ec(?:onds?)?)?)?")
+BEAT, LONG_BEAT = 0.5, 1.2
+"""Seconds of a `(pause)` or `(beat)`, and of a `(long pause)`."""
+TAGS: dict[str, list[str]] = {
+    "whispering": ["whispers", "whisper", "whispered"],
+    "happy": ["excited", "excitedly", "cheerful", "cheerfully", "happily"],
+    "angry": ["angrily"],
+    "sarcastic": ["sarcastically"],
+    "surprised": [],
+    "fear": ["scared", "fearfully", "afraid"],
+    "crying": ["sadly", "sad", "cries"],
+    "dramatic": ["dramatically"],
+    "narration": [],
+    "advertisement": [],
+    "laugh": ["laughs", "laughing"],
+    "chuckle": ["chuckles", "chuckling"],
+    "sigh": ["sighs", "sighing"],
+    "gasp": ["gasps"],
+    "groan": ["groans"],
+    "cough": ["coughs"],
+    "sniff": ["sniffs"],
+    "shush": [],
+    "clear throat": ["clears throat", "clears his throat", "clears her throat"],
+}
+"""The delivery tags a script may use, each with the screenplay words that mean it. An engine
+hears a tag only when its `/health` lists it in `tags`."""
+_TAG_OF = {w: tag for tag, words in TAGS.items() for w in (tag, *words)}
+_TAG = re.compile(r"\[(" + "|".join(map(re.escape, TAGS)) + r")\]")
+
+
+def _directed(text: str, pause: float, kept: list[dict[str, Any]]) -> bool:
+    """Append `text`'s lines to `kept`: a pause direction mid-line splits it with that gap, at
+    its end adds to its `pause` (at its start to the line before); a known delivery direction
+    becomes its `[tag]` in `say`, anything else in brackets is spoken and `unrecognized`.
+    False when it has no words to speak."""
+    spoke = False
+    chunk: list[str] = []
+    odd: list[str] = []
+
+    def flush(gap: float) -> None:
+        nonlocal spoke, chunk, odd
+        if any(not _TAG.fullmatch(w) for w in chunk):
+            kept.append({"say": " ".join(chunk), "pause_after": gap, "unrecognized": odd})
+            spoke, chunk, odd = True, [], []
+        elif kept:  # no words: the tags and the gap belong to the line before
+            kept[-1]["say"] = " ".join([kept[-1]["say"], *chunk])
+            kept[-1]["pause_after"] += gap
+            kept[-1]["unrecognized"] += odd
+            chunk, odd = [], []
+
+    for i, piece in enumerate(_DIRECTION.split(text)):
+        said = " ".join(piece.split())
+        words = said.lower().rstrip(".!,")
+        if i % 2 == 0 or not said:
+            chunk += piece.split()
+        elif beat := _PAUSE_WORDS.fullmatch(words):
+            flush(float(beat[2]) if beat[2] else LONG_BEAT if beat[1] else BEAT)
+        elif words in _TAG_OF:
+            chunk.append(f"[{_TAG_OF[words]}]")
+        else:
+            chunk += said.split()
+            odd.append(said)
+    flush(pause)
+    for line in kept:
+        line["text"] = " ".join(_TAG.sub("", line["say"]).split())
+        line["directions"] = _TAG.findall(line["say"])
+    return spoke
+
+
+def for_engine(say: str, tags: set[str]) -> str:
+    """A line as an engine hears it: the `[tag]`s it does not advertise taken out."""
+    return " ".join(_TAG.sub(lambda m: m[0] if m[1] in tags else "", say).split())
+
+
+def engine_tags(http: httpx.Client, base: str) -> set[str]:
+    """The tags the engine at `base` advertises in its `/health` (`"tags": [...]`), else none."""
+    try:
+        tags = http.get(f"{base}/health").json().get("tags")
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return set()
+    return {t for t in tags if isinstance(t, str)} if isinstance(tags, list) else set()
 
 
 def _norm(word: str) -> str:
@@ -215,7 +309,8 @@ def take_timings(
         cut, silent = quietest(samples, rate, before["last"], after["first"])
         before["cut_out"] = after["cut_in"] = round(cut, 3)
         before["joined_next"] = not silent
-    keys = ("text", "pause_after", "cut_in", "cut_out", "joined_next", "words")
+    keys = ("text", "pause_after", "directions", "unrecognized", "cut_in", "cut_out")
+    keys += ("joined_next", "words")
     return {
         "scene": scene["id"],
         "file": f"narration/{scene['id']}.wav",
@@ -227,10 +322,11 @@ def take_timings(
 
 
 def _take(
-    http: httpx.Client, base: str, text: str, voice: str, seed: int | None
+    http: httpx.Client, base: str, say: str, text: str, voice: str, seed: int | None
 ) -> tuple[bytes, list[tuple[str, float, float]]]:
-    """One take of `text` from the engine at `base`, with the words it spoke and when."""
-    body: dict[str, Any] = {"model": "tts-1", "input": text, "response_format": "wav"}
+    """One take of `say` from the engine at `base`, with the words of `text` (`say` without its
+    tags) it spoke and when."""
+    body: dict[str, Any] = {"model": "tts-1", "input": say, "response_format": "wav"}
     if voice:
         body["voice"] = voice
     if seed is not None:
@@ -262,10 +358,11 @@ def voice_run(
     failures = []
     for base in engines:
         try:
-            takes = []
+            tags, takes = engine_tags(http, base), []
             for scene in scenes:
+                say = " ".join(for_engine(line["say"], tags) for line in scene["lines"])
                 text = " ".join(line["text"] for line in scene["lines"])
-                audio, heard = _take(http, base, text, voice, seed)
+                audio, heard = _take(http, base, say, text, voice, seed)
                 takes.append((audio, take_timings(scene, audio, heard)))
             return base, takes
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
@@ -277,7 +374,13 @@ def _client() -> httpx.Client:
     return httpx.Client(timeout=httpx.Timeout(600, connect=5))
 
 
-@mcp.tool(description="Voice a script, one take per scene, with word timings and cut points.")
+@mcp.tool(
+    description="Voice a script, one take per scene, with word timings and cut points. The"
+    ' script is a fenced JSON block {"scenes": [{"id", "lines": [{"text", "pause_after"}]}]}, else'
+    " paragraphs and sentences. In a line's text, (pause), (beat), (long pause) or (pause 1.5s)"
+    " is silence, and a delivery direction such as (whispers), (laughs), (sighs), (excited),"
+    " (sarcastically) or a tag such as [clear throat] reaches engines that support it."
+)
 def speech(
     idempotency_key: str,
     output_path: str,

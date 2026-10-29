@@ -432,7 +432,11 @@ minute on a Mac, most of it the first npm install and the Chrome download).
 ## Speech engines
 
 Narration comes from text to speech engines that run as their own services, never inside the core
-(ADR 0019). Each speaks OpenAI's `POST /v1/audio/speech` and answers `GET /health`. The speech
+(ADR 0019). Each speaks OpenAI's `POST /v1/audio/speech` and answers `GET /health`, listing in
+`tags` the delivery tags it understands written `[tag]` in the input (Chatterbox Turbo:
+`whispering`, `happy`, `angry`, `sarcastic`, `surprised`, `fear`, `crying`, `dramatic`,
+`narration`, `advertisement`, `laugh`, `chuckle`, `sigh`, `gasp`, `groan`, `cough`, `sniff`,
+`shush`, `clear throat`; Kokoro none). The speech
 connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
 `http://localhost:8881,http://localhost:8880` natively and
 `http://host.docker.internal:8881,http://kokoro:8880` in Compose.
@@ -460,7 +464,9 @@ connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
   (its peak while loading), more than Docker Desktop's default leaves beside other containers. Both engines bind to `127.0.0.1` only:
   they have no sign-in.
 - `uv run pytest services --no-cov` includes a smoke test that speaks a sentence on every engine in
-  `SPEECH_ENDPOINTS` and aligns it where the engine can; it skips each engine that is not up.
+  `SPEECH_ENDPOINTS` and aligns it where the engine can, and on an engine advertising
+  `whispering` checks a whispered take differs from the plain one and aligns to the same words;
+  it skips each engine that is not up.
 
 ### The speech connector
 
@@ -484,7 +490,22 @@ and never names `speech`, so moving the connector into a package is a move.
 
 - The script is a fenced JSON block, `{"scenes": [{"id", "lines": [{"text", "pause_after"}]}]}`
   (`pause_after` in seconds, default 0.3; ids are letters, digits, `_` or `-`), else each
-  paragraph is a scene and each sentence a line. Frontmatter and `#` headings are skipped.
+  paragraph is a scene and each sentence a line. Frontmatter and `#` headings are skipped. A
+  line that is not an object with a `text` string is refused with the scene, the line and the
+  shape expected.
+- Directions in a line's text, screenplay style, in round or square brackets:
+  - `(pause)` and `(beat)` are 0.5 s of silence, `(long pause)` 1.2 s, `(pause 1.5s)` as said.
+    At the end of a line they add to its `pause_after`; mid-line they split it in two lines
+    with that gap.
+  - A delivery direction becomes a tag: `[whispering]` or (whispers), `[laugh]` (laughs),
+    `[chuckle]`, `[sigh]`, `[gasp]` and so on as the tag's name or its verb; `[happy]`
+    (excited, cheerful, happily), `[dramatic]` (dramatically), `[crying]` (sadly), `[angry]`
+    (angrily), `[sarcastic]` (sarcastically), `[surprised]`, `[fear]` (scared, fearfully),
+    `[clear throat]`, `[cough]`, `[groan]`, `[sniff]`, `[shush]`, `[narration]`,
+    `[advertisement]` (`TAGS` in the connector). An engine hears a tag only when its `/health`
+    lists it; for the others it is taken out, so no engine reads a direction aloud.
+  - Anything else in brackets is spoken without them and listed in the line's `unrecognized`.
+  - Words for alignment and captions never hold a tag or a pause.
 - One take per scene. The engines are tried in the order of `SPEECH_ENDPOINTS` (or of
   `params.engines`, which may only reorder or narrow that list, since the script is sent there);
   when one fails, the whole run is redone on the next, so one video never mixes two voices.
@@ -495,7 +516,8 @@ and never names `speech`, so moving the connector into a package is a move.
   neighbours.
 - It writes the takes to `narration/<scene id>.wav` beside `timings.json`, which holds `engine`,
   `voice`, `seed` and per take its `file`, `duration` (seconds) and `lines`: each line's `text`,
-  `pause_after`, `words` in Remotion's `Caption` shape (`text` with the space before it,
+  `pause_after`, `directions` (its tags, as `["whispering"]`), `unrecognized`, `words` in
+  Remotion's `Caption` shape (`text` with the space before it,
   `startMs` and `endMs` from the take's start, `timestampMs` and `confidence` null), and
   `cut_in` and `cut_out` (seconds into the take). A cut between two lines sits in the middle of
   the quietest 10 ms between them; the take keeps 0.05 s before its first word and 0.15 s after
