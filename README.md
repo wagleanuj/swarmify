@@ -703,15 +703,17 @@ uv run swarmify-eval --tasks 2 --k 1   # a smoke run
 ```
 
 Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, basic auth from
-`SWARMIFY_PASSWORD`), `--budget` (USD a trial, default 3), `--timeout` (seconds a trial, default
-2700) and `--clean` (delete the trial worlds afterwards).
+`SWARMIFY_PASSWORD`), `--budget` (USD a trial, default 5, since the swarm's research stage alone
+spends about 3), `--timeout` (seconds a trial, default 2700) and `--clean` (delete the trial
+worlds afterwards).
 
 - Fresh world per trial: each trial creates its own world (`Eval <task> <arm> <n>`), saves the
   eval workflow there and starts one run, `{"baseline": true}` for the baseline arm. The eval
   workflow is the weekly short's research and script stages (`ideas.md`, `script.md`), with no
   gate, render or publish, so a trial never posts anything.
 - Outputs are graded, not the path: `ideas.md` must rank at least 5 ideas as a numbered list, and
-  `script.md` must be 60 to 200 words and name the task's topic. A trial is accepted when its
+  `script.md` must be 60 to 200 words and name the task's topic: one of its topic words or listed
+  synonyms, matched by word stem (so "biking" names "bike"). A trial is accepted when its
   run is done and every check passed. A retro proposal is rejected so the run can end; a spent
   budget or the timeout aborts the trial, which then fails.
 - A blind pairwise judge then decides quality, since both arms usually pass every check: after

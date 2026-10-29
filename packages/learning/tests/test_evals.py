@@ -55,6 +55,26 @@ def test_the_grader_reads_the_outputs_only() -> None:
     ]
 
 
+def _on(topic: str, script: str) -> list[str]:
+    task = next(t for t in TASKS if t.topic == topic)
+    return grade(task, {"ideas.md": IDEAS, "script.md": script + " " + "word " * 60})
+
+
+def test_the_grader_checks_topic_by_meaning_not_one_exact_keyword() -> None:
+    # On topic in other words: a stem of a keyword, or a synonym the task lists.
+    assert _on("urban cycling", "Biking downtown? Riders, lock it right.") == []
+    assert _on("home cooking on a budget", "Pumpkin guts into a cheap dinner pot.") == []
+    assert _on("learning Spanish", "Three words every Spain trip needs.") == []
+    assert _on("running a first marathon", "Your first 42k starts with running slow.") == []
+    # Off topic still fails, and a stem must match a whole word, not part of one.
+    assert _on("urban cycling", "Five tips to sleep better tonight.") == [
+        "script.md never names urban cycling"
+    ]
+    assert _on("astronomy from the backyard", "Start your morning with a stretch.") == [
+        "script.md never names astronomy from the backyard"
+    ]
+
+
 def test_pass_at_k_and_pass_to_the_k() -> None:
     assert pass_at_k(3, 0, 3) == 0 and pass_at_k(3, 1, 3) == 1
     assert pass_pow_k(3, 2, 3) == 0 and pass_pow_k(3, 3, 3) == 1

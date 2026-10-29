@@ -28,7 +28,8 @@ WORDS = (60, 200)
 
 @dataclass(frozen=True)
 class EvalTask:
-    """One niche the weekly short is made for. The script must name one of `keywords`."""
+    """One niche the weekly short is made for. The script must name one of `keywords` (its
+    topic words and synonyms), matched by word stem so "biking" names "bike"."""
 
     id: str
     topic: str
@@ -47,17 +48,17 @@ TASKS = [
     _task("sourdough baking", "sourdough", "starter", "bread"),
     _task("personal finance for students", "budget", "student", "money"),
     _task("indie game development", "game", "indie"),
-    _task("urban cycling", "bike", "cycling", "cyclist"),
-    _task("home cooking on a budget", "cook", "meal", "recipe"),
-    _task("learning Spanish", "spanish", "español"),
-    _task("smartphone photography", "photo", "camera", "phone"),
+    _task("urban cycling", "bike", "cycling", "cyclist", "ride", "commute"),
+    _task("home cooking on a budget", "cook", "meal", "recipe", "dinner", "kitchen", "food"),
+    _task("learning Spanish", "spanish", "español", "spain", "language", "fluent"),
+    _task("smartphone photography", "photo", "photograph", "camera", "phone", "smartphone"),
     _task("dog training", "dog", "puppy"),
     _task("minimalist living", "minimal", "declutter"),
     _task("chess openings", "chess", "opening"),
     _task("running a first marathon", "marathon", "run"),
-    _task("woodworking for beginners", "wood", "saw"),
+    _task("woodworking for beginners", "wood", "woodwork", "saw"),
     _task("productivity for remote workers", "remote", "focus", "work"),
-    _task("astronomy from the backyard", "star", "telescope", "planet"),
+    _task("astronomy from the backyard", "astronomy", "star", "telescope", "planet"),
     _task("vegan meal prep", "vegan", "plant-based"),
     _task("retro video game collecting", "retro", "cartridge", "console"),
     _task("small space gardening", "garden", "balcony", "grow"),
@@ -87,6 +88,28 @@ stages:
 _NUMBERED = re.compile(r"^\s*\d+[.)]\s+\S", re.MULTILINE)
 
 
+def _stem(word: str) -> str:
+    """A crude suffix stripper, the same on both sides of the match: bike, bikes and biking all
+    give "bik". ponytail: English suffixes only, a real stemmer if tasks go multilingual."""
+    if word.endswith("ies") and len(word) > 4:
+        word = word[:-3] + "y"
+    stripped = True
+    while stripped:
+        stripped = False
+        for suffix in ("ing", "ist", "er", "ed", "es", "s", "y", "e"):
+            if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                word, stripped = word[: -len(suffix)], True
+                break
+    if len(word) > 3 and word[-1] == word[-2] and word[-1] not in "aeiou":
+        word = word[:-1]
+    return word
+
+
+def _stems(text: str) -> str:
+    """The text's words as stems, space separated, so a keyword matches whole words only."""
+    return " ".join(_stem(w) for w in re.findall(r"[^\W\d_]+", text.lower()))
+
+
 def grade(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
     """The checks the trial's outputs failed, by artifact name to body; none means accepted."""
     failed = []
@@ -101,7 +124,8 @@ def grade(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
     words = len(script.split())
     if not WORDS[0] <= words <= WORDS[1]:
         failed.append(f"{SCRIPT} is {words} words, not {WORDS[0]} to {WORDS[1]}")
-    if not any(k.lower() in script.lower() for k in task.keywords):
+    stems = f" {_stems(script)} "
+    if not any(f" {_stems(k)} " in stems for k in task.keywords):
         failed.append(f"{SCRIPT} never names {task.topic}")
     return failed
 

@@ -198,6 +198,8 @@ def test_the_command_line_talks_to_the_api(monkeypatch: pytest.MonkeyPatch) -> N
     main(["--api", "http://box:8000", "--k", "2", "--tasks", "3", "--budget", "1.5", "--clean"])
     assert seen["base"] == "http://box:8000" and seen["auth"] is not None
     assert (seen["tasks"], seen["k"], seen["budget"], seen["clean"]) == (3, 2, 1.5, True)
+    main(["--api", "http://box:8000"])
+    assert seen["budget"] == 5.0, "the default leaves room for the swarm's three research workers"
 
 
 def test_a_trial_past_its_timeout_is_aborted_and_fails_on_the_timeout(
