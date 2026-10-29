@@ -135,5 +135,5 @@ test("the runs list tags a baseline and shows each run's cost", async () => {
     "GET /api/worlds/world_1/runs": () => Response.json([hooli]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs");
-  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Hooli baseline\s*1 of 1 stages\s*\$2\.60/);
+  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Hooli baseline.*\$2\.60/);
 });

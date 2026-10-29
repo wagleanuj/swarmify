@@ -69,11 +69,11 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
         second = api.post(f"/workflows/{brief}/runs", json={}).json()["id"]
         page.goto(f"{base_url}/worlds/{world}/runs")
         runs = page.get_by_test_id("run-list")
-        expect(runs.locator("li", has_text="queued")).to_have_count(1)
-        expect(runs.locator("li", has_text="needs you")).to_have_count(1)
+        expect(runs.locator("tbody tr", has_text="queued")).to_have_count(1)
+        expect(runs.locator("tbody tr", has_text="needs you")).to_have_count(1)
         api.post(f"/runs/{first}/abort").raise_for_status()
-        expect(runs.locator("li", has_text="queued")).to_have_count(0, timeout=20_000)
-        expect(runs.locator("li", has_text="needs you")).to_have_count(1)
+        expect(runs.locator("tbody tr", has_text="queued")).to_have_count(0, timeout=20_000)
+        expect(runs.locator("tbody tr", has_text="needs you")).to_have_count(1)
         assert api.get(f"/runs/{second}").json()["status"] == "waiting_gate"
         api.post(f"/runs/{second}/abort").raise_for_status()
     finally:

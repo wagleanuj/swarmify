@@ -1,9 +1,16 @@
-/* Runs */
-.run-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-.run-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; gap: 8px 16px; align-items: center; padding: 10px 14px; }
-.run-list li > a { font-weight: 600; text-decoration: none; }
-.run-list li > a:hover { text-decoration: underline; }
-.run-list time { font-variant-numeric: tabular-nums; }
+/* Runs: status tabs over a table with a small strip per row, then where the time went and spend */
+.runs-panel { margin-bottom: var(--gap); }
+.runs-table { width: 100%; border-collapse: collapse; }
+.runs-table th { text-align: left; font-size: 12px; font-weight: 400; color: var(--faint); padding: 0 12px 8px 0; }
+.runs-table td { padding: 10px 12px 10px 0; border-top: 1px solid var(--rule); vertical-align: middle; }
+.runs-table th:last-child, .runs-table td:last-child { padding-right: 0; }
+.runs-table .num { text-align: right; white-space: nowrap; font-weight: 400; }
+.runs-table tbody td:first-child { display: grid; gap: 2px; }
+.runs-table tbody td:first-child a { font-weight: 500; text-decoration: none; }
+.runs-table tbody td:first-child a:hover { text-decoration: underline; }
+.runs-table .mono { font-size: 12px; }
+.run-strip { width: 22%; min-width: 120px; }
+.runs-table tfoot td { color: var(--muted); }
 
 /* Connectors: a panel per kind, a row per connector with its health dot */
 .con-groups { display: grid; gap: var(--gap); }
@@ -100,5 +107,15 @@
   .mem-cols, .lib-grid { grid-template-columns: minmax(0, 1fr); }
   .lib-grid.has-sel .lib-list { display: none; }
   .lib-detail { position: static; }
-  .run-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  /* a phone row is two lines: name and status, then started, time and spent */
+  .runs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .runs-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--rule); }
+  .runs-table td, .runs-table tbody td:first-child { padding: 0; border: 0; }
+  .runs-table tbody td:first-child { grid-column: 1 / 3; }
+  .runs-table tbody tr:first-child { border-top: 0; }
+  .runs-table td.run-strip { display: none; }
+  .runs-table tbody td:nth-child(4) { text-align: left; color: var(--muted); }
+  .runs-table tfoot td:first-child { grid-column: 1 / 3; }
+  .versions-table tr { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+  .versions-table td:first-child, .versions-table tfoot td:first-child { grid-column: auto; }
 }

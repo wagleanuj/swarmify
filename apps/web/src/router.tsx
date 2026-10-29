@@ -89,6 +89,9 @@ export const runsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/runs",
   component: Runs,
+  // `status` is the tab
+  validateSearch: (search: Record<string, unknown>): { status?: string } =>
+    typeof search.status === "string" && search.status ? { status: search.status } : {},
 });
 
 export const runRoute = createRoute({

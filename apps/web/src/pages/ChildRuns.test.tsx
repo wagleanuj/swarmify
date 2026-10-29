@@ -22,7 +22,7 @@ test("the runs page links each child run to its parent, in whatever world it liv
     "GET /api/worlds/world_2/runs": () => Response.json([child, plain]),
   });
   const { screen } = await mountAt("/worlds/world_2/runs");
-  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Trends\s*running\s*child of Weekly short/);
+  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Trends.*child of Weekly short\s*running/);
   await expect
     .element(screen.getByRole("link", { name: "Weekly short" }))
     .toHaveAttribute("href", "/worlds/world_1/runs/run_top");
