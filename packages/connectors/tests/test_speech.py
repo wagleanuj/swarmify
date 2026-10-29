@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import jsonschema
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -386,6 +387,29 @@ def test_the_built_in_is_declared_by_its_manifest() -> None:
     assert builtin.health == m["health"] == "speech_health"
     tool = next(t for t in sp.mcp._tool_manager.list_tools() if t.name == "speech")
     assert set(m["params"]["properties"]) <= set(tool.parameters["properties"])
+
+
+def test_it_declares_the_script_type_its_input_takes() -> None:
+    builtin = next(c for c in BUILTINS if c.name == "speech")
+    assert builtin.types == {"script": sp.SCRIPT} and builtin.input_types == ["script"]
+    jsonschema.Draft202012Validator.check_schema(sp.SCRIPT)
+    text = sp.SCRIPT["properties"]["scenes"]["items"]["properties"]["lines"]["items"]
+    told = text["properties"]["text"]["description"]
+    assert all(f"[{tag}]" in told for tag in sp.TAGS)  # the judge is told every direction
+
+
+def test_a_script_of_the_declared_type_parses_and_a_bad_one_is_named_by_both() -> None:
+    script = {
+        "scenes": [{"id": "s01", "lines": [{"text": "Hi (beat) there.", "pause_after": 0.2}]}]
+    }
+    jsonschema.validate(script, sp.SCRIPT)
+    (scene,) = sp.parse_script(f"# Hi\n\n```json\n{json.dumps(script)}\n```\n\nHi there.\n")
+    assert [line["text"] for line in scene["lines"]] == ["Hi", "there."]
+    bad = {"scenes": [{"id": "s01", "lines": ["Hi there."]}]}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, sp.SCRIPT)
+    with pytest.raises(ValueError, match=r"scene s01, line 1: expected \{"):
+        sp.parse_script(f"```json\n{json.dumps(bad)}\n```")
 
 
 def test_a_speech_stage_is_checked_for_its_script_output_and_params(

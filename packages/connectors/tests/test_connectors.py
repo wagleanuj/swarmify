@@ -75,6 +75,23 @@ def test_a_bad_draft_names_its_problem(
         fal(connectors, **over)
 
 
+def test_a_connector_may_declare_input_types_and_they_are_kept(connectors: Connectors) -> None:
+    recipe = {"type": "object", "required": ["steps"]}
+    cook = fal(connectors, declared={"recipe": recipe}, input_types=["recipe", None])
+    connectors.add(cook, {})
+    (saved,) = connectors.storage.list_connectors(W)
+    assert saved.types == {"recipe": recipe} and saved.input_types == ["recipe", None]
+    assert connectors.type_schema(W, "recipe") == recipe
+    assert connectors.type_schema(W, "script") is not None  # the speech built-in declares it
+    assert connectors.type_schema(W, "idea") is None
+    with pytest.raises(ValueError, match="a type name is lower_snake_case"):
+        fal(connectors, declared={"Recipe": recipe})
+    with pytest.raises(ValueError, match="type recipe is not a JSON Schema"):
+        fal(connectors, declared={"recipe": {"type": "soup"}})
+    with pytest.raises(ValueError, match="input types it does not declare: script"):
+        fal(connectors, input_types=["script"])
+
+
 def test_test_starts_the_server_once_with_only_its_credentials_and_saves_nothing(
     connectors: Connectors, transport: FakeTransport
 ) -> None:

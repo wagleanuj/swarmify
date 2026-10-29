@@ -29,6 +29,57 @@ import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+SCRIPT: dict[str, Any] = {
+    "type": "object",
+    "description": "A voice-over script: scenes, each voiced as one take, of spoken lines.",
+    "properties": {
+        "scenes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{1,60}$",
+                        "description": "Unique; letters, digits, _ or -, as s01",
+                    },
+                    "lines": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "What is said. Directions in brackets:"
+                                    " pauses (pause), (beat), (long pause), (pause 1.5s);"
+                                    " delivery as [whispering] [happy] [angry] [sarcastic]"
+                                    " [surprised] [fear] [crying] [dramatic] [narration]"
+                                    " [advertisement] [laugh] [chuckle] [sigh] [gasp] [groan]"
+                                    " [cough] [sniff] [shush] [clear throat], or screenplay"
+                                    " words such as (whispers) or (laughs)",
+                                },
+                                "pause_after": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": "Seconds of silence after the line, 0.3 usually",
+                                },
+                            },
+                            "required": ["text", "pause_after"],
+                        },
+                    },
+                },
+                "required": ["id", "lines"],
+            },
+        }
+    },
+    "required": ["scenes"],
+}
+"""The `script` type the connector declares (issue 133): a stage that writes its input promises
+it with `output_type: script`. `parse_script` is the strict check of what arrives."""
+
 MANIFEST: dict[str, Any] = {
     "name": "speech",
     "kind": "stage",
@@ -57,6 +108,8 @@ MANIFEST: dict[str, Any] = {
     ],
     "outputs": ["timings.json, with the takes in narration/ beside it"],
     "health": "speech_health",
+    "types": {"script": SCRIPT},
+    "input_types": ["script"],
 }
 
 DEFAULT_ENDPOINTS = "http://localhost:8881,http://localhost:8880"

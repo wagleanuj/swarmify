@@ -44,7 +44,6 @@ from swarmify_swarm.ports import (
 from swarmify_swarm.projection import (
     MAX_LOOPS,
     PLAN_SCHEMA,
-    VERDICT_SCHEMA,
     Item,
     OutputType,
     Source,
@@ -54,6 +53,7 @@ from swarmify_swarm.projection import (
     parse_verdict,
     project,
     verdict_file,
+    verdict_schema,
 )
 
 WORKER, PLANNER, JUDGE = "worker-1", "planner", "judge"
@@ -260,6 +260,13 @@ def _wants(config: dict[str, Any]) -> str:
     if config.get("output_type"):
         out += f" The judge projects the notes into output type {config['output_type']}."
     return out.strip()
+
+
+def _schema(at: "_At", kind: OutputType | None) -> dict[str, Any] | None:
+    """The JSON Schema of the stage's output type when a connector declares it (issue 133): the
+    run puts it in the stage's config as `output_schema`."""
+    schema = at.config.get("output_schema") if kind is not None else None
+    return schema if isinstance(schema, dict) else None
 
 
 def no_servers(_world_id: str, _names: list[str]) -> dict[str, dict[str, Any]]:
@@ -553,6 +560,7 @@ class Swarm:
         notes = files.notes(at.world_id, at.run_id, at.stage_id)
         tasks = board.list_tasks(at.stage_id)
         prior = files.artifacts(at.world_id, at.run_id)
+        schema = _schema(at, kind)
         if kind is None:
             output = "The stage declares no output type: return no items."
         else:
@@ -562,6 +570,12 @@ class Swarm:
                 " with a short reason for its rank, citing the note paragraphs it comes from"
                 " by note path and paragraph number."
                 + (" Put an idea's hook and why in fields." if kind.type == "idea" else "")
+                + (
+                    f" Put each {kind.type} in fields exactly as its JSON schema asks, and make"
+                    " body a readable version of it for people."
+                    if schema is not None
+                    else ""
+                )
             )
         prompt = "\n".join(
             [
@@ -583,7 +597,9 @@ class Swarm:
                 notes_for_judge(notes),
             ]
         )
-        j = self._short(at, JUDGE, "judge", prompt, VERDICT_SCHEMA, parse_verdict)
+        j = self._short(
+            at, JUDGE, "judge", prompt, verdict_schema(schema), lambda o: parse_verdict(o, schema)
+        )
         file = verdict_file(loop, j)
         path = files.write_typed(
             at.world_id,
@@ -622,7 +638,8 @@ class Swarm:
             for i in verdict.items
         ]
         notes = self.files.notes(at.world_id, at.run_id, at.stage_id)
-        for a in project(kind, items, notes):
+        produces = [str(p) for p in at.config.get("produces") or []]
+        for a in project(kind, items, notes, _schema(at, kind) is not None, produces):
             self.files.write_typed(
                 at.world_id, at.run_id, at.stage_id, JUDGE, a.name, a.type, a.fields, a.body
             )

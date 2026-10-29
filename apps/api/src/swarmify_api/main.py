@@ -153,7 +153,9 @@ def workflow_service(
             return registry.stage_problems(world_id, config)
 
         return {
-            c.name: ConnectorRef(c.name, c.kind, frozenset(c.stage_types), problems)
+            c.name: ConnectorRef(
+                c.name, c.kind, frozenset(c.stage_types), problems, c.types, tuple(c.input_types)
+            )
             for c in registry.list_all(world_id)
         }
 
@@ -529,13 +531,20 @@ def create_app(
             return staged or (world.model_for(role) if world else None)
 
         cast = [CastEntry(m.name, m.role, m.prompt, m.tools, model(m.role)) for m in members]  # type: ignore[arg-type]
+        config = dict(stage.config)
+        promised = "".join(str(config.get("output_type") or "").split())
+        schema = registry.type_schema(
+            run.world_id, promised.removeprefix("list[").removesuffix("]")
+        )
+        if schema is not None:  # a type a connector declares: the judge projects its schema
+            config["output_schema"] = schema
         try:
             swarm.run_stage(
                 run.world_id,
                 run.id,
                 stage_id,
                 stage.name,
-                stage.config,
+                config,
                 folder,
                 notes,
                 run.send_backs,
@@ -694,7 +703,7 @@ def create_app(
     tools = mcp.server(
         world_svc, workflow_svc, whiteboard, runner, delete, memory=memory, retro=retro
     )
-    app.include_router(planner.router(world_svc, swarm.runtime, tools))
+    app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     if password := os.environ.get("SWARMIFY_PASSWORD"):

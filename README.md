@@ -73,9 +73,13 @@ a connector stage, `remotion_build` from a script, since swarm agents write text
 must pass its connector's own check (`connector_params`): a publish stage needs `title` or
 `metadata`, an `input` and valid params (the problems its gate would show), a `remotion_render`
 stage needs a `project` folder that exists and a `composition`, a `remotion_build` stage an
-`input` (or `inputs`) and, when it names one, a `base` template that exists. So a broken stage is caught when
+`input` (or `inputs`) and, when it names one, a `base` template that exists. A typed input (see
+Typed contracts) read from a swarm stage's `produces` needs that stage to declare the same
+`output_type` (`output_type`, naming both stages and the type), and two connectors declaring one
+type name with different schemas fail the stage that names it (`type_conflict`). So a broken stage is caught when
 the workflow is saved, not after the stages before it spent the budget. The editor's planner is
-told each built-in connector's params.
+told each built-in connector's params and every typed input of the world's connectors, so it
+drafts the `output_type` they need.
 `POST /api/worlds/<id>/workflows` creates, `POST /api/workflows/<id>/versions` appends,
 `POST /api/worlds/<id>/workflows/check` only reports (violations, the parsed model and, with a
 `schedule`, `next_run_at`). The MCP server exposes `save_workflow`, `check_workflow`,
@@ -312,6 +316,20 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   field names, and answers `[{"name", "ok", "message"}]`, one per thing it depends on: for
   `speech`, each engine in `SPEECH_ENDPOINTS`. The connectors page shows them as up or down when
   it opens. It is `[]` for a connector without one, and 502 when the tool cannot be called.
+- Typed contracts (issue 133): a connector may declare named input types, each a JSON Schema
+  (`types`, as `{"recipe": {...}}`), and which of a stage's inputs takes which (`input_types`, by
+  position over `input` or `inputs`, null for an untyped one). Built-ins declare them in their
+  manifest, as `speech` declares `script`; an added connector gives them in its
+  `POST /api/worlds/<id>/connectors` body, checked to be lower_snake_case names of valid
+  schemas. A swarm stage promises a type with `output_type: <name>`: its judge then answers each
+  item's `fields` in the type's schema (structured output), an answer that does not fit fails
+  that judge session, and the artifact carries the value as a fenced JSON block before the
+  readable body. A single typed output is written as the stage's produced markdown file (the one
+  named after the type, else the first), so the connector stage reading that file gets it; a
+  `list[<name>]` writes `<name>-<slug>.md` files. A type name no connector declares (`idea`)
+  keeps the generic projection. The check refuses a workflow, and a run start re-checks it
+  (#102), when a typed input comes from a swarm stage without that `output_type`. Agents still
+  work freely in notes; only the judge's projection is typed (ADR 0011).
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors` saves it and merges the given credential
   values into the file (an empty value means the file already has it). `DELETE
@@ -505,6 +523,11 @@ command, credentials, the non-secret settings it reads from the app's environmen
 and never names `speech`, so moving the connector into a package is a move.
 
 ```yaml
+- swarm: script
+  goal: Write the voice-over.
+  done_when: A script of short scenes.
+  output_type: script         # the type speech declares for its input; the check needs it
+  produces: [script.md]
 - connector: voice
   calls: speech
   input: script.md
@@ -515,6 +538,9 @@ and never names `speech`, so moving the connector into a package is a move.
   inputs: [script.md, timings.json]
 ```
 
+- Its input is the declared type `script` (`speech.SCRIPT`, the JSON Schema of the block below),
+  so the swarm stage writing `script.md` declares `output_type: script` and its judge writes the
+  block. A hand-written script, prose included, still works where no swarm stage produces it.
 - The script is a fenced JSON block, `{"scenes": [{"id", "lines": [{"text", "pause_after"}]}]}`
   (`pause_after` in seconds, default 0.3; ids are letters, digits, `_` or `-`), else each
   paragraph is a scene and each sentence a line. Frontmatter and `#` headings are skipped. A
@@ -792,7 +818,8 @@ session, replaced once like any other.
    (`verdict.created` event) and an artifact `artifacts/verdict-<loop>.md`. A fail adds its gaps as
    open tasks (`added_by: judge`; a fail without gaps gets one per reason) and the stage loops.
    Three gap loops are allowed: the fourth failed verdict fails the stage.
-4. **Project.** On a pass with an `output_type` (`idea`, or `list[idea]` for several), each item
+4. **Project.** On a pass with an `output_type` (`idea`, or `list[idea]` for several, or a type
+   a connector declares, see Typed contracts under Connectors), each item
    becomes `artifacts/<type>-<slug>.md` with frontmatter `type`, `author`, `run`, `stage`, `title`,
    `rank`, `reason` (why the judge ranked it so, shown on the pick card), its fields (an idea's
    `hook` and `why`) and `sources: ["<note path>#p<n>"]`, keeping only

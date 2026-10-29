@@ -40,6 +40,17 @@ def validate(
 ) -> list[Violation]:
     out: list[Violation] = []
     produced: set[str] = set()
+    swarm_made: dict[str, SwarmStage] = {}
+    """The swarm stage that last produced each file, for typed contracts (issue 133)."""
+    schemas: dict[str, list[tuple[str, object]]] = {}
+    for ref in connectors.values():
+        for type_name, schema in ref.types.items():
+            schemas.setdefault(type_name, []).append((ref.name, schema))
+    conflicts = {
+        t: [n for n, _ in found]
+        for t, found in schemas.items()
+        if any(s != found[0][1] for _, s in found)
+    }
 
     def check_connector(name: str, stage_type: str, stage: str) -> ConnectorRef | None:
         ref = connectors.get(name)
@@ -70,6 +81,18 @@ def validate(
                     )
                 )
             produced.update(stage.produces)
+            swarm_made |= dict.fromkeys(stage.produces, stage)
+            promised = "".join((stage.output_type or "").split())
+            named = promised.removeprefix("list[").removesuffix("]")
+            if named in conflicts:
+                out.append(
+                    Violation(
+                        "type_conflict",
+                        f"connectors {' and '.join(conflicts[named])} declare type {named}"
+                        " with different schemas",
+                        stage.name,
+                    )
+                )
         elif isinstance(stage, ConnectorStage):
             ref = check_connector(stage.calls, "connector", stage.name)
             gated = index > 0 and isinstance(model.stages[index - 1], GateStage)
@@ -81,7 +104,23 @@ def validate(
                         stage.name,
                     )
                 )
-            for name in stage.inputs or filter(None, [stage.input]):
+            names = stage.inputs or list(filter(None, [stage.input]))
+            for name, wanted in zip(names, ref.input_types if ref else (), strict=False):
+                maker = swarm_made.get(name)
+                if wanted and maker is not None:
+                    promised = "".join((maker.output_type or "").split())
+                    if promised != wanted:
+                        has = f"declares output_type {promised}" if promised else "declares none"
+                        out.append(
+                            Violation(
+                                "output_type",
+                                f"stage '{stage.name}' reads {name} from swarm stage"
+                                f" '{maker.name}' as type {wanted}, but '{maker.name}' {has};"
+                                f" give it output_type: {wanted}",
+                                stage.name,
+                            )
+                        )
+            for name in names:
                 if name not in produced:
                     out.append(
                         Violation(
@@ -101,12 +140,15 @@ def validate(
                 out += [Violation("connector_params", p, stage.name) for p in ref.problems(config)]
             if stage.output:
                 produced.add(stage.output)
+                swarm_made.pop(stage.output, None)
         elif isinstance(stage, WorkflowStage):
             if stage.runs not in references and stage.runs != workflow_id:
                 out.append(
                     Violation("unknown_workflow", f"no workflow with id '{stage.runs}'", stage.name)
                 )
             produced.update(stage.take)
+            for name in stage.take:
+                swarm_made.pop(name, None)
         # gates produce a decision, which no stage declares as input
 
     me = workflow_id or ""

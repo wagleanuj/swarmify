@@ -1,10 +1,13 @@
 """The planner's and judge's answers, parsed, and a passing verdict projected into artifacts."""
 
+import json
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from swarmify_swarm.projection import (
+    VERDICT_SCHEMA,
     Item,
     OutputType,
     Source,
@@ -15,6 +18,7 @@ from swarmify_swarm.projection import (
     parse_verdict,
     project,
     verdict_file,
+    verdict_schema,
 )
 
 NAMES = st.from_regex(r"[a-z][a-z0-9_]{0,12}", fullmatch=True)
@@ -149,3 +153,52 @@ def test_the_verdict_file_carries_outcome_reasons_and_gaps() -> None:
         2,
     )
     assert v.body.startswith("# Verdict 2: fail") and "- thin" in v.body and "- More" in v.body
+
+
+# A type a connector declares (issue 133): a fixture, nothing video about it.
+RECIPE = {
+    "type": "object",
+    "properties": {"steps": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+    "required": ["steps"],
+}
+
+
+def test_a_declared_type_replaces_the_generic_fields_in_the_judges_schema() -> None:
+    assert verdict_schema(None) is VERDICT_SCHEMA
+    item = verdict_schema(RECIPE)["properties"]["items"]["items"]
+    assert item["properties"]["fields"] == RECIPE and "fields" in item["required"]
+    assert VERDICT_SCHEMA["properties"]["items"]["items"]["properties"]["fields"]["type"] == (
+        "object"
+    )  # the generic schema is left as it was
+
+
+def test_an_item_that_does_not_fit_its_declared_type_is_refused() -> None:
+    def verdict(fields: object) -> dict:
+        return {
+            "passed": True,
+            "reasons": ["ok"],
+            "items": [{"title": "Soup", "body": "b", "sources": [], "fields": fields}],
+        }
+
+    (item,) = parse_verdict(verdict({"steps": ["Boil."]}), RECIPE).items
+    assert item.fields == {"steps": ["Boil."]}
+    with pytest.raises(ValueError, match=r"item 1 does not fit its type at steps: \[\] should"):
+        parse_verdict(verdict({"steps": []}), RECIPE)
+    with pytest.raises(ValueError, match="at the top: 'steps' is a required property"):
+        parse_verdict(verdict({}), RECIPE)
+
+
+def test_a_declared_type_is_written_as_the_produced_file_with_a_fenced_json_block() -> None:
+    soup = Item("Soup", "Boil, then season.", 1, {"steps": ["Boil.", "Season."]})
+    (a,) = project(OutputType("recipe", False), [soup], [], True, ["notes.md", "recipe.md"])
+    assert a.name == "recipe.md" and a.type == "recipe"
+    assert a.fields == {"title": "Soup", "rank": 1, "sources": []}
+    fenced = a.body.split("```json\n")[1].split("\n```")[0]
+    assert json.loads(fenced) == {"steps": ["Boil.", "Season."]}
+    assert a.body.index("```json") < a.body.index("Boil, then season.")
+    (b,) = project(OutputType("recipe", False), [soup], [], True, ["draft.md"])
+    assert b.name == "draft.md"  # no file named after the type: the first produced one
+    (c,) = project(OutputType("recipe", False), [soup], [], True, [])
+    assert c.name == "recipe-soup.md"
+    many = project(OutputType("recipe", True), [soup, soup], [], True, ["recipe.md"])
+    assert [m.name for m in many] == ["recipe-soup.md", "recipe-soup-2.md"]

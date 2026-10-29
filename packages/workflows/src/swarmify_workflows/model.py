@@ -1,6 +1,6 @@
 """The Workflows language: Workflow, Workflow Version, the four Stage types, and a Violation."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -93,6 +93,10 @@ class ConnectorRef:
     problems: Callable[[dict[str, Any]], list[str]] = field(
         default=lambda _: [], compare=False, repr=False
     )
+    types: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    """The input types it declares, each a JSON Schema by name (issue 133)."""
+    input_types: Sequence[str | None] = ()
+    """The declared type of a stage's `input`, or of each of its `inputs` in order."""
 
 
 @dataclass(frozen=True)

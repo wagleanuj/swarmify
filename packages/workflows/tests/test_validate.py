@@ -164,3 +164,58 @@ def test_a_swarm_stage_cannot_promise_a_binary_file(name: str) -> None:
 )
 def test_a_swarm_stage_may_produce_text(name: str) -> None:
     assert rules(WorkflowModel("w", [SwarmStage("s", "g", "d", produces=[name])])) == []
+
+
+# Typed contracts (issue 133), on a fixture connector declaring a non-video type.
+RECIPE = {"type": "object", "properties": {"steps": {"type": "array"}}, "required": ["steps"]}
+COOK = ConnectorRef(
+    "cook",
+    "stage",
+    frozenset({"connector"}),
+    types={"recipe": RECIPE},
+    input_types=("recipe", None),
+)
+TYPED = {**CONNECTORS, "cook": COOK}
+
+
+def typed_rules(*stages: object, connectors: dict = TYPED) -> list[tuple[str, str | None, str]]:
+    model = WorkflowModel("w", list(stages))  # type: ignore[arg-type]
+    found = validate(model, workflow_id=None, connectors=connectors, references={})
+    return [(v.rule, v.stage, v.message) for v in found]
+
+
+def test_a_typed_input_needs_its_swarm_stage_to_promise_the_type() -> None:
+    cook = ConnectorStage("cook it", "cook", inputs=["recipe.md", "notes.md"])
+    notes = SwarmStage("notes", "g", "d", produces=["notes.md"])
+    promised = SwarmStage("write", "g", "d", output_type="recipe", produces=["recipe.md"])
+    assert typed_rules(promised, notes, cook) == []
+
+    missing = SwarmStage("write", "g", "d", produces=["recipe.md"])
+    assert typed_rules(missing, notes, cook) == [
+        (
+            "output_type",
+            "cook it",
+            "stage 'cook it' reads recipe.md from swarm stage 'write' as type recipe, but"
+            " 'write' declares none; give it output_type: recipe",
+        )
+    ]
+    other = SwarmStage("write", "g", "d", output_type="list[recipe]", produces=["recipe.md"])
+    ((rule, _, message),) = typed_rules(other, notes, cook)
+    assert rule == "output_type" and "declares output_type list[recipe]" in message
+    # untyped inputs, and a file a connector stage made, carry no promise to check
+    made = ConnectorStage("fetch", "cook", output="recipe.md")
+    assert typed_rules(promised, notes, made, cook) == []
+
+
+def test_two_connectors_declaring_one_type_differently_is_a_check_error() -> None:
+    same = ConnectorRef("bake", "stage", frozenset({"connector"}), types={"recipe": RECIPE})
+    differs = ConnectorRef("bake", "stage", frozenset({"connector"}), types={"recipe": {}})
+    write = SwarmStage("write", "g", "d", output_type="recipe", produces=["recipe.md"])
+    assert typed_rules(write, connectors={**TYPED, "bake": same}) == []
+    assert typed_rules(write, connectors={**TYPED, "bake": differs}) == [
+        (
+            "type_conflict",
+            "write",
+            "connectors cook and bake declare type recipe with different schemas",
+        )
+    ]
