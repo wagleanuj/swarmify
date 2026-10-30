@@ -234,3 +234,19 @@ def test_assets_are_the_operators_files_listed_served_and_never_a_path(memory: M
         with pytest.raises(ValueError):
             memory.add_asset("w1", bad, b"x")
     assert memory.library("w1") == []  # not run artifacts
+
+
+def test_assets_are_renamed_in_their_folder_and_deleted_never_outside(memory: Memory) -> None:
+    memory.add_asset("w1", "bed.mp3", b"ID3")
+    memory.add_asset("w1", "logo.png", b"PNG")
+    (memory.world_folder("w1") / "notes.md").write_text("x")
+    assert memory.rename_asset("w1", "assets/bed.mp3", "bed-calm.mp3") == "assets/bed-calm.mp3"
+    for path, name in [("assets/logo.png", "bed-calm.mp3"), ("assets/logo.png", "../x"),
+                       ("notes.md", "n.md"), ("assets/../notes.md", "n.md")]:  # fmt: skip
+        with pytest.raises(ValueError):
+            memory.rename_asset("w1", path, name)
+    memory.remove_asset("w1", "assets/logo.png")
+    for path in ("assets/logo.png", "notes.md", "assets/../notes.md"):
+        with pytest.raises(ValueError):
+            memory.remove_asset("w1", path)
+    assert memory.assets("w1") == ["assets/bed-calm.mp3"]

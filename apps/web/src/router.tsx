@@ -6,6 +6,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 
+import { Assets } from "./pages/Assets";
 import { Cast } from "./pages/Cast";
 import { Connectors } from "./pages/Connectors";
 import { Evals } from "./pages/Evals";
@@ -127,6 +128,12 @@ export const libraryRoute = createRoute({
     ),
 });
 
+export const assetsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/assets",
+  component: Assets,
+});
+
 // A document artifact or note, rendered to fit a phone; `path` is its path in the world folder.
 export const readerRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -161,6 +168,7 @@ const routeTree = rootRoute.addChildren([
   connectorsRoute,
   graphRoute,
   libraryRoute,
+  assetsRoute,
   readerRoute,
   castRoute,
   settingsRoute,

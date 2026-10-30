@@ -311,6 +311,29 @@ class Memory:
         (folder / name).write_bytes(data)
         return f"{ASSETS}/{name}"
 
+    def remove_asset(self, world_id: str, path: str) -> None:
+        """Delete the asset at `path` (relative to the world folder). Raises ValueError when it
+        is not a file under the world's assets."""
+        self._asset(world_id, path).unlink()
+
+    def rename_asset(self, world_id: str, path: str, name: str) -> str:
+        """Rename the asset at `path` to `name`, a plain file name, in the same folder. Returns
+        its new path. Raises ValueError for a bad name, a name taken, or no such asset."""
+        if not _NAME.match(name):
+            raise ValueError(f"an asset needs a plain file name, got '{name}'")
+        file = self._asset(world_id, path)
+        target = file.with_name(name)
+        if target.exists():
+            raise ValueError(f"{name} is already there")
+        file.rename(target)
+        return str(target.relative_to(self.world_folder(world_id).resolve()))
+
+    def _asset(self, world_id: str, path: str) -> Path:
+        file = self._inside(world_id, path)
+        if not file.is_relative_to(self.world_folder(world_id).resolve() / ASSETS):
+            raise ValueError(f"{path} is not an asset of this world")
+        return file
+
     def library(self, world_id: str) -> list[ArtifactFile]:
         """The Library: every artifact of the world across its runs, newest first, gate
         decisions included. A binary's sidecar stands in for it."""

@@ -6,7 +6,6 @@ import "../index.css";
 import type { components } from "../api/schema";
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
-import { plainName } from "./Library";
 
 type Item = components["schemas"]["LibraryItem"];
 
@@ -282,34 +281,13 @@ test("a skill the API refuses shows why", async () => {
   await expect.element(screen.getByRole("alert")).toHaveTextContent("the SKILL.md frontmatter needs a description");
 });
 
-test("assets are listed with links and uploaded through the API", async () => {
-  const bed = { path: "assets/bed-calm.mp3", name: "bed-calm.mp3", bytes: 2_400_000 };
-  const uploads: [string, string][] = [];
+test("the library points to the Assets page for voices and files", async () => {
   fakeFetch({
-    "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/workflows": () => Response.json([short]),
     "GET /api/worlds/world_1/library": () => Response.json([]),
-    "GET /api/worlds/world_1/assets": () => Response.json(uploads.length ? [bed, { ...bed, path: "assets/whoosh.wav", name: "whoosh.wav", bytes: 4 }] : [bed]),
-    "PUT /api/worlds/world_1/assets/whoosh.wav": async (req) => {
-      uploads.push([new URL(req.url).pathname, await req.text()]);
-      return Response.json({ path: "assets/whoosh.wav", name: "whoosh.wav", bytes: 4 }, { status: 201 });
-    },
   });
   const { screen } = await mountAt("/worlds/world_1/library");
-  const assets = screen.getByRole("region", { name: "Assets" });
-  await expect
-    .element(assets.getByRole("link", { name: "bed-calm.mp3" }))
-    .toHaveAttribute("href", "/api/worlds/world_1/files/assets/bed-calm.mp3");
-  await expect.element(assets).toMatchTextContent(/2\.4 MB/);
-  await assets.getByLabelText("Upload files").upload(new File(["RIFF"], "whoosh.wav"));
-  await expect.element(assets.getByRole("link", { name: "whoosh.wav" })).toBeVisible();
-  expect(uploads).toEqual([["/api/worlds/world_1/assets/whoosh.wav", "RIFF"]]);
-});
-
-test("an uploaded file gets a name the API takes", () => {
-  expect(plainName("Calm Bed (loop).mp3")).toBe("Calm-Bed-loop-.mp3");
-  expect(plainName(".hidden.wav")).toBe("hidden.wav");
-  expect(plainName("logo.png")).toBe("logo.png");
+  await expect.element(screen.getByRole("main").getByRole("link", { name: "Assets" })).toHaveAttribute("href", "/worlds/world_1/assets");
 });
 
 test("on a phone the library opens on search and type chips, with the other filters in a Filters sheet", async () => {
