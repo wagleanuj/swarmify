@@ -1,18 +1,38 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11, <3.13"
 resolution-markers = [
-    "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
-    "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
-    "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
-    "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')",
+    "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')",
+    "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
 ]
+conflicts = [[
+    { package = "speech-chatterbox", extra = "cpu" },
+    { package = "speech-chatterbox", extra = "cu124" },
+]]
 
 [[package]]
 name = "aiofiles"
@@ -147,7 +167,7 @@ name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807, upload-time = "2026-08-03T21:21:18.939Z" }
 wheels = [
@@ -261,11 +281,14 @@ dependencies = [
     { name = "s3tokenizer" },
     { name = "safetensors" },
     { name = "spacy-pkuseg" },
-    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'linux'" },
-    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'" },
-    { name = "torchaudio", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_machine != 'aarch64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_python_implementation != 'CPython' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
     { name = "transformers" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c4/b1/8f1203e868111a45b566a79a4f56cd7843c420dfda709b81cebee55afa10/chatterbox_tts-0.1.7.tar.gz", hash = "sha256:ed8afae83819b40a25927c2ef3bcc67f928bdfcf434c1376c972e6039252a187", size = 84802, upload-time = "2026-03-26T08:43:47.912Z" }
@@ -306,8 +329,10 @@ version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "einops" },
-    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c0/b2/2859d16fe377f1a5dbd3ba85c68fa0e6deb5605ce86faded85b047f8cbed/conformer-0.3.2.tar.gz", hash = "sha256:32ef34fa461ff32e1c33061025c0f583884f19d2f0aba200234f4e771f777eda", size = 4663, upload-time = "2023-05-17T21:08:48.415Z" }
 wheels = [
@@ -349,14 +374,22 @@ name = "deprecated"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
-    "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')",
+    "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
 ]
 dependencies = [
-    { name = "wrapt" },
+    { name = "wrapt", marker = "python_full_version < '3.12' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/49/85/12f0a49a7c4ffb70572b6c2ef13c90c88fd190debda93b23f026b25f9634/deprecated-1.3.1.tar.gz", hash = "sha256:b1b50e0ff0c1fddaa5708a2c6b0a6588bb09b892825ab2b214ac9ea9d92a5223", size = 2932523, upload-time = "2025-10-30T08:19:02.757Z" }
 wheels = [
@@ -368,14 +401,22 @@ name = "deprecated"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
-    "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')",
+    "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
 ]
 dependencies = [
-    { name = "wrapt" },
+    { name = "wrapt", marker = "python_full_version >= '3.12' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f7/9c/16649913bf14c73e0a9453782e148362ff2657067deff6aa9c7ebcddcc31/deprecated-3.0.0.tar.gz", hash = "sha256:16850204d3a1e6bb0acd06bff48d96e8b0a0d25d1c52f71705405a0f4894192d", size = 166912, upload-time = "2026-09-26T13:58:10.675Z" }
 wheels = [
@@ -612,7 +653,7 @@ dependencies = [
     { name = "click" },
     { name = "filelock" },
     { name = "fsspec" },
-    { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'" },
+    { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
     { name = "httpx" },
     { name = "packaging" },
     { name = "pyyaml" },
@@ -873,11 +914,19 @@ name = "networkx"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
-    "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')",
+    "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
 wheels = [
@@ -889,11 +938,19 @@ name = "networkx"
 version = "3.7"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
-    "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124'",
+    "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')",
+    "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/dc/76/3af777226b63a5e64a6b36b1ec5855c14e2b94a37096d4760e595fc43511/networkx-3.7.tar.gz", hash = "sha256:fd77a511bd90f39f3d016351345b52cf5319b813bdca01de3f755d3cca62e96a", size = 1866482, upload-time = "2026-09-21T16:45:16.974Z" }
 wheels = [
@@ -952,6 +1009,147 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/76/8c/2ba3902e1a0fc1c74962ea9bb33a534bb05984ad7ff9515bf8d07527cadd/numpy-1.26.4-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:1dda2e7b4ec9dd512f84935c5f126c8bd8b9f2fc001e9f54af255e8c5f16b0e0", size = 17786643, upload-time = "2024-02-05T23:57:56.585Z" },
     { url = "https://files.pythonhosted.org/packages/28/4a/46d9e65106879492374999e76eb85f87b15328e06bd1550668f79f7b18c6/numpy-1.26.4-cp312-cp312-win32.whl", hash = "sha256:50193e430acfc1346175fcbdaa28ffec49947a06918b7b92130744e81e640110", size = 5677803, upload-time = "2024-02-05T23:58:08.963Z" },
     { url = "https://files.pythonhosted.org/packages/16/2e/86f24451c2d530c88daf997cb8d6ac622c1d40d19f5a031ed68a4b73a374/numpy-1.26.4-cp312-cp312-win_amd64.whl", hash = "sha256:08beddf13648eb95f8d867350f6a018a4be2e5ad54c8d8caed89ebca558b2818", size = 15517754, upload-time = "2024-02-05T23:58:36.364Z" },
+]
+
+[[package]]
+name = "nvidia-cublas-cu12"
+version = "12.4.5.8"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/7f/7fbae15a3982dc9595e49ce0f19332423b260045d0a6afe93cdbe2f1f624/nvidia_cublas_cu12-12.4.5.8-py3-none-manylinux2014_aarch64.whl", hash = "sha256:0f8aa1706812e00b9f19dfe0cdb3999b092ccb8ca168c0db5b8ea712456fd9b3", size = 363333771, upload-time = "2024-06-18T19:28:09.881Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/71/1c91302526c45ab494c23f61c7a84aa568b8c1f9d196efa5993957faf906/nvidia_cublas_cu12-12.4.5.8-py3-none-manylinux2014_x86_64.whl", hash = "sha256:2fc8da60df463fdefa81e323eef2e36489e1c94335b5358bcb38360adf75ac9b", size = 363438805, upload-time = "2024-04-03T20:57:06.025Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/2a/4f27ca96232e8b5269074a72e03b4e0d43aa68c9b965058b1684d07c6ff8/nvidia_cublas_cu12-12.4.5.8-py3-none-win_amd64.whl", hash = "sha256:5a796786da89203a0657eda402bcdcec6180254a8ac22d72213abc42069522dc", size = 396895858, upload-time = "2024-04-03T21:03:31.996Z" },
+]
+
+[[package]]
+name = "nvidia-cuda-cupti-cu12"
+version = "12.4.127"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/b5/9fb3d00386d3361b03874246190dfec7b206fd74e6e287b26a8fcb359d95/nvidia_cuda_cupti_cu12-12.4.127-py3-none-manylinux2014_aarch64.whl", hash = "sha256:79279b35cf6f91da114182a5ce1864997fd52294a87a16179ce275773799458a", size = 12354556, upload-time = "2024-06-18T19:30:40.546Z" },
+    { url = "https://files.pythonhosted.org/packages/67/42/f4f60238e8194a3106d06a058d494b18e006c10bb2b915655bd9f6ea4cb1/nvidia_cuda_cupti_cu12-12.4.127-py3-none-manylinux2014_x86_64.whl", hash = "sha256:9dec60f5ac126f7bb551c055072b69d85392b13311fcc1bcda2202d172df30fb", size = 13813957, upload-time = "2024-04-03T20:55:01.564Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/79/8cf313ec17c58ccebc965568e5bcb265cdab0a1df99c4e674bb7a3b99bfe/nvidia_cuda_cupti_cu12-12.4.127-py3-none-win_amd64.whl", hash = "sha256:5688d203301ab051449a2b1cb6690fbe90d2b372f411521c86018b950f3d7922", size = 9938035, upload-time = "2024-04-03T21:01:01.109Z" },
+]
+
+[[package]]
+name = "nvidia-cuda-nvrtc-cu12"
+version = "12.4.127"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/aa/083b01c427e963ad0b314040565ea396f914349914c298556484f799e61b/nvidia_cuda_nvrtc_cu12-12.4.127-py3-none-manylinux2014_aarch64.whl", hash = "sha256:0eedf14185e04b76aa05b1fea04133e59f465b6f960c0cbf4e37c3cb6b0ea198", size = 24133372, upload-time = "2024-06-18T19:32:00.576Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/14/91ae57cd4db3f9ef7aa99f4019cfa8d54cb4caa7e00975df6467e9725a9f/nvidia_cuda_nvrtc_cu12-12.4.127-py3-none-manylinux2014_x86_64.whl", hash = "sha256:a178759ebb095827bd30ef56598ec182b85547f1508941a3d560eb7ea1fbf338", size = 24640306, upload-time = "2024-04-03T20:56:01.463Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/30/8c844bfb770f045bcd8b2c83455c5afb45983e1a8abf0c4e5297b481b6a5/nvidia_cuda_nvrtc_cu12-12.4.127-py3-none-win_amd64.whl", hash = "sha256:a961b2f1d5f17b14867c619ceb99ef6fcec12e46612711bcec78eb05068a60ec", size = 19751955, upload-time = "2024-04-03T21:01:51.133Z" },
+]
+
+[[package]]
+name = "nvidia-cuda-runtime-cu12"
+version = "12.4.127"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/aa/b656d755f474e2084971e9a297def515938d56b466ab39624012070cb773/nvidia_cuda_runtime_cu12-12.4.127-py3-none-manylinux2014_aarch64.whl", hash = "sha256:961fe0e2e716a2a1d967aab7caee97512f71767f852f67432d572e36cb3a11f3", size = 894177, upload-time = "2024-06-18T19:32:52.877Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/27/1795d86fe88ef397885f2e580ac37628ed058a92ed2c39dc8eac3adf0619/nvidia_cuda_runtime_cu12-12.4.127-py3-none-manylinux2014_x86_64.whl", hash = "sha256:64403288fa2136ee8e467cdc9c9427e0434110899d07c779f25b5c068934faa5", size = 883737, upload-time = "2024-04-03T20:54:51.355Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/8b/450e93fab75d85a69b50ea2d5fdd4ff44541e0138db16f9cd90123ef4de4/nvidia_cuda_runtime_cu12-12.4.127-py3-none-win_amd64.whl", hash = "sha256:09c2e35f48359752dfa822c09918211844a3d93c100a715d79b59591130c5e1e", size = 878808, upload-time = "2024-04-03T21:00:49.77Z" },
+]
+
+[[package]]
+name = "nvidia-cudnn-cu12"
+version = "9.1.0.70"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-cublas-cu12", marker = "(sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/fd/713452cd72343f682b1c7b9321e23829f00b842ceaedcda96e742ea0b0b3/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl", hash = "sha256:165764f44ef8c61fcdfdfdbe769d687e06374059fbb388b6c89ecb0e28793a6f", size = 664752741, upload-time = "2024-04-22T15:24:15.253Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/d0/f90ee6956a628f9f04bf467932c0a25e5a7e706a684b896593c06c82f460/nvidia_cudnn_cu12-9.1.0.70-py3-none-win_amd64.whl", hash = "sha256:6278562929433d68365a07a4a1546c237ba2849852c0d4b2262a486e805b977a", size = 679925892, upload-time = "2024-04-22T15:24:53.333Z" },
+]
+
+[[package]]
+name = "nvidia-cufft-cu12"
+version = "11.2.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/8a/0e728f749baca3fbeffad762738276e5df60851958be7783af121a7221e7/nvidia_cufft_cu12-11.2.1.3-py3-none-manylinux2014_aarch64.whl", hash = "sha256:5dad8008fc7f92f5ddfa2101430917ce2ffacd86824914c82e28990ad7f00399", size = 211422548, upload-time = "2024-06-18T19:33:39.396Z" },
+    { url = "https://files.pythonhosted.org/packages/27/94/3266821f65b92b3138631e9c8e7fe1fb513804ac934485a8d05776e1dd43/nvidia_cufft_cu12-11.2.1.3-py3-none-manylinux2014_x86_64.whl", hash = "sha256:f083fc24912aa410be21fa16d157fed2055dab1cc4b6934a0e03cba69eb242b9", size = 211459117, upload-time = "2024-04-03T20:57:40.402Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/ee/3f3f8e9874f0be5bbba8fb4b62b3de050156d159f8b6edc42d6f1074113b/nvidia_cufft_cu12-11.2.1.3-py3-none-win_amd64.whl", hash = "sha256:d802f4954291101186078ccbe22fc285a902136f974d369540fd4a5333d1440b", size = 210576476, upload-time = "2024-04-03T21:04:06.422Z" },
+]
+
+[[package]]
+name = "nvidia-curand-cu12"
+version = "10.3.5.147"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/9c/a79180e4d70995fdf030c6946991d0171555c6edf95c265c6b2bf7011112/nvidia_curand_cu12-10.3.5.147-py3-none-manylinux2014_aarch64.whl", hash = "sha256:1f173f09e3e3c76ab084aba0de819c49e56614feae5c12f69883f4ae9bb5fad9", size = 56314811, upload-time = "2024-06-18T19:34:48.575Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/6d/44ad094874c6f1b9c654f8ed939590bdc408349f137f9b98a3a23ccec411/nvidia_curand_cu12-10.3.5.147-py3-none-manylinux2014_x86_64.whl", hash = "sha256:a88f583d4e0bb643c49743469964103aa59f7f708d862c3ddb0fc07f851e3b8b", size = 56305206, upload-time = "2024-04-03T20:58:08.722Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/22/2573503d0d4e45673c263a313f79410e110eb562636b0617856fdb2ff5f6/nvidia_curand_cu12-10.3.5.147-py3-none-win_amd64.whl", hash = "sha256:f307cc191f96efe9e8f05a87096abc20d08845a841889ef78cb06924437f6771", size = 55799918, upload-time = "2024-04-03T21:04:34.45Z" },
+]
+
+[[package]]
+name = "nvidia-cusolver-cu12"
+version = "11.6.1.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-cublas-cu12", marker = "(sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusparse-cu12", marker = "(sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/6b/a5c33cf16af09166845345275c34ad2190944bcc6026797a39f8e0a282e0/nvidia_cusolver_cu12-11.6.1.9-py3-none-manylinux2014_aarch64.whl", hash = "sha256:d338f155f174f90724bbde3758b7ac375a70ce8e706d70b018dd3375545fc84e", size = 127634111, upload-time = "2024-06-18T19:35:01.793Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/e1/5b9089a4b2a4790dfdea8b3a006052cfecff58139d5a4e34cb1a51df8d6f/nvidia_cusolver_cu12-11.6.1.9-py3-none-manylinux2014_x86_64.whl", hash = "sha256:19e33fa442bcfd085b3086c4ebf7e8debc07cfe01e11513cc6d332fd918ac260", size = 127936057, upload-time = "2024-04-03T20:58:28.735Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/be/d435b7b020e854d5d5a682eb5de4328fd62f6182507406f2818280e206e2/nvidia_cusolver_cu12-11.6.1.9-py3-none-win_amd64.whl", hash = "sha256:e77314c9d7b694fcebc84f58989f3aa4fb4cb442f12ca1a9bde50f5e8f6d1b9c", size = 125224015, upload-time = "2024-04-03T21:04:53.339Z" },
+]
+
+[[package]]
+name = "nvidia-cusparse-cu12"
+version = "12.3.1.170"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/a9/c0d2f83a53d40a4a41be14cea6a0bf9e668ffcf8b004bd65633f433050c0/nvidia_cusparse_cu12-12.3.1.170-py3-none-manylinux2014_aarch64.whl", hash = "sha256:9d32f62896231ebe0480efd8a7f702e143c98cfaa0e8a76df3386c1ba2b54df3", size = 207381987, upload-time = "2024-06-18T19:35:32.989Z" },
+    { url = "https://files.pythonhosted.org/packages/db/f7/97a9ea26ed4bbbfc2d470994b8b4f338ef663be97b8f677519ac195e113d/nvidia_cusparse_cu12-12.3.1.170-py3-none-manylinux2014_x86_64.whl", hash = "sha256:ea4f11a2904e2a8dc4b1833cc1b5181cde564edd0d5cd33e3c168eff2d1863f1", size = 207454763, upload-time = "2024-04-03T20:58:59.995Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/e0/3155ca539760a8118ec94cc279b34293309bcd14011fc724f87f31988843/nvidia_cusparse_cu12-12.3.1.170-py3-none-win_amd64.whl", hash = "sha256:9bc90fb087bc7b4c15641521f31c0371e9a612fc2ba12c338d3ae032e6b6797f", size = 204684315, upload-time = "2024-04-03T21:05:26.031Z" },
+]
+
+[[package]]
+name = "nvidia-cusparselt-cu12"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/8e/675498726c605c9441cf46653bd29cb1b8666da1fb1469ffa25f67f20c58/nvidia_cusparselt_cu12-0.6.2-py3-none-manylinux2014_aarch64.whl", hash = "sha256:067a7f6d03ea0d4841c85f0c6f1991c5dda98211f6302cb83a4ab234ee95bef8", size = 149422781, upload-time = "2024-07-23T17:35:27.203Z" },
+    { url = "https://files.pythonhosted.org/packages/78/a8/bcbb63b53a4b1234feeafb65544ee55495e1bb37ec31b999b963cbccfd1d/nvidia_cusparselt_cu12-0.6.2-py3-none-manylinux2014_x86_64.whl", hash = "sha256:df2c24502fd76ebafe7457dbc4716b2fec071aabaed4fb7691a201cde03704d9", size = 150057751, upload-time = "2024-07-23T02:35:53.074Z" },
+    { url = "https://files.pythonhosted.org/packages/56/8f/2c33082238b6c5e783a877dc8786ab62619e3e6171c083bd3bba6e3fe75e/nvidia_cusparselt_cu12-0.6.2-py3-none-win_amd64.whl", hash = "sha256:0057c91d230703924c0422feabe4ce768841f9b4b44d28586b6f6d2eb86fbe70", size = 148755794, upload-time = "2024-07-23T02:35:00.261Z" },
+]
+
+[[package]]
+name = "nvidia-nccl-cu12"
+version = "2.21.5"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/99/12cd266d6233f47d00daf3a72739872bdc10267d0383508b0b9c84a18bb6/nvidia_nccl_cu12-2.21.5-py3-none-manylinux2014_x86_64.whl", hash = "sha256:8579076d30a8c24988834445f8d633c697d42397e92ffc3f63fa26766d25e0a0", size = 188654414, upload-time = "2024-04-03T15:32:57.427Z" },
+]
+
+[[package]]
+name = "nvidia-nvjitlink-cu12"
+version = "12.4.127"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/45/239d52c05074898a80a900f49b1615d81c07fceadd5ad6c4f86a987c0bc4/nvidia_nvjitlink_cu12-12.4.127-py3-none-manylinux2014_aarch64.whl", hash = "sha256:4abe7fef64914ccfa909bc2ba39739670ecc9e820c83ccc7a6ed414122599b83", size = 20552510, upload-time = "2024-06-18T20:20:13.871Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/ff/847841bacfbefc97a00036e0fce5a0f086b640756dc38caea5e1bb002655/nvidia_nvjitlink_cu12-12.4.127-py3-none-manylinux2014_x86_64.whl", hash = "sha256:06b3b9b25bf3f8af351d664978ca26a16d2c5127dbd53c0497e28d1fb9611d57", size = 21066810, upload-time = "2024-04-03T20:59:46.957Z" },
+    { url = "https://files.pythonhosted.org/packages/81/19/0babc919031bee42620257b9a911c528f05fb2688520dcd9ca59159ffea8/nvidia_nvjitlink_cu12-12.4.127-py3-none-win_amd64.whl", hash = "sha256:fd9020c501d27d135f983c6d3e244b197a7ccad769e34df53a42e276b0e25fa1", size = 95336325, upload-time = "2024-04-03T21:06:25.073Z" },
+]
+
+[[package]]
+name = "nvidia-nvtx-cu12"
+version = "12.4.127"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/39/471f581edbb7804b39e8063d92fc8305bdc7a80ae5c07dbe6ea5c50d14a5/nvidia_nvtx_cu12-12.4.127-py3-none-manylinux2014_aarch64.whl", hash = "sha256:7959ad635db13edf4fc65c06a6e9f9e55fc2f92596db928d169c0bb031e88ef3", size = 100417, upload-time = "2024-06-18T20:16:22.484Z" },
+    { url = "https://files.pythonhosted.org/packages/87/20/199b8713428322a2f22b722c62b8cc278cc53dffa9705d744484b5035ee9/nvidia_nvtx_cu12-12.4.127-py3-none-manylinux2014_x86_64.whl", hash = "sha256:781e950d9b9f60d8241ccea575b32f5105a5baf4c2351cab5256a24869f12a1a", size = 99144, upload-time = "2024-04-03T20:56:12.406Z" },
+    { url = "https://files.pythonhosted.org/packages/54/1b/f77674fbb73af98843be25803bbd3b9a4f0a96c75b8d33a2854a5c7d2d77/nvidia_nvtx_cu12-12.4.127-py3-none-win_amd64.whl", hash = "sha256:641dccaaa1139f3ffb0d3164b4b84f9d253397e38246a4f2f36728b48566d485", size = 66307, upload-time = "2024-04-03T21:02:01.959Z" },
 ]
 
 [[package]]
@@ -1072,7 +1270,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "python-dateutil" },
-    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
+    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e2/17/d7b106e05bfa642e8694451e7d3d759c6a241c5386a5d962e4f66c047e06/pandas-3.0.6.tar.gz", hash = "sha256:66b07ef7315a31bfe1089cd3d71a7de781c9dca986762d0b4fe7c0ef17465d10", size = 4667686, upload-time = "2026-09-17T23:23:18.345Z" }
 wheels = [
@@ -1284,8 +1482,8 @@ name = "pykakasi"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "deprecated", version = "1.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "deprecated", version = "3.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "deprecated", version = "1.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "deprecated", version = "3.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
     { name = "jaconv" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ad/32/2a8e213fd744459a03864af7cf4c6142ee061fc915757c8152d147b16015/pykakasi-2.3.0.tar.gz", hash = "sha256:fa052a8e63f59fb8d6569abbe719a8c9f9daf15ed27a67a56ab1705f0f67b0a1", size = 21752447, upload-time = "2024-06-24T04:57:31.233Z" }
@@ -1462,11 +1660,14 @@ dependencies = [
     { name = "numpy" },
     { name = "onnx" },
     { name = "pre-commit" },
-    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'linux'" },
-    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'" },
-    { name = "torchaudio", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_machine != 'aarch64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_python_implementation != 'CPython' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
     { name = "tqdm" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/94/4e/e64bb980309a22d186efedcd9e5f060a5b1cbffc5c19b356bb42dcc82e07/s3tokenizer-0.3.0.tar.gz", hash = "sha256:786a5ff8b5ca023507e0a6a8c7793a6aa1b1550a73d7676851d1b8c8b12889c5", size = 227180, upload-time = "2025-12-22T03:12:25.71Z" }
@@ -1684,12 +1885,27 @@ dependencies = [
     { name = "python-multipart" },
     { name = "setuptools" },
     { name = "soundfile" },
-    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'linux'" },
-    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'" },
-    { name = "torchaudio", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_machine != 'aarch64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_python_implementation != 'CPython' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
     { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+cpu = [
+    { name = "torch", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_machine != 'aarch64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_python_implementation != 'CPython' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torchaudio", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+]
+cu124 = [
+    { name = "torch", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" } },
+    { name = "torchaudio", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" } },
 ]
 
 [package.metadata]
@@ -1701,12 +1917,19 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "setuptools", specifier = "<81" },
     { name = "soundfile", specifier = ">=0.13" },
-    { name = "torch", marker = "sys_platform != 'linux'", specifier = "==2.6.0" },
-    { name = "torch", marker = "sys_platform == 'linux'", specifier = "==2.6.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "torchaudio", marker = "sys_platform != 'linux'", specifier = "==2.6.0" },
-    { name = "torchaudio", marker = "sys_platform == 'linux'", specifier = "==2.6.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", specifier = "==2.6.0" },
+    { name = "torch", marker = "sys_platform == 'linux' and extra == 'cpu'", specifier = "==2.6.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "speech-chatterbox", extra = "cpu" } },
+    { name = "torch", marker = "sys_platform == 'linux' and extra == 'cu124'", specifier = "==2.6.0", index = "https://download.pytorch.org/whl/cu124", conflict = { package = "speech-chatterbox", extra = "cu124" } },
+    { name = "torch", marker = "sys_platform != 'linux' and extra == 'cpu'", specifier = "==2.6.0" },
+    { name = "torch", marker = "sys_platform != 'linux' and extra == 'cu124'", specifier = "==2.6.0" },
+    { name = "torchaudio", specifier = "==2.6.0" },
+    { name = "torchaudio", marker = "sys_platform == 'linux' and extra == 'cpu'", specifier = "==2.6.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "speech-chatterbox", extra = "cpu" } },
+    { name = "torchaudio", marker = "sys_platform == 'linux' and extra == 'cu124'", specifier = "==2.6.0", index = "https://download.pytorch.org/whl/cu124", conflict = { package = "speech-chatterbox", extra = "cu124" } },
+    { name = "torchaudio", marker = "sys_platform != 'linux' and extra == 'cpu'", specifier = "==2.6.0" },
+    { name = "torchaudio", marker = "sys_platform != 'linux' and extra == 'cu124'", specifier = "==2.6.0" },
     { name = "uvicorn", specifier = ">=0.34" },
 ]
+provides-extras = ["cpu", "cu124"]
 
 [[package]]
 name = "srsly"
@@ -1807,28 +2030,69 @@ wheels = [
 [[package]]
 name = "torch"
 version = "2.6.0"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "python_full_version >= '3.12' and sys_platform == 'darwin'",
+    "python_full_version < '3.12' and sys_platform == 'darwin'",
+]
+dependencies = [
+    { name = "filelock", marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "fsspec", marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "jinja2", marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (python_full_version >= '3.12' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (python_full_version < '3.12' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "setuptools", marker = "(python_full_version >= '3.12' and sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (python_full_version < '3.12' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "sympy", marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "typing-extensions", marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0-cp311-none-macosx_11_0_arm64.whl", hash = "sha256:94fc63b3b4bedd327af588696559f68c264440e2503cc9e6954019473d74ae21", upload-time = "2025-01-30T00:39:47Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0-cp312-none-macosx_11_0_arm64.whl", hash = "sha256:9a610afe216a85a8b9bc9f8365ed561535c93e804c2a317ef7fabcc5deda0989", upload-time = "2025-01-30T00:39:50Z" },
+]
+
+[[package]]
+name = "torch"
+version = "2.6.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'win32'",
     "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "filelock" },
-    { name = "fsspec" },
-    { name = "jinja2" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "setuptools", marker = "python_full_version >= '3.12'" },
-    { name = "sympy" },
-    { name = "typing-extensions" },
+    { name = "filelock", marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "fsspec", marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "jinja2", marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cublas-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cuda-cupti-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cuda-nvrtc-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cudnn-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cufft-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-curand-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusolver-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusparse-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusparselt-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nccl-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nvtx-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "setuptools", marker = "(python_full_version >= '3.12' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "sympy", marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
+    { name = "triton", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "typing-extensions", marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/78/a9/97cbbc97002fff0de394a2da2cdfa859481fdca36996d7bd845d50aa9d8d/torch-2.6.0-cp311-cp311-manylinux1_x86_64.whl", hash = "sha256:7979834102cd5b7a43cc64e87f2f3b14bd0e1458f06e9f88ffa386d07c7446e1", size = 766715424, upload-time = "2025-01-29T16:25:15.874Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/fa/134ce8f8a7ea07f09588c9cc2cea0d69249efab977707cf67669431dcf5c/torch-2.6.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:ccbd0320411fe1a3b3fec7b4d3185aa7d0c52adac94480ab024b5c8f74a0bf1d", size = 95759416, upload-time = "2025-01-29T16:27:38.429Z" },
     { url = "https://files.pythonhosted.org/packages/11/c5/2370d96b31eb1841c3a0883a492c15278a6718ccad61bb6a649c80d1d9eb/torch-2.6.0-cp311-cp311-win_amd64.whl", hash = "sha256:46763dcb051180ce1ed23d1891d9b1598e07d051ce4c9d14307029809c4d64f7", size = 204164970, upload-time = "2025-01-29T16:26:16.182Z" },
     { url = "https://files.pythonhosted.org/packages/0b/fa/f33a4148c6fb46ca2a3f8de39c24d473822d5774d652b66ed9b1214da5f7/torch-2.6.0-cp311-none-macosx_11_0_arm64.whl", hash = "sha256:94fc63b3b4bedd327af588696559f68c264440e2503cc9e6954019473d74ae21", size = 66530713, upload-time = "2025-01-29T16:26:38.881Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/35/0c52d708144c2deb595cd22819a609f78fdd699b95ff6f0ebcd456e3c7c1/torch-2.6.0-cp312-cp312-manylinux1_x86_64.whl", hash = "sha256:2bb8987f3bb1ef2675897034402373ddfc8f5ef0e156e2d8cfc47cacafdda4a9", size = 766624563, upload-time = "2025-01-29T16:23:19.084Z" },
+    { url = "https://files.pythonhosted.org/packages/01/d6/455ab3fbb2c61c71c8842753b566012e1ed111e7a4c82e0e1c20d0c76b62/torch-2.6.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:b789069020c5588c70d5c2158ac0aa23fd24a028f34a8b4fcb8fcb4d7efcf5fb", size = 95607867, upload-time = "2025-01-29T16:25:55.649Z" },
     { url = "https://files.pythonhosted.org/packages/18/cf/ae99bd066571656185be0d88ee70abc58467b76f2f7c8bfeb48735a71fe6/torch-2.6.0-cp312-cp312-win_amd64.whl", hash = "sha256:7e1448426d0ba3620408218b50aa6ada88aeae34f7a239ba5431f6c8774b1239", size = 204120469, upload-time = "2025-01-29T16:24:01.821Z" },
     { url = "https://files.pythonhosted.org/packages/81/b4/605ae4173aa37fb5aa14605d100ff31f4f5d49f617928c9f486bb3aaec08/torch-2.6.0-cp312-none-macosx_11_0_arm64.whl", hash = "sha256:9a610afe216a85a8b9bc9f8365ed561535c93e804c2a317ef7fabcc5deda0989", size = 66532538, upload-time = "2025-01-29T16:24:18.976Z" },
 ]
@@ -1842,22 +2106,75 @@ resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
     "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
     "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "filelock" },
-    { name = "fsspec" },
-    { name = "jinja2" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "setuptools", marker = "python_full_version >= '3.12'" },
-    { name = "sympy" },
-    { name = "typing-extensions" },
+    { name = "filelock", marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "fsspec", marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "jinja2", marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (python_full_version >= '3.12' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (python_full_version < '3.12' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "setuptools", marker = "(python_full_version >= '3.12' and sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (python_full_version < '3.12' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "sympy", marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-linux_x86_64.whl", hash = "sha256:5b6ae523bfb67088a17ca7734d131548a2e60346c622621e4248ed09dd0790cc", upload-time = "2025-01-30T00:38:11Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:d3dab9fb0294f268aec28e8aaba834e9d006b90a50db5bc2fe2191a9d48c6084", upload-time = "2025-01-30T00:38:19Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-win_amd64.whl", hash = "sha256:24c9d3d13b9ea769dd7bd5c11cfa1fc463fd7391397156565484565ca685d908", upload-time = "2025-01-30T00:38:23Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp312-cp312-linux_x86_64.whl", hash = "sha256:59e78aa0c690f70734e42670036d6b541930b8eabbaa18d94e090abf14cc4d91", upload-time = "2025-01-30T00:38:31Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:318290e8924353c61b125cdc8768d15208704e279e7757c113b9620740deca98", upload-time = "2025-01-30T00:38:38Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp312-cp312-win_amd64.whl", hash = "sha256:4027d982eb2781c93825ab9527f17fbbb12dbabf422298e4b954be60016f87d8", upload-time = "2025-01-30T00:38:42Z" },
+]
+
+[[package]]
+name = "torch"
+version = "2.6.0+cu124"
+source = { registry = "https://download.pytorch.org/whl/cu124" }
+resolution-markers = [
+    "python_full_version >= '3.12' and sys_platform == 'linux'",
+    "python_full_version < '3.12' and sys_platform == 'linux'",
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "filelock", marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "fsspec", marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "jinja2", marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and extra == 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra == 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cublas-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cuda-cupti-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cuda-nvrtc-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cudnn-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cufft-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-curand-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusolver-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusparse-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-cusparselt-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nccl-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "nvidia-nvtx-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "setuptools", marker = "(python_full_version >= '3.12' and extra == 'extra-17-speech-chatterbox-cu124') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "sympy", marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+    { name = "triton", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_machine != 'x86_64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "typing-extensions", marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp311-cp311-linux_x86_64.whl", hash = "sha256:d4c3e9a8d31a7c0fcbb9da17c31a1917e1fac26c566a4cfbd8c9568ad7cade79", upload-time = "2025-01-30T00:55:01Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp311-cp311-win_amd64.whl", hash = "sha256:6a1fb2714e9323f11edb6e8abf7aad5f79e45ad25c081cde87681a18d99c29eb", upload-time = "2025-01-30T00:55:31Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:a393b506844035c0dac2f30ea8478c343b8e95a429f06f3b3cadfc7f53adb597", upload-time = "2025-01-30T00:57:08Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:3313061c1fec4c7310cf47944e84513dcd27b6173b72a349bb7ca68d0ee6e9c0", upload-time = "2025-01-30T00:57:40Z" },
 ]
 
 [[package]]
@@ -1867,13 +2184,18 @@ source = { registry = "https://download.pytorch.org/whl/cpu" }
 resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
     "python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
+    "python_full_version >= '3.12' and sys_platform == 'darwin'",
+    "python_full_version < '3.12' and sys_platform == 'darwin'",
 ]
 dependencies = [
-    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" } },
+    { name = "torch", version = "2.6.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu') or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_machine != 'aarch64' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (platform_python_implementation != 'CPython' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0-cp311-cp311-linux_aarch64.whl", hash = "sha256:0f0db5c997d031c34066d8be1c0ce7d2a1f2b6c016a92885b20b00bfeb17b753", upload-time = "2025-01-30T00:40:03Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c12fc41241b8dfce3ccc1917f1c81a0f92f532d9917706600046f1eb21d2d765", upload-time = "2025-01-30T00:40:03Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0-cp312-cp312-linux_aarch64.whl", hash = "sha256:6291d9507dc1d6b4ffe8843fbfb201e6c8270dd8c42ad70bb76226c0ebdcad56", upload-time = "2025-01-30T00:40:03Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:7d0e4b08c42325bf4b887de9a25c44ed882997001740e1bd7d901f65581cf1ab", upload-time = "2025-01-30T00:40:04Z" },
 ]
 
 [[package]]
@@ -1883,18 +2205,22 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'win32'",
     "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (extra != 'extra-17-speech-chatterbox-cpu' and extra != 'extra-17-speech-chatterbox-cu124')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/30/bba293c8300245a09b7f82d3cfc04aee1950228da49c6cdd637d1145b6f5/torchaudio-2.6.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c12fc41241b8dfce3ccc1917f1c81a0f92f532d9917706600046f1eb21d2d765", size = 1815253, upload-time = "2025-01-29T16:29:37.408Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/00/2c69d436c613043f3051210d2f84a4c9062a815fa609c5f54d25ea8bfd07/torchaudio-2.6.0-cp311-cp311-manylinux1_x86_64.whl", hash = "sha256:377b177a3d683a9163e4cab5a06f0346dac9ff96fa527477338fd90fc6a2a4b6", size = 3382518, upload-time = "2025-01-29T16:29:29.291Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/b8/7d4dbbf6b505caddbfccd38e2882e47a791310b32b347f977a0a66efbf80/torchaudio-2.6.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:0f0db5c997d031c34066d8be1c0ce7d2a1f2b6c016a92885b20b00bfeb17b753", size = 1652980, upload-time = "2025-01-29T16:29:38.774Z" },
     { url = "https://files.pythonhosted.org/packages/1f/31/417d6955585be76842e9b0159d3801c0b5f9a4ea0db39db1a72bc262c861/torchaudio-2.6.0-cp311-cp311-win_amd64.whl", hash = "sha256:52182f6de4e7b342d139e54b703185d428de9cce3c4cf914a9b2ab2359d192a3", size = 2454430, upload-time = "2025-01-29T16:29:35.915Z" },
     { url = "https://files.pythonhosted.org/packages/ac/4a/d71b932bda4171970bdf4997541b5c778daa0e2967ed5009d207fca86ded/torchaudio-2.6.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:7d0e4b08c42325bf4b887de9a25c44ed882997001740e1bd7d901f65581cf1ab", size = 1812899, upload-time = "2025-01-29T16:29:41.021Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/aa/9082e715a673dd8e22b6a60cec7f301e897406023672b2090f8bcd8a5959/torchaudio-2.6.0-cp312-cp312-manylinux1_x86_64.whl", hash = "sha256:715aa21f6bdbd085454c313ae3a2c7cc07bf2e8cf05752f819afb5b4c57f4e6f", size = 3379510, upload-time = "2025-01-29T16:29:14.127Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/e7/0bcb2e33f4bdec69477344eccfe25c515b90496888095e99f837ea422089/torchaudio-2.6.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:6291d9507dc1d6b4ffe8843fbfb201e6c8270dd8c42ad70bb76226c0ebdcad56", size = 1653523, upload-time = "2025-01-29T16:29:32.803Z" },
     { url = "https://files.pythonhosted.org/packages/80/95/29e917905328337c7b104ce81f3bb5e2ad8dc70af2edf1d43f67eb621513/torchaudio-2.6.0-cp312-cp312-win_amd64.whl", hash = "sha256:86d6239792bf94741a41acd6fe3d549faaf0d50e7275d17d076a190bd007e2f9", size = 2449191, upload-time = "2025-01-29T16:29:06.485Z" },
 ]
 
@@ -1905,13 +2231,45 @@ source = { registry = "https://download.pytorch.org/whl/cpu" }
 resolution-markers = [
     "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
     "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" } },
+    { name = "torch", version = "2.6.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-17-speech-chatterbox-cpu') or (sys_platform == 'darwin' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124') or (sys_platform == 'linux' and extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0%2Bcpu-cp311-cp311-linux_x86_64.whl", hash = "sha256:242e6655d54daf66e090726e5ae6e51955888480de36fc89cd4588c10eca6280", upload-time = "2025-01-30T00:40:00Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0%2Bcpu-cp311-cp311-win_amd64.whl", hash = "sha256:79cd153330c071cb9582351c1f3c3c55a1adbf85556bfc5d521b744c7280728f", upload-time = "2025-01-30T00:40:00Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0%2Bcpu-cp312-cp312-linux_x86_64.whl", hash = "sha256:dfb1ae1d7da1e869a6a6a315cc2b2652c43e3aabb5184da4d363d1b4bb2c86a4", upload-time = "2025-01-30T00:40:00Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.6.0%2Bcpu-cp312-cp312-win_amd64.whl", hash = "sha256:75266c25d394bb5d70f83a38b1b4d858c074a767c18f7ff87443bdf193c1b236", upload-time = "2025-01-30T00:40:01Z" },
+]
+
+[[package]]
+name = "torchaudio"
+version = "2.6.0+cu124"
+source = { registry = "https://download.pytorch.org/whl/cu124" }
+resolution-markers = [
+    "python_full_version >= '3.12' and sys_platform == 'linux'",
+    "python_full_version < '3.12' and sys_platform == 'linux'",
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "torch", version = "2.6.0+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "extra == 'extra-17-speech-chatterbox-cu124'" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp311-cp311-linux_x86_64.whl", hash = "sha256:b8c15d7e0e81a23630a2de552ebacfe6643990dc890f83f426e43ff62efe8651", upload-time = "2025-01-30T01:04:23Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp311-cp311-win_amd64.whl", hash = "sha256:a25e146ce66ea9a6aed39008cc2001891bdf75253af479a4c32096678b2073b3", upload-time = "2025-01-30T01:04:24Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:3e5ffa69606171c74f3e2b969785ead50b782ca657e746aaee1ee7cc88dcfc08", upload-time = "2025-01-30T01:04:24Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:004ff6bcee0ac78747253c09db67d281add4308a9b87a7bf1769da5914998639", upload-time = "2025-01-30T01:04:24Z" },
 ]
 
 [[package]]
@@ -1919,7 +2277,7 @@ name = "tqdm"
 version = "4.70.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4", size = 171846, upload-time = "2026-09-11T07:25:16.601Z" }
 wheels = [
@@ -1947,12 +2305,21 @@ wheels = [
 ]
 
 [[package]]
+name = "triton"
+version = "3.2.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a7/2e/757d2280d4fefe7d33af7615124e7e298ae7b8e3bc4446cdb8e88b0f9bab/triton-3.2.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8009a1fb093ee8546495e96731336a33fb8856a38e45bb4ab6affd6dbc3ba220", size = 253157636, upload-time = "2025-01-22T19:12:51.322Z" },
+    { url = "https://files.pythonhosted.org/packages/06/00/59500052cb1cf8cf5316be93598946bc451f14072c6ff256904428eaf03c/triton-3.2.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8d9b215efc1c26fa7eefb9a157915c92d52e000d2bf83e5f69704047e63f125c", size = 253159365, upload-time = "2025-01-22T19:13:24.648Z" },
+]
+
+[[package]]
 name = "typer"
 version = "0.27.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-17-speech-chatterbox-cpu' and extra == 'extra-17-speech-chatterbox-cu124')" },
     { name = "rich" },
     { name = "shellingham" },
 ]

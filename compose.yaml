@@ -58,7 +58,7 @@ services:
   # Chatterbox Turbo on the CPU, for hosts without an Apple GPU: `docker compose --profile
   # chatterbox up -d` and SPEECH_ENDPOINTS=http://chatterbox:8881,http://kokoro:8880 in .env. On a
   # Mac run it natively instead (`mise run speech`) to use the GPU.
-  chatterbox:
+  chatterbox: &chatterbox
     profiles: [chatterbox]
     build: services/speech-chatterbox
     ports:
@@ -66,6 +66,19 @@ services:
     volumes:
       - speech-models:/models
     restart: unless-stopped
+
+  # Chatterbox on an NVIDIA GPU (the NVIDIA Container Toolkit on the host): `docker compose
+  # --profile chatterbox-gpu up -d` and SPEECH_ENDPOINTS=http://chatterbox-gpu:8881,http://kokoro:8880.
+  chatterbox-gpu:
+    <<: *chatterbox
+    profiles: [chatterbox-gpu]
+    build:
+      context: services/speech-chatterbox
+      args: { TORCH: cu124 }
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
 
 volumes:
   data:
