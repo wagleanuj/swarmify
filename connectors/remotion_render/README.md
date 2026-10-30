@@ -27,7 +27,7 @@ Two Settings on the Connectors page, shared or per world:
   default: browser tabs rendering at once, as `2` or `50%`. Empty, Remotion picks half the CPUs;
   with no GPU (Docker) a 3D scene (`@remotion/three`) renders in software and that many run out
   of memory, so set 2 there. Upgrading from V1, the start that first installs the package copies a
-  `SWARMIFY_RENDER_CONCURRENCY` set in the app's environment (the image sets 2) into this Setting.
+  `SWARMIFY_RENDER_CONCURRENCY` set in the app's environment (V1's image set 2) into this Setting.
 
 ## The stage
 
@@ -64,6 +64,15 @@ the template's git commit when the project is a git checkout). On failure the st
 the last 40 lines of CLI output. Every render serves its bundle on a port the OS just handed out
 (`--port`), never Remotion's default 3000, where another server (an open-webui container, say)
 would answer and fail the render with `window.getStaticCompositions is not defined`.
+
+## In Docker
+
+Swarmify's image carries Node and the shared libraries and fonts Chrome needs, not Remotion or
+Chrome: this package's install step puts both in `/data/packages`. A template must be inside the
+container: copy it to `/data/remotion` (`docker compose cp ./shorts api:/data/remotion/shorts`)
+and the stage's `project: shorts` finds it, as natively. The first render installs its
+dependencies. Set **Render concurrency** to 2 there (above); no `--gl` flag is passed: the default
+renders 3D on the Mac and in the image, and `--gl=angle` crashes in the image.
 
 ## A project an agent wrote
 

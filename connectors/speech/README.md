@@ -43,6 +43,13 @@ them wider. The models volume is `swarmify_speech-models`, the one V1's compose 
 upgrade keeps the models it downloaded. Updating: `git pull`, then the same command with
 `--build`.
 
+Upgrading from V1, where `kokoro` and the `chatterbox` profiles were in Swarmify's own compose
+file: run `docker compose up -d --build --remove-orphans` there once, which stops V1's engines
+(their ports would clash), then start them from this compose file as above. A `SPEECH_ENDPOINTS`
+in Swarmify's `.env` (as `http://chatterbox-gpu:8881,http://kokoro:8880`) is carried into the
+Setting on that first start and keeps working, since the engines keep their service names on the
+shared network.
+
 ## Speech engines
 
 Narration comes from text to speech engines that run as their own services, never inside the core

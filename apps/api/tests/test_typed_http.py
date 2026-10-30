@@ -106,17 +106,29 @@ def test_the_check_refuses_a_typed_input_its_swarm_stage_does_not_promise(
     assert refused.status_code == 422 and "not a JSON Schema" in refused.json()["detail"]
 
 
-def test_a_run_start_rechecks_the_contract(running: TestClient) -> None:
+def test_a_run_start_rechecks_the_contract_at_the_versions_it_recorded(
+    running: TestClient,
+) -> None:
     untyped = {k: v for k, v in COOK.items() if k not in ("types", "input_types")}
     world = world_with_cook(running, untyped)
     saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": recipe_flow("")})
     assert saved.status_code == 201, saved.json()
+    workflow = saved.json()["workflow_id"]
     assert running.delete(f"/api/worlds/{world}/packages/cook").status_code == 204
     assert running.post(f"/api/worlds/{world}/connectors", json=COOK).status_code == 201
 
-    started = running.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={})
-    assert started.status_code == 409, started.json()
-    assert [v["rule"] for v in started.json()["violations"]] == ["output_type"]
+    # The run uses the untyped cook it was saved with (#223), so its check passes; a new
+    # version, on the typed cook the world pins now, does not.
+    again = running.post(f"/api/workflows/{workflow}/versions", json={"yaml": recipe_flow("")})
+    assert [v["rule"] for v in again.json()["violations"]] == ["output_type"]
+    started = running.post(f"/api/workflows/{workflow}/runs", json={})
+    assert started.status_code == 201, started.json()
+    running.post(f"/api/runs/{started.json()['id']}/abort").raise_for_status()
+
+    assert running.delete(f"/api/worlds/{world}/packages/cook").status_code == 204
+    gone = running.post(f"/api/workflows/{workflow}/runs", json={})
+    assert gone.status_code == 409, gone.json()
+    assert [v["rule"] for v in gone.json()["violations"]] == ["unknown_connector"]
 
 
 def test_a_promised_type_is_projected_in_its_schema_and_reaches_the_connector(

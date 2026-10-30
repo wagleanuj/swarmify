@@ -185,9 +185,9 @@ def workflow_service(
     `control`, every saved version's `schedule` becomes (or removes) a DBOS cron for it."""
     registry = registry or connector_service(root)
 
-    def refs(world_id: str) -> dict[str, ConnectorRef]:
+    def refs(world_id: str, pins: Mapping[str, str]) -> dict[str, ConnectorRef]:
         def problems(config: dict[str, Any]) -> list[str]:
-            return registry.stage_problems(world_id, config)
+            return registry.stage_problems(world_id, config, pins)
 
         return {
             c.name: ConnectorRef(
@@ -199,7 +199,7 @@ def workflow_service(
                 tuple(c.input_types),
                 c.version,
             )
-            for c in registry.list_all(world_id)
+            for c in registry.list_all(world_id, pins)
         }
 
     def on_saved(version: WorkflowVersion) -> None:

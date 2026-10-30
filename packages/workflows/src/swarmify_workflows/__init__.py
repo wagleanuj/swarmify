@@ -74,23 +74,32 @@ class Workflows:
     def __init__(
         self,
         storage: Storage,
-        connectors_for: Callable[[str], Mapping[str, ConnectorRef]],
+        connectors_for: Callable[[str, Mapping[str, str]], Mapping[str, ConnectorRef]],
         on_saved: Callable[[WorkflowVersion], None] = lambda _: None,
     ) -> None:
-        """`on_saved` sees every new version once it is stored: the composition root uses it to
-        hand the version's `schedule` to the Runs context, which owns the cron."""
+        """`connectors_for(world id, pins)` gives the world's connectors, a package named in
+        `pins` at that version over the world's pin. `on_saved` sees every new version once it
+        is stored: the composition root uses it to hand the version's `schedule` to the Runs
+        context, which owns the cron."""
         self.storage = storage
         self.connectors_for = connectors_for
         self.on_saved = on_saved
 
-    def check(self, world_id: str, yaml: str, workflow_id: str | None = None) -> Draft:
-        """Parse and validate without saving. `workflow_id` is the workflow a new version is for."""
+    def check(
+        self,
+        world_id: str,
+        yaml: str,
+        workflow_id: str | None = None,
+        pins: Mapping[str, str] | None = None,
+    ) -> Draft:
+        """Parse and validate without saving. `workflow_id` is the workflow a new version is for;
+        `pins`, the package versions a saved version recorded, checks it against those."""
         model, violations = parse_workflow(yaml)
         if model is not None:
             violations += validate(
                 model,
                 workflow_id=workflow_id,
-                connectors=self.connectors_for(world_id),
+                connectors=self.connectors_for(world_id, pins or {}),
                 references=self._references(),
             )
         return Draft(model, violations)
@@ -100,7 +109,7 @@ class Workflows:
         draft = self.check(world_id, yaml, workflow_id)
         if draft.violations or draft.model is None:
             raise Invalid(draft.violations)
-        refs = self.connectors_for(world_id)
+        refs = self.connectors_for(world_id, {})
         packages = {
             n: v for n in sorted(calls(draft.model)) if n in refs and (v := refs[n].version)
         }

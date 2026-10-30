@@ -70,20 +70,13 @@ export function parseKeys(text: string): Record<string, string> {
   return keys;
 }
 
-export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
+export function status(c: Connector): { text: string; tone: "ok" | "warn" } {
   if (c.sign_in.length > 0) return { text: "Needs sign-in", tone: "warn" };
-  if (c.missing.length > 0) return { text: c.version ? "Needs setup" : "Needs a key", tone: "warn" };
-  // a Build Session runs inside swarmify (a session, then the render), so it needs no server
-  if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && !c.capabilities.includes("build_session")) {
-    return { text: "Not installed", tone: "off" };
-  }
+  if (c.missing.length > 0) return { text: "Needs setup", tone: "warn" };
   return { text: "Ready", tone: "ok" };
 }
 
-function where(c: Connector): string {
-  if (c.version) return `${c.about} · package ${c.name} ${c.version}`;
-  return c.missing.length > 0 ? `${c.about} · ${c.missing.join(", ")} not set` : c.about;
-}
+const where = (c: Connector) => `${c.about} · package ${c.name} ${c.version}`;
 
 export function Connectors() {
   const { worldId } = connectorsRoute.useParams();
@@ -253,8 +246,7 @@ export function Connectors() {
           <h1>Connectors</h1>
           <p className="sub">
             {connectors.length} connectors, {waiting} waiting on a key. Any MCP server can be one: Swarmify
-            installs it as a local package with its keys in its Setup. The built-ins' keys live in
-            ~/.swarmify/.env and are shared by every world. No key ever enters a run or a shared workflow.
+            installs it as a local package with its keys in its Setup. No key ever enters a run or a shared workflow.
             Web search and the world's graph are not connectors: they are Agent Tools Swarmify gives swarm steps,
             with nothing to set up.
           </p>
@@ -391,11 +383,7 @@ export function Connectors() {
                       </span>
                       <span className="faint">{c.stage_types.length > 0 ? `${c.stage_types.join(", ")} steps` : "gates"}</span>
                       <span className={s.tone === "warn" ? "pill warning" : "pill"}>{s.text}</span>
-                      {c.version ? (
-                        <Setup connector={c} worldId={worldId} onSaved={load} />
-                      ) : (
-                        c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />
-                      )}
+                      <Setup connector={c} worldId={worldId} onSaved={load} />
                       {(c.health || c.services.length > 0) && <Health connector={c} worldId={worldId} />}
                     </li>
                   );
@@ -561,13 +549,11 @@ function Health({ connector, worldId }: { connector: Connector; worldId: string 
   const [checks, setChecks] = useState<HealthCheck[] | string | null>(null);
 
   useEffect(() => {
-    const asked = connector.version
-      ? api.GET("/api/worlds/{world_id}/packages/{name}/health", { params: { path: { world_id: worldId, name: connector.name } } })
-      : api.GET("/api/connectors/{connector_id}/health", { params: { path: { connector_id: connector.id } } });
-    asked
+    api
+      .GET("/api/worlds/{world_id}/packages/{name}/health", { params: { path: { world_id: worldId, name: connector.name } } })
       .then(({ data, error }) => setChecks(data ?? detail(error) ?? "Could not check them."))
       .catch(() => setChecks("Could not check them."));
-  }, [connector.id, connector.name, connector.version, worldId]);
+  }, [connector.name, worldId]);
 
   if (checks === null) return <p className="faint health">Checking services...</p>;
   if (typeof checks === "string") return <p className="faint health">Services not checked: {checks}</p>;
@@ -581,82 +567,6 @@ function Health({ connector, worldId }: { connector: Connector; worldId: string 
         </li>
       ))}
     </ul>
-  );
-}
-
-/** One password field per credential the connector names; empty fields leave the file alone. */
-function SetKeys({
-  connector,
-  onSaved,
-  onError,
-}: {
-  connector: Connector;
-  onSaved: () => Promise<unknown>;
-  onError: (message: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [check, setCheck] = useState<KeyCheck | null>(null);
-  const label = connector.label;
-
-  async function save(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fields = new FormData(e.currentTarget);
-    const credentials = Object.fromEntries(connector.credentials.map((n) => [n, String(fields.get(n) ?? "").trim()]));
-    onError(null);
-    setCheck(null);
-    const { data, error } = await api.PUT("/api/connectors/{connector_id}/credentials", {
-      params: { path: { connector_id: connector.id } },
-      body: { credentials },
-    });
-    if (error) {
-      onError(detail(error) ?? `Could not save the keys for ${label}. Try again.`);
-      return;
-    }
-    setOpen(false);
-    setCheck(data?.check ?? null);
-    await onSaved();
-  }
-
-  if (!open) {
-    return (
-      <>
-        <button type="button" onClick={() => setOpen(true)} aria-label={`Set keys for ${connector.name}`}>
-          {connector.missing.length > 0 ? "Set keys" : "Change keys"}
-        </button>
-        {check?.ok && (
-          <span role="status" className="key-check">
-            Keys saved. {check.message}
-          </span>
-        )}
-        {check && !check.ok && (
-          <span role="alert" className="key-check">
-            Keys saved, but the check failed: {check.message.replace(/\.$/, "")}. Publishing fails until they work.
-          </span>
-        )}
-      </>
-    );
-  }
-  return (
-    <form className="set-keys" onSubmit={save} aria-label={`Keys for ${connector.name}`}>
-      {connector.credentials.map((n) => (
-        <label key={n}>
-          {n}
-          {connector.missing.includes(n) ? "" : " (saved; leave empty to keep it)"}
-          <input name={n} type="password" autoComplete="off" spellCheck={false} />
-        </label>
-      ))}
-      <div className="row">
-        <button type="submit" className="primary">
-          Save keys
-        </button>
-        <button type="button" onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-        <span className="faint">
-          Stored in ~/.swarmify/.env, mode 600, shared by every world. Never shown again.
-        </span>
-      </div>
-    </form>
   );
 }
 

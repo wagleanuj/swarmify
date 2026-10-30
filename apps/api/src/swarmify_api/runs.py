@@ -136,9 +136,10 @@ def with_agents(stages: list[StageDef], agents: int | None) -> list[StageDef]:
 def pinner(workflows: Workflows) -> Callable[..., Pinned]:
     """A workflow version as Runs starts it: the given version, the current one by default.
     Every run start of a version comes through here (start, promote, fork, schedule, child run,
-    MCP), so it runs today's workflow check first: rules and connectors change after a version
-    is saved. Raises KeyError for an unknown workflow or version, Invalid when the version
-    fails the check."""
+    MCP), so it runs today's workflow check first, at the package versions the version
+    recorded, which the run will use: rules and connectors change after a version is saved.
+    Raises KeyError for an unknown workflow or version, Invalid when the version fails the
+    check."""
 
     def pin(workflow_id: str, number: int | None = None) -> Pinned:
         workflow = workflows.get(workflow_id)
@@ -147,7 +148,9 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
         version = workflows.version(workflow_id, number or workflow.current_version)
         if version is None:
             raise KeyError(f"version not found: {workflow_id} v{number}")
-        violations = workflows.check(workflow.world_id, version.yaml, workflow_id).violations
+        violations = workflows.check(
+            workflow.world_id, version.yaml, workflow_id, version.packages
+        ).violations
         if violations:
             raise Invalid(violations)
         stages = [stage_def(s) for s in version.model.stages]

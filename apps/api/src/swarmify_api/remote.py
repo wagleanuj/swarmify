@@ -81,7 +81,7 @@ class RemoteApprovals:
     """The Notifier: an opened gate goes to each remote approver the world has set up, else to
     `fallback` (V1's webhook Channel), as does every other Notification; a closed gate updates
     the messages posted for it. Calls to connectors happen on one background thread, in order,
-    so a run never waits on Slack and an update always follows its post."""
+    so a run never waits on a chat service and an update always follows its post."""
 
     def __init__(
         self,

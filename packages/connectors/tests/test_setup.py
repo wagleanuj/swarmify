@@ -207,7 +207,7 @@ def test_each_process_gets_exactly_its_own_values_and_never_another_packages(
 ) -> None:
     monkeypatch.setenv("SWARMIFY_LEAK_PROBE", "from the api process")
     real = Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
-    real.credentials.set({"FAL_KEY": "a built-in's key"})
+    real.credentials.set({"FAL_KEY": "a V1 key"})
     install(real, tmp_path)
     install(real, tmp_path, "other", env="OTHER_KEY")
     for name in ("probe", "other"):

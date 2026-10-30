@@ -39,7 +39,6 @@ def events(db: Path) -> list[dict[str, Any]]:
 def test_web_search_and_the_graph_are_agent_tools_not_connectors(connectors: Connectors) -> None:
     names = {c.name for c in connectors.list_all(W)}
     assert names.isdisjoint({"web_search", "graph"})
-    assert connectors.get("builtin_graph") is None
 
 
 def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
@@ -171,7 +170,7 @@ def test_add_installs_a_local_package_enabled_for_the_world_with_its_keys_as_cre
 ) -> None:
     saved = connectors.add(fal(connectors), {"FAL_KEY": "s3cret", "STRAY": "ignored"})
     assert connectors.find(W, "fal_video") == saved
-    assert (saved.version, saved.world_id, saved.builtin) == ("0.0.1", W, False)
+    assert (saved.version, saved.world_id) == ("0.0.1", W)
     assert connectors.enabled(W) == {"fal_video": "0.0.1"}
     assert connectors.find("world_2", "fal_video") is None
     (package,) = connectors.packages.list()
@@ -226,17 +225,6 @@ def test_missing_lists_the_keys_its_setup_lacks(connectors: Connectors) -> None:
     with pytest.raises(PermissionError):
         connectors.add(fal(connectors, name="other"), {})
     assert connectors.find(W, "other") is None
-
-
-def test_saved_keys_are_only_the_connectors_own_and_saving_calls_nothing(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    added = connectors.add(fal(connectors), {})
-    with pytest.raises(ValueError, match="does not use YOUTUBE_CLIENT_ID"):
-        connectors.set_credentials(added, {"YOUTUBE_CLIENT_ID": "id"})
-    connectors.set_credentials(added, {"FAL_KEY": "k"})
-    assert connectors.credentials.read() == {"FAL_KEY": "k"}
-    assert transport.calls == []
 
 
 STAGE = {"calls": "fal_video", "input": "script.md", "output": "clip.mp4", "params": {"len": 5}}

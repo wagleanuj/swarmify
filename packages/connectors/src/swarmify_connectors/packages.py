@@ -91,7 +91,7 @@ SCHEMA: dict[str, Any] = {
         "url": {"type": "string", "pattern": _URL},
         "install": {**_strings, "minItems": 1},
         # A remote_approvals connector's long-lived process, which the core keeps running while a
-        # world enables it with its Setup done (a Slack Socket Mode app, say).
+        # world enables it with its Setup done (a chat app's socket connection, say).
         "listen": {**_strings, "minItems": 1},
         # False keeps one of this repository's packages installed but off until a world enables it.
         "enable_by_default": {"type": "boolean"},
@@ -440,7 +440,7 @@ def _install_env() -> dict[str, str]:
 
 class Packages:
     """Connector Packages installed for the whole install under `root` (`<data dir>/packages`),
-    from a folder of this repository (`repo`), as `connectors/speech`, or a local path."""
+    from a folder of this repository (`repo`), as `connectors/<name>`, or a local path."""
 
     def __init__(self, root: Path, repo: Path) -> None:
         self.root = root

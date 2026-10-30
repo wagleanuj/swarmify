@@ -148,7 +148,7 @@ def test_its_settings_reach_the_process_the_data_folder_from_the_data_directory(
 ) -> None:
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
-    assert render is not None and render.version == "1.0.0" and not render.builtin
+    assert render is not None and render.version == "1.0.0"
     assert connectors._env(render) == {"REMOTION_DATA_DIR": str(tmp_path)}
     connectors.save_setup(W, "remotion_render", {"data_folder": "elsewhere"}, {"concurrency": "2"})
     assert connectors._env(render) == {

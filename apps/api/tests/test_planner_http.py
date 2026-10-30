@@ -183,10 +183,11 @@ def test_a_package_s_planner_notes_and_params_reach_the_planner() -> None:
     from pathlib import Path
 
     from swarmify_api.planner import describe
-    from swarmify_connectors import from_manifest, read_manifest
+    from swarmify_connectors import Connector, read_manifest
 
     echo = Path(__file__).parents[3] / "packages/connectors/tests/fixtures/packages/echo"
-    told = describe(from_manifest(read_manifest(echo)))
+    m = read_manifest(echo)
+    told = describe(Connector("p", "w", "echo", "stage", stage_types=["connector"], manifest=m))
     assert told.splitlines() == [
         "- echo (stage, in connector stages): Says back what it is given, as audio. A fixture.",
         "  input: the line to say (text/markdown)",

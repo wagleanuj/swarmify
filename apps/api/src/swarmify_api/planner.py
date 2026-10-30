@@ -175,8 +175,8 @@ def _files(files: list[dict[str, Any]]) -> str:
 def describe(connector: Connector) -> str:
     """One connector as the planner reads it, generated from its Manifest (ADR 0019): about,
     input and output files, params from the JSON Schema with their descriptions, and its planner
-    notes. A connector a world added by hand has no Manifest; its own fields stand in."""
-    m = connector.manifest or {"about": connector.about}
+    notes."""
+    m = connector.manifest
     where = " and ".join(connector.stage_types)
     lines = [f"- {connector.name} ({connector.kind}, in {where} stages): {m['about']}".rstrip()]
     for key in ("inputs", "outputs"):

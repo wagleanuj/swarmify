@@ -207,7 +207,7 @@ def test_a_v1_data_directory_moves_its_world_added_connectors_to_local_packages(
             + ('["connector"]', "2026-10-01T00:00:00+00:00"),
         )
     ref = ConnectorRef("fal_video", "stage", frozenset({"connector"}))
-    saved = Workflows(WorkflowStorage(db), lambda _: {"fal_video": ref}).save(w, CLIP)
+    saved = Workflows(WorkflowStorage(db), lambda *_: {"fal_video": ref}).save(w, CLIP)
     env = root / ".env"
     env.write_text("FAL_KEY=s3cret\nYOUTUBE_CLIENT_ID=yt\n")
     env.chmod(0o600)
@@ -310,7 +310,6 @@ def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient
     assert client.get(f"/api/worlds/{w}/packages/echo/health").status_code == 404
     assert client.get("/api/worlds/nope/packages/speech/health").status_code == 404
     assert client.get(f"/api/worlds/{w}/packages/remotion_build/health").json() == []
-    assert client.get("/api/connectors/nope/health").status_code == 404
 
 
 def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
@@ -402,7 +401,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
     echo = next(
         c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "echo"
     )
-    assert (echo["name"], echo["version"], echo["builtin"]) == ("echo", "1.0.0", False)
+    assert (echo["name"], echo["version"]) == ("echo", "1.0.0")
     assert "folder" not in echo
     assert echo["label"] == "Echo"  # from its Manifest
     assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 201

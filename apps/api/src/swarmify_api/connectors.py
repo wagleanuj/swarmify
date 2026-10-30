@@ -66,7 +66,6 @@ class ConnectorView(BaseModel):
     url: str | None
     credentials: list[str]
     stage_types: list[str]
-    builtin: bool
     about: str
     created_at: str | None
     health: str | None
@@ -86,34 +85,20 @@ class ConnectorView(BaseModel):
     outputs: list[MediaFile]
     """What a stage of it makes, which a skin picks a step's panel by (ADR 0025)."""
     missing: list[str]
-    """Credential names the credentials file does not hold yet; for a package, the keys of
-    required Setup fields with no value for this world."""
+    """The keys of required Setup fields with no value for this world."""
     sign_in: list[str]
     """Keys of a package's sign-in fields the provider refused, to sign in to again."""
-    version: str | None
-    """The Connector Package version the world pins; None for a built-in."""
-
-
-class SavedKeys(ConnectorView):
-    check: KeyCheck | None
-    """The live check of a built-in's keys once all are saved (the account they sign in to, or
-    why they failed; the keys are saved either way). None for a connector without a check."""
+    version: str
+    """The Connector Package version the world pins, or a run's workflow version recorded."""
 
 
 class Tested(BaseModel):
     tools: list[Tool]
 
 
-class CredentialValues(BaseModel):
-    credentials: dict[str, Annotated[str, StringConstraints(max_length=4000)]] = Field(
-        min_length=1, max_length=20
-    )
-    """Credential name to value, for the connector's own names only. Never returned."""
-
-
 class PackageSource(BaseModel):
     source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
-    """A folder of this repository, as `connectors/speech`, or an absolute local path."""
+    """A folder of this repository, as `connectors/<name>`, or an absolute local path."""
 
 
 class EnabledPackage(BaseModel):
@@ -278,31 +263,6 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         except (ValueError, PermissionError, InstallError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    @api.put("/connectors/{connector_id}/credentials")
-    def set_credentials(connector_id: str, body: CredentialValues) -> SavedKeys:
-        """Store a connector's keys in the credentials file, shared by every world; how
-        built-ins get theirs."""
-        found = connectors.get(connector_id)
-        if found is None:
-            raise HTTPException(404, "connector not found")
-        try:
-            connectors.set_credentials(found, body.credentials)
-        except (ValueError, PermissionError) as exc:
-            raise HTTPException(422, str(exc)) from exc
-        return SavedKeys(**view(found).model_dump(), check=None)
-
-    @api.get("/connectors/{connector_id}/health")
-    def connector_health(connector_id: str) -> list[HealthCheck]:
-        """What a built-in or a world's own connector depends on and whether each answers.
-        Empty for one without a health check; a package's is under its world."""
-        found = connectors.get(connector_id)
-        if found is None:
-            raise HTTPException(404, "connector not found")
-        try:
-            return connectors.health(found)
-        except ConnectorError as exc:
-            raise HTTPException(502, str(exc)) from exc
-
     @api.get("/worlds/{world_id}/packages/{name}/health")
     def package_health(world_id: str, name: str) -> list[HealthCheck]:
         """Whether each Service the enabled package declares answers its health path, one check
@@ -310,7 +270,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         world does not enable it, 502 when the tool cannot be called."""
         world_or_404(world_id)
         found = connectors.find(world_id, name)
-        if found is None or found.version is None:
+        if found is None:
             raise HTTPException(404, f"this world does not enable {name}")
         try:
             return connectors.health(found)

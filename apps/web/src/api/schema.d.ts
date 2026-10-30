@@ -645,48 +645,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/connectors/{connector_id}/credentials": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Credentials
-         * @description Store a connector's keys in the credentials file, shared by every world; how
-         *     built-ins get theirs.
-         */
-        put: operations["set_credentials_api_connectors__connector_id__credentials_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/connectors/{connector_id}/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Connector Health
-         * @description What a built-in or a world's own connector depends on and whether each answers.
-         *     Empty for one without a health check; a package's is under its world.
-         */
-        get: operations["connector_health_api_connectors__connector_id__health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/worlds/{world_id}/packages/{name}/health": {
         parameters: {
             query?: never;
@@ -1984,8 +1942,6 @@ export interface components {
             credentials: string[];
             /** Stage Types */
             stage_types: string[];
-            /** Builtin */
-            builtin: boolean;
             /** About */
             about: string;
             /** Created At */
@@ -2015,19 +1971,12 @@ export interface components {
             /** Sign In */
             sign_in: string[];
             /** Version */
-            version: string | null;
+            version: string;
         };
         /** CopyBody */
         CopyBody: {
             /** World Id */
             world_id: string;
-        };
-        /** CredentialValues */
-        CredentialValues: {
-            /** Credentials */
-            credentials: {
-                [key: string]: string;
-            };
         };
         /**
          * Decide
@@ -2283,7 +2232,7 @@ export interface components {
         };
         /**
          * HealthCheck
-         * @description One thing a connector depends on, such as a speech engine, and whether it answers.
+         * @description One thing a connector depends on, such as a model server, and whether it answers.
          */
         HealthCheck: {
             /** Name */
@@ -2310,8 +2259,8 @@ export interface components {
         };
         /**
          * KeyCheck
-         * @description What a live check of a built-in's saved keys found: the account they sign in to, or why
-         *     they did not work.
+         * @description What a package's Setup test found: the account its values sign in to, or why they did not
+         *     work.
          */
         KeyCheck: {
             /** Ok */
@@ -2966,61 +2915,6 @@ export interface components {
         SaveAsWorkflow: {
             /** Name */
             name?: string | null;
-        };
-        /** SavedKeys */
-        SavedKeys: {
-            /** Id */
-            id: string;
-            /** World Id */
-            world_id: string | null;
-            /** Name */
-            name: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "tool" | "stage" | "publish" | "notify";
-            /** Command */
-            command: string[];
-            /** Url */
-            url: string | null;
-            /** Credentials */
-            credentials: string[];
-            /** Stage Types */
-            stage_types: string[];
-            /** Builtin */
-            builtin: boolean;
-            /** About */
-            about: string;
-            /** Created At */
-            created_at: string | null;
-            /** Health */
-            health: string | null;
-            /** Services */
-            services: string[];
-            /** Types */
-            types: {
-                [key: string]: {
-                    [key: string]: unknown;
-                };
-            };
-            /** Input Types */
-            input_types: (string | null)[];
-            /** World Types */
-            world_types: string | null;
-            /** Label */
-            label: string;
-            /** Capabilities */
-            capabilities: string[];
-            /** Outputs */
-            outputs: components["schemas"]["MediaFile"][];
-            /** Missing */
-            missing: string[];
-            /** Sign In */
-            sign_in: string[];
-            /** Version */
-            version: string | null;
-            check: components["schemas"]["KeyCheck"] | null;
         };
         /** SavedSetup */
         SavedSetup: {
@@ -4982,72 +4876,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tested"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_credentials_api_connectors__connector_id__credentials_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connector_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CredentialValues"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SavedKeys"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    connector_health_api_connectors__connector_id__health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connector_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthCheck"][];
                 };
             };
             /** @description Validation Error */

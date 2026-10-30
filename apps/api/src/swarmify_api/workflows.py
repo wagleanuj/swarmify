@@ -95,7 +95,8 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
         listed = []
         for w in workflows.list_all(world_id):
             current = workflows.version(w.id, w.current_version)
-            draft = workflows.check(w.world_id, current.yaml if current else "", w.id)
+            yaml, pins = (current.yaml, current.packages) if current else ("", {})
+            draft = workflows.check(w.world_id, yaml, w.id, pins)  # as a run of it is checked
             listed.append(ListedWorkflow(**asdict(w), violations=draft.violations))
         return listed
 

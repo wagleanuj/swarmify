@@ -410,7 +410,7 @@ test("speech panel: a row per scene with its take, length and engine, and a warn
     "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
-  const speech = screen.getByTestId("stage-panel").getByTestId("speech");
+  const speech = screen.getByTestId("stage-panel").getByTestId("takes");
   await expect.element(speech).toMatchTextContent(/^2 scenes · 7\.7 s of narration/);
   const takes = speech.getByTestId("take");
   await expect.element(takes.first()).toMatchTextContent(/hook\s*3\.6 s\s*localhost:8881\s*Line 1 runs into line 2 with no silence to cut at\./);
@@ -426,7 +426,7 @@ test("speech panel: the voice that spoke, the one chosen when it could not, and 
     "GET /api/runs/run_1/artifacts": () => Response.json([voiced, mp4]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
-  const speech = screen.getByTestId("stage-panel").getByTestId("speech");
+  const speech = screen.getByTestId("stage-panel").getByTestId("takes");
   await expect.element(speech.getByTestId("voice")).toHaveTextContent("voiced by heart");
   await expect.element(speech).toMatchTextContent(/\(chosen narrator, which localhost:8881 cannot speak\)/);
   await expect.element(speech.getByRole("note").first()).toMatchTextContent(/stranger has no consent/);

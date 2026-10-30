@@ -88,15 +88,9 @@ def test_youtube_is_a_package_whose_account_is_signed_in_from_the_connectors_pag
 ) -> None:
     world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
     listed = {c["name"]: c for c in running.get(f"/api/worlds/{world}/connectors").json()}
-    assert (listed["youtube"]["builtin"], listed["youtube"]["version"]) == (False, "1.0.0")
+    assert listed["youtube"]["version"] == "1.0.0"
     assert listed["youtube"]["missing"] == ["youtube"]  # the account, not keys
-    assert (listed["upload_post"]["missing"], listed["upload_post"]["builtin"]) == (
-        ["api_key"],
-        False,
-    )
-    keys = {"credentials": {"YOUTUBE_REFRESH_TOKEN": "r"}}
-    gone = running.put("/api/connectors/builtin_youtube/credentials", json=keys)
-    assert gone.status_code == 404
+    assert listed["upload_post"]["missing"] == ["api_key"]
 
     url = f"/api/worlds/{world}/packages/youtube/setup"
     form = running.get(url).json()
@@ -337,10 +331,11 @@ def test_the_editor_refuses_a_publish_stage_without_a_gate(client: TestClient, c
     assert saved.status_code == 422
 
 
-def test_a_start_refuses_a_connector_that_turned_publish_after_the_save(
+def test_a_run_keeps_the_version_it_was_saved_with_when_a_later_one_turned_publish(
     running: TestClient, transport: FakeTransport
 ) -> None:
-    """Today's workflow check at run start (#102) catches it before any stage runs."""
+    """The run-start check (#102) and the run itself both use the package version the workflow
+    version recorded (#223), so a later version that publishes never runs ungated."""
     yaml = "name: Sneaky\nstages:\n  - connector: post\n    calls: poster\n"
     poster = {**MAKER, "name": "poster"}
     world, workflow = setup(running, "name: x\nstages:\n  - connector: m\n    calls: maker\n")
@@ -349,12 +344,14 @@ def test_a_start_refuses_a_connector_that_turned_publish_after_the_save(
     running.delete(f"/api/worlds/{world}/packages/poster")
     publishing = {**poster, "kind": "publish"}
     assert running.post(f"/api/worlds/{world}/connectors", json=publishing).status_code == 201
+    assert running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).status_code == 422
 
-    refused = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={})
-    assert refused.status_code == 409
-    assert "publish connector 'poster' must come right after a gate" in refused.json()["detail"]
-    assert running.get(f"/api/worlds/{world}/runs").json() == []
-    assert [c for c in transport.calls if c[1] != "preview"] == []
+    run = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={})
+    assert run.status_code == 201, run.text
+    until(lambda: running.get(f"/api/runs/{run.json()['id']}").json()["status"] == "done")
+    called = [(c[1], v) for c, v in zip(transport.calls, transport.versions, strict=True)]
+    assert ("poster", saved["packages"]["poster"]) in called
+    assert not [c for c in transport.calls if c[1] == "publish"]  # previewed only by the save
 
 
 def test_a_worlds_own_publish_connector_posts_text_through_the_same_gate(

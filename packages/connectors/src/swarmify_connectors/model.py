@@ -14,8 +14,7 @@ CallStatus = Literal["running", "polling", "done", "failed"]
 @dataclass(frozen=True)
 class Connector:
     """An MCP server (a command or a URL), the credential names it needs, and the stage types
-    allowed to use it. Built-ins have no world and, for web search and the graph, no server:
-    the agent runtime and Memory provide them."""
+    allowed to use it."""
 
     id: str
     world_id: str | None
@@ -25,7 +24,6 @@ class Connector:
     url: str | None = None
     credentials: list[str] = field(default_factory=list)
     stage_types: list[str] = field(default_factory=list)
-    builtin: bool = False
     about: str = ""
     created_at: str | None = None
     health: str | None = None
@@ -41,10 +39,10 @@ class Connector:
     `assets_path`, as `{"types": {name: schema}, "note": "..."}`; `types` stays the fallback."""
     manifest: dict[str, Any] = field(default_factory=dict, compare=False)
     """The Manifest that declares it (ADR 0019), which the planner describes it from; empty for
-    a connector a world added by hand, whose fields above stand in."""
+    a connector the add form drafted, not yet installed as a package."""
     version: str | None = None
-    """The Connector Package version the world pins (ADR 0023); None for a built-in or a
-    connector the world added itself."""
+    """The Connector Package version the world pins (ADR 0023); None for a connector the add
+    form drafted, not yet installed as a package."""
     folder: str | None = None
     """Where that version is installed; its command starts there."""
 
@@ -90,7 +88,7 @@ class Call:
 
 @dataclass(frozen=True)
 class HealthCheck:
-    """One thing a connector depends on, such as a speech engine, and whether it answers."""
+    """One thing a connector depends on, such as a model server, and whether it answers."""
 
     name: str
     ok: bool
@@ -99,8 +97,8 @@ class HealthCheck:
 
 @dataclass(frozen=True)
 class KeyCheck:
-    """What a live check of a built-in's saved keys found: the account they sign in to, or why
-    they did not work."""
+    """What a package's Setup test found: the account its values sign in to, or why they did not
+    work."""
 
     ok: bool
     message: str

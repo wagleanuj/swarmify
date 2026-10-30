@@ -8,16 +8,16 @@ import type { Task } from "../api/tasks";
 type Handler = (req: Request) => Response | Promise<Response>;
 
 type Connector = components["schemas"]["ConnectorView"];
-const builtin = (name: string, label: string, kind: Connector["kind"], over: Partial<Connector> = {}): Connector => ({
-  id: `builtin_${name}`,
-  world_id: null,
+/** A Connector Package the world enables, as `GET /api/worlds/world_1/connectors` lists it. */
+const pkg = (name: string, label: string, kind: Connector["kind"], over: Partial<Connector> = {}): Connector => ({
+  id: `package_${name}`,
+  world_id: "world_1",
   name,
   kind,
-  command: ["python", "-m", name],
+  command: [".venv/bin/python", `${name}.py`],
   url: null,
   credentials: [],
   stage_types: ["connector"],
-  builtin: true,
   about: "",
   created_at: null,
   health: null,
@@ -30,31 +30,18 @@ const builtin = (name: string, label: string, kind: Connector["kind"], over: Par
   outputs: [],
   missing: [],
   sign_in: [],
-  version: null,
+  version: "1.0.0",
   ...over,
 });
 const video = [{ description: "the video", media_type: "video/mp4" }];
-/** The built-ins as `GET /api/worlds/world_1/connectors` describes them, which every fakeFetch
- * answers unless a test routes it itself. */
+/** The default packages as `GET /api/worlds/world_1/connectors` describes them, which every
+ * fakeFetch answers unless a test routes it itself. */
 export const CONNECTORS: Connector[] = [
-  builtin("remotion_render", "Remotion render", "stage", { outputs: video }),
-  builtin("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
-  builtin("youtube", "YouTube", "publish"),
-  // the default packages, given to every world
-  builtin("upload_post", "Upload-Post", "publish", {
-    id: "package_upload_post",
-    world_id: "world_1",
-    builtin: false,
-    command: [".venv/bin/python", "upload_post.py"],
-    version: "1.0.0",
-    capabilities: ["publish"],
-  }),
-  builtin("speech", "Speech", "stage", {
-    id: "package_speech",
-    world_id: "world_1",
-    builtin: false,
-    command: [".venv/bin/python", "speech.py"],
-    version: "1.0.0",
+  pkg("remotion_render", "Remotion render", "stage", { outputs: video }),
+  pkg("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
+  pkg("youtube", "YouTube", "publish", { capabilities: ["publish"] }),
+  pkg("upload_post", "Upload-Post", "publish", { capabilities: ["publish"] }),
+  pkg("speech", "Speech", "stage", {
     services: ["engines"],
     outputs: [
       { description: "timings.json, with the takes in narration/ beside it", media_type: "application/json" },
