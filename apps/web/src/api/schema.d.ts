@@ -2874,6 +2874,11 @@ export interface components {
             /** Model */
             model?: string | null;
             /**
+             * Agents
+             * @default 1
+             */
+            agents: number;
+            /**
              * Type
              * @default swarm
              * @constant

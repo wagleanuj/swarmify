@@ -21,6 +21,9 @@ class SwarmStage:
     produces: list[str] = field(default_factory=list)
     model: str | None = None
     """The model the stage's agents run on, over the world's and the Cast's choice."""
+    agents: int = 1
+    """How many workers run the stage (ADR 0020). One works the tasks alone, with no one to
+    contend with for a claim; several share the whiteboard as a swarm."""
     type: Literal["swarm"] = "swarm"
 
 
@@ -70,6 +73,7 @@ class WorkflowModel:
     schedule: str | None = None
     budget_usd: float | None = None
     agents: int | None = None
+    """The worker count of every swarm stage that does not set its own; one when left out."""
 
 
 @dataclass(frozen=True)

@@ -104,7 +104,7 @@ export function WorldOverview() {
     setError(null);
     const { data, error, response } = await api.POST("/api/workflows/{workflow_id}/runs", {
       params: { path: { workflow_id: workflowId } },
-      // Blank fields are left out: the workflow's budget and agents, else the world's, apply.
+      // Blank fields are left out: the workflow's budget and each stage's agents apply.
       body: {
         baseline,
         ...(runBudget && { budget_usd: Number(runBudget) }),

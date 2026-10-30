@@ -24,6 +24,7 @@ def test_the_weekly_short_parses_into_four_stage_types_with_their_fields() -> No
         "5 ideas ranked by the judge",
         tools=["web_search", "graph"],
         output_type="list[idea]",
+        agents=4,  # the workflow's `agents`, as the stage sets none
     )
     assert pick == GateStage("pick", "Pick one idea. Optional note for the script.", "pick")
     assert isinstance(script, SwarmStage) and script.produces == ["script.md", "shots.md"]
@@ -48,6 +49,18 @@ def test_a_swarm_stage_may_name_the_model_its_agents_run_on() -> None:
     assert violations == [] and model is not None
     assert model.stages == [SwarmStage("s", "g", "d", model="claude-haiku-4-5")]
     assert rules(text.format(m="[1, 2]")) == [("schema", "s", "model must be a non-empty string")]
+
+
+def test_a_swarm_stage_runs_one_agent_unless_it_or_the_workflow_sets_more() -> None:
+    stage = "  - swarm: {n}\n    goal: g\n    done_when: d\n"
+    text = "name: N\n{top}stages:\n" + stage.format(n="a") + stage.format(n="b") + "    agents: 3\n"
+    for top, counts in (("", [1, 3]), ("agents: 2\n", [2, 3])):
+        model, violations = parse_workflow(text.format(top=top))
+        assert violations == [] and model is not None
+        assert [s.agents for s in model.stages if isinstance(s, SwarmStage)] == counts
+    assert rules(text.format(top="").replace("agents: 3", "agents: 0")) == [
+        ("schema", "b", "agents must be a positive whole number")
+    ]
 
 
 def test_broken_yaml_names_the_line() -> None:

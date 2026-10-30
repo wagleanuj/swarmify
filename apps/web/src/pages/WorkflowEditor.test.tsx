@@ -209,6 +209,9 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
 
   await screen.getByLabelText("Done when of research").fill("3 ideas ranked");
   await screen.getByLabelText("Tools of research").fill("web_search");
+  // ADR 0020: a swarm stage runs one agent unless it says more.
+  await expect.element(screen.getByLabelText("Agents of research")).toHaveAttribute("placeholder", "1");
+  await screen.getByLabelText("Agents of research").fill("3");
   await screen.getByTestId("stage-rows").getByRole("button", { name: /pick/ }).click();
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/pick.*gate/);
   await screen.getByLabelText("Move pick up").click();
@@ -225,13 +228,13 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
   await expect.element(yaml).toHaveValue(
     `name: Weekly short
 budget_usd: 5
-agents: 4
 stages:
   - swarm: research
     goal: Find 5 short-form video ideas trending this week. Check the graph for what we already published.
     done_when: 3 ideas ranked
     tools: [ web_search ]
     output_type: list[idea]
+    agents: 3
   - connector: render
     calls: remotion_render
 `,

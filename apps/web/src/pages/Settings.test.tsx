@@ -103,7 +103,7 @@ test("each panel saves only its own settings, stays on the page and stamps the s
 
   const runs = screen.getByRole("form", { name: "Runs at once" });
   await runs.getByRole("spinbutton", { name: "Run cap" }).fill("1");
-  await runs.getByRole("spinbutton", { name: "Workers per stage" }).fill("2");
+  await runs.getByRole("spinbutton", { name: "Workers in the cast" }).fill("2");
   await runs.getByRole("button", { name: "Save" }).click();
   await expect.element(runs.getByRole("status")).toMatchTextContent(/^Saved at \d/);
   expect(bodies[1]).toEqual({ run_cap: 1, agent_count: 2 });

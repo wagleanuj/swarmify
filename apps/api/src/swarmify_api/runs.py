@@ -43,7 +43,7 @@ class StartRun(BaseModel):
     budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     """The run's Budget, overriding the workflow's `budget_usd`; 5 USD when neither is set."""
     agents: int | None = Field(default=None, ge=1, le=MAX_AGENTS)
-    """Workers per swarm stage, overriding the workflow's `agents` and the world's agent count."""
+    """Workers per swarm stage, overriding each stage's own `agents`."""
     baseline: bool = False
     """Baseline mode: every swarm stage runs one agent with no graph, to measure the swarm."""
 
@@ -123,8 +123,8 @@ def stage_def(stage: Stage) -> StageDef:
 
 
 def with_agents(stages: list[StageDef], agents: int | None) -> list[StageDef]:
-    """Each swarm stage carries the run's worker count in its config as `agents`, so a fork,
-    retry or restart keeps it. None leaves the stages as they are (the world's agent count)."""
+    """Each swarm stage carries its worker count in its config as `agents`, so a fork, retry or
+    restart keeps it. `agents` overrides every stage's; None leaves each stage's own."""
     if agents is None:
         return stages
     return [
@@ -150,7 +150,7 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
         violations = workflows.check(workflow.world_id, version.yaml, workflow_id).violations
         if violations:
             raise Invalid(violations)
-        stages = with_agents([stage_def(s) for s in version.model.stages], version.model.agents)
+        stages = [stage_def(s) for s in version.model.stages]
         return Pinned(
             workflow.world_id,
             workflow_id,
@@ -367,13 +367,14 @@ def router(
             for s in run.stages
         ]
         defs = [d for d in defs if d.type != RETRO.type]
-        # The worker count each swarm stage carries (with_agents) is the workflow's `agents`.
-        agents = next((d.config["agents"] for d in defs if d.config.get("agents")), None)
+        # Each swarm stage keeps the worker count it ran with; one, the default, goes unsaid.
         yaml = dump_workflow(
             (body.name or run.name).strip() or run.name,
-            [(d.type, d.name, {k: v for k, v in d.config.items() if k != "agents"}) for d in defs],
+            [
+                (d.type, d.name, {k: v for k, v in d.config.items() if (k, v) != ("agents", 1)})
+                for d in defs
+            ],
             budget_usd=run.budget_usd,
-            agents=agents,
         )
         try:
             return workflows.save(run.world_id, yaml)

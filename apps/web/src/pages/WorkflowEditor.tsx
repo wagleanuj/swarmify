@@ -18,7 +18,6 @@ type RawStage = Record<string, unknown>;
 
 export const STARTER = `name: Weekly short
 budget_usd: 5
-agents: 4
 stages:
   - swarm: research
     goal: Find 5 short-form video ideas trending this week. Check the graph for what we already published.
@@ -41,7 +40,7 @@ const NEW_STAGE: Record<StageType, RawStage> = {
   workflow: { workflow: "child", runs: "" },
 };
 /** The per-stage fields the list edits. `list` fields are comma separated in the input. */
-const FIELDS: Record<StageType, { key: string; label: string; kind: "text" | "long" | "list" | "gate_kind" }[]> = {
+const FIELDS: Record<StageType, { key: string; label: string; kind: "text" | "long" | "list" | "gate_kind" | "count" }[]> = {
   swarm: [
     { key: "goal", label: "Goal", kind: "long" },
     { key: "done_when", label: "Done when", kind: "text" },
@@ -49,6 +48,7 @@ const FIELDS: Record<StageType, { key: string; label: string; kind: "text" | "lo
     { key: "output_type", label: "Output type", kind: "text" },
     { key: "produces", label: "Produces", kind: "list" },
     { key: "graphs", label: "Graphs", kind: "list" },
+    { key: "agents", label: "Agents", kind: "count" },
   ],
   gate: [
     { key: "ask", label: "Ask", kind: "text" },
@@ -454,6 +454,7 @@ export function WorkflowEditor() {
             <StagePanel
               stages={steps}
               index={current}
+              agents={asText(parsed.doc.agents) || "1"}
               onField={setField}
               onMove={move}
               onRemove={remove}
@@ -598,11 +599,12 @@ function StageList({
           />
         </label>
         <label>
-          <span>Agents</span>
+          <span>Agents per swarm stage</span>
           <input
             type="number"
             min={1}
             step={1}
+            placeholder="1"
             value={asText(doc.agents)}
             onChange={(e) => onTop("agents", e.target.value === "" ? "" : Number(e.target.value))}
           />
@@ -666,12 +668,15 @@ const stageName = (stage: RawStage, index: number) => {
 function StagePanel({
   stages,
   index,
+  agents,
   onField,
   onMove,
   onRemove,
 }: {
   stages: RawStage[];
   index: number;
+  /** The workflow's agents per swarm stage, what a stage without its own runs. */
+  agents: string;
   onField: (index: number, key: string, value: unknown) => void;
   onMove: (index: number, by: -1 | 1) => void;
   onRemove: (index: number) => void;
@@ -705,6 +710,16 @@ function StagePanel({
                   <option value="approve">approve</option>
                   <option value="confirm">confirm</option>
                 </select>
+              ) : f.kind === "count" ? (
+                <input
+                  aria-label={`${f.label} of ${name}`}
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder={agents}
+                  value={asText(stage[f.key])}
+                  onChange={(e) => onField(index, f.key, e.target.value === "" ? "" : Number(e.target.value))}
+                />
               ) : f.kind === "long" ? (
                 <textarea
                   aria-label={`${f.label} of ${name}`}
