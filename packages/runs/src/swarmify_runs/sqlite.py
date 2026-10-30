@@ -6,6 +6,7 @@ from contextlib import closing
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
@@ -423,6 +424,7 @@ class SqliteStorage:
                     _link(conn, s["child_run_id"]),
                     json.loads(s["config"]).get("calls") if s["type"] == "connector" else None,
                     json.loads(s["config"]).get("ask") if s["type"] == "gate" else None,
+                    _inputs(json.loads(s["config"])) if s["type"] == "connector" else [],
                 )
                 for s in stages
             ],
@@ -459,3 +461,8 @@ def _link(conn: sqlite3.Connection, run_id: str | None) -> RunLink | None:
 def _updated(run: Run) -> Event:
     """One event type carrying the whole run, so any skin renders it without a refetch."""
     return Event.new("run.updated", world_id=run.world_id, run_id=run.id, payload=asdict(run))
+
+
+def _inputs(config: dict[str, Any]) -> list[str]:
+    """A connector stage's input names: its `inputs`, or its one `input`."""
+    return list(config.get("inputs") or []) or ([config["input"]] if config.get("input") else [])

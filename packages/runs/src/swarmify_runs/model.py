@@ -83,6 +83,9 @@ class RunStageView:
     """The connector a connector stage calls, so a skin can show what it made."""
     ask: str | None = None
     """What a gate asks, kept after it was answered."""
+    inputs: list[str] = field(default_factory=list)
+    """The artifact names a connector stage takes (its `input` or `inputs`), so a skin can show
+    what went in."""
 
 
 @dataclass(frozen=True)

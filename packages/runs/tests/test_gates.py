@@ -396,3 +396,17 @@ def test_a_run_names_what_each_stage_calls_and_what_each_gate_asks(runner: Runne
         (None, "Publish Tuesday 9am?"),
         ("youtube", None),
     ]
+
+
+def test_a_run_names_what_each_connector_stage_takes(runner: Runner) -> None:
+    """The run page shows a step's inputs from the run alone: `input` or `inputs`, none for a
+    gate."""
+    speak = StageDef("speak", "connector", {"calls": "speech", "input": "script.md"})
+    build = StageDef("build", "connector", {"calls": "builder", "inputs": ["script.md", "takes"]})
+    run = runner.start("world_1", "wf_1", 1, "Inputs", [RESEARCH, speak, build, REVIEW])
+    assert [s.inputs for s in fetch(runner, run.id).stages] == [
+        [],
+        ["script.md"],
+        ["script.md", "takes"],
+        [],
+    ]
