@@ -1,9 +1,9 @@
-"""The built-in publish connectors' own `preview` and `publish` (ADR 0019): the video fields they
-send and how they map them to their tools. The core never reads these fields; it shows what
-`preview` answers and sends what was confirmed (`swarmify_connectors.publish`). Each half moves
-into its connector's package with issue 111.
+"""The built-in youtube connector's own `preview` and `publish` (ADR 0019): the video fields it
+sends and how it maps them to its tool. The core never reads these fields; it shows what
+`preview` answers and sends what was confirmed (`swarmify_connectors.publish`). It moves into its
+package with issue 214, as upload_post's did (connectors/upload_post).
 
-Both take the same params: `title`, `description`, `visibility` (public, unlisted or private),
+It takes these params: `title`, `description`, `visibility` (public, unlisted or private),
 `made_for_kids` (YouTube's COPPA flag, false by default) and an optional `schedule`: ISO 8601
 with a timezone, or relative, `HH:MM` (the next such time) or `+Nd HH:MM` (N days from now),
 either with an optional IANA timezone after it (UTC by default), resolved against `now`. The
@@ -14,9 +14,7 @@ string) go to YouTube's tags beside the retry tag.
 A scheduled video stays private until its time, then goes public, so a schedule needs
 `visibility: public`.
 
-`youtube` is our wrapper (`swarmify_connectors.youtube`); `upload_post` is Upload-Post's official
-MCP, adopted as is (ADR 0015), whose `upload_video` takes its own argument names and also needs
-`user` (the Upload-Post profile) and `platforms`.
+`youtube` is our wrapper (`swarmify_connectors.youtube`).
 """
 
 import re
@@ -24,9 +22,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-NAMES = ("youtube", "upload_post")
+NAMES = ("youtube",)
 VISIBILITIES = ("public", "unlisted", "private")
-UNFINISHED = ("pending", "in_progress", "processing")  # get_status while it works
 TITLE_MAX = 100  # YouTube's limit, the tightest of the platforms we post to
 DESCRIPTION_BYTES = 5_000  # YouTube's limit
 HASHTAGS_MAX = 5  # well under YouTube's 60: more reads as spam (research 2026-10-30)
@@ -159,20 +156,7 @@ def preview(connector: str, args: dict[str, Any], now: datetime | None = None) -
         _field("hashtags", "Hashtags", hashtag_line(hashes), "The last line."),
         _field("tags", "Tags", ", ".join(keywords)),
     ]
-    if connector == "upload_post":
-        raw = params.get("platforms") or ["youtube"]
-        platforms = [str(p) for p in (raw if isinstance(raw, list) else [raw])]
-        fields.append(_field("platforms", "Platforms", platforms))
-        if not str(params.get("user") or "").strip():
-            problems.append("upload_post needs params.user, the Upload-Post profile to post as")
-    if schedule:
-        when = (
-            f"Private until then, then {visibility}."
-            if connector == "youtube"
-            else "Nothing posts before then."
-        )
-    else:
-        when = "Right after confirming."
+    when = f"Private until then, then {visibility}." if schedule else "Right after confirming."
     fields += [
         _field("visibility", "Visibility", visibility),
         _field("made_for_kids", "Made for kids", made_for_kids is True),
@@ -186,74 +170,24 @@ def request(
     connector: str, values: dict[str, Any], params: dict[str, Any], idempotency_key: str
 ) -> tuple[str, dict[str, Any]]:
     """The tool and arguments that post the confirmed `values`. `params.input_path` is set by the
-    run; `params.user` is Upload-Post's profile."""
+    run."""
     video = params.get("input_path") or ""
     text = description(str(values["description"]), hashtags(values.get("hashtags")))
     keywords = tags(values.get("tags"))
-    if connector == "youtube":
-        return "youtube", {
-            "idempotency_key": idempotency_key,
-            "input_path": video,
-            "title": values["title"],
-            "description": text,
-            "tags": keywords,
-            "visibility": values["visibility"],
-            "schedule": values["schedule"] or "",
-            "made_for_kids": values["made_for_kids"],
-        }
-    args: dict[str, Any] = {
-        "videoPathOrUrl": video,
-        "user": str(params["user"]).strip(),
-        "platforms": values["platforms"],
+    return "youtube", {
+        "idempotency_key": idempotency_key,
+        "input_path": video,
         "title": values["title"],
         "description": text,
-        "asyncUpload": False,  # answer with the post links, not a request id to poll
-        # platformOptions passes through to the SDK, which sends it as Idempotency-Key.
-        "platformOptions": {
-            "idempotencyKey": idempotency_key,
-            "youtubePrivacyStatus": values["visibility"],
-            "youtubeSelfDeclaredMadeForKids": values["made_for_kids"],
-            **({"youtubeTags": keywords} if keywords else {}),
-        },
+        "tags": keywords,
+        "visibility": values["visibility"],
+        "schedule": values["schedule"] or "",
+        "made_for_kids": values["made_for_kids"],
     }
-    if values["schedule"]:
-        args["scheduledDate"] = values["schedule"]
-    return "upload_video", args
 
 
 def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
-    """What came back, normalized (`swarmify_connectors.publish.result`). Upload-Post moves an
-    upload over 59 seconds to the background even when asked to wait, answering a `request_id`
-    and no results: that is `pending` until its `get_status` answer is no longer pending or in
-    progress. That answer lists `results` per platform, with `post_url` and `message` where the
-    upload answer has `url` and `error`. An answer with no results that is `success: false` (an
-    unknown or expired request) or a failed status is a failure, never an empty success."""
-    if connector == "upload_post":
-        body = response.get("result", response)
-        body = body if isinstance(body, dict) else {}
-        if body.get("job_id"):
-            return {"status": "scheduled", "links": {}, "id": str(body["job_id"]), "failed": {}}
-        raw = body.get("results")
-        status = body.get("status")
-        if status in UNFINISHED or body.get("request_id") and not raw and not status:
-            pending = str(body.get("request_id") or "") or None
-            return {"status": "pending", "links": {}, "id": pending, "failed": {}}
-        if isinstance(raw, list):
-            raw = {str(r.get("platform")): r for r in raw if isinstance(r, dict)}
-        results: dict[str, Any] = raw if isinstance(raw, dict) else {}
-        links = {
-            p: r.get("url") or r["post_url"]
-            for p, r in results.items()
-            if r.get("success") and (r.get("url") or r.get("post_url"))
-        }
-        failed = {
-            p: str(r.get("error") or r.get("message") or "failed")
-            for p, r in results.items()
-            if not r.get("success")
-        }
-        if not results and (status in ("failed", "error") or body.get("success") is False):
-            failed = {"upload_post": str(body.get("message") or body.get("error") or status)}
-        return {"status": "published", "links": links, "id": None, "failed": failed}
+    """What came back, normalized (`swarmify_connectors.publish.result`)."""
     url = response.get("url")
     return {
         "status": "scheduled" if response.get("publish_at") else "published",

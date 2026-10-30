@@ -74,9 +74,6 @@ def test_the_preview_is_what_will_go_out() -> None:
         "video": "short.mp4",
     }
     assert shown["fields"][6]["hint"] == "Private until then, then public."
-    assert values(preview("upload_post", stage("upload_post", user="me")))["platforms"] == [
-        "youtube"
-    ]
 
 
 def test_metadata_wins_over_params_and_edits_win_over_both() -> None:
@@ -103,7 +100,6 @@ def test_metadata_wins_over_params_and_edits_win_over_both() -> None:
         (stage(schedule="2026-11-03T09:00:00Z", visibility="unlisted"), "set visibility: public"),
         (stage(schedule="2026-10-01T09:00:00Z"), "has already passed"),
         ({**stage(), "input": None}, "needs an input"),
-        (stage("upload_post"), "needs params.user"),
     ],
 )
 def test_the_preview_names_every_problem(config: dict[str, Any], problem: str) -> None:
@@ -124,14 +120,11 @@ def test_a_relative_schedule_resolves_against_now(relative: str, resolved: str) 
     assert (values(shown)["schedule"], shown["problems"]) == (resolved, [])
 
 
-def test_made_for_kids_reaches_youtube_and_upload_post() -> None:
+def test_made_for_kids_reaches_youtube() -> None:
     config = stage(made_for_kids=True)
     assert config["confirmed"]["made_for_kids"] is True
     _, args = builtin_publish.request("youtube", config["confirmed"], config["params"], "k")
     assert args["made_for_kids"] is True
-    config = stage("upload_post", user="me", made_for_kids=True)
-    _, args = builtin_publish.request("upload_post", config["confirmed"], config["params"], "k")
-    assert args["platformOptions"]["youtubeSelfDeclaredMadeForKids"] is True
 
 
 def test_youtube_uploads_with_the_previewed_values(
@@ -161,114 +154,6 @@ def test_youtube_uploads_with_the_previewed_values(
         "id": "abc",
         "failed": {},
     }
-
-
-def test_upload_post_gets_its_own_argument_names_and_an_idempotency_key(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
-    transport.outputs["upload_video"] = [
-        {"result": {"success": True, "job_id": "job_9", "scheduled_date": "2099-01-01T09:00:00Z"}}
-    ]
-    config = stage(
-        "upload_post", user="me", platforms=["tiktok", "youtube"], schedule="2099-01-01T09:00:00Z"
-    )
-    call = connectors.run_stage(W, "run_1", "stage_1", config)
-    ((_, tool, args, env),) = transport.calls
-    assert (tool, env) == ("upload_video", {"UPLOAD_POST_API_KEY": "k"})
-    assert args == {
-        "videoPathOrUrl": "/runs/r/short.mp4",
-        "user": "me",
-        "platforms": ["tiktok", "youtube"],
-        "title": "Five hooks",
-        "description": "",
-        "asyncUpload": False,
-        "platformOptions": {
-            "idempotencyKey": "stage_1",
-            "youtubePrivacyStatus": "public",
-            "youtubeSelfDeclaredMadeForKids": False,
-        },
-        "scheduledDate": "2099-01-01T09:00:00Z",
-    }
-    assert connectors.publish_result(call) == {
-        "status": "scheduled",
-        "links": {},
-        "id": "job_9",
-        "failed": {},
-    }
-
-
-def test_upload_post_now_records_each_platform_link_and_failure(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
-    results = {
-        "tiktok": {"success": True, "url": "https://tiktok.com/@me/video/1"},
-        "instagram": {"success": False, "error": "Expired access token"},
-    }
-    transport.outputs["upload_video"] = [{"result": {"success": True, "results": results}}]
-    call = connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
-    out = connectors.publish_result(call)
-    assert out["links"] == {"tiktok": "https://tiktok.com/@me/video/1"}
-    assert out["failed"] == {"instagram": "Expired access token"}
-    shown = preview("upload_post", stage("upload_post", user="me"))
-    md = publish.markdown("upload_post", shown["fields"], out)
-    assert md.startswith("# Five hooks\n\nSent to upload_post:\n\n- Title: Five hooks\n")
-    assert "- When: Right after confirming.\n" in md
-    assert "- tiktok: https://tiktok.com/@me/video/1" in md
-    assert "- instagram failed: Expired access token" in md
-
-
-def test_a_post_that_reached_no_platform_fails_the_stage(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
-    failed = {"youtube": {"success": False, "error": "quota"}}
-    transport.outputs["upload_video"] = [{"result": {"success": False, "results": failed}}]
-    with pytest.raises(ConnectorError, match="nothing was posted. youtube: quota"):
-        connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
-    assert connectors.call_for("stage_1").status == "failed"  # type: ignore[union-attr]
-
-
-def test_an_upload_post_moved_to_the_background_is_polled_until_its_links_are_known(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
-    background = {"success": True, "message": "processing", "request_id": "req_9"}
-    transport.outputs["upload_video"] = [{"result": {**background, "total_platforms": 1}}]
-    done = [{"platform": "youtube", "success": True, "post_url": "https://youtu.be/abc123"}]
-    transport.outputs["get_status"] = [
-        {"result": {"success": True, "status": "in_progress"}},
-        {"result": {"success": True, "status": "completed", "results": done}},
-    ]
-    call = connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
-    assert call.status == "done" and call.polls == 2
-    assert [c[1:3] for c in transport.calls[1:]] == [("get_status", {"requestId": "req_9"})] * 2
-    out = connectors.publish_result(call)
-    assert out["status"] == "published"
-    assert out["links"] == {"youtube": "https://youtu.be/abc123"}
-
-
-def test_a_background_upload_that_reached_no_platform_fails_the_stage(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    connectors.credentials.set({"UPLOAD_POST_API_KEY": "k"})
-    transport.outputs["upload_video"] = [{"result": {"success": True, "request_id": "req_9"}}]
-    failed = [{"platform": "youtube", "success": False, "message": "quota"}]
-    transport.outputs["get_status"] = [
-        {"result": {"success": True, "status": "completed", "results": failed}}
-    ]
-    with pytest.raises(ConnectorError, match="nothing was posted. youtube: quota"):
-        connectors.run_stage(W, "run_1", "stage_1", stage("upload_post", user="me"))
-    assert connectors.call_for("stage_1").status == "failed"  # type: ignore[union-attr]
-    gone = {"result": {"success": False, "status": "failed", "message": "file unreadable"}}
-    transport.outputs["get_status"] = [gone]
-    with pytest.raises(ConnectorError, match="nothing was posted. upload_post: file unreadable"):
-        connectors.run_stage(W, "run_1", "stage_2", stage("upload_post", user="me"))
-    unknown = {"result": {"success": False, "error": "Request not found"}}
-    transport.outputs["get_status"] = [unknown]
-    with pytest.raises(ConnectorError, match="nothing was posted. upload_post: Request not found"):
-        connectors.run_stage(W, "run_1", "stage_3", stage("upload_post", user="me"))
 
 
 def test_a_publish_stage_no_gate_confirmed_never_calls(
@@ -401,9 +286,6 @@ def test_a_saved_publish_stage_is_checked_like_its_gate_will_be(connectors: Conn
     ]
     # the title may come from the script's frontmatter at run time instead
     assert connectors.stage_problems(W, {**bare, "params": {"metadata": "script.md"}}) == []
-    assert connectors.stage_problems(W, stage("upload_post")) == [
-        "upload_post needs params.user, the Upload-Post profile to post as"
-    ]
     assert connectors.stage_problems(W, stage()) == []
     assert connectors.stage_problems(W, {"calls": "web_search"}) == []
     assert connectors.stage_problems(W, {"calls": "nope"}) == []
@@ -464,6 +346,38 @@ def test_a_worlds_publish_connector_previews_and_publishes_through_its_own_tools
     }
 
 
+def test_a_publish_long_job_is_polled_like_any_and_its_last_answer_is_what_was_posted(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    poster(connectors)
+    transport.outputs["publish"] = [{"job_id": "req_9", "poll": "post_status"}] * 2
+    links = {"youtube": "https://youtu.be/abc123"}
+    transport.outputs["post_status"] = [
+        {"status": "running"},
+        {"status": "done", "links": links, "failed": {"tiktok": "Expired access token"}},
+        {"status": "done", "links": {}, "failed": {"youtube": "quota"}},
+    ]
+    config = {"calls": "webhook", "input": "post.md", "params": {}, "confirmed": {"text": "Hi"}}
+    call = connectors.run_stage(W, "run_1", "stage_1", config)
+    assert call.status == "done" and call.polls == 2
+    assert [c[1:3] for c in transport.calls[1:]] == [("post_status", {"job_id": "req_9"})] * 2
+    out = connectors.publish_result(call)
+    assert (out["links"], out["failed"]) == (links, {"tiktok": "Expired access token"})
+    with pytest.raises(ConnectorError, match="nothing was posted. youtube: quota"):
+        connectors.run_stage(W, "run_1", "stage_2", config)
+    assert connectors.call_for("stage_2").status == "failed"  # type: ignore[union-attr]
+
+
+def test_a_post_that_reached_no_platform_fails_the_stage(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    poster(connectors)
+    transport.outputs["publish"] = [{"links": {}, "failed": {"webhook": "410 Gone"}}]
+    config = {"calls": "webhook", "input": "post.md", "params": {}, "confirmed": {"text": "Hi"}}
+    with pytest.raises(ConnectorError, match="nothing was posted. webhook: 410 Gone"):
+        connectors.run_stage(W, "run_1", "stage_1", config)
+
+
 @pytest.mark.parametrize(
     ("answer", "problem"),
     [
@@ -506,9 +420,8 @@ NINE = ", ".join(["x" * 49] * 9)  # 9 tags of 49 and 8 commas: 449 characters
         {"description": "é" * 2_497 + "a", "hashtags": "#ok"},  # 5,000, the limit exactly
     ],
 )
-@pytest.mark.parametrize("connector", ["youtube", "upload_post"])
-def test_hashtags_and_tags_within_the_limits_pass(connector: str, params: dict[str, Any]) -> None:
-    assert preview(connector, stage(connector, user="me", **params))["problems"] == []
+def test_hashtags_and_tags_within_the_limits_pass(params: dict[str, Any]) -> None:
+    assert preview("youtube", stage(**params))["problems"] == []
 
 
 @pytest.mark.parametrize(
@@ -522,26 +435,19 @@ def test_hashtags_and_tags_within_the_limits_pass(connector: str, params: dict[s
         ({"description": "é" * 2_498, "hashtags": "#ok"}, "is 5001 bytes, the limit is 5000"),
     ],
 )
-@pytest.mark.parametrize("connector", ["youtube", "upload_post"])
 def test_hashtags_and_tags_past_the_limits_are_problems(
-    connector: str, params: dict[str, Any], problem: str
+    params: dict[str, Any], problem: str
 ) -> None:
-    problems = preview(connector, stage(connector, user="me", **params))["problems"]
+    problems = preview("youtube", stage(**params))["problems"]
     assert any(problem in p for p in problems), problems
 
 
-def test_hashtags_end_the_description_and_tags_reach_both_connectors() -> None:
-    config = stage("upload_post", user="me", description="Why owls turn.", hashtags="#owls #birds")
+def test_hashtags_end_the_description_and_tags_reach_youtube() -> None:
+    config = stage(description="Why owls turn.", hashtags="#owls #birds")
     config["confirmed"]["tags"] = "owls, owl facts"
     _, args = builtin_publish.request("youtube", config["confirmed"], config["params"], "k")
     assert args["description"] == "Why owls turn.\n\n#owls #birds"
     assert args["tags"] == ["owls", "owl facts"]
-    _, args = builtin_publish.request("upload_post", config["confirmed"], config["params"], "k")
-    assert args["description"] == "Why owls turn.\n\n#owls #birds"
-    assert args["platformOptions"]["youtubeTags"] == ["owls", "owl facts"]
-    bare = stage("upload_post", user="me")
-    _, args = builtin_publish.request("upload_post", bare["confirmed"], bare["params"], "k")
-    assert (args["description"], "youtubeTags" in args["platformOptions"]) == ("", False)
     only = stage(hashtags="owls")
     _, args = builtin_publish.request("youtube", only["confirmed"], only["params"], "k")
     assert args["description"] == "#owls"

@@ -40,8 +40,15 @@ export const CONNECTORS: Connector[] = [
   builtin("remotion_render", "Remotion render", "stage", { outputs: video }),
   builtin("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
   builtin("youtube", "YouTube", "publish"),
-  builtin("upload_post", "Upload-Post", "publish"),
-  // a default package, given to every world
+  // the default packages, given to every world
+  builtin("upload_post", "Upload-Post", "publish", {
+    id: "package_upload_post",
+    world_id: "world_1",
+    builtin: false,
+    command: [".venv/bin/python", "upload_post.py"],
+    version: "1.0.0",
+    capabilities: ["publish"],
+  }),
   builtin("speech", "Speech", "stage", {
     id: "package_speech",
     world_id: "world_1",

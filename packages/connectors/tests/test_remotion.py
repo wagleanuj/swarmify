@@ -403,4 +403,4 @@ def test_secret_names_cover_the_file_and_every_declared_key(
     (tmp_path / ".env").write_text("OTHER_KEY=x\n")
     (tmp_path / ".env").chmod(0o600)
     names = connectors.secret_names(W)
-    assert {"OTHER_KEY", "YOUTUBE_REFRESH_TOKEN", "UPLOAD_POST_API_KEY"} <= set(names)
+    assert {"OTHER_KEY", "YOUTUBE_REFRESH_TOKEN"} <= set(names)

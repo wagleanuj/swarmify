@@ -236,16 +236,12 @@ YOUTUBE = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REF
 def test_saving_a_builtins_keys_checks_them_live_and_names_the_account(
     connectors: Connectors, transport: FakeTransport
 ) -> None:
-    youtube, upload_post = connectors.get("builtin_youtube"), connectors.get("builtin_upload_post")
-    assert youtube and upload_post
+    youtube = connectors.get("builtin_youtube")
+    assert youtube
     transport.outputs["channel"] = [{"channel": "Hooks Daily"}]
-    transport.outputs["get_account_info"] = [{"result": {"email": "me@example.com"}}]
     check = connectors.set_credentials(youtube, YOUTUBE)
     assert check == KeyCheck(True, "Posts to the YouTube channel Hooks Daily.")
     assert transport.calls[-1] == ("youtube", "channel", {}, YOUTUBE)
-    check = connectors.set_credentials(upload_post, {"UPLOAD_POST_API_KEY": "k"})
-    assert check == KeyCheck(True, "Signed in to Upload-Post as me@example.com.")
-    assert transport.calls[-1][1:] == ("get_account_info", {}, {"UPLOAD_POST_API_KEY": "k"})
 
 
 def test_a_failing_key_check_still_saves_and_says_why(

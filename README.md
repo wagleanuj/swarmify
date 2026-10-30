@@ -301,9 +301,10 @@ A connector is an MCP server (a command line or an http(s) URL), the credential 
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
 Every world starts with the built-ins: the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
-build below) and the two publish
-connectors `youtube` and `upload_post` (see Publishing below), and with the default packages
-(see Connector Packages), today `speech` (see Speech).
+build below) and the publish
+connector `youtube` (see Publishing below), and with the default packages
+(see Connector Packages), today `speech` (see Speech) and the publish connector `upload_post`
+(see Publishing).
 
 `web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
 with no package, version or credentials. A swarm stage lists them in `tools` like a tool
@@ -323,11 +324,10 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
 - `GET /api/worlds/<id>/connectors` lists built-ins first, each with the credential names still
   `missing` from the file. `PUT /api/connectors/<id>/credentials` (`{"credentials": {NAME:
   value}}`) stores keys for a connector's own names, which is how built-ins get theirs; the
-  connectors page has an "Add keys" form per connector. Once all of `youtube`'s or
-  `upload_post`'s keys are saved, the same request checks them live and answers `check`
+  connectors page has an "Add keys" form per connector. Once all of `youtube`'s keys are
+  saved, the same request checks them live and answers `check`
   (`{"ok": ..., "message": ...}`): `youtube` refreshes its token and reads `channels.list`
-  (mine, 1 quota unit) through its `channel` tool, naming the channel; `upload_post` calls
-  Upload-Post's `get_account_info`, naming the account. A failing check still saves the keys and
+  (mine, 1 quota unit) through its `channel` tool, naming the channel. A failing check still saves the keys and
   the page warns, so a bad refresh token shows then rather than at publish. `check` is null for
   any other connector.
 - `GET /api/connectors/<id>/health` calls the connector's health tool, the one its `health`
@@ -708,7 +708,7 @@ A publish connector posts to the outside world, so a publish stage runs only rig
 (ADR 0007, no override). The editor refuses to save a workflow that breaks this, and the runner
 refuses to execute such a stage too (it fails the stage), which catches a connector that became
 publish after the workflow was saved. The gate holds the rule; the connector says what goes out.
-The built-in `youtube` and `upload_post` take these params:
+The built-in `youtube` and the `upload_post` package take these params:
 
 ```yaml
   - gate: post it
@@ -732,24 +732,24 @@ The built-in `youtube` and `upload_post` take these params:
 
 `metadata` names a file an earlier stage of the run left (the newest of that name, like `input`);
 the core hands its YAML frontmatter to the connector, and for the built-ins the `title` and
-`description` there (and `hashtags` and `tags`) win over the params, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
+`description` there (and `hashtags` and `tags`) win over the params for both, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
 problem the gate shows. `schedule` is ISO 8601 with a timezone, or relative: `09:00` (the next
 09:00), `+1d 09:00` (tomorrow at 09:00), either with an IANA timezone after it
 (`+1d 09:00 Europe/London`, UTC by default). A relative schedule is resolved when the gate is
 shown, so a scheduled workflow posts every run. `made_for_kids` goes to YouTube as
-`selfDeclaredMadeForKids` (to Upload-Post as `youtubeSelfDeclaredMadeForKids`); content made for
+`selfDeclaredMadeForKids` (to Upload-Post as its `selfDeclaredMadeForKids` field); content made for
 children must set it.
 `hashtags` go out as the description's last line (`#owls #nature`), where YouTube shows up to
 three above the title; a hashtag with a space or punctuation, more than five, or a description
 over YouTube's 5,000 bytes with them is a problem the gate shows. `tags` go to YouTube's tags
-(`snippet.tags`, Upload-Post's `youtubeTags`) beside the retry tag, which is why they stop at 450
+(`snippet.tags`, Upload-Post's `tags[]`) beside the retry tag, which is why they stop at 450
 of YouTube's 500 characters. Both are editable at the gate. Writing them is the workflow's job,
 for example the script stage's frontmatter; Swarmify never makes them up.
 
 The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
 and the `gate.opened` event): the connector, its `fields` (each a `key`, `label`, `value`,
-`editable` flag and optional `hint`, as the connector describes them; for the built-ins Title,
-Description, Platforms for Upload-Post, Visibility, Made for kids, When and Video) and any
+`editable` flag and optional `hint`, as the connector describes them; for `youtube` and `upload_post` Title,
+Description, Hashtags, Tags, Platforms and Profile for Upload-Post, Visibility, Made for kids, When and Video) and any
 `problems` that would stop the post. The gates inbox shows them under the ask, with the editable
 ones as fields of the form, and disables "Confirm and post" and "Approve" while there are
 problems; the server refuses those answers too (409 naming the problems), so a broken publish
@@ -773,10 +773,12 @@ A world's own publish connector (kind `publish` on the Connectors page) answers 
   the gate shows. It is not called when the workflow is saved.
 - `publish` gets `fields` (every value as confirmed, by key), `idempotency_key` and
   `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links` (platform
-  to URL), and optionally `id` and `status: scheduled`.
+  to URL), and optionally `id`, `status: scheduled` and `failed` (platform to error: listed in
+  the artifact, and when nothing was posted the stage fails). It may answer a long job
+  (`job_id` and `poll`, as any long job) whose last answer carries the same.
 
-The built-ins answer the same two calls in process (`swarmify_connectors.builtin_publish`)
-until they move into their own packages.
+The built-in `youtube` answers the same two calls in process (`swarmify_connectors.builtin_publish`)
+until it moves into its own package.
 
 - `youtube` is our wrapper over the YouTube Data API (`swarmify_connectors.youtube`, stdio MCP).
   It uploads with `videos.insert`; with a schedule the video goes up private with `publishAt` and
@@ -790,14 +792,10 @@ until they move into their own packages.
   `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. By
   default uploads have their own quota of 100 a day; the retry check and the other reads share
   10,000 units a day ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)).
-- `upload_post` is Upload-Post's official MCP (`npx -y @upload-post/mcp@0.11.4`, needs Node),
-  adopted as is (ADR 0015) with `UPLOAD_POST_API_KEY` from app.upload-post.com. Swarmify calls its
-  `upload_video` tool with the call's idempotency key. Posting now records
-  each platform's link (a platform that failed is listed in the artifact; when none succeeded the
-  stage fails). An upload over about 59 seconds moves to Upload-Post's background and answers a
-  request id; the stage then polls `get_status` with it until the upload finishes and records the
-  links the same way; a request id Upload-Post no longer knows fails the stage. A scheduled post records the Upload-Post job id; its links appear only once it
-  goes out; reading those links back is not built yet.
+- `upload_post` is a default Connector Package, `connectors/upload_post`: our own small MCP
+  server over Upload-Post's HTTP API (ADR 0015), set up with its API key on the Connectors page.
+  Its README says what it sends, how a background upload becomes a long job, and how a V1 key
+  carries over.
 
 ### Outcomes
 

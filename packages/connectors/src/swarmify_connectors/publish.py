@@ -6,10 +6,12 @@ A publish connector answers two calls. `preview` gets `inputs` (the stage's inpu
 `{fields: [{key, label, value, editable, hint}], problems: [str]}` with the edits applied to its
 editable fields. `publish` gets `fields` (every value as confirmed, by key), `idempotency_key`
 and `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links`
-(platform to URL), and optionally `id` and `status` (published, scheduled). The core shows the
+(platform to URL), and optionally `id`, `status` (published, scheduled) and `failed` (platform to
+error; a post with failures and no links fails the stage). It may answer a long job instead
+(`job_id` and `poll`), whose last answer carries the same. The core shows the
 fields at the gate, lets the person edit the editable ones, refuses to go on while there are
 problems, and records the values confirmed. A world's own publish connector answers both as MCP
-tools; the built-ins answer in process (`builtin_publish`) until they move into packages (#111).
+tools; the built-in youtube answers in process (`builtin_publish`) until it moves into its package.
 """
 
 import re
@@ -40,17 +42,18 @@ def checked_preview(raw: Any) -> dict[str, Any]:
 
 
 def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
-    """What came back, normalized: `status` (published, scheduled or pending), `links` (platform
-    to URL), `id` (the post, scheduler job or background request) and `failed` (platform to
-    error)."""
+    """What came back, normalized: `status` (published or scheduled), `links` (platform
+    to URL), `id` (the post or scheduler job) and `failed` (platform to error)."""
     if connector in builtin_publish.NAMES:
         return builtin_publish.result(connector, response)
     links = response.get("links")
     links = {str(k): str(v) for k, v in links.items()} if isinstance(links, dict) else {}
     if response.get("url"):
         links.setdefault(connector, str(response["url"]))
+    failed = response.get("failed")
+    failed = {str(k): str(v) for k, v in failed.items()} if isinstance(failed, dict) else {}
     status = "scheduled" if response.get("status") == "scheduled" else "published"
-    return {"status": status, "links": links, "id": response.get("id"), "failed": {}}
+    return {"status": status, "links": links, "id": response.get("id"), "failed": failed}
 
 
 def _text(value: Any) -> str:

@@ -120,10 +120,12 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
         ("fal_video", "0.0.1", "local"),
         ("speech", "1.0.0", "connectors/speech"),
+        ("upload_post", "1.0.0", "connectors/upload_post"),
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
         {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
     ]
     form = client.get(f"/api/worlds/{w}/packages/fal_video/setup")
     (field,) = form.json()["fields"]
@@ -159,7 +161,7 @@ def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
         "remotion_render": ("Remotion render", [], ["video/mp4"]),
         "remotion_build": ("Remotion build", ["build_session"], ["video/mp4"]),
         "youtube": ("YouTube", [], []),
-        "upload_post": ("Upload-Post", [], []),
+        "upload_post": ("Upload-Post", ["publish"], []),
         "speech": ("Speech", [], ["application/json", "audio/wav"]),
         "fal_video": ("fal_video", [], []),
     }
@@ -206,7 +208,7 @@ def test_a_v1_data_directory_moves_its_world_added_connectors_to_local_packages(
     app = create_app(root, transport=transport, poll_seconds=0.01, retro=False)
     with TestClient(app) as client:
         listed = client.get(f"/api/worlds/{w}/connectors").json()
-        (fal,) = [c for c in listed if not c["builtin"] and c["name"] != "speech"]  # not a default
+        (fal,) = [c for c in listed if c["name"] == "fal_video"]
         assert (fal["name"], fal["version"], fal["missing"]) == ("fal_video", "0.0.1", [])
         assert env.read_text() == "YOUTUBE_CLIENT_ID=yt\n"
         with closing(connect(db)) as conn:
@@ -305,13 +307,13 @@ def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient
 
 
 def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
-    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech"]  # a default
+    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech", "upload_post"]
     source = "packages/connectors/tests/fixtures/packages/echo"
     installed = client.post("/api/packages", json={"source": source})
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed[0] == installed.json() and len(listed) == 2
+    assert listed[0] == installed.json() and len(listed) == 3
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -339,7 +341,7 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     refused = client.post("/api/packages", json={"source": str(source)})
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
-    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech"]
+    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech", "upload_post"]
 
 
 ECHO = """name: Say it
@@ -369,7 +371,8 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
-        {"name": "speech", "version": "1.0.0"},  # a default package
+        {"name": "speech", "version": "1.0.0"},  # the default packages
+        {"name": "upload_post", "version": "1.0.0"},
     ]
     echo = next(
         c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "echo"
@@ -381,11 +384,13 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
 
     assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
     assert client.get(f"/api/worlds/{one}/packages").json() == [
-        {"name": "speech", "version": "1.0.0"}
+        {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
     ]
     assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 422
     assert client.post(f"/api/worlds/{two}/workflows", json={"yaml": ECHO}).status_code == 201
