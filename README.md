@@ -387,8 +387,19 @@ output file exists, an `artifact.created` event announces it, typed by its sidec
 
 A Connector Package is a folder with a `swarmify-connector.toml` Manifest at its root and the
 connector's code beside it (ADR 0019). It is installed once for the whole install (ADR 0023):
-`POST /api/packages` (`{"source": "connectors/<name>"}`, a folder of this repository, or an
-absolute local path; git URLs come with issue 225) checks the Manifest, copies the folder to
+`POST /api/packages/review` (`{"source": ..., "ref": ...}`) fetches the package and answers what
+installing it grants, running none of it: the source is an https git URL (no credentials in it,
+cloned at `ref`, a tag, branch or commit, else its default branch, with none of the operator's
+git config, hooks, filters or submodules), a folder of this repository (`connectors/<name>`), or
+an absolute local path (cloned at `ref` when one is given); any other URL is refused, and so is a
+symlink out of the package folder. It lists every permission the Manifest declares
+(`network: api.example.org`; also `install_network`, `folders`, `services`, `owned_folders`,
+`credentials` from secret Setup fields, `sign_in` for OAuth hosts and `capabilities`), the
+commit the ref resolved to, `upgrade` (what an upgrade adds and removes since the newest
+installed version). `POST /api/packages` (`{"source", "ref", "commit", "approved"}`)
+installs only when every declared permission is in `approved` (422 naming the rest), at the
+reviewed commit; the Connectors page's Install a package form does both. It checks the
+Manifest, copies the folder to
 `<data dir>/packages/<name>/<version>/` and runs its `install` step there in the connector sandbox
 with a bare environment (PATH and uv's Python, none of Swarmify's keys), so its dependencies land
 beside it: it writes only that folder and reaches only its runtime's registry (PyPI for `uv`, npm
@@ -397,7 +408,7 @@ uv's and npm's caches; any other starts with empty ones, so it cannot plant a po
 for the next install. An invalid Manifest is refused with a 422 naming the field (`config[1].options: ...`); a
 version already installed, or a failing step, is refused with its reason, and nothing new is
 left behind. `.swarmify-install.json`, written last, records the install (its `source` and
-`installed_at`); a version folder without it does not count. `GET /api/packages` lists every
+`installed_at`, and for git its `ref` and `commit`); a version folder without it does not count. `GET /api/packages` lists every
 installed version with its `label`, `kind`, `about` and `state` (`installed`, or `invalid` with
 the `problem` when its Manifest no longer passes), and the connectors page lists them under
 Installed packages.

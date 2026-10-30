@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -81,7 +82,7 @@ def test_a_workflow_saved_on_v1_keeps_running_v1_after_the_world_moves_to_v2(
 ) -> None:
     client = running
     for source in (V1, V2):
-        assert client.post("/api/packages", json={"source": source}).status_code == 201
+        assert install(client, source).status_code == 201
     w = world(client, "Studio")
     assert pin(client, w, "1.0.0").status_code == 200
     saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": SAY}).json()
@@ -107,7 +108,7 @@ def test_a_workflow_saved_on_v1_keeps_running_v1_after_the_world_moves_to_v2(
 
 def test_the_switch_shows_the_diff_and_waits_for_a_new_required_field(client: TestClient) -> None:
     for source in (V1, V2):
-        assert client.post("/api/packages", json={"source": source}).status_code == 201
+        assert install(client, source).status_code == 201
     w = world(client, "Studio")
     assert pin(client, w, "1.0.0").status_code == 200
     diff = client.get(f"/api/worlds/{w}/packages/echo/switch", params={"version": "2.0.0"})
@@ -130,7 +131,7 @@ def test_the_switch_shows_the_diff_and_waits_for_a_new_required_field(client: Te
 
 def test_uninstalling_a_version_in_use_is_refused_naming_its_users(client: TestClient) -> None:
     for source in (V1, V2):
-        assert client.post("/api/packages", json={"source": source}).status_code == 201
+        assert install(client, source).status_code == 201
     studio, other = world(client, "Studio"), world(client, "Other")
     pin(client, studio, "1.0.0")
     saved = client.post(f"/api/worlds/{studio}/workflows", json={"yaml": SAY}).json()
@@ -158,7 +159,7 @@ def test_uninstalling_a_version_in_use_is_refused_naming_its_users(client: TestC
 def test_versions_saved_before_versions_were_recorded_are_stamped_on_upgrade(
     tmp_path: Path, client: TestClient
 ) -> None:
-    assert client.post("/api/packages", json={"source": V1}).status_code == 201
+    assert install(client, V1).status_code == 201
     w = world(client, "Studio")
     pin(client, w, "1.0.0")
     saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": SAY}).json()

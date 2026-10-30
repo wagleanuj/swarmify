@@ -6,6 +6,8 @@ cannot say, raising ManifestError naming the field. Installing copies the packag
 `<data dir>/packages/<name>/<version>/` and runs its `install` step there, so its dependencies
 land beside it; the install is recorded once for the whole install by `.swarmify-install.json`,
 written last, so a version folder without it never counts and a failed step removes the folder.
+A package also installs from a git URL at a ref (issue 225): the clone runs nothing of the
+package, and the API installs only once the operator approved every permission it declares.
 A local package is one Swarmify wrote the Manifest of itself, from the Connectors page's "add an
 MCP server" form (issue 211); it has no code of its own, only the command or URL it names.
 """
@@ -19,16 +21,20 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+from collections.abc import Collection, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from jsonschema.exceptions import SchemaError, ValidationError, best_match
 from jsonschema.validators import Draft202012Validator, validator_for
 
+from swarmify_connectors import setup
 from swarmify_connectors.model import KINDS, STAGE_TYPES
-from swarmify_connectors.sandbox import REGISTRIES, Grants, Sandbox
+from swarmify_connectors.sandbox import REGISTRIES, Grants, Sandbox, domain
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +43,11 @@ RECORD = ".swarmify-install.json"
 LOCAL = "local"
 """The install source recorded for a local package."""
 INSTALL_SECONDS = 900
-COPY_SKIPS = shutil.ignore_patterns(".git", ".venv", "node_modules", "__pycache__", RECORD)
+GIT_SECONDS = 300
+_REF = re.compile(r"^(?!-)[A-Za-z0-9._/-]{1,200}$")
+"""A tag, branch or commit to check out: never an option, never git's revision syntax."""
+SKIPPED = (".git", ".venv", "node_modules", "__pycache__")
+COPY_SKIPS = shutil.ignore_patterns(*SKIPPED, RECORD)
 CAPABILITIES = ("publish", "outcomes", "build_session", "check", "remote_approvals")
 FIELD_TYPES = ("string", "text", "number", "integer", "boolean", "choice", "url", "path", "oauth")
 _PYTHON = {"string": str, "text": str, "url": str, "path": str, "choice": str}
@@ -251,6 +261,10 @@ class Package:
     source: str
     installed_at: str
     problem: str | None = None
+    ref: str | None = None
+    """The tag, branch or commit it was installed at, for one installed from git."""
+    commit: str | None = None
+    """The commit that ref resolved to, for one installed from git."""
 
 
 def _where(path: Any) -> str:
@@ -394,6 +408,73 @@ def _changes(old: dict[str, Any], new: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
+def permissions(manifest: dict[str, Any]) -> list[str]:
+    """Every permission the Manifest declares, as `network: api.example.org`, which the operator
+    approves before anything of the package runs (ADR 0021): the hosts it reaches (`network`),
+    the hosts its install step reaches with its runtime's registries (`install_network`), the
+    data directory's folders it reads (`folders`), the Services it calls (`services`), the world
+    folders it owns (`owned_folders`), the Credentials it is given (`credentials`, by the
+    variable it reads), the hosts Swarmify signs in to for it (`sign_in`) and the core's
+    Capabilities it uses (`capabilities`). `{}` declares none."""
+    granted = manifest.get("permissions", {})
+    out = [f"network: {d}" for d in granted.get("network", [])]
+    if manifest.get("install"):
+        registries = REGISTRIES.get(manifest.get("runtime", ""), [])
+        out += [f"install_network: {d}" for d in [*registries, *granted.get("install_network", [])]]
+    out += [f"folders: {f}" for f in granted.get("folders", [])]
+    out += [f"services: {s}" for s in granted.get("services", [])]
+    out += [f"owned_folders: {f['folder']}" for f in manifest.get("owned_folders", [])]
+    out += [
+        f"credentials: {setup.env_name(f)}"
+        for f in setup.fields(manifest)
+        if setup.secret(f) and "client_of" not in f
+    ]
+    for f in manifest.get("config", []):
+        if f["type"] == "oauth":
+            out += [f"sign_in: {domain(f['oauth'][u])}" for u in ("authorize_url", "token_url")]
+    out += [f"capabilities: {c}" for c in manifest.get("capabilities", [])]
+    return list(dict.fromkeys(out))
+
+
+def _escaping(folder: Path) -> str | None:
+    """The first symlink in the package folder that points outside it, which a copy would
+    follow (a link to a key file); None when there is none. What the copy skips is not looked
+    at (a `.venv` links its Python)."""
+    root = folder.resolve()
+    for at, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in SKIPPED]
+        for name in [*dirs, *files]:
+            path = Path(at) / name
+            if path.is_symlink() and not path.resolve().is_relative_to(root):
+                return str(path.relative_to(folder))
+    return None
+
+
+def _git(*args: str) -> str:
+    """Run git on a package's clone with none of the operator's git config (no credential
+    helper, no hooks, no filters an attribute could run), no prompt, an empty HOME (no
+    `.netrc`) and only https and local paths. Raises InstallError saying what git said."""
+    with tempfile.TemporaryDirectory() as home:
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": home, "LANG": "C"}
+        env |= {"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"}
+        env |= {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_ALLOW_PROTOCOL": "https:file"}
+        quiet = ["-c", "credential.helper=", "-c", f"core.hooksPath={os.devnull}"]
+        try:
+            done = subprocess.run(
+                ["git", *quiet, *args],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=GIT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise InstallError(f"git did not run: {exc}") from exc
+    if done.returncode != 0:
+        raise InstallError(f"git {args[0]} failed: {done.stderr.strip()[-600:]}")
+    return done.stdout.strip()
+
+
 def manifest_diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     """What changes in a switch from one version's Manifest to another's (issue 223): its
     params by property, its Setup fields by key, the fields newly required with no default
@@ -407,7 +488,7 @@ def manifest_diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
         return {f["key"]: f for f in m.get("config", [])}
 
     def grants(m: dict[str, Any]) -> set[str]:
-        return {f"{k}: {v}" for k, vs in m.get("permissions", {}).items() for v in vs}
+        return set(permissions(m)) if m else set()
 
     before, after = fields(old), fields(new)
 
@@ -539,12 +620,106 @@ class Packages:
             (Path(folder) / MANIFEST).write_text(text)
             return self.install(folder, LOCAL)
 
-    def install(self, source: str, record_as: str | None = None) -> Package:
-        """Copy the package at `source` to `<root>/<name>/<version>/` and run its install step
-        there. Raises ManifestError for a bad Manifest, InstallError when the version is
-        installed already or the step fails; either way nothing new is left behind."""
-        folder = self._source(source)
+    @contextmanager
+    def _fetched(self, source: str, ref: str | None) -> Iterator[tuple[Path, str | None]]:
+        """The package folder at `source` and, for a git source, the commit checked out. A git
+        source is an https URL, or a local path given a `ref`; it is cloned into a temporary
+        folder, removed after, running none of its code. Raises InstallError for any other URL,
+        one carrying credentials, a bad ref, a git failure or a symlink out of the package."""
+        scheme = urlsplit(source).scheme
+        if "://" in source and scheme != "https":
+            raise InstallError(f"{scheme}:// is refused: install from an https:// URL or a path")
+        if scheme == "https" and (urlsplit(source).username or urlsplit(source).password):
+            raise InstallError("the URL carries credentials: only public repositories install")
+        if ref is not None and not _REF.fullmatch(ref):
+            raise InstallError(f"{ref} is not a tag, branch or commit")
+        if scheme != "https" and ref is None:
+            folder = self._source(source)
+            if link := _escaping(folder):
+                raise InstallError(f"{link} is a symlink out of the package folder")
+            yield folder, None
+            return
+        url = source if scheme == "https" else str(self._source(source))
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "clone"
+            _git("clone", "--quiet", "--no-checkout", "--template=", "--", url, str(folder))
+            commit = None
+            for rev in [ref, f"origin/{ref}"] if ref else ["HEAD"]:
+                try:
+                    at = ["-C", str(folder), "rev-parse", "--verify", "--end-of-options"]
+                    commit = _git(*at, f"{rev}^{{commit}}")
+                    break
+                except InstallError:
+                    continue
+            if commit is None:
+                raise InstallError(f"{source} has no tag, branch or commit {ref}")
+            _git("-C", str(folder), "checkout", "--quiet", "--detach", commit)
+            if link := _escaping(folder):
+                raise InstallError(f"{link} is a symlink out of the package folder")
+            yield folder, commit
+
+    def _newest(self, name: str) -> str | None:
+        """The highest version of `name` installed and valid, which an install upgrades from."""
+        versions = [p.version for p in self.list() if p.name == name and p.state == "installed"]
+
+        def key(v: str) -> tuple[int, ...]:
+            return tuple(int(n) for n in v.split("-")[0].split("+")[0].split("."))
+
+        return max(versions, key=key, default=None)
+
+    def review(self, source: str, ref: str | None = None) -> dict[str, Any]:
+        """What installing `source` at `ref` would grant, read without running any of it: its
+        name, version, label and about, the commit a git source resolved to, every permission
+        it declares, and for an upgrade what they add and remove since the newest installed
+        version (`upgrade`, None for a first install). Raises ManifestError or InstallError."""
+        with self._fetched(source, ref) as (folder, commit):
+            m = read_manifest(folder)
+        if (self.root / m["name"] / m["version"] / RECORD).exists():
+            raise InstallError(f"{m['name']} {m['version']} is already installed")
+        newest = self._newest(m["name"])
+        upgrade = None
+        if newest:
+            before, after = set(permissions(self.manifest(m["name"], newest))), permissions(m)
+            upgrade = {
+                "from": newest,
+                "added": [p for p in after if p not in before],
+                "removed": sorted(before - set(after)),
+            }
+        about = {k: m[k] for k in ("name", "version", "label", "about")}
+        return {**about, "commit": commit, "permissions": permissions(m), "upgrade": upgrade}
+
+    def install(
+        self,
+        source: str,
+        record_as: str | None = None,
+        *,
+        ref: str | None = None,
+        commit: str | None = None,
+        approved: Collection[str] | None = None,
+    ) -> Package:
+        """Copy the package at `source` (cloned at `commit`, the one reviewed, else at `ref`)
+        to `<root>/<name>/<version>/` and run its install step there. `approved`, the permissions
+        the operator approved, must hold every one it declares, or nothing of it runs; None
+        for this repository's own packages and local ones, which Swarmify trusts. Raises
+        ManifestError for a bad Manifest, InstallError when a permission is not approved, the
+        version is installed already or the step fails; either way nothing new is left
+        behind."""
+        with self._fetched(source, commit or ref) as (folder, resolved):
+            return self._install(folder, record_as or source, ref or commit, resolved, approved)
+
+    def _install(
+        self,
+        folder: Path,
+        source: str,
+        ref: str | None,
+        commit: str | None,
+        approved: Collection[str] | None,
+    ) -> Package:
         manifest = read_manifest(folder)
+        if approved is not None:
+            unapproved = [p for p in permissions(manifest) if p not in approved]
+            if unapproved:
+                raise InstallError(f"approve these permissions first: {', '.join(unapproved)}")
         target = self.root / manifest["name"] / manifest["version"]
         if (target / RECORD).exists():
             raise InstallError(f"{manifest['name']} {manifest['version']} is already installed")
@@ -554,7 +729,12 @@ class Packages:
             shutil.copytree(folder, target, ignore=COPY_SKIPS)
             if manifest.get("install"):
                 self._run_install(manifest, target, folder.is_relative_to(self.repo.resolve()))
-            record = {"source": record_as or source, "installed_at": datetime.now(UTC).isoformat()}
+            record: dict[str, Any] = {
+                "source": source,
+                "installed_at": datetime.now(UTC).isoformat(),
+            }
+            if commit:
+                record |= {"ref": ref or "HEAD", "commit": commit}
             (target / f"{RECORD}.tmp").write_text(json.dumps(record))
             (target / f"{RECORD}.tmp").replace(target / RECORD)
         except BaseException:

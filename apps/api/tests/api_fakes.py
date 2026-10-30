@@ -66,3 +66,13 @@ class FakeNotifier:
 
     def notify(self, event: Event) -> None:
         self.events.append(event)
+
+
+def install(client: Any, source: str) -> Any:
+    """Install a package over HTTP as the Connectors page does: review it, then approve every
+    permission it declares. The review's answer when it refuses."""
+    review = client.post("/api/packages/review", json={"source": source})
+    if review.status_code != 200:
+        return review
+    approved = review.json()["permissions"]
+    return client.post("/api/packages", json={"source": source, "approved": approved})

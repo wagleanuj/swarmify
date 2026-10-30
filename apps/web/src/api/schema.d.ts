@@ -682,11 +682,36 @@ export interface paths {
         put?: never;
         /**
          * Install Package
-         * @description Copy the package to `<data dir>/packages/<name>/<version>/` and run its install step
-         *     there. 422 naming the field for an invalid Manifest, or saying why it did not install
-         *     (that version is installed already, the step failed); nothing new is left behind.
+         * @description Copy the package, from git at the reviewed commit, to
+         *     `<data dir>/packages/<name>/<version>/` and run its install step there, once every
+         *     permission it declares is in `approved`. 422 naming the field for an invalid Manifest,
+         *     or saying why it did not install (a permission not approved, that version installed
+         *     already, the step failed); nothing new is left behind.
          */
         post: operations["install_package_api_packages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packages/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review Package
+         * @description Fetch the package (a git source is cloned at its ref, running none of its code) and
+         *     say what installing it would grant, for the operator to approve. 422 naming the field
+         *     for an invalid Manifest, or saying why it cannot install (a refused URL, an unknown ref,
+         *     a symlink out of the package, that version installed already).
+         */
+        post: operations["review_package_api_packages_review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2547,11 +2572,47 @@ export interface components {
             installed_at: string;
             /** Problem */
             problem?: string | null;
+            /** Ref */
+            ref?: string | null;
+            /** Commit */
+            commit?: string | null;
+        };
+        /** PackageInstall */
+        PackageInstall: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref?: string | null;
+            /** Commit */
+            commit?: string | null;
+            /** Approved */
+            approved: string[];
+        };
+        /**
+         * PackageReview
+         * @description What installing a package would grant, read without running any of it (issue 225).
+         */
+        PackageReview: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Label */
+            label: string;
+            /** About */
+            about: string;
+            /** Commit */
+            commit: string | null;
+            /** Permissions */
+            permissions: string[];
+            upgrade: components["schemas"]["Upgrade"] | null;
         };
         /** PackageSource */
         PackageSource: {
             /** Source */
             source: string;
+            /** Ref */
+            ref?: string | null;
         };
         /**
          * PackageSwitch
@@ -3317,6 +3378,15 @@ export interface components {
             duration_s: number | null;
             /** Failed */
             failed?: string[];
+        };
+        /** Upgrade */
+        Upgrade: {
+            /** From */
+            from: string;
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -4952,7 +5022,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PackageSource"];
+                "application/json": components["schemas"]["PackageInstall"];
             };
         };
         responses: {
@@ -4963,6 +5033,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Package"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_package_api_packages_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageSource"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageReview"];
                 };
             };
             /** @description Validation Error */

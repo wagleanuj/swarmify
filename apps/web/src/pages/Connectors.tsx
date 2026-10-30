@@ -13,6 +13,7 @@ type SetupView = components["schemas"]["SetupView"];
 type NewConnector = components["schemas"]["NewConnector"];
 type Package = components["schemas"]["Package"];
 type PackageSwitch = components["schemas"]["PackageSwitch"];
+type PackageReview = components["schemas"]["PackageReview"];
 type Tool = components["schemas"]["Tool"];
 type World = components["schemas"]["World"];
 type Kind = NewConnector["kind"];
@@ -95,6 +96,8 @@ export function Connectors() {
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installed, setInstalled] = useState<string | null>(null);
   // Where an OAuth sign-in lands: the callback sends the browser back here saying how it went.
   const search = connectorsRoute.useSearch();
   const navigate = useNavigate();
@@ -254,11 +257,26 @@ export function Connectors() {
             with nothing to set up.
           </p>
         </div>
-        <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
-          Add a connector
-        </button>
+        <div className="actions">
+          <button type="button" aria-expanded={installing} onClick={() => setInstalling((i) => !i)}>
+            Install a package
+          </button>
+          <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
+            Add a connector
+          </button>
+        </div>
       </header>
       {error && <p role="alert">{error}</p>}
+      {installed && <p role="status">{installed}</p>}
+      {installing && (
+        <InstallPackage
+          onInstalled={(p) => {
+            setInstalling(false);
+            setInstalled(`Installed ${p.label} ${p.version}. Enable it below in each world that uses it.`);
+            void loadPackages();
+          }}
+        />
+      )}
       {signIn && <p role={signIn.ok ? "status" : "alert"}>{signIn.message}</p>}
       {adding && (
       <form className="panel add-connector" onSubmit={test} aria-label="Add a connector">
@@ -467,6 +485,162 @@ export function Connectors() {
         )}
       </div>
     </main>
+  );
+}
+
+const PERMISSION_KINDS: [string, string][] = [
+  ["network", "Hosts it reaches"],
+  ["install_network", "Hosts its install step reaches"],
+  ["folders", "Data folders it reads"],
+  ["services", "Services it calls"],
+  ["owned_folders", "World folders it owns"],
+  ["credentials", "Credentials it is given"],
+  ["sign_in", "Sign-in hosts Swarmify calls for it"],
+  ["capabilities", "Capabilities it uses"],
+];
+
+/** Install a Connector Package from a git URL at a ref, or a local folder: Swarmify fetches it
+ * running nothing, shows every permission it declares (what an upgrade adds marked new), and
+ * installs only once the operator approves them (ADR 0021). */
+function InstallPackage({ onInstalled }: { onInstalled: (p: Package) => void }) {
+  const [source, setSource] = useState("");
+  const [ref, setRef] = useState("");
+  const [review, setReview] = useState<{ asked: string; r: PackageReview } | null>(null);
+  const [busy, setBusy] = useState<"review" | "install" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const body = { source: source.trim(), ref: ref.trim() || null };
+  const shown = review?.asked === JSON.stringify(body) ? review.r : null;
+
+  async function ask(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy("review");
+    setError(null);
+    const { data, error } = await api.POST("/api/packages/review", { body });
+    setBusy(null);
+    if (error || !data) {
+      setReview(null);
+      setError(detail(error) ?? "Could not fetch it. Check the URL and ref and try again.");
+      return;
+    }
+    setReview({ asked: JSON.stringify(body), r: data });
+  }
+
+  async function approve(r: PackageReview) {
+    setBusy("install");
+    setError(null);
+    const { data, error } = await api.POST("/api/packages", {
+      body: { ...body, commit: r.commit, approved: r.permissions },
+    });
+    setBusy(null);
+    if (error || !data) {
+      setError(detail(error) ?? `Could not install ${r.label} ${r.version}. Try again.`);
+      return;
+    }
+    onInstalled(data);
+  }
+
+  const added = new Set(shown?.upgrade?.added ?? []);
+  const groups = PERMISSION_KINDS.map(([kind, label]) => ({
+    label,
+    values: (shown?.permissions ?? []).filter((p) => p.startsWith(`${kind}: `)),
+  })).filter((g) => g.values.length > 0);
+  return (
+    <form className="panel add-connector" onSubmit={ask} aria-label="Install a package">
+      <h2>Install a package</h2>
+      <p className="faint">
+        From a git URL at a tag, branch or commit, or a folder on this machine. Swarmify fetches it without running
+        any of it and shows everything it asks for; nothing of it runs, its install step included, until you approve.
+      </p>
+      <label>
+        Git URL or folder
+        <input
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          required
+          maxLength={1000}
+          placeholder="https://github.com/you/your-connector.git"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <label>
+        Tag, branch or commit (empty for the default branch)
+        <input
+          value={ref}
+          onChange={(e) => setRef(e.target.value)}
+          maxLength={200}
+          placeholder="v1.0.0"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <div className="editor-actions">
+        <button type="submit" disabled={busy !== null}>
+          {busy === "review" ? "Fetching it..." : "Review permissions"}
+        </button>
+      </div>
+      {error && <p role="alert">{error}</p>}
+      {shown && (
+        <section className="con-switch" aria-label={`Permissions of ${shown.name} ${shown.version}`}>
+          <h3>
+            {shown.label} {shown.version} asks for
+          </h3>
+          <p className="faint">
+            {shown.about}
+            {shown.commit && (
+              <>
+                {" "}
+                At commit <span className="mono">{shown.commit.slice(0, 12)}</span>.
+              </>
+            )}
+          </p>
+          {shown.upgrade &&
+            (added.size > 0 ? (
+              <p role="status" className="warning">
+                New since {shown.upgrade.from}: {[...added].join(", ")}. Installing {shown.version} grants{" "}
+                {added.size === 1 ? "it" : "them"} too.
+              </p>
+            ) : (
+              <p role="status">Nothing new since {shown.upgrade.from}: the permissions you approved for it.</p>
+            ))}
+          {shown.upgrade && shown.upgrade.removed.length > 0 && (
+            <p className="faint">No longer asks for: {shown.upgrade.removed.join(", ")}.</p>
+          )}
+          {groups.length === 0 ? (
+            <p>It asks for no permissions: no network, folders, Services or Credentials.</p>
+          ) : (
+            <dl>
+              {groups.map((g) => (
+                <div key={g.label}>
+                  <dt>{g.label}</dt>
+                  <dd className="mono">
+                    {g.values.map((v, i) => (
+                      <span key={v}>
+                        {i > 0 && ", "}
+                        {v.startsWith("capabilities: ") ? v.slice(14).replaceAll("_", " ") : v.slice(v.indexOf(": ") + 2)}
+                        {added.has(v) && <b className="warning"> (new)</b>}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <div className="actions">
+            <button type="button" className="primary" disabled={busy !== null} onClick={() => approve(shown)}>
+              {busy === "install"
+                ? "Installing..."
+                : shown.upgrade && added.size === 0
+                  ? `Install ${shown.version}`
+                  : `Approve and install ${shown.version}`}
+            </button>
+            <button type="button" onClick={() => setReview(null)}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+    </form>
   );
 }
 

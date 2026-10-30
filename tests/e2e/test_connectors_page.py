@@ -1,7 +1,9 @@
 import json
+import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,6 +13,18 @@ from playwright.sync_api import Page, expect
 from swarmify_connectors.fake_oauth import FakeProvider
 
 ECHO = Path(__file__).parents[2] / "packages/connectors/tests/echo_server.py"
+
+
+def install(base_url: str, source: str) -> httpx.Response:
+    """Install a package as the Connectors page does: review it, then approve every permission
+    it declares. The review's answer when it refuses."""
+    review = httpx.post(f"{base_url}/api/packages/review", json={"source": source})
+    if review.status_code != 200:
+        return review
+    approved = review.json()["permissions"]
+    return httpx.post(f"{base_url}/api/packages", json={"source": source, "approved": approved})
+
+
 RENDER = """name: Render then pick
 stages:
   - connector: render
@@ -87,7 +101,7 @@ stages:
 
 def test_a_world_enables_an_installed_package_and_disables_it(page: Page, base_url: str) -> None:
     source = "packages/connectors/tests/fixtures/packages/echo"
-    installed = httpx.post(f"{base_url}/api/packages", json={"source": source})
+    installed = install(base_url, source)
     assert installed.status_code == 201, installed.text
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Packages"}).json()
     other = httpx.post(f"{base_url}/api/worlds", json={"name": "Other"}).json()
@@ -129,7 +143,7 @@ def test_a_packages_setup_form_tests_before_saving(
         .replace('name = "probe"', 'name = "probe_e2e"')
         .replace('["python3", "server.py"]', json.dumps([sys.executable, "server.py"]))
     )
-    installed = httpx.post(f"{base_url}/api/packages", json={"source": str(source)})
+    installed = install(base_url, str(source))
     assert installed.status_code == 201, installed.text
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Setup"}).json()
     try:
@@ -172,7 +186,7 @@ def test_a_pin_switch_shows_the_manifest_diff_and_uninstall_names_the_users(
 ) -> None:
     fixtures = "packages/connectors/tests/fixtures/packages"
     for source in (f"{fixtures}/echo", f"{fixtures}/echo_2"):
-        installed = httpx.post(f"{base_url}/api/packages", json={"source": source})
+        installed = install(base_url, source)
         assert installed.status_code == 201 or "already installed" in installed.text
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Upgrades"}).json()
     try:
@@ -229,7 +243,7 @@ pkce = true
 client = "operator"
 """
         )
-        installed = httpx.post(f"{base_url}/api/packages", json={"source": str(source)})
+        installed = install(base_url, str(source))
         assert installed.status_code == 201, installed.text
         world = httpx.post(f"{base_url}/api/worlds", json={"name": "Sign-in"}).json()
         try:
@@ -267,3 +281,70 @@ client = "operator"
             assert tokens["access_token"] not in form_now and "shh" not in form_now
         finally:
             httpx.delete(f"{base_url}/api/worlds/{world['id']}")
+
+
+def git(cwd: Path, *args: str) -> None:
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    who = ["-c", "user.name=t", "-c", "user.email=t@example.org"]
+    subprocess.run(["git", *who, *args], cwd=cwd, env=env, check=True, capture_output=True)
+
+
+def test_install_from_git_shows_the_permissions_and_asks_again_for_an_upgrade(
+    page: Page, base_url: str, tmp_path: Path
+) -> None:
+    work, bare = tmp_path / "work", tmp_path / "echo_git.git"
+    shutil.copytree(ECHO.parent / "fixtures/packages/echo", work)
+    toml = work / "swarmify-connector.toml"
+    toml.write_text(toml.read_text().replace('name = "echo"', 'name = "echo_git"'))
+    git(work, "init", "-q")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "1.0.0")
+    git(work, "tag", "v1.0.0")
+    toml.write_text(
+        toml.read_text()
+        .replace('version = "1.0.0"', 'version = "2.0.0"')
+        .replace('network = ["api.example.org"]', 'network = ["api.example.org", "eu.example.org"]')
+    )
+    git(work, "commit", "-qam", "2.0.0")
+    git(work, "tag", "v2.0.0")
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(bare))
+    world = httpx.post(f"{base_url}/api/worlds", json={"name": "Git"}).json()
+    try:
+        page.goto(f"{base_url}/worlds/{world['id']}/connectors")
+        page.get_by_role("button", name="Install a package").click()
+        form = page.get_by_role("form", name="Install a package")
+        form.get_by_role("textbox", name="Git URL or folder").fill(str(bare))
+        ref = form.get_by_role("textbox", name=re.compile("Tag, branch or commit"))
+        ref.fill("v1.0.0")
+        form.get_by_role("button", name="Review permissions").click()
+        shown = form.get_by_role("region", name="Permissions of echo_git 1.0.0")
+        expect(shown).to_contain_text("Echo 1.0.0 asks for", timeout=15_000)
+        expect(shown).to_contain_text("api.example.org")
+        expect(shown).to_contain_text("ECHO_KEY")
+        expect(shown).to_contain_text("auth.example.org")
+        names = [p["name"] for p in httpx.get(f"{base_url}/api/packages").json()]
+        assert "echo_git" not in names  # nothing installed, nothing ran
+        shown.get_by_role("button", name="Approve and install 1.0.0").click()
+        expect(page.get_by_text("Installed Echo 1.0.0.")).to_be_visible(timeout=30_000)
+        row = page.locator("[data-package=echo_git]").filter(has_text="echo_git 1.0.0")
+        expect(row).to_contain_text("Installed")
+
+        page.get_by_role("button", name="Install a package").click()
+        form.get_by_role("textbox", name="Git URL or folder").fill(str(bare))
+        ref.fill("v2.0.0")
+        form.get_by_role("button", name="Review permissions").click()
+        upgrade = form.get_by_role("region", name="Permissions of echo_git 2.0.0")
+        expect(upgrade.get_by_role("status")).to_have_text(
+            "New since 1.0.0: network: eu.example.org. Installing 2.0.0 grants it too.",
+            timeout=15_000,
+        )
+        upgrade.get_by_role("button", name="Approve and install 2.0.0").click()
+        newer_row = page.locator("[data-package=echo_git]").filter(has_text="echo_git 2.0.0")
+        expect(newer_row).to_be_visible(timeout=30_000)
+        listed = httpx.get(f"{base_url}/api/packages").json()
+        (newer,) = [p for p in listed if p["name"] == "echo_git" and p["version"] == "2.0.0"]
+        assert newer["ref"] == "v2.0.0" and len(newer["commit"]) == 40
+    finally:
+        httpx.delete(f"{base_url}/api/worlds/{world['id']}")
+        for version in ("1.0.0", "2.0.0"):
+            httpx.delete(f"{base_url}/api/packages/echo_git/{version}")

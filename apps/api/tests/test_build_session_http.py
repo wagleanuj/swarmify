@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -78,7 +79,7 @@ def test_a_package_requesting_a_build_session_gets_one_then_its_tool_runs_on_the
     client = running
     script.scripts = [[Answer(lambda o: (Path(o.cwd) / "page.css").write_text("x")), Say("Done.")]]
     script.cost = 0.25
-    assert client.post("/api/packages", json={"source": SKETCH}).status_code == 201
+    assert install(client, SKETCH).status_code == 201
     w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
     assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
     enabled = client.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"})
