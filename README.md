@@ -1255,3 +1255,13 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `speech-chatterbox` (see Speech engines).
 - `tests/e2e` Playwright for Python against the real API. `test_phone.py` opens every page at
   390 by 844 behind basic auth and fails if any scrolls sideways.
+
+## License
+
+Swarmify is licensed under the GNU Affero General Public License 3.0 (`AGPL-3.0-only`, see
+`LICENSE`, ADR 0022): use, change and self-host it freely, and if you run a modified Swarmify as a
+network service, publish your changes under the same license.
+
+A Connector Package is a separate program that talks to Swarmify over MCP, so it is a separate
+work under its own license. Connector authors choose that license themselves and may publish
+their packages under MIT or any other license.

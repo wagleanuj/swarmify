@@ -3,6 +3,7 @@ name = "swarmify-swarm"
 version = "0.1.0"
 description = "Swarm context: the whiteboard of a swarm stage, its tasks and their claims"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = [
     "claude-agent-sdk==0.2.174",
     "jsonschema>=4.26",

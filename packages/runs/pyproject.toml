@@ -3,6 +3,7 @@ name = "swarmify-runs"
 version = "0.1.0"
 description = "Runs context: a run executes one workflow version, stage by stage, on DBOS"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = ["dbos>=3.3", "sqlalchemy>=2", "swarmify-kernel"]
 
 [build-system]

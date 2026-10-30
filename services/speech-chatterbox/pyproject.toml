@@ -5,6 +5,7 @@ name = "speech-chatterbox"
 version = "0.1.0"
 description = "Chatterbox Turbo speech and faster-whisper word times over HTTP"
 requires-python = ">=3.11,<3.13"
+license = "AGPL-3.0-only"
 dependencies = [
   "chatterbox-tts==0.1.7",
   "faster-whisper>=1.2.1",
