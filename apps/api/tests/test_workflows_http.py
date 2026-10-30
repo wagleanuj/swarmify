@@ -271,10 +271,16 @@ def test_a_saved_schedule_starts_runs_on_dbos_cron_until_the_next_version_drops_
         created = running.post(f"/api/worlds/{world}/workflows", json={"yaml": GATED})
         assert created.status_code == 201, created.text
         wf = created.json()["workflow_id"]
-        until(lambda: len(running.get(f"/api/worlds/{world}/runs").json()) >= 1)
-        run = running.get(f"/api/worlds/{world}/runs").json()[-1]
+
+        # A per-second schedule can start several runs and the cap of 2 can leave any one of them
+        # queued behind two parked at their gates, so wait for whichever reaches its gate.
+        def gated() -> list[dict]:
+            runs = running.get(f"/api/worlds/{world}/runs").json()
+            return [r for r in runs if r["status"] == "waiting_gate"]
+
+        until(lambda: len(gated()) >= 1)
+        run = gated()[0]
         assert (run["workflow_id"], run["workflow_version"], run["name"]) == (wf, 1, "Timed")
-        until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
 
         plain = running.post(
             f"/api/workflows/{wf}/versions",
