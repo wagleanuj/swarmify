@@ -66,8 +66,10 @@ PAGES = [
 
 
 def signed_in(url: str) -> httpx.Client:
-    """An API client signed in as the operator; it keeps the session cookie."""
-    api = httpx.Client(base_url=f"{url}/api")
+    """An API client signed in as the operator; it keeps the session cookie. It waits 30 s, not
+    httpx's 5: saving a workflow and starting a run start the processes of the packages the
+    workflow calls, for the workflow check, which takes seconds under load."""
+    api = httpx.Client(base_url=f"{url}/api", timeout=30)
     api.post("/session", json={"password": PASSWORD}).raise_for_status()
     return api
 

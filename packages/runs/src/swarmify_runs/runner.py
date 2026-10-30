@@ -46,6 +46,7 @@ from swarmify_runs.control import (
     ended_event,
     no_previews,
     no_spend,
+    queue_name,
     run_folder,
     with_sidecar,
 )
@@ -289,10 +290,6 @@ class Runner(RunControl):
             self.set_cap(run.world_id)
         with SetWorkflowID(run.id):
             DBOS.enqueue_workflow(queue_name(run.world_id), execute_run, run.id)
-
-
-def queue_name(world_id: str) -> str:
-    return f"runs:{world_id}"
 
 
 def _current() -> Runner:

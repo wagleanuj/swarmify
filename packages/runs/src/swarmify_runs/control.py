@@ -86,6 +86,11 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def queue_name(world_id: str) -> str:
+    """The world's DBOS queue, which caps how many of its runs hold a slot."""
+    return f"runs:{world_id}"
+
+
 def run_folder(data_dir: Path, run: Run) -> Path:
     return data_dir / "worlds" / run.world_id / "runs" / run.id
 
@@ -447,12 +452,20 @@ class RunControl:
         return run
 
     def delete_world(self, world_id: str) -> None:
-        """Cancel the world's unfinished runs, then drop its rows. Through the DBOS client, so
-        it reaches runs hosted by another process too (the MCP server deleting a world)."""
+        """Cancel the world's unfinished runs, then drop its rows and its queue. Through the DBOS
+        client, so it reaches runs hosted by another process too (the MCP server deleting a
+        world)."""
         for run_id in self.storage.active_run_ids(world_id):
             self.client.cancel_workflow(run_id)
             self._send(run_id, WAKE)  # a run blocked waiting for a message sees the cancel
         self.storage.delete_world(world_id)
+        # A queue left behind keeps a DBOS thread polling it, a write transaction every poll,
+        # for as long as the app runs; deleting its row stops that thread.
+        try:
+            self.client.delete_queue(queue_name(world_id))
+        except OperationalError as exc:
+            if "no such table" not in str(exc):  # DBOS never launched here, so no queue either
+                raise
 
     def _abort_children(self, run_id: str) -> None:
         for child in self.storage.child_run_ids(run_id):
