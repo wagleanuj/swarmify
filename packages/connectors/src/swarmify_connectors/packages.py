@@ -68,7 +68,6 @@ SCHEMA: dict[str, Any] = {
         "kind": {"enum": list(KINDS)},
         "stage_types": {
             "type": "array",
-            "minItems": 1,
             "uniqueItems": True,
             "items": {"enum": list(STAGE_TYPES)},
         },
@@ -89,6 +88,11 @@ SCHEMA: dict[str, Any] = {
         "command": {**_strings, "minItems": 1},
         "url": {"type": "string", "pattern": _URL},
         "install": {**_strings, "minItems": 1},
+        # A remote_approvals connector's long-lived process, which the core keeps running while a
+        # world enables it with its Setup done (a Slack Socket Mode app, say).
+        "listen": {**_strings, "minItems": 1},
+        # False keeps one of this repository's packages installed but off until a world enables it.
+        "enable_by_default": {"type": "boolean"},
         "health": {"type": "string", "pattern": _TOOL},
         # Setup (ADR 0024)
         "setup": {
@@ -250,6 +254,10 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
     if ("command" in manifest) == ("url" in manifest):
         bad("command", "give the command that starts its MCP server, or its url, not both")
+    if (manifest["kind"] == "notify") == bool(manifest["stage_types"]):
+        bad("stage_types", "a notify connector runs in no stage; every other runs in one")
+    if "listen" in manifest and "remote_approvals" not in manifest.get("capabilities", []):
+        bad("listen", "is the long-lived process of a remote_approvals connector")
     if manifest["kind"] == "publish" and manifest["stage_types"] != ["connector"]:
         bad("stage_types", "a publish connector runs only in connector stages, after a gate")
     if "params" in manifest and (why := _is_schema(manifest["params"])):

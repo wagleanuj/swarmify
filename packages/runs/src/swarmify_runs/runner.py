@@ -545,9 +545,12 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     # world stream gets the run.updated and gate.opened or run.ended events twice. Split into
     # steps, or key events by (run, state), if duplicates start to matter.
     runner = _current()
+    before = runner.storage.get_run(run_id)
     run = runner.storage.save_state(run_id, state, error)
     if run is None:
         return
+    if before is not None and (closed := gate_closed(before, run)) is not None:
+        runner.notify(closed)
     if gate_opened:
         index = state.stages.index("waiting")
         _, stage = runner.storage.stage_def(run_id, index)
@@ -564,6 +567,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
                 "run_id": run.id,
                 "name": run.name,
                 "stage_index": index,
+                "visit": state.send_backs,
                 "stage": stage.name,
                 "kind": kind,
                 "ask": ask,
@@ -576,6 +580,48 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
         return
     runner.storage.record(event)
     runner.notify(event)
+
+
+OUTCOMES = {"approve": "approved", "pick": "picked", "confirm": "confirmed", "skill": "answered"}
+
+
+def gate_closed(before: Run, after: Run) -> Event | None:
+    """`gate.closed` when the gate `before` waited at is no longer waiting in `after`: answered
+    (by whom, when it was answered from outside the web UI), sent back, given money or aborted.
+    A Notification only, for a Remote Approval to update the message it posted; never recorded."""
+    index = next((s.index for s in before.stages if s.status == "waiting"), None)
+    if index is None:
+        return None
+    same = (after.stages[index].status, after.send_backs, after.over_budget)
+    if same == ("waiting", before.send_backs, before.over_budget):
+        return None
+    decision = next((d for d in reversed(after.decisions) if d.stage_index == index), None)
+    resolution: dict[str, Any] = {"outcome": "aborted"}
+    if after.status != "aborted" and before.over_budget:
+        resolution = {"outcome": "budget_added"}
+    elif after.status != "aborted" and decision is not None:
+        resolution = {
+            "outcome": "sent_back"
+            if decision.send_back_to
+            else OUTCOMES.get(decision.kind, "answered"),
+            "choice": decision.choice,
+            "send_back_to": decision.send_back_to,
+            "note": decision.note,
+            "by": decision.by,
+        }
+    return Event.new(
+        "gate.closed",
+        world_id=after.world_id,
+        run_id=after.id,
+        payload={
+            "run_id": after.id,
+            "name": after.name,
+            "stage_index": index,
+            "visit": before.send_backs,
+            "stage": before.stages[index].name,
+            "resolution": resolution,
+        },
+    )
 
 
 @DBOS.step(name="swarmify.execute")

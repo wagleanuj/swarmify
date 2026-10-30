@@ -50,10 +50,11 @@ const KINDS: { kind: Kind; label: string; hint: string }[] = [
   { kind: "publish", label: "Publish", hint: "Posts to the outside world. Always after a gate." },
 ];
 
-const GROUPS: [Kind, string, string][] = [
+const GROUPS: [Connector["kind"], string, string][] = [
   ["tool", "Tools agents use inside a swarm step", ""],
   ["stage", "Steps of their own", ""],
   ["publish", "Publishing", "Always after a gate."],
+  ["notify", "Notifications", "Answer gates from outside Swarmify."],
 ];
 
 /** `NAME=value` per line; a bare `NAME` means the keys file already holds it. */
@@ -388,7 +389,7 @@ export function Connectors() {
                         <b>{c.label}</b>
                         <span className="faint">{where(c)}</span>
                       </span>
-                      <span className="faint">{c.stage_types.join(", ")} steps</span>
+                      <span className="faint">{c.stage_types.length > 0 ? `${c.stage_types.join(", ")} steps` : "gates"}</span>
                       <span className={s.tone === "warn" ? "pill warning" : "pill"}>{s.text}</span>
                       {c.version ? (
                         <Setup connector={c} worldId={worldId} onSaved={load} />

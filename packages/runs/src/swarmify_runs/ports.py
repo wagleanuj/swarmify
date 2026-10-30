@@ -104,5 +104,6 @@ class Notifier(Protocol):
     def notify(self, event: Event) -> None:
         """Tell a person: `gate.opened` (kind `budget` at 100 percent of the Budget),
         `budget.warning` (80 percent) or `run.ended`. Payloads carry run id and name.
+        `gate.closed` says how an open gate ended, for a Remote Approval to update its message.
         May raise (Slack is down); callers log it and go on."""
         ...

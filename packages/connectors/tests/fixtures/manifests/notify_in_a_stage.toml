@@ -1,0 +1,9 @@
+# error: stage_types: a notify connector runs in no stage; every other runs in one
+name = "pager"
+version = "1.0.0"
+label = "Pager"
+about = "Tells a person about gates."
+kind = "notify"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["python", "server.py"]

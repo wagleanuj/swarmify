@@ -185,9 +185,10 @@ def test_gate_opened_and_run_ended_reach_the_notifier_and_the_world_stream(
     waiting_at(running, run["id"], "ok")
     assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
-    until(lambda: len(notifier.events) == 2)
-    opened, ended = notifier.events
+    until(lambda: len(notifier.events) == 3)
+    opened, closed, ended = notifier.events
     assert opened.type == "gate.opened" and opened.payload["ask"] == "Go?"
+    assert closed.type == "gate.closed" and closed.payload["resolution"]["outcome"] == "confirmed"
     assert opened.payload["run_id"] == run["id"] and opened.world_id == world
     assert ended.type == "run.ended" and ended.payload["status"] == "done"
 
