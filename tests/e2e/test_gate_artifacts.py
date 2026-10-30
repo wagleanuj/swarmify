@@ -55,7 +55,11 @@ def test_pick_a_card_then_review_the_video_in_place(
         expect(card.get_by_role("textbox", name="Your pick")).to_have_count(0)
         _fits(screen)
         card.get_by_role("radio", name=re.compile("The chase")).click()
-        card.get_by_role("button", name="Continue with this pick").click()
+        # On a phone the action bar's primary names the card picked (#178).
+        phone = (screen.viewport_size or {"width": 1280})["width"] < 500
+        card.get_by_role(
+            "button", name="Continue with #2" if phone else "Continue with this pick"
+        ).click()
 
         expect(card).to_contain_text("Watch it. Approve or send back.", timeout=20_000)
         player = card.get_by_test_id("player")
