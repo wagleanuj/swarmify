@@ -17,7 +17,7 @@ from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
 
 TASK = TASKS[0]
-FAST = Settings(budget_usd=3.0, timeout_s=30, poll_s=0.05)
+FAST = Settings(budget_usd=3.0, timeout_s=30, poll_s=0.05, swarm_agents=2)
 IDEAS = "\n".join(f"{n}. Idea {n}: open on the hook" for n in range(1, 6))
 SCRIPT = "Hook first. " + "word " * 80 + TASK.keywords[0]
 GRAPH = Call(tool_id("query_graph"), {"question": "What worked before?"})
@@ -48,24 +48,24 @@ def write(name: str, content: str) -> Call:
     return Call(tool_id("write_artifact"), {"name": name, "content": content})
 
 
+def arm(workers: int, script: str = SCRIPT) -> list:
+    """One arm's run: each stage planned into a task a worker, worked side by side, judged;
+    then the retro, which proposes a skill the harness rejects."""
+    plan = [Answer({"tasks": [{"title": f"Part {n + 1}."} for n in range(workers)]})]
+
+    def stage(name: str, body: str) -> list:
+        work = [GRAPH, CLAIM, write(name, body), FINISH, Say("Done.")]
+        return [plan, *[work] * workers, PASS]
+
+    return [*stage("ideas.md", IDEAS), *stage("script.md", script), [Answer(PROPOSAL)]]
+
+
 def baseline(script: str = SCRIPT) -> list:
-    return [
-        [CLAIM, write("ideas.md", IDEAS), FINISH, Say("Done.")],
-        [CLAIM, write("script.md", script), FINISH, Say("Done.")],
-    ]
+    return arm(1, script)
 
 
 def swarm() -> list:
-    stage = [GRAPH, CLAIM]
-    return [
-        PLAN,
-        [*stage, write("ideas.md", IDEAS), FINISH, Say("Done.")],
-        PASS,
-        PLAN,
-        [*stage, write("script.md", SCRIPT), FINISH, Say("Done.")],
-        PASS,
-        [Answer(PROPOSAL)],  # the retro proposes a skill; the harness rejects it
-    ]
+    return arm(FAST.swarm_agents)
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
     ]
     script.cost = 0.1
     said: list[str] = []
-    report = run_eval(running, [TASK], 2, FAST, say=said.append)
+    report = run_eval(running, [TASK], 2, FAST, say=said.append, kind="typed lists")
 
     trials = report["trials"]
     assert [(t["arm"], t["index"], t["status"]) for t in trials] == [
@@ -108,8 +108,8 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
     assert len({t["world_id"] for t in trials}) == 4, "a fresh world per trial"
     assert trials[2]["failed"] == ["script.md is 3 words, not 60 to 200"]
     assert [t["failed"] for t in trials if t is not trials[2]] == [[], [], []]
-    # two worker sessions a baseline; planner, worker and judge twice plus the retro a swarm
-    assert [t["cost_usd"] for t in trials] == pytest.approx([0.2, 0.7, 0.2, 0.7])
+    # planner, each worker and judge a stage, then the retro: one worker against two
+    assert [t["cost_usd"] for t in trials] == pytest.approx([0.7, 0.9, 0.7, 0.9])
     assert all(t["duration_s"] is not None for t in trials)
     assert said[2] == f"{TASK.id} 1 judged: swarm: Fresher ideas."
     assert said[3] == f"{TASK.id} baseline 2: script.md is 3 words, not 60 to 200"
@@ -131,23 +131,25 @@ def test_each_trial_runs_in_a_fresh_world_is_graded_on_outputs_and_lands_in_the_
         "swarm", 2, 1.0, 1.0,
     )  # fmt: skip
     assert (arm["wins"], arm["losses"], arm["ties"], base["wins"]) == (1, 1, 0, 1)
-    assert arm["cost_per_win"] == pytest.approx(1.4) and base["cost_per_win"] == pytest.approx(0.4)
-    assert not report["swarm_wins"], "one win of two decided pairs is not more than half"
-    assert report["verdict"].startswith("The swarm does not win: the blind judge preferred it in")
-    assert report["k"] == 2
+    assert arm["cost_per_win"] == pytest.approx(1.8) and base["cost_per_win"] == pytest.approx(1.4)
+    assert not report["swarm_wins"], "one win of two decided pairs is not more than 60%"
+    assert report["verdict"].startswith("The swarm does not win on typed lists: the blind judge")
+    assert (report["k"], report["kind"], report["p_value"]) == (2, "typed lists", 0.75)
 
-    swarm_run = running.get(f"/api/runs/{trials[1]['run_id']}").json()
-    assert [s["type"] for s in swarm_run["stages"]] == ["swarm", "swarm", "retro"]
-    world = trials[1]["world_id"]
-    (rejected,) = running.get(f"/api/worlds/{world}/proposals").json()
-    assert rejected["status"] == "rejected"
-    assert running.get(f"/api/runs/{trials[0]['run_id']}").json()["baseline"] is True
+    # the arms differ only in their workers a stage (ADR 0020)
+    for t, workers in zip(trials, (["worker-1"], ["worker-1", "worker-2"]) * 2, strict=True):
+        run = running.get(f"/api/runs/{t['run_id']}").json()
+        assert [s["type"] for s in run["stages"]] == ["swarm", "swarm", "retro"]
+        agents = running.get(f"/api/runs/{t['run_id']}/agents").json()
+        assert sorted({a["name"] for a in agents if a["name"].startswith("worker")}) == workers
+        (rejected,) = running.get(f"/api/worlds/{t['world_id']}/proposals").json()
+        assert rejected["status"] == "rejected"
 
     assert running.get("/api/evals").json() == [report]
     (evals,) = [w for w in running.get("/api/worlds").json() if w["name"] == "Evals"]
     (card,) = running.get(f"/api/worlds/{evals['id']}/library").json()
     assert (card["type"], card["name"], card["title"]) == ("eval", "report.md", report["verdict"])
-    assert "| baseline | 2 | 50% | 100% | 0% | $0.20 |" in card["body"]
+    assert "| baseline | 2 | 50% | 100% | 0% | $0.70 |" in card["body"]
     assert "| home-espresso | 1 | swarm | Fresher ideas. |" in card["body"]
 
 
@@ -182,24 +184,36 @@ def test_a_report_with_an_arm_missing_is_refused(running: TestClient) -> None:
     }
     refused = running.post("/api/evals", json={"k": 1, "trials": [trial, trial]})
     assert refused.status_code == 422 and "on swarm has 0 trials" in refused.json()["detail"]
+    swarm = {**trial, "arm": "swarm"}
+    body = {"k": 1, "kind": "poems", "trials": [trial, swarm]}
+    refused = running.post("/api/evals", json=body)
+    assert refused.status_code == 422 and refused.json()["detail"] == "no such task kind poems"
     assert running.get("/api/evals").json() == []
 
 
-def test_the_command_line_talks_to_the_api(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_command_line_runs_one_task_kind_and_talks_to_the_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     seen: dict = {}
 
-    def fake(http, tasks, k, settings, clean, say):  # noqa: ANN001
-        seen.update(base=str(http.base_url), auth=http.auth, tasks=len(tasks), k=k)
+    def fake(http, tasks, k, settings, clean, say, kind):  # noqa: ANN001
+        seen.update(base=str(http.base_url), auth=http.auth, tasks=tasks, k=k, kind=kind)
         seen.update(budget=settings.budget_usd, clean=clean)
         return {"verdict": "The swarm wins: ...", "id": "eval_1"}
 
     monkeypatch.setattr("swarmify_api.eval_harness.run_eval", fake)
     monkeypatch.setenv("SWARMIFY_PASSWORD", "pw")
-    main(["--api", "http://box:8000", "--k", "2", "--tasks", "3", "--budget", "1.5", "--clean"])
+    argv = ["--api", "http://box:8000", "--kind", "typed-lists", "--k", "1", "--tasks", "3"]
+    main([*argv, "--budget", "1.5", "--clean"])
     assert seen["base"] == "http://box:8000" and seen["auth"] is not None
-    assert (seen["tasks"], seen["k"], seen["budget"], seen["clean"]) == (3, 2, 1.5, True)
-    main(["--api", "http://box:8000"])
-    assert seen["budget"] == 5.0, "the default leaves room for the swarm's three research workers"
+    assert (len(seen["tasks"]), seen["k"], seen["budget"], seen["clean"]) == (3, 1, 1.5, True)
+    assert seen["kind"] == "typed lists"
+    assert {t.workflow for t in seen["tasks"]} == {"Scheduled monitor"}
+    main(["--api", "http://box:8000", "--kind", "long-form-writing"])
+    assert (len(seen["tasks"]), seen["k"], seen["budget"]) == (8, 2, 5.0), "the spec's defaults"
+    assert {t.workflow for t in seen["tasks"]} == {"Draft with approval"}
+    with pytest.raises(SystemExit):
+        main(["--api", "http://box:8000"])  # a kind is required: one eval is one kind
 
 
 def test_a_trial_past_its_timeout_is_aborted_and_fails_on_the_timeout(

@@ -1207,19 +1207,22 @@ proposal is decided.
 
 ## Eval: baseline against swarm
 
-The V1 acceptance: does the swarm beat one agent alone? `swarmify-eval` runs 24 fixed tasks (in
-`swarmify_learning.evals`), six for each starter workflow: research briefs (heat pumps in cold
-climates), drafts (a beginner's guide to composting), typed lists from the scheduled monitor (AI
-regulation) and the weekly short (home espresso). Each task names the workflow it exercises and
-runs k times as a baseline and k times as the swarm, following
-Anthropic's agent evaluation guidance. It is separate from the test suite and spends real model
-time, so it runs only when you ask:
+The swarm evidence eval (ADR 0020): for which kinds of task does a swarm earn its cost over one
+agent? `swarmify-eval` runs fixed tasks (in `swarmify_learning.evals`), each naming the starter
+workflow it exercises: research briefs (heat pumps in cold climates), drafts (a beginner's guide
+to composting), typed lists from the scheduled monitor (AI regulation) and the weekly short (home
+espresso). The first three are the task kinds, 8 tasks each; one eval runs one kind, each task k
+times on the baseline arm (one agent a swarm stage) and k times on the swarm arm (3 agents a
+stage), following Anthropic's agent evaluation guidance. It is separate from the test suite and
+spends real model time, so it runs only when you ask:
 
 ```sh
-mise run dev:api                       # the API with the real Agent SDK runtime, in one shell
-uv run swarmify-eval --k 3             # every task, 3 trials an arm; prints the verdict
-uv run swarmify-eval --tasks 2 --k 1   # a smoke run
+mise run dev:api                                      # the API with the real model, in one shell
+uv run swarmify-eval --kind research-briefs           # 8 tasks, 2 trials an arm; prints the verdict
+uv run swarmify-eval --kind typed-lists --tasks 2 --k 1   # a smoke run
 ```
+
+`--kind` is `research-briefs`, `long-form-writing` or `typed-lists`.
 
 Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, basic auth from
 `SWARMIFY_PASSWORD`), `--budget` (USD a trial, default 5, since the swarm's research stage alone
@@ -1227,7 +1230,8 @@ spends about 3), `--timeout` (seconds a trial, default 2700) and `--clean` (dele
 worlds afterwards).
 
 - Fresh world per trial: each trial creates its own world (`Eval <task> <arm> <n>`), saves the
-  eval workflow there and starts one run, `{"baseline": true}` for the baseline arm. The eval
+  eval workflow there and starts one run, `{"agents": 1}` for the baseline arm and `{"agents": 3}`
+  for the swarm, so the arms differ only in their workers a stage. The eval
   workflow is the task's starter on the task's topic with no gate, schedule, render or publish,
   so a trial never posts anything and never waits on you.
 - Outputs are graded, not the path, and each must name the task's topic: one of its topic words
@@ -1248,14 +1252,16 @@ and draft, every finding, or the ideas and script) as A and B, arm
 - The report gives, per arm, first-try acceptance, pass at k (any of a task's k trials passed)
   and pass to the k (all k passed), averaged over tasks, the mean estimated cost a trial, the mean
   time to an accepted output (the Retro stage left out), and the judge's wins, losses and ties
-  with the cost a win (the arm's whole cost over its wins). The swarm beats the baseline when the
-  judge prefers it in more than half of the decided pairs (ties left out); the verdict sentence
-  says so with the wins, the cost a win, acceptance, time and cost a trial.
-- `POST /api/evals` (`{"k", "trials", "judgements"}`) summarizes and stores the report as `report.md` (type
+  with the cost a win (the arm's whole cost over its wins). A kind is a swarm win only past a bar
+  fixed in advance: the judge prefers the swarm in more than 60% of the decided pairs (ties left
+  out), that share is significant (one-sided sign test, p under 0.05), and the swarm's cost a win
+  is at most 3 times the baseline's. The verdict sentence says so with the wins, p, the cost a
+  win, acceptance, time and cost a trial.
+- `POST /api/evals` (`{"k", "kind", "trials", "judgements"}`) summarizes and stores the report as `report.md` (type
   `eval`, the whole report in its frontmatter, tables in its body) in the `Evals` world, made on
   the first report, so it shows in that world's Library and graph. `GET /api/evals` lists the
   reports newest first; the web skin shows them at `/evals`, linked from the worlds page, with
-  the judge's picks and reasons, and each trial linking to its run.
+  each kind's newest verdict first, then every report with the judge's picks and reasons, and each trial linking to its run.
 
 Tests drive the harness against the real app with the scripted CLI behind the Agent SDK, so the
 suite checks the whole loop with no model.

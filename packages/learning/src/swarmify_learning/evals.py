@@ -9,8 +9,11 @@ the starter workflow it exercises; each workflow brings its own run, grader and 
 judge.
 
 Every check passing on both arms says nothing about which is better, so a blind pairwise judge
-compares each task's two outputs with the arm labels removed and the order shuffled per task:
-the swarm wins when it wins more than half of the decided pairs (ties left out).
+compares each task's two outputs with the arm labels removed and the order shuffled per task.
+The baseline arm is one agent a stage, the swarm arm several (ADR 0020). The eval runs per task
+kind, and a kind is a swarm win only by the bar fixed in advance (`swarm_wins`): more than 60% of
+the decided pairs (ties left out), significant on a one-sided sign test, at most 3 times the
+baseline's cost a win.
 
 This module is the pure part: the tasks, the graders, the judge's prompt and the report.
 `swarmify-eval` (the api app) runs the trials over HTTP and stores the report as an artifact in
@@ -73,6 +76,8 @@ TASKS = [
         ("e-bike battery safety", "battery", "bike", "lithium"),
         ("microplastics in drinking water", "microplastic", "plastic", "water"),
         ("phishing at small businesses", "phishing", "security", "small business"),
+        ("home battery storage", "battery", "storage", "solar"),
+        ("screen time and sleep", "screen", "sleep"),
     ),
     *_tasks(
         "Draft with approval",
@@ -82,6 +87,8 @@ TASKS = [
         ("the case for public libraries", "library", "librarian"),
         ("starting a household budget", "budget", "money", "spend"),
         ("writing clear documentation", "documentation", "docs", "readme"),
+        ("the value of a daily walk", "walk", "walking", "step"),
+        ("learning to cook at home", "cook", "kitchen", "recipe", "meal"),
     ),
     *_tasks(
         "Scheduled monitor",
@@ -91,8 +98,17 @@ TASKS = [
         ("space launches", "launch", "rocket", "orbit"),
         ("remote work policies", "remote", "office", "hybrid"),
         ("open source security advisories", "vulnerability", "security", "cve", "advisory"),
+        ("web browser releases", "browser", "chrome", "firefox", "safari", "release"),
+        ("the housing market", "housing", "home", "mortgage", "rent"),
     ),
 ]
+KINDS = {
+    "research briefs": "Research brief",
+    "long-form writing": "Draft with approval",
+    "typed lists": "Scheduled monitor",
+}
+"""The task kinds the swarm evidence eval decides per (ADR 0020), each to the workflow its
+tasks run. The weekly short is not one: the V1 acceptance eval already measured it."""
 
 
 _NUMBERED = re.compile(r"^\s*\d+[.)]\s+\S", re.MULTILINE)
@@ -425,6 +441,30 @@ class EvalReport:
     verdict: str
     trials: list[Trial]
     judgements: list[Judgement] = field(default_factory=list)
+    kind: str | None = None
+    """The task kind (a key of KINDS) the eval ran; None for a mixed or older report."""
+    p_value: float | None = None
+    """The sign test's one-sided p of the swarm's share of the decided pairs."""
+
+
+SHARE, ALPHA, COST_RATIO = 0.6, 0.05, 3
+"""The bar a kind must clear to be a swarm win, fixed before any eval ran (ADR 0020)."""
+
+
+def sign_test(wins: int, decided: int) -> float:
+    """One-sided p of `wins` or more of `decided` pairs if either arm were as likely to win."""
+    return sum(comb(decided, i) for i in range(wins, decided + 1)) / 2**decided
+
+
+def swarm_wins(swarm: ArmSummary, baseline: ArmSummary) -> bool:
+    """More than SHARE of the decided pairs, sign test p under ALPHA, and a cost a win at most
+    COST_RATIO times the baseline's (any cost passes when the baseline won nothing)."""
+    decided = swarm.wins + swarm.losses
+    if swarm.cost_per_win is None or swarm.wins <= SHARE * decided:
+        return False
+    if sign_test(swarm.wins, decided) >= ALPHA:
+        return False
+    return baseline.cost_per_win is None or swarm.cost_per_win <= COST_RATIO * baseline.cost_per_win
 
 
 def _arm(arm: str, trials: list[Trial], k: int, judged: list[Judgement]) -> ArmSummary:
@@ -477,6 +517,7 @@ def summarize(
     id: str,
     created_at: str,
     judgements: list[Judgement] | None = None,
+    kind: str | None = None,
 ) -> EvalReport:
     """Raises ValueError unless both arms ran every task at least k times."""
     judged = judgements or []
@@ -490,23 +531,28 @@ def summarize(
             raise ValueError(f"task {min(missing)} on {arm} has 0 trials, fewer than k={k}")
     base, swarm = (_arm(a, [t for t in trials if t.arm == a], k, judged) for a in ARMS)
     decided = swarm.wins + swarm.losses
-    wins = swarm.wins * 2 > decided
+    wins = swarm_wins(swarm, base)
+    p = sign_test(swarm.wins, decided)
     verdict = (
-        f"The swarm {'wins' if wins else 'does not win'}: the blind judge preferred it in"
-        f" {swarm.wins} of {decided} decided pairs ({swarm.ties} tied), at"
-        f" {_per_win(swarm.cost_per_win)} against {_per_win(base.cost_per_win)} for the baseline."
+        f"The swarm {'wins' if wins else 'does not win'}{f' on {kind}' if kind else ''}: the blind"
+        f" judge preferred it in {swarm.wins} of {decided} decided pairs ({swarm.ties} tied,"
+        f" p = {p:.2f}), at {_per_win(swarm.cost_per_win)} against {_per_win(base.cost_per_win)}"
+        " for the baseline."
         f" It accepted {_pct(swarm.acceptance)} of trials first try against"
         f" {_pct(base.acceptance)}, in {took(swarm.duration_s)} an accepted trial against"
         f" {took(base.duration_s)}, at ${swarm.cost_usd:.2f} a trial against"
         f" ${base.cost_usd:.2f} (estimated)."
     )
-    return EvalReport(id, created_at, k, len(tasks), [base, swarm], wins, verdict, trials, judged)
+    return EvalReport(
+        id, created_at, k, len(tasks), [base, swarm], wins, verdict, trials, judged, kind, p
+    )
 
 
 def markdown(report: EvalReport) -> str:
     k = report.k
     lines = [
-        f"# Eval: baseline against swarm, {report.tasks} tasks, k={k}",
+        f"# Eval{f' of {report.kind}' if report.kind else ''}: baseline against swarm,"
+        f" {report.tasks} tasks, k={k}",
         "",
         report.verdict,
         "",
