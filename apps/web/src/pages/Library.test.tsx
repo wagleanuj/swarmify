@@ -281,7 +281,7 @@ test("a skill the API refuses shows why", async () => {
   await expect.element(screen.getByRole("alert")).toHaveTextContent("the SKILL.md frontmatter needs a description");
 });
 
-test("the library points to the Assets page for voices and files", async () => {
+test("the library points to the Assets page for files", async () => {
   fakeFetch({
     "GET /api/worlds/world_1/workflows": () => Response.json([short]),
     "GET /api/worlds/world_1/library": () => Response.json([]),

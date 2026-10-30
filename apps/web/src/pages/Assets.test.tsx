@@ -3,34 +3,27 @@ import { page } from "vitest/browser";
 
 import "../index.css";
 
-import type { components } from "../api/schema";
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
-import { deleteVoiceAsk, plainName, toWav } from "./Assets";
-
-type Voice = components["schemas"]["Voice"];
+import { plainName, toWav } from "./Assets";
 
 const world = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
-const voice = (name: string, over: Partial<Voice> = {}): Voice => ({
-  name,
-  description: `${name} voice`,
-  tags: ["warm"],
-  engine: "chatterbox",
-  consent: `synthetic: Kokoro preset ${name}, Apache 2.0`,
-  preset: name,
-  clip: `assets/voices/${name}.wav`,
-  seconds: 9.1,
-  used_by: [],
-  ...over,
-});
-const heart = voice("af_heart", { used_by: [{ id: "wf_1", name: "Bedtime" }, { id: "wf_2", name: "Weekly short" }] });
-const mine = voice("narrator", { consent: "My own recording.", preset: null, seconds: 6.4, tags: ["calm", "bedtime"], description: "Warm and calm, for bedtime facts" });
-const fable = voice("bm_fable", { tags: ["british", "narrator"] });
+/** The speech package's Owned Folder, as its Manifest declares it. */
+const voices = {
+  path: "assets/voices/",
+  folder: "voices",
+  label: "Voices",
+  about: "Each clip is a voice your speech steps can clone, named by its file.",
+  accept: ["audio/wav"],
+  confirm: "This is my voice, or I have the speaker's permission",
+  package: "Speech",
+};
 const files = [
   { path: "assets/bed-calm.mp3", name: "bed-calm.mp3", bytes: 2_400_000 },
   { path: "assets/logo.png", name: "logo.png", bytes: 12_000 },
   { path: "assets/fonts/Inter.ttf", name: "Inter.ttf", bytes: 310_000 },
   { path: "assets/voices/af_heart.wav", name: "af_heart.wav", bytes: 400_000 },
+  { path: "assets/voices/narrator.wav", name: "narrator.wav", bytes: 300_000 },
   { path: "assets/voices/voices.json", name: "voices.json", bytes: 900 },
 ];
 
@@ -59,7 +52,7 @@ function routes(over: Record<string, (req: Request) => Response | Promise<Respon
   return fakeFetch({
     "GET /api/worlds": () => Response.json([world]),
     "GET /api/gates": () => Response.json([]),
-    "GET /api/worlds/world_1/voices": () => Response.json({ voices: [heart, mine, fable], warnings: [] }),
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([voices]),
     "GET /api/worlds/world_1/assets": () => Response.json(files),
     ...over,
   });
@@ -76,22 +69,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("voices are playable cards, the operator's own first, before any form; files are rows with previews", async () => {
+test("a package's Owned Folder is a group of playable cards before its Add; other files are rows with previews", async () => {
   routes();
   const { screen } = await mountAt("/worlds/world_1/assets");
   await expect.element(screen.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
-  await expect.element(screen.getByText("Voices your speech steps can use, and files your builds can read.")).toBeVisible();
-  await expect.element(screen.getByRole("listitem", { name: "narrator" })).toBeVisible();
-  const cards = screen.getByRole("listitem").elements().filter((li) => li.classList.contains("voice-card"));
-  expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual(["narrator", "af_heart", "bm_fable"]);
+  await expect.element(screen.getByText("Folders your connectors own, and files your builds can read.")).toBeVisible();
+  const group = screen.getByRole("region", { name: "Voices" });
+  await expect.element(group.getByRole("listitem", { name: "narrator.wav" })).toBeVisible();
+  await expect.element(group).toMatchTextContent(/3 files/);
+  const cards = group.getByRole("listitem").elements();
+  expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual(["af_heart.wav", "narrator.wav", "voices.json"]);
 
-  const narrator = screen.getByRole("listitem", { name: "narrator" });
-  await expect.element(narrator).toMatchTextContent(/6\.4 s clip · chatterbox/);
-  await expect.element(narrator).toMatchTextContent(/Not used by a workflow yet/);
-  await expect.element(screen.getByRole("listitem", { name: "af_heart" })).toMatchTextContent(/Used by Bedtime and Weekly short/);
+  const narrator = group.getByRole("listitem", { name: "narrator.wav" });
+  await expect.element(narrator).toMatchTextContent(/narrator\s*WAV · 300 KB/);
+  // a file the browser cannot play opens instead
+  await expect.element(group.getByRole("listitem", { name: "voices.json" }).getByRole("link", { name: "Open" })).toHaveAttribute("href", "/api/worlds/world_1/files/assets/voices/voices.json");
   const play = narrator.getByRole("button", { name: "Play narrator" });
-  // Play comes before Add a voice in the page
-  const add = screen.getByRole("button", { name: "Add a voice" });
+  const add = screen.getByRole("button", { name: "Add to Voices" });
   expect(play.element().compareDocumentPosition(add.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await play.click();
   await expect.element(narrator.getByRole("button", { name: "Pause narrator" })).toHaveAttribute("aria-pressed", "true");
@@ -107,88 +101,63 @@ test("voices are playable cards, the operator's own first, before any form; file
   await expect.element(logo.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/api/worlds/world_1/files/assets/logo.png");
 });
 
-test("deleting a voice confirms naming the workflows that lose it", async () => {
-  const deleted: string[] = [];
-  routes({
-    "DELETE /api/worlds/world_1/voices/af_heart": (req) => {
-      deleted.push(new URL(req.url).pathname);
-      return new Response(null, { status: 204 });
-    },
+test("a file in an Owned Folder is renamed in place and deleted after a confirm naming its package", async () => {
+  const calls = routes({
+    "PATCH /api/worlds/world_1/assets/assets%2Fvoices%2Fnarrator.wav": () => Response.json({ path: "assets/voices/calm.wav", name: "calm.wav", bytes: 300_000 }),
+    "DELETE /api/worlds/world_1/assets/assets%2Fvoices%2Faf_heart.wav": () => new Response(null, { status: 204 }),
   });
   const asked: string[] = [];
   vi.spyOn(window, "confirm").mockImplementation((m) => (asked.push(m ?? ""), asked.length > 1));
   const { screen } = await mountAt("/worlds/world_1/assets");
-  const card = screen.getByRole("listitem", { name: "af_heart" });
+  const narrator = screen.getByRole("listitem", { name: "narrator.wav" });
+  await narrator.getByRole("button", { name: "narrator.wav actions" }).click();
+  await narrator.getByRole("menuitem", { name: /^Rename/ }).click();
+  await narrator.getByLabelText("New name for narrator.wav").fill("calm.wav");
+  await narrator.getByRole("button", { name: "Rename" }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Renamed narrator.wav to calm.wav.");
+
+  const card = screen.getByRole("listitem", { name: "af_heart.wav" });
   for (let i = 0; i < 2; i++) {
-    await card.getByRole("button", { name: "af_heart actions" }).click();
+    await card.getByRole("button", { name: "af_heart.wav actions" }).click();
     await card.getByRole("menuitem", { name: /^Delete/ }).click();
   }
-  expect(asked[0]).toBe(
-    "Delete af_heart? Bedtime and Weekly short use it, and their speech step will no longer find this voice. Its clip and catalog entry go.",
-  );
-  expect(deleted).toEqual(["/api/worlds/world_1/voices/af_heart"]);
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted af_heart.");
-  expect(deleteVoiceAsk({ name: "x", used_by: [] })).toBe("Delete x? Its clip and catalog entry go. No workflow uses it.");
+  expect(asked[0]).toBe("Delete af_heart.wav? Speech will no longer find it. This cannot be undone.");
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted af_heart.wav.");
+  expect(calls.filter((c) => c.startsWith("DELETE"))).toEqual(["DELETE /api/worlds/world_1/assets/assets%2Fvoices%2Faf_heart.wav"]);
 });
 
-test("a voice's description and tags are edited in its card", async () => {
-  let body: unknown;
+test("Add to Voices uploads a file converted to WAV into the folder, after the package's confirm", async () => {
+  let put: Request | undefined;
   routes({
-    "PATCH /api/worlds/world_1/voices/narrator": async (req) => {
-      body = await req.json();
-      return Response.json(mine);
+    "PUT /api/worlds/world_1/assets/me.wav": (req) => {
+      put = req;
+      return Response.json({ path: "assets/voices/me.wav", name: "me.wav", bytes: 1 }, { status: 201 });
     },
   });
   const { screen } = await mountAt("/worlds/world_1/assets");
-  const card = screen.getByRole("listitem", { name: "narrator" });
-  await card.getByRole("button", { name: "narrator actions" }).click();
-  await card.getByRole("menuitem", { name: /^Edit/ }).click();
-  await card.getByLabelText("Description").fill("Softer");
-  await card.getByLabelText("Tags").fill("soft, bedtime");
-  await card.getByRole("button", { name: "Save" }).click();
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Saved narrator.");
-  expect(body).toEqual({ description: "Softer", tags: ["soft", "bedtime"] });
-});
-
-test("Add a voice uploads a clip converted to WAV with its entry and consent", async () => {
-  let form: FormData | undefined;
-  routes({
-    "POST /api/worlds/world_1/voices": async (req) => {
-      form = await req.formData();
-      return Response.json(mine, { status: 201 });
-    },
-  });
-  const { screen } = await mountAt("/worlds/world_1/assets");
-  await screen.getByRole("button", { name: "Add a voice" }).click();
-  const sheet = screen.getByRole("dialog", { name: "Add a voice" });
-  const save = sheet.getByRole("button", { name: "Add voice" });
+  await screen.getByRole("button", { name: "Add to Voices" }).click();
+  const sheet = screen.getByRole("dialog", { name: "Add to Voices" });
+  await expect.element(sheet.getByText(voices.about)).toBeVisible();
+  const save = sheet.getByRole("button", { name: "Add", exact: true });
   await expect.element(save).toBeDisabled();
 
-  await sheet.getByLabelText("Clip file").upload(new File([wav(3)], "Short take.wav"));
-  await expect.element(sheet.getByRole("alert")).toMatchTextContent(/^This clip is 3\.0 s\. Chatterbox clones from 5 to 10 s of speech/);
-  await sheet.getByLabelText("Clip file").upload(new File([wav(6.5)], "My Voice.wav"));
+  await sheet.getByLabelText("File").upload(new File([wav(6.5)], "My Voice.wav"));
   await expect.element(sheet.getByText("6.5 s")).toBeVisible();
-  await expect.element(sheet.getByLabelText("Name")).toHaveValue("Short-take");
-  await sheet.getByLabelText("Name").fill("af_heart");
-  await expect.element(sheet).toMatchTextContent(/A voice is already named af_heart\./);
+  await expect.element(sheet.getByLabelText("Name")).toHaveValue("My-Voice");
+  await sheet.getByLabelText("Name").fill("narrator");
+  await expect.element(sheet).toMatchTextContent(/narrator is already in Voices\./);
   await sheet.getByLabelText("Name").fill("me");
-  await sheet.getByLabelText("Description").fill("My own voice");
-  await sheet.getByLabelText("Tags").fill("warm, me");
-  await expect.element(save).toBeDisabled(); // consent first
-  await sheet.getByLabelText("This is my voice, or I have the speaker's permission").click();
+  await expect.element(save).toBeDisabled(); // the confirm first
+  await sheet.getByLabelText(voices.confirm).click();
   await save.click();
-  await expect.element(screen.getByRole("status")).toMatchTextContent(/^Added me\./);
-  expect(form?.get("name")).toBe("me");
-  expect(form?.get("tags")).toBe("warm, me");
-  expect(form?.get("consent")).toMatch(/^This is my voice, or I have the speaker's permission \(uploaded in Swarmify, \d{4}-\d{2}-\d{2}\)$/);
-  const clip = form?.get("clip") as File;
-  expect(clip.name).toBe("me.wav");
-  const head = new Uint8Array(await clip.arrayBuffer()).slice(0, 4);
-  expect(String.fromCharCode(...head)).toBe("RIFF");
-  expect((await toWav(clip)).seconds).toBeCloseTo(6.5, 1);
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Added me.wav to Voices.");
+  expect(new URL(put?.url ?? "").search).toBe("?folder=voices");
+  const body = await put!.blob();
+  expect(String.fromCharCode(...new Uint8Array(await body.arrayBuffer()).slice(0, 4))).toBe("RIFF");
+  expect((await toWav(body)).seconds).toBeCloseTo(6.5, 1);
 });
 
-test("Record uses the microphone through MediaRecorder and keeps the take as the clip", async () => {
+test("Record uses the microphone through MediaRecorder and keeps the take", async () => {
   const tracks = [{ stop: vi.fn() }];
   vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => tracks }) } });
   class FakeRecorder {
@@ -208,10 +177,9 @@ test("Record uses the microphone through MediaRecorder and keeps the take as the
   vi.stubGlobal("MediaRecorder", FakeRecorder);
   routes();
   const { screen } = await mountAt("/worlds/world_1/assets");
-  await screen.getByRole("button", { name: "Add a voice" }).click();
-  const sheet = screen.getByRole("dialog", { name: "Add a voice" });
+  await screen.getByRole("button", { name: "Add to Voices" }).click();
+  const sheet = screen.getByRole("dialog", { name: "Add to Voices" });
   await sheet.getByRole("button", { name: "Record" }).click();
-  await expect.element(sheet.getByText(/^On a quiet morning/)).toBeVisible();
   await sheet.getByRole("button", { name: "Start recording" }).click();
   await sheet.getByRole("button", { name: /^Stop/ }).click();
   await expect.element(sheet.getByText("7.0 s")).toBeVisible();
@@ -240,44 +208,46 @@ test("files are renamed and deleted with a confirm; an empty folder says what go
   expect(calls).toContain("DELETE /api/worlds/world_1/assets/assets%2Fbed-calm.mp3");
 });
 
-test("empty voices and files name what goes there", async () => {
-  routes({
-    "GET /api/worlds/world_1/voices": () => Response.json({ voices: [], warnings: ["voice 1 in voices.json is ignored: x has no consent"] }),
-    "GET /api/worlds/world_1/assets": () => Response.json([]),
-  });
+test("an empty Owned Folder and empty files say what goes there", async () => {
+  routes({ "GET /api/worlds/world_1/assets": () => Response.json([]) });
   const { screen } = await mountAt("/worlds/world_1/assets");
-  await expect.element(screen.getByText(/No voices yet\. A voice is a 5 to 10 s clip/)).toBeVisible();
-  await expect.element(screen.getByText("uv run --project connectors/speech python connectors/speech/voices.py world_1")).toBeVisible();
-  await expect.element(screen.getByText("voice 1 in voices.json is ignored: x has no consent")).toBeVisible();
+  await expect.element(screen.getByText(`Nothing in Voices yet. ${voices.about}`)).toBeVisible();
   await expect.element(screen.getByText("Put images, music or fonts here for your builds to use.")).toBeVisible();
   await expect.element(screen.getByLabelText("Upload files")).toBeInTheDocument();
 });
 
-test("on a phone the sections stack, nothing scrolls sideways, and Add a voice is pinned above the tab bar", async () => {
+test("a world with no Owned Folders shows only its files", async () => {
+  routes({ "GET /api/worlds/world_1/owned_folders": () => Response.json([]) });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  await expect.element(screen.getByRole("listitem", { name: "voices/voices.json" })).toBeVisible();
+  expect(screen.getByRole("button", { name: /^Add to/ }).elements()).toHaveLength(0);
+});
+
+test("on a phone the sections stack, nothing scrolls sideways, and Add to Voices is pinned above the tab bar", async () => {
   await page.viewport(390, 844);
   routes();
   const { screen } = await mountAt("/worlds/world_1/assets");
-  const narrator = screen.getByRole("listitem", { name: "narrator" });
+  const narrator = screen.getByRole("listitem", { name: "narrator.wav" });
   await expect.element(narrator.getByRole("button", { name: "Play narrator" })).toBeVisible();
   await expect.element(screen.getByRole("listitem", { name: "fonts/Inter.ttf" })).toBeInTheDocument();
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
-  const cards = [heart, mine, fable].map((v) => screen.getByRole("listitem", { name: v.name }).element().getBoundingClientRect());
+  const cards = ["af_heart.wav", "narrator.wav", "voices.json"].map((name) => screen.getByRole("listitem", { name }).element().getBoundingClientRect());
   expect(new Set(cards.map((r) => r.left)).size).toBe(1); // one column
 
-  const add = screen.getByRole("button", { name: "Add a voice" });
+  const add = screen.getByRole("button", { name: "Add to Voices" });
   const tabbar = screen.getByRole("navigation", { name: "Tabs" }).element().getBoundingClientRect();
   const bar = add.element().parentElement?.getBoundingClientRect();
   expect(Math.round(bar?.bottom ?? 0)).toBe(Math.round(tabbar.top));
 
   // A card's menu opens inside the screen
-  await screen.getByRole("listitem", { name: "af_heart" }).getByRole("button", { name: "af_heart actions" }).click();
-  const menu = screen.getByRole("menu", { name: "af_heart actions" }).element().getBoundingClientRect();
+  await screen.getByRole("listitem", { name: "af_heart.wav" }).getByRole("button", { name: "af_heart.wav actions" }).click();
+  const menu = screen.getByRole("menu", { name: "af_heart.wav actions" }).element().getBoundingClientRect();
   expect(menu.left).toBeGreaterThanOrEqual(0);
   expect(menu.right).toBeLessThanOrEqual(390);
 
   await add.click();
-  const sheet = screen.getByRole("dialog", { name: "Add a voice" });
-  await expect.element(sheet.getByRole("button", { name: "Upload clip" })).toBeVisible();
+  const sheet = screen.getByRole("dialog", { name: "Add to Voices" });
+  await expect.element(sheet.getByRole("button", { name: "Upload" })).toBeVisible();
   expect(sheet.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(tabbar.top + 1);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });

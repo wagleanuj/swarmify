@@ -166,7 +166,9 @@ its Setup, a JSON schema of its params, inputs, outputs, the `script` type, its 
 ## Voices
 
 A voice is chosen per piece of content, and only the speech connector knows what a voice is. A
-world's catalog is `assets/voices/voices.json`, a list of entries, with the clips beside it:
+world's voices are `assets/voices/`, the folder its Manifest declares as its Owned Folder
+(`[[owned_folders]]`): each clip there is a voice, and `voices.json`, a list of entries, describes
+them:
 
 ```json
 [
@@ -184,9 +186,14 @@ world's catalog is `assets/voices/voices.json`, a list of entries, with the clip
   (Chatterbox clones from 5 to 10 s of clear speech) and `preset` an engine's own voice name
   (Kokoro's `af_heart`); an entry needs one of them, and may have both.
 - `consent` is required: a short statement of the right to use the voice (your own recording, or
-  a license that allows synthesis). An entry without it, or with a clip that is not in the
-  folder, a name used twice or a field of the wrong kind, is ignored, and a warning names it in
-  the speech stage's `timings.json`, its call's message and the run page.
+  a license that allows synthesis). An entry without it, or with a name used twice or a field of
+  the wrong kind, is ignored, and a warning names it in the speech stage's `timings.json`, its
+  call's message and the run page. An entry whose clip is no longer in the folder (deleted on
+  the Assets page) is dropped without a warning.
+- Every other `<name>.wav` in the folder, as the Assets page uploads them, is a voice of that
+  name (letters, digits, `_` or `-`), described only as "the voice in <name>.wav", for
+  Chatterbox, its consent the confirm the upload asked for. One that is not 5 to 10 s of 16-bit
+  WAV, or whose name an entry already has, is left out with a warning.
 - With a catalog, the connector answers its `script` type for the world with an optional
   top-level `voice` whose enum is the catalog's names, described by each one's description and
   tags (`speech_types`), so the judge of the stage writing the script picks one that fits. It is
@@ -212,8 +219,11 @@ world's catalog is `assets/voices/voices.json`, a list of entries, with the clip
   Chatterbox clones the clip and Kokoro speaks the preset itself and a fallback keeps the voice,
   with consent `synthetic: Kokoro preset <name>, Apache 2.0`. Entries of other names stay. It
   reads `SWARMIFY_DATA_DIR` like the app.
-- On the world's Assets page every voice is a card you can play, add, edit and delete (Swarmify's
-  README, Voices on the Assets page); it writes voices.json as `voices.py` does.
+- On the world's Assets page the folder is the Voices group (Swarmify's README, Owned Folders on
+  the Assets page): every file a card you can play, rename and delete, and "Add to Voices"
+  uploads or records a clip, saved as `<name>.wav`, after you confirm it is your voice or you
+  have the speaker's permission. Renaming a clip renames the voice; a described one keeps its
+  description only if voices.json is edited to match. Swarmify never writes voices.json.
 
 ## Tests
 

@@ -7,9 +7,10 @@ run is redone on the next, so one video never mixes two voices. Word times come 
 when the engine offers Kokoro-FastAPI's `/dev/captioned_speech`, else from the engine's
 `/v1/align`; either way they are matched back to the script, whose spelling wins.
 
-A world may keep a voice catalog in its assets, `voices/voices.json` (`catalog`): the connector
-answers its `script` type for that world with a `voice` to choose from (`speech_types`), and
-voices each script in the voice its stage or the script names, as each engine can (`resolve`).
+A world's voices are its `voices/` Owned Folder, clips voices.json describes (`catalog`): the
+connector answers its `script` type for that world with a `voice` to choose from
+(`speech_types`), and voices each script in the voice its stage or the script names, as each
+engine can (`resolve`).
 Only this connector gives `voices/` a meaning; to the core the schema is opaque.
 
 It is a Connector Package (ADR 0019): `swarmify-connector.toml` beside it is everything Swarmify
@@ -66,30 +67,33 @@ def endpoints() -> list[str]:
 
 
 VOICES = "voices"
-"""The folder of a world's assets holding its voice catalog, voices.json, and its clips."""
+"""The world's Owned Folder (its Manifest's `[[owned_folders]]`) holding its voices: the clips,
+and voices.json describing them."""
+CLIP_SECONDS = (5.0, 10.0)
+"""The length of a reference clip Chatterbox clones from (README, Voices)."""
+UPLOADED = "uploaded to the world's Voices, whose upload asks for the speaker's permission"
+"""The consent of a clip voices.json does not describe."""
 
 
 def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
-    """The world's voices from `<assets>/voices/voices.json`, a list of `{name, description,
-    tags, engine, clip?, preset?, consent}` (`clip` made a path), and a warning for each entry
-    ignored: one without consent, without a clip in that folder or a preset, or named twice."""
+    """The world's voices from its `<assets>/voices/` folder, a list of `{name, description,
+    tags, engine, clip?, preset?, consent}` (`clip` made a path), and a warning for each one
+    ignored. voices.json's entries come first; one without consent, without a clip in the
+    folder or a preset, or named twice is ignored, and one whose clip was deleted is dropped
+    quietly. Then each other `<name>.wav` in the folder is a voice of that name, as the Assets
+    page uploads them, unless it is not 5 to 10 s of 16-bit WAV."""
     folder = Path(assets_path) / VOICES
-    file = folder / "voices.json"
-    if not assets_path or not file.is_file():
+    if not assets_path or not folder.is_dir():
         return [], []
-    try:
-        raw = json.loads(file.read_text())
-    except ValueError as exc:
-        return [], [f"voices.json is not JSON, so no voice of it is used: {exc}"]
-    if not isinstance(raw, list):
-        return [], ["voices.json is not a list of voices, so none of it is used"]
+    raw, warnings = _entries(folder / "voices.json")
     voices: list[dict[str, Any]] = []
-    warnings = []
     for n, entry in enumerate(raw, 1):
+        clip = entry.get("clip") if isinstance(entry, dict) else None
+        if isinstance(clip, str) and Path(clip).name == clip and not (folder / clip).exists():
+            continue  # its clip was deleted on the Assets page, and the voice with it
         if problem := _unusable(entry, folder, voices):
             warnings.append(f"voice {n} in voices.json is ignored: {problem}")
             continue
-        clip = entry.get("clip")
         voices.append(
             {
                 **{k: entry[k].strip() for k in ("name", "description", "engine", "consent")},
@@ -98,7 +102,40 @@ def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
                 "preset": entry.get("preset") or None,
             }
         )
+    described = {e.get("clip") for e in raw if isinstance(e, dict)}
+    for file in sorted(folder.glob("*.wav")):
+        name = file.stem
+        if file.name in described or not _ID.match(name):
+            continue
+        if any(v["name"] == name for v in voices):
+            warnings.append(f"{file.name} is not a voice: voices.json already names {name}")
+            continue
+        try:
+            samples, rate = decode(file.read_bytes())
+        except ValueError as exc:
+            warnings.append(f"{file.name} is not a voice: {exc}")
+            continue
+        low, high = CLIP_SECONDS
+        if not low <= (seconds := len(samples) / rate) <= high:
+            long = f"it is {seconds:.1f} s, not {low:g}-{high:g}"
+            warnings.append(f"{file.name} is not a voice: {long}")
+            continue
+        voices.append({"name": name, "description": f"the voice in {file.name}", "tags": [],
+                       "engine": "chatterbox", "consent": UPLOADED, "clip": str(file),
+                       "preset": None})  # fmt: skip
     return voices, warnings
+
+
+def _entries(file: Path) -> tuple[list[Any], list[str]]:
+    if not file.is_file():
+        return [], []
+    try:
+        raw = json.loads(file.read_text())
+    except ValueError as exc:
+        return [], [f"voices.json is not JSON, so no voice of it is used: {exc}"]
+    if not isinstance(raw, list):
+        return [], ["voices.json is not a list of voices, so none of it is used"]
+    return raw, []
 
 
 def _unusable(entry: Any, folder: Path, kept: list[dict[str, Any]]) -> str:

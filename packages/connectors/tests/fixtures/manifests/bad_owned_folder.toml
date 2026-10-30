@@ -1,4 +1,4 @@
-# error: owned_folders[0]: 
+# error: owned_folders[0].folder: 
 name = "bad"
 version = "1.0.0"
 label = "Bad"
@@ -7,4 +7,7 @@ kind = "stage"
 stage_types = ["connector"]
 runtime = "uv"
 command = ["uv", "run", "server.py"]
-owned_folders = ["../voices"]
+
+[[owned_folders]]
+folder = "../voices"
+label = "Voices"

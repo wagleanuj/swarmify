@@ -46,7 +46,6 @@ from swarmify_api import (
     runs,
     tasks,
     upkeep,
-    voices,
     workflows,
     worlds,
 )
@@ -801,8 +800,14 @@ def create_app(
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))
-    app.include_router(library.router(memory, world_svc, runner.list_all))
-    app.include_router(voices.router(memory, world_svc, workflow_svc))
+    app.include_router(
+        library.router(
+            memory,
+            world_svc,
+            runner.list_all,
+            lambda w: library.owned_folders(registry.list_all(w)),
+        )
+    )
     app.include_router(notifications.router(channels, world_svc))
     app.include_router(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)

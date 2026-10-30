@@ -15,7 +15,6 @@ command = ["uv", "run", "server.py"]
 install = ["python3", "-c", "open('installed.txt', 'w').write('ok')"]
 health = "echo_health"
 
-owned_folders = ["echoes"]
 capabilities = ["check"]
 
 [params]
@@ -88,3 +87,10 @@ health = "/health"
 network = ["api.example.org"]
 services = ["echo_service"]
 folders = ["~/echo-cache"]
+
+[[owned_folders]]              # a folder of each world's assets it owns
+folder = "echoes"
+label = "Echoes"
+about = "Lines it says back, one clip each."
+accept = ["audio/wav"]
+confirm = "I may share these lines"

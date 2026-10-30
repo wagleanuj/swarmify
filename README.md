@@ -450,7 +450,6 @@ command = ["uv", "run", "server.py"]   # how to start its MCP server; or url = "
 install = ["uv", "sync"]          # optional, run in the installed folder
 health = "echo_health"            # optional tool answering {"checks": [...]}
 
-owned_folders = ["echoes"]        # folders of each world's assets it owns
 capabilities = ["check"]          # publish | outcomes | build_session | check | remote_approvals
 # primary_metric = "views"        # with the outcomes capability
 
@@ -466,6 +465,13 @@ media_type = "text/markdown"      # a media type, as audio/wav or video/*
 [types.line]                      # named input types, each a JSON Schema
 type = "object"
 properties.text = { type = "string" }
+
+[[owned_folders]]                 # a folder of each world's assets it owns (Owned Folders, below)
+folder = "echoes"                 # assets/echoes/ in each world that enables it
+label = "Echoes"                  # the Assets page's heading for it
+about = "Lines it says back, one clip each."   # optional: what goes there
+accept = ["audio/wav"]            # optional media types an upload must be; any file when left out
+confirm = "I may share these lines"            # optional: what the operator affirms to upload
 
 [setup]
 test = "check_setup"              # a tool called with the candidate values before saving
@@ -678,24 +684,23 @@ its Setup (the speech engines, a Setting on the Connectors page, carried over fr
 `SPEECH_ENDPOINTS`), how to run the engines (Kokoro and Chatterbox, its own compose file), the
 script format and the voice catalog.
 
-### Voices on the Assets page
+### Owned Folders on the Assets page
 
-A world's voice catalog is `assets/voices/voices.json` with its clips (the speech package's README,
-Voices).
-- On the world's Assets page (sidebar, or More on a phone) every voice is a card you can play,
-  with its clip length, tags, engine and the saved workflows whose speech step names it (`params.voice`,
-  current versions). "Add a voice" uploads a clip (any audio the browser reads, saved as a 16-bit
-  mono WAV) or records one with the microphone (stopping at 10 s), and needs a name, a
-  description and the consent line; Edit changes the description and tags, Delete drops the
-  entry and its clip after naming the workflows that lose it. Over HTTP:
-  `GET /api/worlds/<id>/voices` (the catalog as the connector reads it, each with `clip`,
-  `seconds` and `used_by`, plus the warnings for ignored entries), `POST /api/worlds/<id>/voices`
-  (multipart: `name`, `description`, `tags` comma separated, `consent`, `clip`; refused with the
-  reason unless the clip is a 16-bit WAV of 5 to 10 s and the name is new),
-  `PATCH /api/worlds/<id>/voices/<name>` (`{"description", "tags"}`) and
-  `DELETE /api/worlds/<id>/voices/<name>`. Each change rewrites voices.json in one step
-  (`swarmify_connectors.voices`, with the speech package's rules, as its seeding writes it),
-  keeping entries it does not touch as they are.
+A package may own folders of each world's assets (`[[owned_folders]]` in its Manifest, ADR 0025):
+the speech package owns `voices/`, its clips and the voices.json describing them (its README,
+Voices). Swarmify knows nothing of what they mean; it lists, plays, uploads, renames and deletes
+their files, and the package reads the folder through `assets_path` as before.
+- The world's Assets page (sidebar, or More on a phone) shows each Owned Folder of the packages
+  the world enables as a group of cards above Files: an audio file plays from its card, any other
+  opens; each card's menu renames it in place or deletes it after a confirm naming the package.
+  "Add to <label>" uploads a file (an audio folder also records one with the microphone; one that
+  takes only `audio/wav` gets any audio the browser reads as a 16-bit mono WAV), named plainly and
+  uniquely, after the operator ticks the folder's `confirm` when it declares one.
+- Over HTTP: `GET /api/worlds/<id>/owned_folders` lists them (`path`, `folder`, `label`, `about`,
+  `accept`, `confirm`, and `package`, its label; the first package to claim a folder keeps it),
+  and their files are in `GET /api/worlds/<id>/assets` under each `path`.
+  `PUT /api/worlds/<id>/assets/<name>?folder=<folder>` uploads into one, refused unless `name`
+  is one of its `accept` types; renaming and deleting are the assets endpoints below.
 
 ## Publishing
 
@@ -1064,11 +1069,12 @@ size, and `GET /api/worlds/<id>/files/<path>` serves one, as it serves run files
 each (an image's thumbnail, an audio player, a video's first frame), and renames
 (`PATCH /api/worlds/<id>/assets/<path>` with `{"name"}`, in the same folder, never over another
 file) or deletes one (`DELETE /api/worlds/<id>/assets/<path>`). Both refuse paths outside
-`assets/` and anything in `assets/voices/`: voices change only through the voices endpoints.
+`assets/`. A package's Owned Folders are assets too, shown as their own groups (Owned Folders on
+the Assets page).
 
 Agents never write there. Swarm agents list them (`list_assets`) to name one in a script; a
 connector stage gets the folder as `assets_path` (the speech package alone gives `voices/` a
-meaning, see Voices on the Assets page); the `remotion_build` session reads them (its
+meaning, see Owned Folders on the Assets page); the `remotion_build` session reads them (its
 sandbox and hooks allow reads in the world's folder and writes only in the build folder) and is
 given their paths to copy into `public/`. Nothing about them is video-specific, and they are
 kept out of the graph.

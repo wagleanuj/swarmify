@@ -42,6 +42,7 @@ _SNAKE = "^[a-z][a-z0-9_]{0,59}$"
 _TOOL = "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
 _URL = "^https?://[^\\s/]+"
 _VERSION = "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$"
+_MEDIA = "^[a-z]+/([a-z0-9.+-]+|\\*)$"
 _strings = {"type": "array", "items": {"type": "string", "minLength": 1}}
 _text = {"type": "string", "minLength": 1}
 _file = {
@@ -50,7 +51,7 @@ _file = {
     "required": ["description", "media_type"],
     "properties": {
         "description": _text,
-        "media_type": {"type": "string", "pattern": "^[a-z]+/([a-z0-9.+-]+|\\*)$"},
+        "media_type": {"type": "string", "pattern": _MEDIA},
     },
 }
 
@@ -154,8 +155,18 @@ SCHEMA: dict[str, Any] = {
         },
         "owned_folders": {
             "type": "array",
-            "uniqueItems": True,
-            "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,59}$"},
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["folder", "label"],
+                "properties": {
+                    "folder": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,59}$"},
+                    "label": {"type": "string", "minLength": 1, "maxLength": 60},
+                    "about": _text,
+                    "accept": {**_strings, "items": {"type": "string", "pattern": _MEDIA}},
+                    "confirm": _text,
+                },
+            },
         },
         "capabilities": {"type": "array", "uniqueItems": True, "items": {"enum": CAPABILITIES}},
         "primary_metric": {"type": "string", "pattern": _SNAKE},
@@ -289,6 +300,10 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     for i, name in enumerate(manifest.get("permissions", {}).get("services", [])):
         if name not in names:
             bad(f"permissions.services[{i}]", f"{name} is not one of its [[services]]")
+    folders = [f["folder"] for f in manifest.get("owned_folders", [])]
+    for i, folder in enumerate(folders):
+        if folder in folders[:i]:
+            bad(f"owned_folders[{i}].folder", f"{folder} is declared twice")
     if "primary_metric" in manifest and "outcomes" not in manifest.get("capabilities", []):
         bad("primary_metric", "names an outcome, so the package offers the outcomes capability")
     return manifest
