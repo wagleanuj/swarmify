@@ -25,7 +25,7 @@ from typing import Any
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
-from swarmify_connectors import publish, remotion, speech
+from swarmify_connectors import builtin_publish, publish, remotion, speech
 from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
@@ -431,12 +431,43 @@ class Connectors:
 
     # Publish stages (ADR 0007)
 
-    def publish_preview(self, world_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
-        """What a connector stage will post, when it calls a publish connector; else None."""
+    def is_publish(self, world_id: str, config: dict[str, Any]) -> bool:
+        connector = self.find(world_id, str(config.get("calls", "")))
+        return connector is not None and connector.kind == "publish"
+
+    def publish_preview(
+        self,
+        world_id: str,
+        config: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+        edits: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """What a connector stage will post, as its connector's `preview` answers it, when it
+        calls a publish connector; else None. A preview that cannot be had is a problem."""
         connector = self.find(world_id, str(config.get("calls", "")))
         if connector is None or connector.kind != "publish":
             return None
-        return publish.preview(connector.name, config)
+        args = {
+            "inputs": [config["input"]]
+            if config.get("input")
+            else list(config.get("inputs") or []),
+            "params": dict(config.get("params") or {}),
+            "metadata": metadata or {},
+            "edits": edits or {},
+        }
+        if connector.builtin:
+            shown = builtin_publish.preview(connector.name, args)
+        else:
+            try:
+                raw = self.transport.call(connector, "preview", args, self._env(connector))
+            except ConnectorError as exc:
+                raw = {"fields": [], "problems": [f"{connector.name} preview failed: {exc}"]}
+            shown = publish.checked_preview(raw)
+        # The gate's edits stand even when a connector forgets to apply them.
+        for f in shown["fields"]:
+            if f["editable"] and f["key"] in (edits or {}):
+                f["value"] = (edits or {})[f["key"]]
+        return {"connector": connector.name, **shown}
 
     def stage_problems(self, world_id: str, config: dict[str, Any]) -> list[str]:
         """What would stop a connector stage, found when its workflow is checked rather than
@@ -446,11 +477,9 @@ class Connectors:
             return []
         params = dict(config.get("params") or {})
         if connector.kind == "publish":
-            if params.get("metadata") and not params.get("title"):
-                # the title comes from the metadata file's frontmatter at run time; the gate
-                # checks it then
-                params["title"] = "from metadata"
-            return publish.preview(connector.name, {**config, "params": params})["problems"]
+            # A world's own connector previews at the gate, when its inputs exist.
+            shown = self.publish_preview(world_id, config) if connector.builtin else None
+            return shown["problems"] if shown else []
         if connector.builtin and connector.name == "remotion_render":
             out = []
             project = str(params.get("project") or "").strip()
@@ -526,9 +555,8 @@ class Connectors:
                     f"an earlier {name} call was interrupted and may have posted; check"
                     f" {name} and start a new run if it did not"
                 )
-            problems = publish.preview(name, config)["problems"]
-            if problems:
-                raise ConnectorError("; ".join(problems))
+            if not isinstance(config.get("confirmed"), dict):
+                raise ConnectorError(f"{name} publishes only the values a gate confirmed")
         env = self._env(connector)
         call = done
         if call is None or call.status != "polling":
@@ -557,11 +585,15 @@ class Connectors:
         for key in ("input", "inputs", "output"):
             if config.get(key):
                 request[key] = config[key]
-        if connector.kind == "publish" and connector.builtin:
-            tool, request = publish.request(connector.name, config, idempotency_key) or (
-                tool,
-                request,
-            )
+        if connector.kind == "publish":
+            values = config["confirmed"]
+            if connector.builtin:
+                tool, request = builtin_publish.request(
+                    connector.name, values, params, idempotency_key
+                )
+            else:
+                tool, request = "publish", {"fields": values, "idempotency_key": idempotency_key}
+                request.update({k: params[k] for k in ("input_path", "input_paths") if k in params})
         now = _now()
         call = self.storage.save_call(
             Call(

@@ -83,6 +83,7 @@ from swarmify_runs import (
     Notifier,
     OverBudget,
     Previews,
+    PublishField,
     PublishPreview,
     Run,
     RunControl,
@@ -278,35 +279,36 @@ def _whole(value: Any) -> Any:
 
 
 def publish_config(
-    world_folder: Path, run: Run, stage: StageDef, edits: dict[str, Any]
-) -> tuple[dict[str, Any], str | None]:
-    """A publish stage's config as it goes out, and the problem finding its metadata, if any.
-    `params.metadata` names a file an earlier stage of the run left (like script.md) whose
-    frontmatter `title` and `description` win over the params; the edits made at the gate win
-    over both."""
+    world_folder: Path, run: Run, stage: StageDef
+) -> tuple[dict[str, Any], dict[str, Any], str | None]:
+    """A publish stage's config, the frontmatter of the file its `params.metadata` names (an
+    earlier stage's, like script.md, for its connector to read), and the problem finding that
+    file, if any."""
     params = dict(stage.config.get("params") or {})
-    name, problem = params.pop("metadata", None), None
+    name, metadata, problem = params.pop("metadata", None), {}, None
     if name:
         try:
-            front = frontmatter(run_file(world_folder, run, str(name)).read_text(errors="replace"))
-            params.update({k: str(front[k]) for k in ("title", "description") if front.get(k)})
+            metadata = frontmatter(
+                run_file(world_folder, run, str(name)).read_text(errors="replace")
+            )
         except ConnectorError as exc:
             problem = f"params.metadata: {exc}"
-    return {**stage.config, "params": {**params, **edits}}, problem
+    return {**stage.config, "params": params}, metadata, problem
 
 
 def previews(registry: Connectors, worlds: Worlds) -> Previews:
     """Runs learns what a stage will publish from the registry, which knows connector kinds."""
 
     def preview(run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPreview | None:
-        if registry.publish_preview(run.world_id, stage.config) is None:
+        if not registry.is_publish(run.world_id, stage.config):
             return None
-        config, problem = publish_config(worlds.folder(run.world_id), run, stage, edits)
-        shown = registry.publish_preview(run.world_id, config)
-        assert shown is not None  # the same connector as above
+        config, metadata, problem = publish_config(worlds.folder(run.world_id), run, stage)
+        shown = registry.publish_preview(run.world_id, config, metadata, edits)
+        assert shown is not None  # is_publish above
         if problem:
             shown["problems"].append(problem)
-        return PublishPreview(**shown)
+        fields = [PublishField(**f) for f in shown["fields"]]
+        return PublishPreview(shown["connector"], fields, shown["problems"])
 
     return preview
 
@@ -501,8 +503,7 @@ def create_app(
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
         if stage.config.get("calls") == "remotion_build":
             return build_stage(run, stage_id, stage)
-        shown = registry.publish_preview(run.world_id, stage.config)
-        if shown is None:
+        if not registry.is_publish(run.world_id, stage.config):
             folder = world_svc.folder(run.world_id)
             config = with_files(folder, run, stage_id, stage.config)
             registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
@@ -510,33 +511,50 @@ def create_app(
             if output.is_file():  # announce what the connector left as an artifact
                 memory.record(run.world_id, run.id, stage_id, str(stage.config["calls"]), output)
             return
-        # A publish stage posts the input file with what was confirmed at the gate before it,
+        # A publish stage posts the input file with the values confirmed at the gate before it,
         # then records what went out as an artifact.
         index = next(s.index for s in run.stages if s.id == stage_id)
         confirmed = next(
             (d.publish for d in reversed(run.decisions) if d.stage_index == index - 1), None
         )
         folder = world_svc.folder(run.world_id)
-        config, problem = publish_config(folder, run, stage, confirmed or {})
+        config, metadata, problem = publish_config(folder, run, stage)
         if problem:
             raise ConnectorError(problem)
-        shown = registry.publish_preview(run.world_id, config) or shown
-        if not shown["problems"]:  # else run_stage refuses, naming them
-            name = str(stage.config.get("input") or "")
-            config["params"]["input_path"] = str(run_file(folder, run, name))
+        shown = registry.publish_preview(run.world_id, config, metadata, confirmed)
+        assert shown is not None  # is_publish above
+        if shown["problems"]:
+            raise ConnectorError("; ".join(shown["problems"]))
+        # What was confirmed goes out as is (a resolved schedule stays fixed); the fresh preview
+        # only fills in a decision recorded before a field existed.
+        fields = [
+            {**f, "value": (confirmed or {}).get(f["key"], f["value"])} for f in shown["fields"]
+        ]
+        config["confirmed"] = {**{f["key"]: f["value"] for f in fields}, **(confirmed or {})}
+        if config.get("input"):
+            config["params"]["input_path"] = str(run_file(folder, run, str(config["input"])))
+        if config.get("inputs"):
+            config["params"]["input_paths"] = [
+                str(run_file(folder, run, str(n))) for n in config["inputs"]
+            ]
         call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
         out = registry.publish_result(call)
-        keys = ("connector", "title", "description", "visibility", "schedule", "made_for_kids")
-        fields = {k: shown[k] for k in keys}
         memory.write_artifact(
             run.world_id,
             run.id,
             stage_id,
             "publish",
             "publish.md",
-            publish.markdown(shown, out),
+            publish.markdown(shown["connector"], fields, out),
             kind="publish",
-            fields={**fields, "status": out["status"], "links": out["links"], "id": out["id"]},
+            fields={
+                "connector": shown["connector"],
+                "title": config["confirmed"].get("title") or f"Posted to {shown['connector']}",
+                "sent": fields,
+                "status": out["status"],
+                "links": out["links"],
+                "id": out["id"],
+            },
         )
 
     worlds_dir = root / "worlds"

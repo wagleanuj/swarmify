@@ -365,7 +365,7 @@ export function RunTimeline() {
           <p role="status" data-testid="status-line" className={`status-line state-${run.status}`}>
             {statusLine(run, gate?.ask)}
             {run.send_backs > 0 && ` Sent back ${run.send_backs === 1 ? "once" : `${run.send_backs} times`}.`}
-            {run.status === "done" && post && ` Posted ${String(post.fields.visibility ?? "")} to ${LABEL[String(post.fields.connector)] ?? String(post.fields.connector)}.`}
+            {run.status === "done" && post && ` Posted to ${LABEL[String(post.fields.connector)] ?? String(post.fields.connector)}.`}
           </p>
           <Lineage run={run} worldId={worldId} />
         </div>

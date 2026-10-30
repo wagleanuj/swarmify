@@ -114,6 +114,7 @@ svg.glyph { color: var(--accent); }
 .published dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
 .published dt { color: var(--muted); }
 .published dd { margin: 0; }
+.published .publish-field { display: contents; }
 .technical summary { margin: 0; font-size: 13px; }
 .technical .call-json { margin-top: 8px; }
 .call-json h4 { font-size: 13px; font-weight: 500; color: var(--muted); margin: 0 0 4px; }

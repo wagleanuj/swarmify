@@ -1792,12 +1792,14 @@ export interface components {
             send_back_to?: string | null;
             /** Artifact */
             artifact?: string | null;
-            /** Title */
-            title?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Schedule */
-            schedule?: string | null;
+            /** Edits */
+            edits?: {
+                [key: string]: unknown;
+            } | null;
+            /** Seen */
+            seen?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * DecideProposal
@@ -2333,33 +2335,39 @@ export interface components {
             decided_at?: string | null;
         };
         /**
+         * PublishField
+         * @description One value a publish connector will send, as the gate shows it. `editable` ones the person
+         *     may change before confirming; `hint` is the connector's note on it, like when a schedule
+         *     goes public.
+         */
+        PublishField: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value?: unknown;
+            /**
+             * Editable
+             * @default false
+             */
+            editable: boolean;
+            /**
+             * Hint
+             * @default
+             */
+            hint: string;
+        };
+        /**
          * PublishPreview
-         * @description What the publish stage right after a gate will post, as the gate shows it (ADR 0007).
-         *     `schedule` is a UTC ISO time, or None for now; `problems` would stop the post.
+         * @description What the publish stage right after a gate will post, as its connector describes it (ADR
+         *     0007): the fields it sends and the `problems` that would stop the post.
          */
         PublishPreview: {
             /** Connector */
             connector: string;
-            /** Title */
-            title: string;
-            /** Visibility */
-            visibility: string;
-            /** Schedule */
-            schedule?: string | null;
-            /**
-             * Description
-             * @default
-             */
-            description: string;
-            /** Video */
-            video?: string | null;
-            /** Platforms */
-            platforms?: string[];
-            /**
-             * Made For Kids
-             * @default false
-             */
-            made_for_kids: boolean;
+            /** Fields */
+            fields?: components["schemas"]["PublishField"][];
             /** Problems */
             problems?: string[];
         };

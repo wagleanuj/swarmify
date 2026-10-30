@@ -1,5 +1,6 @@
 """Publish stages at the Connectors seam: the preview a gate shows, the call that sends exactly
-that, the normalized result, and the refusals. Real SQLite, the recording fake transport."""
+what was confirmed, the normalized result, and the refusals, for the built-ins and for a world's
+own text-publish connector. Real SQLite, the recording fake transport."""
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,7 +8,14 @@ from typing import Any
 
 import pytest
 
-from swarmify_connectors import Call, ConnectorError, Connectors, FakeTransport, publish
+from swarmify_connectors import (
+    Call,
+    ConnectorError,
+    Connectors,
+    FakeTransport,
+    builtin_publish,
+    publish,
+)
 
 W = "world_1"
 NOW = datetime(2026, 10, 26, 12, tzinfo=UTC)
@@ -18,29 +26,62 @@ YOUTUBE_KEYS = {
 }
 
 
+def preview(
+    connector: str,
+    config: dict[str, Any],
+    now: datetime = NOW,
+    metadata: dict[str, Any] | None = None,
+    edits: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A built-in's preview of the stage, as the core asks for it."""
+    inputs = [config["input"]] if config.get("input") else []
+    args = {"inputs": inputs, "params": config["params"], "metadata": metadata, "edits": edits}
+    return builtin_publish.preview(connector, args, now)
+
+
+def values(shown: dict[str, Any]) -> dict[str, Any]:
+    return {f["key"]: f["value"] for f in shown["fields"]}
+
+
 def stage(calls: str = "youtube", **params: Any) -> dict[str, Any]:
+    """A publish stage's config as it reaches `run_stage`: with the values its gate confirmed."""
     base = {"title": "Five hooks", "visibility": "public", "input_path": "/runs/r/short.mp4"}
-    return {"calls": calls, "input": "short.mp4", "params": {**base, **params}}
+    config = {"calls": calls, "input": "short.mp4", "params": {**base, **params}}
+    return {**config, "confirmed": values(preview(calls, config))}
 
 
 def test_the_preview_is_what_will_go_out() -> None:
-    shown = publish.preview(
-        "youtube", stage(schedule="2026-11-03T10:00:00+01:00", description="d"), NOW
-    )
-    assert shown == {
-        "connector": "youtube",
+    shown = preview("youtube", stage(schedule="2026-11-03T10:00:00+01:00", description="d"))
+    assert shown["problems"] == []
+    assert [(f["key"], f["label"], f["editable"]) for f in shown["fields"]] == [
+        ("title", "Title", True),
+        ("description", "Description", True),
+        ("visibility", "Visibility", False),
+        ("made_for_kids", "Made for kids", False),
+        ("schedule", "When", False),
+        ("video", "Video", False),
+    ]
+    assert values(shown) == {
         "title": "Five hooks",
         "description": "d",
         "visibility": "public",
+        "made_for_kids": False,
         "schedule": "2026-11-03T09:00:00Z",
         "video": "short.mp4",
-        "platforms": [],
-        "made_for_kids": False,
-        "problems": [],
     }
-    assert publish.preview("upload_post", stage("upload_post", user="me"), NOW)["platforms"] == [
+    assert shown["fields"][4]["hint"] == "Private until then, then public."
+    assert values(preview("upload_post", stage("upload_post", user="me")))["platforms"] == [
         "youtube"
     ]
+
+
+def test_metadata_wins_over_params_and_edits_win_over_both() -> None:
+    metadata = {"title": "From the script", "description": "Its words", "type": "script"}
+    shown = values(preview("youtube", stage(), metadata=metadata))
+    assert (shown["title"], shown["description"]) == ("From the script", "Its words")
+    edits = {"title": "Edited", "visibility": "private"}  # only editable fields take an edit
+    shown = values(preview("youtube", stage(), metadata=metadata, edits=edits))
+    assert (shown["title"], shown["visibility"]) == ("Edited", "public")
 
 
 @pytest.mark.parametrize(
@@ -62,8 +103,7 @@ def test_the_preview_is_what_will_go_out() -> None:
     ],
 )
 def test_the_preview_names_every_problem(config: dict[str, Any], problem: str) -> None:
-    connector = config["calls"]
-    assert any(problem in p for p in publish.preview(connector, config, NOW)["problems"])
+    assert any(problem in p for p in preview(config["calls"], config)["problems"])
 
 
 @pytest.mark.parametrize(
@@ -76,16 +116,17 @@ def test_the_preview_names_every_problem(config: dict[str, Any], problem: str) -
     ],
 )
 def test_a_relative_schedule_resolves_against_now(relative: str, resolved: str) -> None:
-    shown = publish.preview("youtube", stage(schedule=relative), NOW)
-    assert (shown["schedule"], shown["problems"]) == (resolved, [])
+    shown = preview("youtube", stage(schedule=relative))
+    assert (values(shown)["schedule"], shown["problems"]) == (resolved, [])
 
 
 def test_made_for_kids_reaches_youtube_and_upload_post() -> None:
-    assert publish.preview("youtube", stage(made_for_kids=True), NOW)["made_for_kids"] is True
-    _, args = publish.request("youtube", stage(made_for_kids=True), "k")  # type: ignore[misc]
+    config = stage(made_for_kids=True)
+    assert config["confirmed"]["made_for_kids"] is True
+    _, args = builtin_publish.request("youtube", config["confirmed"], config["params"], "k")
     assert args["made_for_kids"] is True
     config = stage("upload_post", user="me", made_for_kids=True)
-    _, args = publish.request("upload_post", config, "k")  # type: ignore[misc]
+    _, args = builtin_publish.request("upload_post", config["confirmed"], config["params"], "k")
     assert args["platformOptions"]["youtubeSelfDeclaredMadeForKids"] is True
 
 
@@ -165,7 +206,10 @@ def test_upload_post_now_records_each_platform_link_and_failure(
     out = connectors.publish_result(call)
     assert out["links"] == {"tiktok": "https://tiktok.com/@me/video/1"}
     assert out["failed"] == {"instagram": "Expired access token"}
-    md = publish.markdown(publish.preview("upload_post", stage("upload_post", user="me")), out)
+    shown = preview("upload_post", stage("upload_post", user="me"))
+    md = publish.markdown("upload_post", shown["fields"], out)
+    assert md.startswith("# Five hooks\n\nSent to upload_post:\n\n- Title: Five hooks\n")
+    assert "- When: Right after confirming.\n" in md
     assert "- tiktok: https://tiktok.com/@me/video/1" in md
     assert "- instagram failed: Expired access token" in md
 
@@ -222,12 +266,13 @@ def test_a_background_upload_that_reached_no_platform_fails_the_stage(
         connectors.run_stage(W, "run_1", "stage_3", stage("upload_post", user="me"))
 
 
-def test_a_publish_stage_with_a_problem_never_calls(
+def test_a_publish_stage_no_gate_confirmed_never_calls(
     connectors: Connectors, transport: FakeTransport
 ) -> None:
     connectors.credentials.set(YOUTUBE_KEYS)
-    with pytest.raises(ConnectorError, match="needs params.title"):
-        connectors.run_stage(W, "run_1", "stage_1", stage(title=""))
+    unconfirmed = {k: v for k, v in stage().items() if k != "confirmed"}
+    with pytest.raises(ConnectorError, match="publishes only the values a gate confirmed"):
+        connectors.run_stage(W, "run_1", "stage_1", unconfirmed)
     assert transport.calls == []
 
 
@@ -272,7 +317,9 @@ def test_an_interrupted_publish_is_never_repeated_within_its_visit(
 
 
 def test_publish_previews_only_for_publish_connectors(connectors: Connectors) -> None:
-    assert connectors.publish_preview(W, stage())["title"] == "Five hooks"  # type: ignore[index]
+    shown = connectors.publish_preview(W, stage())
+    assert shown is not None and shown["connector"] == "youtube"
+    assert values(shown)["title"] == "Five hooks"
     assert connectors.publish_preview(W, {"calls": "remotion_render"}) is None
     assert connectors.publish_preview(W, {"calls": "nope"}) is None
 
@@ -355,3 +402,76 @@ def test_a_saved_publish_stage_is_checked_like_its_gate_will_be(connectors: Conn
     assert connectors.stage_problems(W, stage()) == []
     assert connectors.stage_problems(W, {"calls": "web_search"}) == []
     assert connectors.stage_problems(W, {"calls": "nope"}) == []
+
+
+def poster(connectors: Connectors) -> None:
+    """A world's own text-publish connector: a webhook that posts a message."""
+    connectors.add(
+        connectors.draft(W, "webhook", "publish", "webhook-mcp", ["HOOK_URL"], ["connector"]),
+        {"HOOK_URL": "https://hooks.example/1"},
+    )
+
+
+def test_a_worlds_publish_connector_previews_and_publishes_through_its_own_tools(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    poster(connectors)
+    fields = [
+        {"key": "channel", "label": "Channel", "value": "#news"},
+        {"key": "text", "label": "Message", "value": "Hello", "editable": True},
+    ]
+    transport.outputs["preview"] = [{"fields": fields, "problems": []}]
+    config = {"calls": "webhook", "input": "post.md", "params": {"channel": "#news"}}
+    shown = connectors.publish_preview(W, config, {"text": "Hello"}, {"text": "Hi"})
+    assert shown == {
+        "connector": "webhook",
+        "fields": [
+            {"key": "channel", "label": "Channel", "value": "#news", "editable": False, "hint": ""},
+            {"key": "text", "label": "Message", "value": "Hi", "editable": True, "hint": ""},
+        ],
+        "problems": [],
+    }  # the edit stands though this fake connector ignored it
+    ((name, tool, args, env),) = transport.calls
+    assert (name, tool, env) == ("webhook", "preview", {"HOOK_URL": "https://hooks.example/1"})
+    assert args == {
+        "inputs": ["post.md"],
+        "params": {"channel": "#news"},
+        "metadata": {"text": "Hello"},
+        "edits": {"text": "Hi"},
+    }
+    assert connectors.stage_problems(W, config) == []  # it previews at the gate, not at save
+
+    transport.outputs["publish"] = [{"url": "https://hooks.example/m/1", "id": "m1"}]
+    sent = {"channel": "#news", "text": "Hi"}
+    params = {**config["params"], "input_path": "/runs/r/post.md"}
+    call = connectors.run_stage(
+        W, "run_1", "stage_1", {**config, "params": params, "confirmed": sent}
+    )
+    assert transport.calls[-1][1:3] == (
+        "publish",
+        {"fields": sent, "idempotency_key": "stage_1", "input_path": "/runs/r/post.md"},
+    )
+    assert connectors.publish_result(call) == {
+        "status": "published",
+        "links": {"webhook": "https://hooks.example/m/1"},
+        "id": "m1",
+        "failed": {},
+    }
+
+
+@pytest.mark.parametrize(
+    ("answer", "problem"),
+    [
+        (ConnectorError("webhook: could not start"), "webhook preview failed: webhook: could"),
+        ({"nothing": True}, "preview answered without fields"),
+        ({"fields": [{"label": "No key"}]}, "preview answered a field without a key"),
+        ({"fields": [], "problems": ["no channel"]}, "no channel"),
+    ],
+)
+def test_a_preview_that_cannot_be_had_is_a_problem(
+    connectors: Connectors, transport: FakeTransport, answer: Any, problem: str
+) -> None:
+    poster(connectors)
+    transport.outputs["preview"] = [answer]
+    shown = connectors.publish_preview(W, {"calls": "webhook", "params": {}})
+    assert shown is not None and any(problem in p for p in shown["problems"])

@@ -57,8 +57,8 @@ class Decision:
     """The artifact the choice names, as a path in the world folder: the card picked at a pick
     gate, or what an approve gate approved (story 53)."""
     publish: dict[str, Any] | None = None
-    """At a gate before a publish stage: the title, description and schedule (UTC ISO or None)
-    confirmed, which are what the stage posts."""
+    """At a gate before a publish stage: every field's value as confirmed, by key, which is what
+    the stage posts."""
 
 
 @dataclass(frozen=True)
@@ -127,19 +127,29 @@ class Run:
 
 
 @dataclass(frozen=True)
+class PublishField:
+    """One value a publish connector will send, as the gate shows it. `editable` ones the person
+    may change before confirming; `hint` is the connector's note on it, like when a schedule
+    goes public."""
+
+    key: str
+    label: str
+    value: Any = None
+    editable: bool = False
+    hint: str = ""
+
+
+@dataclass(frozen=True)
 class PublishPreview:
-    """What the publish stage right after a gate will post, as the gate shows it (ADR 0007).
-    `schedule` is a UTC ISO time, or None for now; `problems` would stop the post."""
+    """What the publish stage right after a gate will post, as its connector describes it (ADR
+    0007): the fields it sends and the `problems` that would stop the post."""
 
     connector: str
-    title: str
-    visibility: str
-    schedule: str | None = None
-    description: str = ""
-    video: str | None = None
-    platforms: list[str] = field(default_factory=list)
-    made_for_kids: bool = False
+    fields: list[PublishField] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+
+    def values(self) -> dict[str, Any]:
+        return {f.key: f.value for f in self.fields}
 
 
 @dataclass(frozen=True)

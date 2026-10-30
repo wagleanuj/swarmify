@@ -14,7 +14,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from types import EllipsisType
 from typing import Any
 
 from dbos import DBOSClient
@@ -74,8 +73,8 @@ SCHEDULED_WORKFLOW = "swarmify.scheduled"
 workflow named in the schedule's context."""
 
 Previews = Callable[[Run, StageDef, dict[str, Any]], PublishPreview | None]
-"""What a stage of a run will publish, with the person's edits at the gate (title, description)
-over its own values, or None when it does not publish. Runs cannot tell a publish connector from
+"""What a stage of a run will publish, with the person's edits at the gate (by field key) over
+its own values, or None when it does not publish. Runs cannot tell a publish connector from
 another; the Connectors registry can, through the composition root."""
 
 
@@ -293,25 +292,25 @@ class RunControl:
         send_back_to: str | None = None,
         proposal: bool = False,
         artifact: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-        schedule: str | None | EllipsisType = ...,
+        edits: dict[str, Any] | None = None,
+        seen: dict[str, Any] | None = None,
     ) -> Run:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
         A skill gate takes only the answer of its proposal (`proposal=True`, from Learning).
         `artifact` names the chosen or approved artifact by its path in the world folder; it
         must come from a stage before the gate, and a pick with no `choice` takes its title.
-        Before a publish stage, `title` and `description` replace what the gate showed, and the
-        values that will go out (the schedule resolved now) are recorded with the decision.
-        `schedule` is the one the gate showed (None for now); a relative schedule that resolves
-        differently by now is refused, so what posts is what was confirmed.
+        Before a publish stage, `edits` replace the values of the fields its connector marks
+        editable, and every field's value is recorded with the decision. `seen` holds the values
+        the gate showed; a field that is not editable and has changed since (a relative schedule
+        resolving to another day) is refused, so what posts is what was confirmed.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
         send-back target is not an earlier stage, on a send-back past the gate's limit, when someone
         else already answered this gate, or when the publish stage after it has problems
         (send back or abort instead), and ValueError when a pick gate gets no choice or
-        the artifact is not one of this run's before the gate, or when an edited title or
-        description is refused (or the next stage does not publish), or the schedule moved.
+        the artifact is not one of this run's before the gate, or when an edit is refused (a field
+        that is not editable, a value the connector reports a problem with, or the next stage does
+        not publish), or a field the gate showed has changed.
         """
         run = self._run(run_id)
         if run.over_budget:
@@ -343,18 +342,25 @@ class RunControl:
         else:
             event = GateAnswered(index)
         transition(kinds_of(run), state_of(run), event)  # raises Illegal before anything is written
-        edits = {k: v for k, v in (("title", title), ("description", description)) if v is not None}
-        shown = None if send_back_to else self.preview_after(run, index, edits)
+        edits = edits or {}
+        shown = None if send_back_to else self.preview_after(run, index)
         if edits and shown is None:
-            raise ValueError("only a gate before a publish stage takes a title or description")
+            raise ValueError("only a gate before a publish stage takes edits")
+        if shown and edits:
+            editable = {f.key for f in shown.fields if f.editable}
+            fixed = sorted(k for k in edits if k not in editable)
+            if fixed:
+                raise ValueError(f"{', '.join(fixed)} cannot be edited at the gate")
+            shown = self.preview_after(run, index, edits)
         if shown and shown.problems:
             # Going on would only fail at publish: an edit is bad input, else the stage is broken.
             raise (ValueError if edits else Illegal)("; ".join(shown.problems))
-        if shown and schedule is not ... and schedule != shown.schedule:
-            raise ValueError(
-                f"the schedule changed since the gate was shown, to {shown.schedule or 'now'}:"
-                " check it and confirm again"
-            )
+        for f in shown.fields if shown else []:
+            if not f.editable and seen and f.key in seen and seen[f.key] != f.value:
+                raise ValueError(
+                    f"{f.label} changed since the gate was shown, to {f.value or 'nothing'}:"
+                    " check it and confirm again"
+                )
         decision = Decision(
             new_id("dec"),
             index,
@@ -366,9 +372,7 @@ class RunControl:
             "",
             _now(),
             artifact or None,
-            {"title": shown.title, "description": shown.description, "schedule": shown.schedule}
-            if shown
-            else None,
+            shown.values() if shown else None,
         )
         decision = self._write_decision(run, decision)
         message: dict[str, Any] = {"action": "decide", "index": index}

@@ -8,7 +8,7 @@ import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
 import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, RECORD, rawUrl, summary, underReview, VIDEO } from "./Artifacts";
-import { LABEL } from "./Connectors";
+import { LABEL, PublishValue } from "./Connectors";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
@@ -343,17 +343,27 @@ function PublishPanel({ made, call }: { made: ArtifactFile[]; call: Call | null 
   const f = post.fields;
   const links = Object.values((f.links as Record<string, string> | undefined) ?? {});
   const where = LABEL[String(f.connector)] ?? String(f.connector ?? call?.connector ?? "");
+  // What went out, as its connector described it; a post from before #127 kept fixed fields.
+  const sent: components["schemas"]["PublishField"][] = Array.isArray(f.sent)
+    ? (f.sent as components["schemas"]["PublishField"][])
+    : [
+        { key: "title", label: "Title", value: f.title ?? post.title, editable: false, hint: "" },
+        { key: "visibility", label: "Visibility", value: f.visibility, editable: false, hint: "" },
+        { key: "schedule", label: "When", value: f.schedule ?? f.created ?? post.created, editable: false, hint: "" },
+      ];
   return (
     <div className="published" data-testid="publish">
       <dl>
-        <dt>Title</dt>
-        <dd>{String(f.title ?? post.title)}</dd>
         <dt>Where</dt>
         <dd>{where}</dd>
-        <dt>Visibility</dt>
-        <dd>{String(f.visibility ?? "")}</dd>
-        <dt>When</dt>
-        <dd>{f.schedule ? new Date(String(f.schedule)).toLocaleString() : new Date(String(f.created ?? post.created)).toLocaleString()}</dd>
+        {sent.map((s) => (
+          <div key={s.key} className="publish-field">
+            <dt>{s.label}</dt>
+            <dd>
+              <PublishValue value={s.value} hint={s.hint} />
+            </dd>
+          </div>
+        ))}
         {typeof f.views === "number" && (
           <>
             <dt>Views</dt>
