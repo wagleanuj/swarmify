@@ -1,14 +1,19 @@
 """Publish stages at the Connectors seam: the preview a gate shows and the check of a saved stage,
-the call that sends exactly what was confirmed, the normalized result, and the refusals, for a
+the call that sends exactly what was confirmed, the normalized result, the refusals and the
+outcomes Capability, for a
 package's publish connector answering over its own tools. Real SQLite, the recording fake
 transport. YouTube's and Upload-Post's own previews are tested in their packages."""
 
+import shutil
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from swarmify_connectors import Call, ConnectorError, Connectors, FakeTransport, publish
+from swarmify_connectors import Call, ConnectorError, Connectors, FakeTransport, Packages
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 W = "world_1"
 NOW = datetime(2026, 10, 26, 12, tzinfo=UTC)
@@ -95,57 +100,33 @@ def test_publish_previews_only_for_publish_connectors(
     assert connectors.publish_preview(W, {"calls": "nope"}) is None
 
 
-@pytest.mark.parametrize(
-    ("fields", "ids"),
-    [
-        (
-            {
-                "connector": "youtube",
-                "id": "abc123",
-                "links": {"youtube": "https://youtu.be/abc123"},
-            },
-            ["abc123"],
-        ),
-        ({"connector": "youtube", "id": "sched1", "links": {}}, ["sched1"]),
-        (
-            {
-                "connector": "upload_post",
-                "id": None,
-                "links": {
-                    "youtube": "https://www.youtube.com/shorts/short_1",
-                    "tiktok": "https://www.tiktok.com/@me/video/1",
-                    "other": "https://youtube.com/watch?v=watch-2&t=3",
-                },
-            },
-            ["short_1", "watch-2"],
-        ),
-        ({"connector": "upload_post", "id": "job_9", "links": {}}, []),
-        ({"links": "not a map"}, []),
-    ],
-)
-def test_youtube_ids_are_read_from_links_and_youtube_posts(
-    fields: dict[str, Any], ids: list[str]
+def test_outcomes_come_from_each_publish_connector_offering_them_with_its_setup(
+    connectors: Connectors, transport: FakeTransport, tmp_path: Path
 ) -> None:
-    assert publish.youtube_ids(fields) == ids
+    poster(connectors)  # a publish connector without the Capability is not asked
+    assert connectors.outcome_reporters(W) == []
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "packages/clicks", repo / "connectors/clicks")
+    connectors.packages = Packages(connectors.packages.root, repo)
+    connectors.install_defaults()
+    connectors.enable(W, "clicks", "1.0.0")
+    (clicks,) = connectors.outcome_reporters(W)
+    assert clicks.manifest["primary_metric"] == "clicks"
 
-
-def test_view_counts_come_from_the_youtube_connector_with_its_keys(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    assert connectors.youtube_views(W, ["v1"]) == {}  # no youtube in this world
-    stand_in = connectors.draft(W, "youtube", "publish", "yt-mcp", ["YT_TOKEN"], ["connector"])
-    connectors.add(stand_in, {})
-    with pytest.raises(ConnectorError, match="youtube needs its Setup"):
-        connectors.youtube_views(W, ["v1"])
-    connectors.save_setup(W, "youtube", {"yt_token": "tok"}, {})
-    transport.outputs["views"] = [{"views": {"v1": 41000}}, {"nothing": True}]
-    assert connectors.youtube_views(W, ["v1", "v2"]) == {"v1": 41000}
-    assert transport.calls[-1] == (
-        "youtube", "views", {"video_ids": ["v1", "v2"]}, {"YT_TOKEN": "tok"}
-    )  # fmt: skip
-    with pytest.raises(ConnectorError, match="without counts"):
-        connectors.youtube_views(W, ["v1"])
-    assert connectors.youtube_views(W, []) == {}
+    posts = [{"connector": "clicks", "id": "p1", "links": {"clicks": "https://sho.rt/p1"}}]
+    with pytest.raises(ConnectorError, match="clicks needs its Setup"):
+        connectors.outcomes(clicks, posts)
+    connectors.save_setup(W, "clicks", {"token": "t"}, {})
+    transport.outputs["outcomes"] = [
+        {"p1": {"clicks": 12, "rate": 0.5}},
+        {"p1": 3},
+        {"p1": {"x": True}},
+    ]
+    assert connectors.outcomes(clicks, posts) == {"p1": {"clicks": 12, "rate": 0.5}}
+    assert transport.calls[-1] == ("clicks", "outcomes", {"posts": posts}, {"CLICKS_TOKEN": "t"})
+    for _ in range(2):  # anything but numbers by metric by post
+        with pytest.raises(ConnectorError, match="clicks outcomes answered"):
+            connectors.outcomes(clicks, posts)
 
 
 def test_a_saved_publish_stage_is_checked_by_its_own_preview(

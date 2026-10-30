@@ -93,8 +93,8 @@ const posted = made("stage_4", "publish.md", {
       { key: "schedule", label: "When", value: null, hint: "Right after confirming." },
     ],
     links: { youtube: "https://youtu.be/abc" },
-    views: 1234,
-    views_at: "2026-10-27T00:00:00",
+    outcomes: { views: 1234, clicks: 12 },
+    outcomes_at: "2026-10-27T00:00:00",
   },
 });
 
@@ -305,7 +305,7 @@ test("done with a video: the run's time, where it was posted, and the video in p
   await screen.getByRole("button", { name: /^Step 5, publish/ }).click();
   expect(screen.getByTestId("result").query()).toBeNull();
   const out = screen.getByTestId("publish");
-  await expect.element(out).toMatchTextContent(/Where\s*YouTube\s*Title\s*Kids short\s*Visibility\s*private\s*When\s*Right after confirming\.\s*Views\s*1,234 as of 2026-10-27/);
+  await expect.element(out).toMatchTextContent(/Where\s*YouTube\s*Title\s*Kids short\s*Visibility\s*private\s*When\s*Right after confirming\.\s*Outcome\s*1,234 views, 12 clicks as of 2026-10-27/);
   await expect.element(out.getByRole("link", { name: "Open the post" })).toHaveAttribute("href", "https://youtu.be/abc");
   await expect.element(screen.getByText("Technical details")).toBeVisible();
   await expect.element(screen.getByTestId("call-request")).not.toBeVisible();

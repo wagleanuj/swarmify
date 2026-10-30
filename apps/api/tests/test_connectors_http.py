@@ -165,7 +165,7 @@ def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
     assert shown == {
         "remotion_render": ("Remotion render", ["check"], ["video/mp4"]),
         "remotion_build": ("Remotion build", ["build_session"], ["video/mp4"]),
-        "youtube": ("YouTube", ["publish"], []),
+        "youtube": ("YouTube", ["publish", "outcomes"], []),
         "upload_post": ("Upload-Post", ["publish"], []),
         "speech": ("Speech", [], ["application/json", "audio/wav"]),
         "fal_video": ("fal_video", [], []),

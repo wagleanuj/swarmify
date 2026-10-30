@@ -20,12 +20,12 @@ const score = (run_id: string, created: string, over: Partial<Score> = {}): Scor
   send_backs: 1,
   cost_usd: 0.5,
   duration_s: 300,
-  views: null,
+  outcomes: {},
   ...over,
 });
 const day = (n: number) => `2026-10-${String(n).padStart(2, "0")}T10:00:00+00:00`;
 const runs = [
-  score("run_1", day(1), { first_try: 0, send_backs: 2, cost_usd: 0.8, views: 1200 }),
+  score("run_1", day(1), { first_try: 0, send_backs: 2, cost_usd: 0.8, outcomes: { views: 1200, clicks: 12 } }),
   score("run_2", day(2), { baseline: true, judged: 0, first_try: 0, send_backs: 0, cost_usd: 0.3 }),
   score("run_3", day(3)),
   score("run_4", day(4), { first_try: 2, send_backs: 0, cost_usd: 0.4, workflow_version: 2 }),
@@ -60,7 +60,7 @@ test("the old scorecard address opens the editor on its Scorecard tab: one row p
   expect(router.state.location.search).toEqual({ tab: "scorecard" });
   const rows = screen.getByTestId("score");
   expect(rows.elements()).toHaveLength(6);
-  await expect.element(rows.first()).toMatchTextContent(/v1.*done.*0 of 2.*2.*\$0\.80.*5 min.*1,200 views/);
+  await expect.element(rows.first()).toMatchTextContent(/v1.*done.*0 of 2.*2.*\$0\.80.*5 min.*1,200 views, 12 clicks/);
   await expect.element(rows.nth(1)).toMatchTextContent(/baseline.*none judged.*not measured/);
   await expect.element(rows.nth(4)).toMatchTextContent(/running.*running/);
   await expect.element(rows.nth(5)).toMatchTextContent(/ad hoc/);

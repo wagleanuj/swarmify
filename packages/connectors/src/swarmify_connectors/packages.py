@@ -314,6 +314,11 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             bad(f"owned_folders[{i}].folder", f"{folder} is declared twice")
     if "primary_metric" in manifest and "outcomes" not in manifest.get("capabilities", []):
         bad("primary_metric", "names an outcome, so the package offers the outcomes capability")
+    if "outcomes" in manifest.get("capabilities", []):
+        if manifest["kind"] != "publish":
+            bad("capabilities", "outcomes are a publish connector's, so its kind is publish")
+        if "primary_metric" not in manifest:
+            bad("primary_metric", "is required with outcomes: the one the scorecard ranks by")
     return manifest
 
 

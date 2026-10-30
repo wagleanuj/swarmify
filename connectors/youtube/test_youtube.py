@@ -349,6 +349,48 @@ def test_view_counts_come_from_videos_list_in_batches_of_50() -> None:
             yt.video_views(http, ENV, ["v1"])
 
 
+def test_outcomes_claim_every_post_that_is_a_youtube_video_whoever_posted_it() -> None:
+    posts = [
+        {"connector": "youtube", "id": "abc123", "links": {"youtube": "https://youtu.be/abc123"}},
+        {"connector": "youtube", "id": "sched1", "links": {}},  # scheduled: no link yet
+        {
+            "connector": "upload_post",
+            "id": "job_1",
+            "links": {
+                "youtube": "https://www.youtube.com/shorts/short_1",
+                "tiktok": "https://www.tiktok.com/@me/video/1",
+                "other": "https://youtube.com/watch?v=watch-2&t=3",
+            },
+        },
+        {"connector": "upload_post", "id": "job_9", "links": {}},
+        {"connector": "clicks", "id": "p1", "links": "not a map"},
+        {
+            "connector": "upload_post",
+            "id": "job_gone",
+            "links": {"youtube": "https://youtu.be/gone00"},
+        },
+    ]
+    assert yt.claimed(posts) == {
+        "abc123": ["abc123"],
+        "sched1": ["sched1"],
+        "job_1": ["short_1", "watch-2"],
+        "job_gone": ["gone00"],
+    }
+
+    def google(request: httpx.Request) -> httpx.Response:
+        ids = request.url.params["id"].split(",")
+        items = [{"id": i, "statistics": {"viewCount": "10"}} for i in ids if i != "gone00"]
+        return httpx.Response(200, json={"items": items})
+
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        assert yt.outcomes_of(http, ENV, posts) == {
+            "abc123": {"views": 10},
+            "sched1": {"views": 10},
+            "job_1": {"views": 20},  # its two YouTube videos add up
+        }
+        assert yt.outcomes_of(http, ENV, posts[3:5]) == {}  # nothing to ask YouTube
+
+
 def test_the_channel_tool_names_the_channel_the_account_posts_to() -> None:
     seen: list[httpx.Request] = []
 

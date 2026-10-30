@@ -48,8 +48,9 @@ A refresh Google refuses (the access revoked, the app's secret changed) or a cal
   (one resumable session, one PUT of the file); with a schedule the video goes up private with
   `publishAt` and YouTube makes it public then. It answers `id`, `url` (`https://youtu.be/<id>`)
   and `status` (`published` or `scheduled`).
-- `views` answers the view counts of up to 50 videos per `videos.list` call, for the outcome
-  write-back.
+- `outcomes` (the Outcomes Capability, ranked by `views`) answers the view counts of every post
+  that is a YouTube video: its own posts, and any post with a YouTube link, such as one
+  Upload-Post made. Up to 50 videos per `videos.list` call.
 - `channel` answers the title of the channel the account posts to.
 
 Each upload is tagged `swarmify-<idempotency key>` beside its own tags, and before uploading the

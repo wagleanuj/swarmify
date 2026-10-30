@@ -189,7 +189,7 @@ The run page reads the run, its events and its artifacts only (ADR 0002), top to
   verdict and artifacts; a gate's ask and your decision; a speech stage's takes per scene with their
   length, engine and any join with no silence; a build's session log in words, its render progress
   (`Rendered 412 of 870 frames`), the video and its project folder; a render's progress and video; a
-  publish stage's title, place, visibility, time, link and views; the retro's proposal and how it
+  publish stage's title, place, visibility, time, link and Outcome; the retro's proposal and how it
   went. Every connector stage keeps the raw call under `Technical details`.
 - **Live log** of the selected stage in words; a JSON answer collapses to one line (`Planned 5
   tasks`) that opens.
@@ -766,15 +766,20 @@ Every publish connector is a Connector Package (its own, or one a world added wi
 
 ### Outcomes
 
-Every six hours the API asks the `youtube` connector's `views` tool (`videos.list`, part
-statistics, 50 ids per call) for the view count of every video a publish artifact names: a
-`youtube` post's video id, and any YouTube link, whichever connector posted it. A changed count
-is written into that `publish.md`, as `views` and `views_at` in the frontmatter and as an
-`## Outcome` section in the body (replaced each time), because graphify reads bodies only; each
-write appends `outcome.recorded`. The run timeline shows the count on the publish card. A world
-whose `youtube` account is not signed in is skipped. The read needs the `youtube.readonly` scope,
-which the sign-in asks for beside `youtube.upload`; a V1 refresh token made before view counts
-existed needs a new sign-in.
+Every six hours the API asks each publish connector a world enables that offers the `outcomes`
+Capability for the Outcomes of all of the world's posts: `outcomes(posts)`, each post
+`{connector, id, links}` (`id` the post's as its connector answered it, else the record's path),
+answered `{post_id: {metric: number}}` for the posts it can read. A connector may claim posts
+another made by their links: the `youtube` package counts the views of every post with a YouTube
+link, so a video Upload-Post put on YouTube is counted too. Metrics a post gets from several
+connectors add up. A changed Outcome is written into that `publish.md`, as `outcomes`,
+`outcomes_at` and `primary_metric` in the frontmatter (a record from before keeps its `views`
+readable until then) and as an `## Outcome` section in the body (replaced each time), because
+graphify reads bodies only; each write appends `outcome.recorded`. The publish card shows it, and
+the Scorecard ranks each run by each post's Primary Metric: the one the Manifest's
+`primary_metric` names, the post's own connector's when it answered. A connector whose Setup is
+not done is skipped. YouTube's read needs the `youtube.readonly` scope, which the sign-in asks for
+beside `youtube.upload`; a V1 refresh token made before view counts existed needs a new sign-in.
 
 ## Retention
 

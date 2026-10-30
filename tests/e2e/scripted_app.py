@@ -197,7 +197,7 @@ class Transport(McpTransport):
         self.fake = FakeTransport(
             outputs={
                 "publish": [{"id": VIDEO, "url": f"https://youtu.be/{VIDEO}"}],
-                "views": [{"views": {VIDEO: 1234}}],
+                "outcomes": [{VIDEO: {"views": 1234}}],
             }
         )
 

@@ -418,20 +418,33 @@ class Memory:
         ]
 
     def record_outcome(
-        self, world_id: str, path: str, views: int, counts: dict[str, int], at: datetime
+        self, world_id: str, path: str, metrics: dict[str, float], primary: str, at: datetime
     ) -> None:
-        """Write a publish artifact's view count into its frontmatter (`views`, `views_at`) and
-        into an Outcome section of its body, replacing the last one. `counts` is per video."""
+        """Write a publish artifact's Outcome into its frontmatter (`outcomes` by metric,
+        `outcomes_at` and `primary_metric`, the one the scorecard ranks by) and into an Outcome
+        section of its body, replacing the last one. A record from before outcomes were generic
+        loses its `views` and `views_at`, which `outcomes` now holds."""
         file = self._inside(world_id, path)
         fields, body = _split(file.read_text())
-        day = at.astimezone(UTC).date().isoformat()
-        fields |= {"views": views, "views_at": at.astimezone(UTC).isoformat()}
-        lines = "".join(f"- {video}: {n:,} views\n" for video, n in counts.items())
+        for old in ("views", "views_at"):
+            fields.pop(old, None)
+        fields |= {
+            "outcomes": metrics,
+            "outcomes_at": at.astimezone(UTC).isoformat(),
+            "primary_metric": primary,
+        }
+        said = ", ".join(f"{n:,} {metric}" for metric, n in metrics.items())
         body = body.split(OUTCOME)[0].rstrip("\n")
-        file.write_text(
-            f"{_frontmatter(fields)}{body}\n\n{OUTCOME}{views:,} views as of {day}.\n\n{lines}"
+        day = at.astimezone(UTC).date().isoformat()
+        file.write_text(f"{_frontmatter(fields)}{body}\n\n{OUTCOME}{said} as of {day}.\n")
+        self._event(
+            world_id,
+            fields.get("run"),
+            "outcome.recorded",
+            path=path,
+            metrics=metrics,
+            primary=primary,
         )
-        self._event(world_id, fields.get("run"), "outcome.recorded", path=path, views=views)
 
     def prune(self, world_id: str, before: datetime, now: datetime) -> list[str]:
         """Delete every run file of the world that is not markdown and was last changed before

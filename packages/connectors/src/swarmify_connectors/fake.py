@@ -10,7 +10,8 @@ Answer = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, A
 
 class FakeTransport:
     """`tools` maps a connector name to what it lists; a connector missing there fails to start.
-    `outputs` maps a tool name to its answers in order (the last repeats). An exception answer
+    `outputs` maps a tool name to its answers in order (the last repeats), or `connector.tool`
+    for one connector's answers to a tool several offer, which win. An exception answer
     is raised; a BaseException stands in for a crash; a function answers with what it returns
     for the call's arguments. Undeclared tools answer `{"ok": True}`."""
 
@@ -37,7 +38,7 @@ class FakeTransport:
     ) -> dict[str, Any]:
         self.calls.append((connector.name, tool, arguments, env))
         self.versions.append(connector.version)
-        answers = self.outputs.get(tool)
+        answers = self.outputs.get(f"{connector.name}.{tool}") or self.outputs.get(tool)
         if not answers:
             return {"ok": True}
         answer = answers.pop(0) if len(answers) > 1 else answers[0]

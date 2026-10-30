@@ -41,7 +41,7 @@ def stage(id: str, status: str, started: str | None, ended: str | None) -> dict:
     }
 
 
-def test_each_run_of_the_workflow_scores_first_try_send_backs_cost_duration_and_views() -> None:
+def test_each_run_of_the_workflow_scores_first_try_send_backs_cost_duration_and_outcome() -> None:
     events = [
         run("run_1", "running", [stage("a", "running", T0, None)], created_at=T0),
         ev(
@@ -70,6 +70,16 @@ def test_each_run_of_the_workflow_scores_first_try_send_backs_cost_duration_and_
         ev("outcome.recorded", {"path": "runs/run_1/x/artifacts/publish.md", "views": 10}, "run_1"),
         ev("outcome.recorded", {"path": "runs/run_1/x/artifacts/publish.md", "views": 25}, "run_1"),
         ev("outcome.recorded", {"path": "runs/run_1/y/artifacts/publish.md", "views": 5}, "run_1"),
+        # a connector reporting clicks, ranked by its Primary Metric; views beside it do not count
+        ev(
+            "outcome.recorded",
+            {
+                "path": "runs/run_1/z/artifacts/publish.md",
+                "metrics": {"clicks": 7, "views": 900},
+                "primary": "clicks",
+            },
+            "run_1",
+        ),
         run("run_2", "queued", [stage("a", "pending", None, None)], created_at=T1, baseline=True),
         run("run_3", "done", [stage("a", "done", T0, T1)], created_at=T2, workflow_id="wf_other"),
         run(
@@ -83,12 +93,16 @@ def test_each_run_of_the_workflow_scores_first_try_send_backs_cost_duration_and_
     older, first, second = scorecard(events, "wf_1")
     assert [s.run_id for s in (older, first, second)] == ["run_4", "run_1", "run_2"]
     assert (first.judged, first.first_try, first.send_backs, first.cost_usd) == (2, 1, 1, 0.42)
-    assert (first.status, first.duration_s, first.views) == ("done", 450.0, 30)
-    assert (second.baseline, second.judged, second.duration_s, second.views) == (
+    assert (first.status, first.duration_s, first.outcomes) == (
+        "done",
+        450.0,
+        {"views": 30, "clicks": 7},  # the older events, written before outcomes, count as views
+    )
+    assert (second.baseline, second.judged, second.duration_s, second.outcomes) == (
         True,
         0,
         None,
-        None,
+        {},
     )
     assert (older.workflow_version, older.duration_s) == (2, 450.0)
     assert scorecard(events, "wf_nope") == []
