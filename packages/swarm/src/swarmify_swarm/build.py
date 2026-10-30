@@ -36,6 +36,18 @@ VOICE_EXAMPLE = Path(__file__).with_name("voice_first.tsx")
 """The spike's voice-first composition (2026-10-28), reading the speech connector's timings."""
 
 
+def readable(build: Path, world_folder: Path) -> list[Path]:
+    """What the session may read besides its own folder: the world's assets and the run's other
+    stage folders (the script, the narration takes, the decisions). Never a folder that holds the
+    build folder: bubblewrap mounts a read-only path over the writable build folder inside it,
+    and the sandbox then cannot start, so every command fails (Seatbelt lets the write win)."""
+    stage = build.parent
+    run = stage.parent
+    others = sorted(d for d in run.iterdir() if d.is_dir() and d != stage) if run.is_dir() else []
+    assets = world_folder / "assets"
+    return ([assets] if assets.is_dir() else []) + others
+
+
 def sandbox(
     build: Path, world_folder: Path, data_dir: Path, cache: Path, secrets: list[str]
 ) -> dict[str, Any]:
@@ -52,7 +64,7 @@ def sandbox(
         "filesystem": {
             "allowWrite": [str(build), str(cache)],
             "denyRead": [str(data_dir)],
-            "allowRead": [str(build), str(cache), str(world_folder)],
+            "allowRead": [str(cache), *map(str, readable(build, world_folder))],
         },
         "credentials": {
             "envVars": [{"name": n, "mode": "deny"} for n in [*secrets, *MODEL_CREDENTIALS]]
