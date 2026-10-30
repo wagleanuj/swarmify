@@ -84,7 +84,7 @@ test("the fourth fail says the stage failed", async () => {
   await expect.element(screen.getByTestId("verdict")).toMatchTextContent(/loop 4 of 4\. That was the last loop, so the stage failed\./);
 });
 
-test("a publish card shows the views written back, and a pruned file says its record stayed", async () => {
+test("a publish card shows its Outcome (one written before outcomes were generic kept views), and a pruned file says its record stayed", async () => {
   const publish: ArtifactFile = {
     name: "publish.md",
     path: "runs/run_1/stage_0/artifacts/publish.md",
@@ -113,7 +113,7 @@ test("a publish card shows the views written back, and a pruned file says its re
   };
   routes([], () => [publish, video]);
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("views")).toHaveTextContent("41,250 views as of 2026-10-27");
+  await expect.element(screen.getByTestId("outcome")).toHaveTextContent("41,250 views as of 2026-10-27");
   await expect.element(screen.getByTestId("artifact-card")).not.toHaveTextContent("source paragraph");
   await expect
     .element(screen.getByTestId("artifacts"))

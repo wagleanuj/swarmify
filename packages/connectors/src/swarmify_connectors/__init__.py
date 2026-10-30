@@ -221,6 +221,13 @@ def _preview_args(
     }
 
 
+def _number(value: Any) -> float:
+    """An outcome's value: a number (a whole one kept whole), else ValueError."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"not a number: {value!r}")
+    return int(value) if float(value).is_integer() else float(value)
+
+
 def _is_schema(schema: dict[str, Any]) -> bool:
     try:
         validator_for(schema).check_schema(schema)
@@ -1070,17 +1077,28 @@ class Connectors:
 
     # Outcomes
 
-    def youtube_views(self, world_id: str, video_ids: list[str]) -> dict[str, int]:
-        """View counts by video id from the `youtube` connector's `views` tool, the scheduled
-        outcome write-back. Raises ConnectorError, as when its credentials are missing."""
-        connector = self.find(world_id, "youtube")
-        if connector is None or not video_ids:
-            return {}
-        answer = self._tool(connector, "views", {"video_ids": video_ids}, self._env(connector))
-        counts = answer.get("views")
-        if not isinstance(counts, dict):
-            raise ConnectorError(f"youtube views answered without counts: {answer}")
-        return {str(k): int(v) for k, v in counts.items()}
+    def outcome_reporters(self, world_id: str) -> list[Connector]:
+        """The world's publish connectors offering the `outcomes` Capability."""
+        return [
+            c
+            for c in self.list_all(world_id)
+            if c.kind == "publish" and "outcomes" in c.manifest.get("capabilities", [])
+        ]
+
+    def outcomes(
+        self, connector: Connector, posts: list[dict[str, Any]]
+    ) -> dict[str, dict[str, float]]:
+        """The connector's `outcomes` answer for the world's posts (`{connector, id, links}`
+        each): metrics by post id, for the posts it claims. Raises ConnectorError, as when its
+        Setup is not done or it answers anything but numbers by metric by post."""
+        answer = self._tool(connector, "outcomes", {"posts": posts}, self._env(connector))
+        try:
+            return {
+                str(post): {str(m): _number(n) for m, n in metrics.items()}
+                for post, metrics in answer.items()
+            }
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ConnectorError(f"{connector.name} outcomes answered {answer!r}"[:300]) from exc
 
     # Connector stages
 

@@ -1,6 +1,6 @@
 """Shared helpers for the API tests: a polling wait, the recording Notifier fake, and the youtube
-package's own preview with its account signed in, for tests that publish through it over the
-fake ConnectorTransport."""
+package's own preview and outcomes with its account signed in, for tests that publish through it
+over the fake ConnectorTransport."""
 
 import importlib.util
 import time
@@ -24,6 +24,12 @@ YOUTUBE_ENV = {"YOUTUBE_ACCESS_TOKEN": "at"}
 def youtube_preview(args: dict[str, Any]) -> dict[str, Any]:
     """The youtube package's `preview`, answering as its MCP tool does."""
     return youtube.preview_of(args)
+
+
+def youtube_outcomes(views: int) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """The youtube package's `outcomes`, claiming posts as its MCP tool does, every video of
+    them at `views`."""
+    return lambda args: {post: {"views": views} for post in youtube.claimed(args["posts"])}
 
 
 def sign_in_youtube(data_dir: Path) -> None:

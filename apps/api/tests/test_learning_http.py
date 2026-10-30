@@ -352,7 +352,7 @@ def test_the_same_send_back_in_three_runs_brings_a_workflow_suggestion_the_gate_
     assert [s["run_id"] for s in scores] == [r["id"] for r in runs]
     for s in scores:
         assert (s["judged"], s["first_try"], s["send_backs"], s["status"]) == (1, 1, 1, "done")
-        assert s["cost_usd"] > 0 and s["duration_s"] is not None and s["views"] is None
+        assert s["cost_usd"] > 0 and s["duration_s"] is not None and s["outcomes"] == {}
         assert s["workflow_version"] == 1 and s["baseline"] is False
     assert running.get("/api/workflows/wf_nope/scorecard").status_code == 404
 

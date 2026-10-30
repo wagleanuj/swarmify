@@ -49,7 +49,7 @@ test("the figures count today's top runs, their spend, the slots in use and firs
   ];
   const score = (judged: number, first_try: number) => ({
     run_id: "r", name: "Weekly short", workflow_version: 1, baseline: false, status: "done",
-    created_at: now, judged, first_try, send_backs: 0, cost_usd: 1, duration_s: null, views: null,
+    created_at: now, judged, first_try, send_backs: 0, cost_usd: 1, duration_s: null, outcomes: {},
   });
   const weekly = { id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: now };
   fakeFetch({

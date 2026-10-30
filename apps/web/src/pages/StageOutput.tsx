@@ -1,4 +1,4 @@
-import type { ArtifactFile, Verdict } from "../api/events";
+import { type ArtifactFile, outcomeOf, type Verdict } from "../api/events";
 import { cap, the } from "../skin";
 
 /** Loops a stage may take: the first verdict plus three gap loops. Mirrors swarmify_swarm.MAX_LOOPS. */
@@ -62,6 +62,7 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
           <ul className="cards">
             {typed.map((a) => {
               const sources = (a.fields.sources as string[] | undefined) ?? [];
+              const outcome = a.type === "publish" ? outcomeOf(a.fields) : null;
               return (
                 <li key={a.path} className="card" data-testid="artifact-card">
                   <span className="faint">
@@ -71,10 +72,9 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
                   <b>{a.title}</b>
                   {typeof a.fields.hook === "string" && <span>Hook: {a.fields.hook}</span>}
                   {typeof a.fields.why === "string" && <span>Why: {a.fields.why}</span>}
-                  {typeof a.fields.views === "number" && (
-                    <span data-testid="views">
-                      {a.fields.views.toLocaleString("en")} views as of{" "}
-                      {String(a.fields.views_at ?? "").slice(0, 10)}
+                  {outcome && (
+                    <span data-testid="outcome">
+                      {outcome.line} as of {outcome.day}
                     </span>
                   )}
                   {a.type !== "publish" && (

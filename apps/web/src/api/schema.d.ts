@@ -656,7 +656,7 @@ export interface paths {
         /**
          * Set Credentials
          * @description Store a connector's keys in the credentials file, shared by every world; how
-         *     built-ins get theirs. A built-in publish connector's keys are then checked live.
+         *     built-ins get theirs.
          */
         put: operations["set_credentials_api_connectors__connector_id__credentials_put"];
         post?: never;
@@ -2921,8 +2921,10 @@ export interface components {
             cost_usd: number;
             /** Duration S */
             duration_s: number | null;
-            /** Views */
-            views: number | null;
+            /** Outcomes */
+            outcomes: {
+                [key: string]: number;
+            };
         };
         /**
          * RunStageView

@@ -6,9 +6,11 @@ stop it; the core shows them at the gate and sends back what was confirmed. `pub
 confirmed values with `videos.insert` (resumable upload, one request for the metadata and one for
 the bytes) and answers the video's id and link. With a `schedule` the video is uploaded private
 with `publishAt`, and YouTube makes it public at that time: `publishAt` can be set only while the
-privacy status is private. `views` answers the view counts of up to 50 videos with one
-`videos.list` call (part statistics, 1 quota unit): the outcome write-back. `channel` answers the
-title of the channel the account posts to (`channels.list` mine, 1 quota unit).
+privacy status is private. `outcomes` (the Capability) answers the views of every post the core
+passes that is a YouTube video, by its own id or by a YouTube link, so a video another connector
+posted counts too; one `videos.list` call per 50 videos (part statistics, 1 quota unit).
+`channel` answers the title of the channel the account posts to (`channels.list` mine, 1 quota
+unit).
 
 The account is the Manifest's `youtube` oauth field: Swarmify signs in, keeps the token set and
 starts this process with a current access token as YOUTUBE_ACCESS_TOKEN. A token Google refuses
@@ -373,10 +375,45 @@ def video_views(http: httpx.Client, env: Mapping[str, str], ids: list[str]) -> d
     return counts
 
 
-@mcp.tool(description="View counts of YouTube videos by id, for the outcome write-back.")
-def views(video_ids: list[str]) -> dict[str, Any]:
+_LINK = re.compile(
+    r"^https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/))([\w-]{6,20})"
+)
+
+
+def claimed(posts: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """The YouTube videos of each post that has any, by post id: every YouTube link, whichever
+    connector posted it, plus the id of this connector's own post that has no link yet."""
+    out = {}
+    for post in posts:
+        links = post.get("links")
+        urls = links.values() if isinstance(links, dict) else []
+        videos = [m[1] for url in urls if (m := _LINK.match(str(url)))]
+        if post.get("connector") == "youtube" and post.get("id"):
+            videos.append(str(post["id"]))
+        if videos and post.get("id"):
+            out[str(post["id"])] = list(dict.fromkeys(videos))
+    return out
+
+
+def outcomes_of(http: httpx.Client, env: Mapping[str, str], posts: list[dict[str, Any]]) -> dict:
+    """The views of every post that is a YouTube video, by post id; a post whose videos YouTube
+    no longer has is left out."""
+    videos = claimed(posts)
+    counts = video_views(http, env, [v for vs in videos.values() for v in vs])
+    return {
+        post: {"views": sum(counts[v] for v in vs if v in counts)}
+        for post, vs in videos.items()
+        if any(v in counts for v in vs)
+    }
+
+
+@mcp.tool(
+    description="The Outcomes Capability: views of every post that is a YouTube video, whoever "
+    "posted it, by post id."
+)
+def outcomes(posts: list[dict[str, Any]]) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as http:
-        return {"views": video_views(http, os.environ, video_ids)}
+        return outcomes_of(http, os.environ, posts)
 
 
 def channel_name(http: httpx.Client, env: Mapping[str, str]) -> str:

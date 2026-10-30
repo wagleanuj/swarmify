@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import type { Agent, ArtifactFile, LogEntry, Verdict } from "../api/events";
+import { type Agent, type ArtifactFile, type LogEntry, outcomeOf, type Verdict } from "../api/events";
 import { type Connector, type Connectors, labelOf } from "../api/connectors";
 import { type Call, clock, decisionLine, type Run } from "../api/runs";
 import type { components } from "../api/schema";
@@ -345,6 +345,7 @@ function PublishPanel({ made, call, connectors }: { made: ArtifactFile[]; call: 
     return <p className="faint">Nothing has gone out from this stage. It posts what the gate before it confirmed.</p>;
   }
   const f = post.fields;
+  const outcome = outcomeOf(f);
   const links = Object.values((f.links as Record<string, string> | undefined) ?? {});
   const where = labelOf(connectors, String(f.connector ?? call?.connector ?? ""));
   // What went out, as its connector described it; a post from before #127 kept fixed fields.
@@ -368,11 +369,11 @@ function PublishPanel({ made, call, connectors }: { made: ArtifactFile[]; call: 
             </dd>
           </div>
         ))}
-        {typeof f.views === "number" && (
+        {outcome && (
           <>
-            <dt>Views</dt>
-            <dd data-testid="views">
-              {f.views.toLocaleString("en")} as of {String(f.views_at ?? "").slice(0, 10)}
+            <dt>Outcome</dt>
+            <dd data-testid="outcome">
+              {outcome.line} as of {outcome.day}
             </dd>
           </>
         )}

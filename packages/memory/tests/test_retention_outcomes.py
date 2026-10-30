@@ -75,24 +75,34 @@ def test_prune_deletes_old_binaries_and_keeps_markdown_and_sidecars(memory: Memo
 
 def test_an_outcome_lands_in_frontmatter_and_body_replacing_the_last_one(memory: Memory) -> None:
     body = "# Five hooks\n\nshort.mp4 went to youtube: public, now.\n\n- youtube: https://youtu.be/v1\n"
+    old = {"id": "v1", "views": 9, "views_at": "2026-10-01"}  # written before outcomes were generic
     path = memory.write_artifact(
-        "w1", "r1", "s9", "publish", "publish.md", body, kind="publish", fields={"id": "v1"}
+        "w1", "r1", "s9", "publish", "publish.md", body, kind="publish", fields=old
     )
     [(found, fields)] = memory.publish_records("w1")
     assert (found, fields["type"], fields["id"]) == (path, "publish", "v1")
 
-    memory.record_outcome("w1", path, 41000, {"v1": 41000}, NOW)
-    memory.record_outcome("w1", path, 41250, {"v1": 41250}, NOW + timedelta(days=1))
+    memory.record_outcome("w1", path, {"views": 41000}, "views", NOW)
+    memory.record_outcome(
+        "w1", path, {"views": 41250, "clicks": 3}, "views", NOW + timedelta(days=1)
+    )
 
     text = (memory.world_folder("w1") / path).read_text()
     [(_, fields)] = memory.publish_records("w1")
-    assert fields["views"] == 41250 and fields["views_at"] == "2026-10-27T12:00:00+00:00"
+    assert "views" not in fields and "views_at" not in fields
+    assert fields["outcomes"] == {"views": 41250, "clicks": 3}
+    assert (fields["outcomes_at"], fields["primary_metric"]) == (
+        "2026-10-27T12:00:00+00:00",
+        "views",
+    )
     assert text.count("## Outcome") == 1
     assert text.endswith(
-        "- youtube: https://youtu.be/v1\n\n## Outcome\n\n41,250 views as of 2026-10-27.\n\n"
-        "- v1: 41,250 views\n"
+        "- youtube: https://youtu.be/v1\n\n## Outcome\n\n41,250 views, 3 clicks as of 2026-10-27.\n"
     )
     recorded = [(t, p) for t, p in _events(memory) if t == "outcome.recorded"]
-    assert recorded[-1] == ("outcome.recorded", {"path": path, "views": 41250})
+    assert recorded[-1] == (
+        "outcome.recorded",
+        {"path": path, "metrics": {"views": 41250, "clicks": 3}, "primary": "views"},
+    )
     with pytest.raises(ValueError, match="not a file"):
-        memory.record_outcome("w1", "../../escape.md", 1, {}, NOW)
+        memory.record_outcome("w1", "../../escape.md", {}, "views", NOW)

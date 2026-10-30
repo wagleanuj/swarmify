@@ -11,10 +11,15 @@ error; a post with failures and no links fails the stage). It may answer a long 
 (`job_id` and `poll`), whose last answer carries the same. The core shows the
 fields at the gate, lets the person edit the editable ones, refuses to go on while there are
 problems, and records the values confirmed. Every publish connector is a Connector Package
-answering both as MCP tools, as `connectors/youtube` and `connectors/upload_post` do.
+answering both as MCP tools, as the publish packages in `connectors/` do.
+
+A publish connector may also offer the `outcomes` Capability, naming its `primary_metric` in its
+Manifest: `outcomes` gets `posts`, every publish record of a world as `{connector, id, links}`
+(`id` the post's as its connector answered it, else the record's path), and answers
+`{post_id: {metric: number}}` for the posts it can read, whoever posted them: a package may claim
+another's posts by their links.
 """
 
-import re
 from typing import Any
 
 
@@ -78,19 +83,3 @@ def markdown(connector: str, fields: list[dict[str, Any]], out: dict[str, Any]) 
         + "\n".join(landed)
         + "\n"
     )
-
-
-_YOUTUBE = re.compile(
-    r"^https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/))([\w-]{6,20})"
-)
-
-
-def youtube_ids(fields: dict[str, Any]) -> list[str]:
-    """The YouTube video ids a publish artifact names: every YouTube link, whichever connector
-    posted it, plus the video id of a `youtube` post that has no link yet."""
-    links = fields.get("links")
-    links = links if isinstance(links, dict) else {}
-    ids = [m[1] for url in links.values() if (m := _YOUTUBE.match(str(url)))]
-    if fields.get("connector") == "youtube" and fields.get("id"):
-        ids.append(str(fields["id"]))
-    return list(dict.fromkeys(ids))

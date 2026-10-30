@@ -101,5 +101,6 @@ class RunScore:
     send_backs: int
     cost_usd: float
     duration_s: float | None
-    views: int | None
-    """The published artifacts' latest view counts, summed; None when nothing was measured."""
+    outcomes: dict[str, float]
+    """The published artifacts' latest Outcomes by each one's Primary Metric, summed per metric,
+    as {"views": 9000, "clicks": 12}; empty when nothing was measured."""

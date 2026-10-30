@@ -135,7 +135,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
 
     # Upkeep writes the video's views into the publish record and onto the scorecard (84, 85).
     until(lambda: "1,234 views" in publish.read_text())
-    assert "e2e-video: 1,234 views" in publish.read_text()  # in the body, where the graph reads
+    assert "## Outcome\n\n1,234 views as of " in publish.read_text()  # the body, read by the graph
     page.goto(f"{base_url}/worlds/{world}")
     page.get_by_role("link", name="Scorecard of Weekly short").click()
     expect(page.get_by_test_id("score")).to_contain_text("1,234 views")

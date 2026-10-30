@@ -6,7 +6,8 @@ label = "YouTube"
 about = "Uploads to YouTube through the Data API; a schedule keeps it private until then."
 kind = "publish"
 stage_types = ["connector"]
-capabilities = ["publish"]
+capabilities = ["publish", "outcomes"]
+primary_metric = "views"
 
 runtime = "uv"
 install = ["uv", "sync", "--frozen", "--no-dev"]

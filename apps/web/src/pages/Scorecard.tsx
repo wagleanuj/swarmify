@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { outcomeLine } from "../api/events";
 import { money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { baseline, the } from "../skin";
@@ -118,7 +119,7 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
                     <td className="num">{r.send_backs}</td>
                     <td className="num">{money(r.cost_usd)}</td>
                     <td className="num">{r.duration_s === null ? "running" : took(r.duration_s)}</td>
-                    <td>{r.views === null ? "not measured" : `${r.views.toLocaleString()} views`}</td>
+                    <td>{outcomeLine(r.outcomes) ?? "not measured"}</td>
                   </tr>
                 ))}
               </tbody>
