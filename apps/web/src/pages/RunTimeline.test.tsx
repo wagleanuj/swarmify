@@ -309,7 +309,7 @@ test("done with a document: its first lines and Open", async () => {
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   const result = screen.getByTestId("document");
   await expect.element(result).toMatchTextContent(/What makes a hook\s*Open on the question\.\s*Open$/);
-  await expect.element(result.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/api/worlds/world_1/files/runs/run_1/stage_0/artifacts/notes.md");
+  await expect.element(result.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/worlds/world_1/read?path=runs%2Frun_1%2Fstage_0%2Fartifacts%2Fnotes.md");
 });
 
 test("done with a list: its item cards", async () => {

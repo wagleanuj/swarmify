@@ -62,7 +62,7 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
   await cards.first().getByText("Why it ranked here").click();
   await expect.element(cards.first().getByRole("link")).toHaveAttribute(
     "href",
-    "/api/worlds/world_1/files/runs/run_1/stage_0/notes/trends.md",
+    "/worlds/world_1/read?path=runs%2Frun_1%2Fstage_0%2Fnotes%2Ftrends.md",
   );
   // Without a hook the card summarises the body; without a source it says so.
   // The judge's reason for the rank, for any type; an idea's own `why` when it gave none.

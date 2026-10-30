@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { graphRoute } from "../router";
+import { FileLink } from "./Artifacts";
 
 type World = components["schemas"]["World"];
 type View = components["schemas"]["GraphView"];
@@ -26,7 +27,6 @@ const took = (s: number) => (s < 90 ? `${Math.round(s)}s` : `${Math.round(s / 60
 
 /** Where a node came from: its run's timeline and the note itself. */
 function Sources({ node, worldId }: { node: Node; worldId: string }) {
-  const file = node.source_file.split("/").map(encodeURIComponent).join("/");
   return (
     <>
       {node.run_id && (
@@ -35,9 +35,9 @@ function Sources({ node, worldId }: { node: Node; worldId: string }) {
         </Link>
       )}{" "}
       {node.source_file && (
-        <a href={`/api/worlds/${worldId}/files/${file}`} target="_blank" rel="noreferrer" className="faint">
+        <FileLink a={{ path: node.source_file, name: node.source_file }} worldId={worldId} className="faint">
           note
-        </a>
+        </FileLink>
       )}
     </>
   );

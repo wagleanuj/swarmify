@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Fragment, type ReactNode } from "react";
 
 import type { ArtifactFile } from "../api/events";
@@ -10,6 +11,25 @@ export const fileUrl = (worldId: string, path: string) =>
  * bytes live one `.md` short of its path. */
 export const rawUrl = (worldId: string, a: Pick<ArtifactFile, "path" | "name">) =>
   fileUrl(worldId, a.path.endsWith(`/${a.name}.md`) ? a.path.slice(0, -3) : a.path);
+
+/** A document the reader shows: markdown or plain text. */
+export const DOCUMENT = /\.(md|txt)$/i;
+
+/** Open a file: a document in the in-app reader, anything else as the raw file in a new tab. */
+export function FileLink({ a, worldId, className, children }: { a: Pick<ArtifactFile, "path" | "name">; worldId: string; className?: string; children: ReactNode }) {
+  if (DOCUMENT.test(a.name)) {
+    return (
+      <Link to="/worlds/$worldId/read" params={{ worldId }} search={{ path: a.path }} className={className}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <a href={rawUrl(worldId, a)} target="_blank" rel="noreferrer" className={className}>
+      {children}
+    </a>
+  );
+}
 
 /** What the run wrote about itself, not something to choose or review. */
 export const RECORD = new Set(["verdict", "decision", "note"]);
@@ -40,7 +60,8 @@ export function underReview(artifacts: ArtifactFile[]): ArtifactFile[] {
 function Source({ ref, worldId }: { ref: string; worldId: string }) {
   const [path = "", p] = ref.split("#p");
   return (
-    <a href={fileUrl(worldId, path)} target="_blank" rel="noreferrer">
+    // A new tab keeps a half-made pick on the gate.
+    <a href={`/worlds/${worldId}/read?${new URLSearchParams({ path })}`} target="_blank" rel="noreferrer">
       {path.split("/").pop()}, paragraph {p}
     </a>
   );
@@ -123,9 +144,9 @@ export function ArtifactView({ artifacts, worldId }: { artifacts: ArtifactFile[]
                 <Markdown text={a.body} />
               </>
             ) : (
-              <a href={url} target="_blank" rel="noreferrer">
+              <FileLink a={a} worldId={worldId}>
                 Open {a.name}
-              </a>
+              </FileLink>
             )}
           </figure>
         );
@@ -160,8 +181,9 @@ export function TypedText({ body }: { body: string }) {
 }
 
 /** Markdown as agents write it: headings, paragraphs, lists, fenced code, bold, code spans and
- * web links. Built as elements, never as HTML, so an agent's text cannot script the page.
- * ponytail: no tables, nesting or images; a markdown library when documents need them. */
+ * web links and images, and tables. Built as elements, never as HTML, so an agent's text cannot
+ * script the page. ponytail: no nesting and no run-relative images; a markdown library when
+ * documents need them. */
 export function Markdown({ text }: { text: string }) {
   const blocks = text
     .split(/\n\s*\n/)
@@ -179,6 +201,24 @@ function block(b: string, key: number): ReactNode {
   }
   if (b.startsWith("```")) return <pre key={key}>{b.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "")}</pre>;
   const lines = b.split("\n");
+  if (lines.length > 1 && lines.every((l) => l.trim().startsWith("|")) && /^[\s|:-]+$/.test(lines[1] ?? "")) {
+    const cells = (l: string) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+    return (
+      // A wide table scrolls inside itself, never the page.
+      <div key={key} className="scroll-x">
+        <table>
+          <thead>
+            <tr>{cells(lines[0] ?? "").map((c, i) => <th key={i}>{inline(c)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {lines.slice(2).map((l, r) => (
+              <tr key={r}>{cells(l).map((c, i) => <td key={i}>{inline(c)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
   if (lines.every((l) => /^[-*] /.test(l))) {
     return <ul key={key}>{lines.map((l, i) => <li key={i}>{inline(l.slice(2))}</li>)}</ul>;
   }
@@ -189,9 +229,11 @@ function block(b: string, key: number): ReactNode {
 }
 
 function inline(s: string): ReactNode[] {
-  return s.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g).map((part, i) => {
+  return s.split(/(\*\*[^*]+\*\*|`[^`]+`|!?\[[^\]]*\]\(https?:\/\/[^)\s]+\))/g).map((part, i) => {
     if (part.startsWith("**")) return <b key={i}>{part.slice(2, -2)}</b>;
     if (part.startsWith("`")) return <code key={i}>{part.slice(1, -1)}</code>;
+    const image = /^!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
+    if (image) return <img key={i} src={image[2]} alt={image[1]} />;
     const link = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
     if (link) {
       return (

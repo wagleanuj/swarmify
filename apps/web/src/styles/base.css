@@ -207,13 +207,24 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 .artifact-view figcaption .faint { margin-left: 6px; }
 .artifact-view video, .artifact-view img { display: block; max-width: 100%; max-height: 70vh; border-radius: var(--radius-field); background: var(--well); border: 1px solid var(--border); }
 .artifact-view video { width: min(100%, 36rem); }
-.typed-text { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.typed-text { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; }
 .typed-text dt { color: var(--muted); }
-.typed-text dd { margin: 0; }
-.md { display: grid; gap: 8px; max-width: 62ch; }
+.typed-text dd { margin: 0; overflow-wrap: anywhere; }
+/* Long links and paths wrap; code and tables scroll inside themselves (#183). */
+.md { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; max-width: 62ch; overflow-wrap: anywhere; }
 .md p, .md ul, .md ol { margin: 0; color: var(--text); }
 .md ul, .md ol { padding-left: 20px; }
 .md h3, .md h4, .md h5, .md h6 { margin: 4px 0 0; font-size: 14px; }
+.md img { max-width: 100%; height: auto; border-radius: var(--radius-field); }
+.scroll-x { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: 13px; }
+.md th, .md td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 8ch; }
+.md th { color: var(--muted); font-weight: 600; background: var(--well); }
+.reader { display: grid; gap: 16px; max-width: 48rem; }
+.reader header.page { margin-bottom: 0; }
+.reader .panel { display: grid; gap: 16px; }
+.reader .md { max-width: none; font-size: 15px; line-height: 1.6; }
+.reader pre { white-space: pre; word-break: normal; overflow-wrap: normal; }
 
 @media (max-width: 48rem) {
   main { padding: 16px 16px 48px; }

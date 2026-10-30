@@ -7,7 +7,7 @@ import { type Call, clock, decisionLine, PUBLISHERS, type Run } from "../api/run
 import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
-import { ArtifactView, AUDIO, fileUrl, IMAGE, Markdown, RECORD, rawUrl, summary, underReview, VIDEO } from "./Artifacts";
+import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, RECORD, rawUrl, summary, underReview, VIDEO } from "./Artifacts";
 import { LABEL } from "./Connectors";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
@@ -94,16 +94,16 @@ export function Made({ a, worldId }: { a: ArtifactFile; worldId: string }) {
     return (
       <div className="document" data-testid="document">
         <Markdown text={firstLines(a.body)} />
-        <a href={url} target="_blank" rel="noreferrer" className="button">
+        <FileLink a={a} worldId={worldId} className="button">
           Open
-        </a>
+        </FileLink>
       </div>
     );
   }
   return (
-    <a href={url} target="_blank" rel="noreferrer">
+    <FileLink a={a} worldId={worldId}>
       Open {a.name}
-    </a>
+    </FileLink>
   );
 }
 
@@ -153,9 +153,9 @@ export function Result({ run, artifacts, worldId }: { run: Run; artifacts: Artif
             )}
             <dt>File</dt>
             <dd>
-              <a href={rawUrl(worldId, one)} target="_blank" rel="noreferrer">
+              <FileLink a={one} worldId={worldId}>
                 {one.name}
-              </a>
+              </FileLink>
             </dd>
           </dl>
         </>
@@ -465,9 +465,9 @@ function StepInputs({ run, stage, artifacts, worldId }: { run: Run; stage: Stage
           <li key={name} data-testid="input">
             {a && from ? (
               <>
-                <a href={rawUrl(worldId, a)} target="_blank" rel="noreferrer">
+                <FileLink a={a} worldId={worldId}>
                   {a.name}
-                </a>{" "}
+                </FileLink>{" "}
                 <span className="faint">
                   from{" "}
                   <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: run.id }} search={{ stage: from.id }}>
@@ -499,9 +499,9 @@ function AllFiles({ made, worldId }: { made: ArtifactFile[]; worldId: string }) 
             {a.fields.deleted ? (
               <span className="faint">{a.name}, deleted by retention</span>
             ) : (
-              <a href={rawUrl(worldId, a)} target="_blank" rel="noreferrer">
+              <FileLink a={a} worldId={worldId}>
                 {a.name}
-              </a>
+              </FileLink>
             )}{" "}
             <span className="faint">{a.type}</span>
           </li>
