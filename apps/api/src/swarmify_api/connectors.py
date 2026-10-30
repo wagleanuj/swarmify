@@ -1,4 +1,5 @@
-"""HTTP face of the Connectors context: the registry, test-and-list-tools, and stage calls."""
+"""HTTP face of the Connectors context: the registry, test-and-list-tools, stage calls, and the
+Connector Packages installed for the whole install."""
 
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
@@ -12,7 +13,11 @@ from swarmify_connectors import (
     ConnectorError,
     Connectors,
     HealthCheck,
+    InstallError,
     KeyCheck,
+    ManifestError,
+    Package,
+    Packages,
     Tool,
 )
 from swarmify_worlds import Worlds
@@ -80,7 +85,12 @@ class CredentialValues(BaseModel):
     """Credential name to value, for the connector's own names only. Never returned."""
 
 
-def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
+class PackageSource(BaseModel):
+    source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+    """A folder of this repository, as `connectors/speech`, or an absolute local path."""
+
+
+def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["connectors"])
 
     def view(connector: Connector) -> ConnectorView:
@@ -162,6 +172,23 @@ def router(connectors: Connectors, worlds: Worlds) -> APIRouter:
             return connectors.health(found)
         except ConnectorError as exc:
             raise HTTPException(502, str(exc)) from exc
+
+    @api.get("/packages")
+    def list_packages() -> list[Package]:
+        """Every Connector Package version installed for the whole install (ADR 0023)."""
+        return packages.list()
+
+    @api.post("/packages", status_code=201)
+    def install_package(body: PackageSource) -> Package:
+        """Copy the package to `<data dir>/packages/<name>/<version>/` and run its install step
+        there. 422 naming the field for an invalid Manifest, or saying why it did not install
+        (that version is installed already, the step failed); nothing new is left behind."""
+        try:
+            return packages.install(body.source)
+        except ManifestError as exc:
+            raise HTTPException(422, f"invalid Manifest: {exc}") from exc
+        except InstallError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

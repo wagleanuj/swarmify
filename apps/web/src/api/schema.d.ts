@@ -679,6 +679,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Packages
+         * @description Every Connector Package version installed for the whole install (ADR 0023).
+         */
+        get: operations["list_packages_api_packages_get"];
+        put?: never;
+        /**
+         * Install Package
+         * @description Copy the package to `<data dir>/packages/<name>/<version>/` and run its install step
+         *     there. 422 naming the field for an invalid Manifest, or saying why it did not install
+         *     (that version is installed already, the step failed); nothing new is left behind.
+         */
+        post: operations["install_package_api_packages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stage_id}/call": {
         parameters: {
             query?: never;
@@ -2263,6 +2289,36 @@ export interface components {
             body: string;
             /** Ts */
             ts: string;
+        };
+        /**
+         * Package
+         * @description One installed version of a Connector Package. `state` is `installed`, or `invalid` with
+         *     `problem` when its Manifest no longer passes (a newer Swarmify, an edited file).
+         */
+        Package: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string;
+            /** About */
+            about: string;
+            /** State */
+            state: string;
+            /** Source */
+            source: string;
+            /** Installed At */
+            installed_at: string;
+            /** Problem */
+            problem?: string | null;
+        };
+        /** PackageSource */
+        PackageSource: {
+            /** Source */
+            source: string;
         };
         /**
          * Pair
@@ -4564,6 +4620,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthCheck"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_packages_api_packages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Package"][];
+                };
+            };
+        };
+    };
+    install_package_api_packages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageSource"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Package"];
                 };
             };
             /** @description Validation Error */

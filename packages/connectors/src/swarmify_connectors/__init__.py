@@ -41,6 +41,13 @@ from swarmify_connectors.model import (
     Kind,
     Tool,
 )
+from swarmify_connectors.packages import (
+    InstallError,
+    ManifestError,
+    Package,
+    Packages,
+    read_manifest,
+)
 from swarmify_connectors.ports import ConnectorTransport, Storage
 from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_kernel import AGENT_TOOLS, new_id
@@ -58,11 +65,16 @@ __all__ = [
     "Credentials",
     "FakeTransport",
     "HealthCheck",
+    "InstallError",
     "KeyCheck",
+    "ManifestError",
     "McpTransport",
+    "Package",
+    "Packages",
     "SqliteStorage",
     "Storage",
     "Tool",
+    "read_manifest",
 ]
 
 log = logging.getLogger(__name__)

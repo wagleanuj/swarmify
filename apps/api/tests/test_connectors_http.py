@@ -227,3 +227,41 @@ def test_the_speech_connector_reports_each_engine_s_health(
     assert client.get("/api/connectors/builtin_speech/health").status_code == 502
     assert client.get("/api/connectors/builtin_youtube/health").json() == []
     assert client.get("/api/connectors/nope/health").status_code == 404
+
+
+def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
+    assert client.get("/api/packages").json() == []
+    source = "packages/connectors/tests/fixtures/packages/echo"
+    installed = client.post("/api/packages", json={"source": source})
+    assert installed.status_code == 201, installed.text
+    assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
+    listed = client.get("/api/packages").json()
+    assert listed == [installed.json()]
+    assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
+        "name": "echo",
+        "version": "1.0.0",
+        "label": "Echo",
+        "kind": "stage",
+        "state": "installed",
+        "source": source,
+    }
+    again = client.post("/api/packages", json={"source": source})
+    assert again.status_code == 422
+    assert again.json()["detail"] == "echo 1.0.0 is already installed"
+    # installed for the whole install: no world holds it, and the built-ins are unchanged
+    world_id = world(client)
+    names = [c["name"] for c in client.get(f"/api/worlds/{world_id}/connectors").json()]
+    assert "echo" not in names and "speech" in names
+
+
+def test_an_invalid_manifest_is_refused_naming_the_field(
+    client: TestClient, tmp_path: Path
+) -> None:
+    source = tmp_path / "bad"
+    source.mkdir()
+    fixture = Path(__file__).parents[3] / "packages/connectors/tests/fixtures/manifests"
+    (source / "swarmify-connector.toml").write_text((fixture / "bad_kind.toml").read_text())
+    refused = client.post("/api/packages", json={"source": str(source)})
+    assert refused.status_code == 422
+    assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
+    assert client.get("/api/packages").json() == []

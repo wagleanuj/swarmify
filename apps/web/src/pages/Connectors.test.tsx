@@ -214,3 +214,21 @@ test("shows whether each speech engine is up", async () => {
   await expect.element(engines).toMatchTextContent(/localhost:8881\s*up/);
   await expect.element(engines).toMatchTextContent(/localhost:8880\s*down\s*connection refused/);
 });
+
+test("lists installed packages beside the built-ins with version, kind, about and install state", async () => {
+  const pkg = { name: "echo", version: "1.0.0", label: "Echo", kind: "stage", source: "connectors/echo", installed_at: "2026-10-30T10:00:00+00:00" };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json(builtins),
+    "GET /api/packages": () =>
+      Response.json([
+        { ...pkg, about: "Says it back.", state: "installed", problem: null },
+        { ...pkg, version: "0.9.0", label: "echo", kind: "", about: "", state: "invalid", problem: "kind: 'robot' is not one of [...]" },
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  const list = screen.getByRole("list", { name: "Installed packages" });
+  await expect.element(list.getByRole("listitem").first()).toMatchTextContent(/Echo\s*Says it back\.\s*echo 1\.0\.0\s*stage\s*Installed/);
+  await expect.element(list.getByRole("listitem").last()).toMatchTextContent(/kind: 'robot'.*echo 0\.9\.0\s*Invalid Manifest/);
+  await expect.element(screen.getByRole("list", { name: "Tools agents use inside a swarm step" })).toMatchTextContent(/Web search/);
+});

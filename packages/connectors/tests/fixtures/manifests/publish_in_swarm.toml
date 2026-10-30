@@ -1,0 +1,9 @@
+# error: stage_types: a publish connector
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "publish"
+stage_types = ["swarm", "connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]

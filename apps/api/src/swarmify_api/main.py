@@ -55,6 +55,7 @@ from swarmify_connectors import (
     ConnectorTransport,
     Credentials,
     McpTransport,
+    Packages,
     publish,
     remotion,
 )
@@ -105,7 +106,9 @@ from swarmify_worlds import SqliteStorage, Worlds
 
 log = logging.getLogger(__name__)
 VERSION = version("swarmify-api")
-WEB_DIST = Path(os.environ.get("SWARMIFY_WEB_DIST", Path(__file__).parents[4] / "apps/web/dist"))
+REPO = Path(__file__).parents[4]
+"""This repository, whose `connectors/` folder holds the first-party Connector Packages."""
+WEB_DIST = Path(os.environ.get("SWARMIFY_WEB_DIST", REPO / "apps/web/dist"))
 
 
 def data_dir() -> Path:
@@ -748,7 +751,7 @@ def create_app(
     app.include_router(
         runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)
     )
-    app.include_router(connectors.router(registry, world_svc))
+    app.include_router(connectors.router(registry, world_svc, Packages(root / "packages", REPO)))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))
