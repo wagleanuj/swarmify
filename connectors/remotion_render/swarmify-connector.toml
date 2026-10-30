@@ -7,7 +7,7 @@ about = "Renders a script with the Remotion CLI. Needs Node and a Remotion proje
 kind = "stage"
 stage_types = ["connector"]
 
-planner_notes = "Use it only when the operator has a finished template; else remotion_build makes the video. params.project is a template's name under the data directory's remotion folder, or a folder path."
+planner_notes = "Use it only when the operator has a finished template; else remotion_build makes the video. params.project is a template's name in its templates folder (the data directory's remotion folder unless changed)."
 
 runtime = "uv"
 # Its Python beside it (uv), then the Remotion CLI and the Chrome Headless Shell it downloads
@@ -17,6 +17,14 @@ command = [".venv/bin/python", "remotion_render.py"]
 
 # The rule its params schema cannot say, run by the workflow check: the project exists.
 capabilities = ["check"]
+
+# Its sandbox (ADR 0021). A render reaches only its own loopback (Remotion's server and the
+# browser rendering it); a template's folder is its `templates` Setting, the build folder is the
+# stage's. The install step reaches npm for the CLI and Remotion's host for Chrome Headless Shell
+# (Google's storage where Remotion's own build does not fit the machine).
+[permissions]
+network = ["localhost"]
+install_network = ["registry.npmjs.org", "remotion.media", "storage.googleapis.com"]
 
 [params]
 type = "object"
@@ -52,12 +60,12 @@ media_type = "video/mp4"
 help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/remotion_render#setup"
 
 [[config]]
-key = "data_folder"
-label = "Data folder"
+key = "templates"
+label = "Templates folder"
 type = "path"
-default = "."
-env = "REMOTION_DATA_DIR"
-help = "Swarmify's data folder, which a relative path is taken from, so . is that folder itself. Its remotion/ folder holds the templates a project names; a project under its worlds/ folder was written by an agent and renders in a sandbox that cannot read the rest of it."
+default = "remotion"
+env = "REMOTION_TEMPLATES"
+help = "Where the Remotion templates a stage's project names live, relative to Swarmify's data folder. Renders read it and never write it: run npm ci in a template once, and keep its fonts and images in it, since a render has no network."
 
 [[config]]
 key = "concurrency"

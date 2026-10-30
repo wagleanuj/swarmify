@@ -2411,6 +2411,8 @@ export interface components {
             input_types?: (string | null)[];
             /** World Types */
             world_types?: string | null;
+            /** Network */
+            network?: string[];
         };
         /** NewEval */
         NewEval: {

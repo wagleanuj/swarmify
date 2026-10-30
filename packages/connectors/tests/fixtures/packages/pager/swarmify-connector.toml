@@ -1,5 +1,5 @@
 # A fixture notify Connector Package offering Remote Approvals, with a long-lived `listen` process
-# that writes what it was started with to listened.json and waits.
+# that writes what it was started with to listened.json in its HOME and waits.
 name = "pager"
 version = "1.0.0"
 label = "Pager"

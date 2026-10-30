@@ -89,6 +89,7 @@ test("tests a draft, shows its tools, and saves it only after a passing test", a
   await screen.getByRole("textbox", { name: "Name" }).fill("fal_video");
   await screen.getByRole("textbox", { name: "MCP server" }).fill("uvx fal-mcp");
   await screen.getByRole("textbox", { name: /Keys/ }).fill("FAL_KEY=s3cret\nFAL_ORG");
+  await screen.getByRole("textbox", { name: /Network domains/ }).fill("queue.fal.run, *.fal.media");
   expect(screen.getByRole("button", { name: "Save connector" }).elements()).toHaveLength(0);
   await screen.getByRole("button", { name: "Test and list tools" }).click();
 
@@ -101,6 +102,7 @@ test("tests a draft, shows its tools, and saves it only after a passing test", a
     server: "uvx fal-mcp",
     credentials: { FAL_KEY: "s3cret", FAL_ORG: "" },
     stage_types: ["connector"],
+    network: ["queue.fal.run", "*.fal.media"], // the hosts its sandbox lets it reach
   });
 
   // Any edit invalidates the test: Save goes away until it passes again.

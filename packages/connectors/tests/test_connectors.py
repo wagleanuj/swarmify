@@ -1,5 +1,6 @@
 """The Connectors service at its seam: real SQLite, a recording fake transport behind it."""
 
+import json
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from swarmify_connectors import (
     FakeTransport,
     Tool,
 )
+from swarmify_connectors.sandbox import LAUNCHER, REGISTRIES
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
 
@@ -203,15 +205,16 @@ def test_agent_servers_hand_a_swarm_stage_its_connectors_with_credentials(
     remote = connectors.draft(W, "notes_api", "tool", "https://x.test/mcp", [], ["swarm"])
     connectors.add(remote, {})
     servers = connectors.agent_servers(W, ["fal_video", "notes_api", "web_search", "nope"])
-    assert servers == {
-        "fal_video": {
-            "type": "stdio",
-            "command": "uvx",
-            "args": ["fal-mcp", "--model", "kling 2"],
-            "env": {"FAL_KEY": "s3cret"},
-        },
-        "notes_api": {"type": "http", "url": "https://x.test/mcp", "headers": {}},
-    }
+    assert set(servers) == {"fal_video", "notes_api"}
+    assert servers["notes_api"] == {"type": "http", "url": "https://x.test/mcp", "headers": {}}
+    # the command starts in the connector sandbox, with only its own key and uvx's registry
+    fal_server = servers["fal_video"]
+    assert fal_server["env"] == {"FAL_KEY": "s3cret"}
+    assert fal_server["args"][0] == str(LAUNCHER)
+    assert fal_server["args"][2:] == ["--", "uvx", "fal-mcp", "--model", "kling 2"]
+    plan = json.loads(Path(fal_server["args"][1]).read_text())
+    assert plan["pass"] == ["FAL_KEY"] and plan["session"] is True
+    assert plan["sandbox"]["network"]["allowedDomains"] == REGISTRIES["uv"]
     connectors.setups.path.write_text("{}")
     with pytest.raises(ConnectorError, match="needs its Setup"):
         connectors.agent_servers(W, ["fal_video"])

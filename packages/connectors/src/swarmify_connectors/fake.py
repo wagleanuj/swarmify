@@ -1,6 +1,7 @@
 """The fake ConnectorTransport: records every start and call, answers with declared outputs."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from swarmify_connectors.model import Connector, ConnectorError, Tool
@@ -32,6 +33,12 @@ class FakeTransport:
         if connector.name not in self.tools:
             raise ConnectorError(f"{connector.name}: could not start")
         return self.tools[connector.name]
+
+    @contextmanager
+    def session(
+        self, connector: Connector, env: dict[str, str]
+    ) -> Iterator[Callable[[str, dict[str, Any]], dict[str, Any]]]:
+        yield lambda tool, arguments: self.call(connector, tool, arguments, env)
 
     def call(
         self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]

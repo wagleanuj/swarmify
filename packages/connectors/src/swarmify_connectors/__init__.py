@@ -22,7 +22,8 @@ import secrets
 import shlex
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,7 +36,7 @@ from jsonschema.validators import validator_for
 from swarmify_connectors import build_session, oauth, publish, setup
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
-from swarmify_connectors.mcp_transport import McpTransport
+from swarmify_connectors.mcp_transport import Caller, McpTransport
 from swarmify_connectors.model import (
     KINDS,
     STAGE_TYPES,
@@ -47,6 +48,7 @@ from swarmify_connectors.model import (
     Tool,
 )
 from swarmify_connectors.packages import (
+    LOCAL,
     MANIFEST,
     InstallError,
     ManifestError,
@@ -56,6 +58,7 @@ from swarmify_connectors.packages import (
     read_manifest,
 )
 from swarmify_connectors.ports import ConnectorTransport, Storage
+from swarmify_connectors.sandbox import REGISTRIES, Confined, Grants, SandboxUnavailable, domain
 from swarmify_connectors.setup import SetupStore
 from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_kernel import AGENT_TOOLS, new_id
@@ -104,9 +107,22 @@ _RUNTIMES = {
 }
 
 
+DOMAIN = re.compile(r"^(\*\.)?[a-z0-9.-]+(:\d+)?$")
+"""A network permission, as the Manifest's: `api.example.com`, `*.example.com`, `host:8080`."""
+FETCHERS = {"npx": "npm", "uvx": "uv"}
+"""Commands that fetch the server they start from their runtime's registry first."""
+
+
+def _network(command: list[str], declared: list[str]) -> list[str]:
+    """A local package's network: the hosts declared for it, and its registry when npx or uvx
+    fetches it (a V1 connector moved to a package declared none)."""
+    fetcher = FETCHERS.get(Path(command[0]).name) if command else None
+    return list(dict.fromkeys([*declared, *(REGISTRIES[fetcher] if fetcher else [])]))
+
+
 def _local_manifest(c: Connector) -> dict[str, Any]:
     """The minimal Manifest of a connector the add form drafted: each key name a required,
-    shared Credential reaching the process as that name."""
+    shared Credential reaching the process as that name, and the network domains it declared."""
     server = c.url or shlex.join(c.command)
     m: dict[str, Any] = {
         "name": c.name,
@@ -129,7 +145,20 @@ def _local_manifest(c: Connector) -> dict[str, Any]:
         m["input_types"] = [t or "" for t in c.input_types]  # TOML has no null: "" is untyped
     if c.world_types:
         m["world_types"] = c.world_types
+    if network := _network(c.command, c.manifest.get("permissions", {}).get("network", [])):
+        m["permissions"] = {"network": network}
     return m
+
+
+Stage = tuple[str, str]
+"""The run and stage a connector stage's call is for."""
+Blocked = Callable[[Connector, Stage | None, list[str]], None]
+"""Told what the sandbox blocked a connector process from doing: the run log hears of it."""
+
+
+def _log_blocked(connector: Connector, stage: Stage | None, lines: list[str]) -> None:
+    where = f" in run {stage[0]}" if stage else ""
+    log.warning("the sandbox blocked %s%s: %s", connector.name, where, "; ".join(lines))
 
 
 def _preview_args(
@@ -201,6 +230,7 @@ class Connectors:
         credentials: Credentials,
         poll_seconds: float = 2.0,
         packages: Packages | None = None,
+        on_blocked: Blocked = _log_blocked,
     ) -> None:
         self.storage = storage
         self.transport = transport
@@ -208,6 +238,9 @@ class Connectors:
         self.poll_seconds = poll_seconds
         self.data_dir = credentials.path.parent  # credentials live in `<data dir>/.env`
         self.packages = packages or Packages(self.data_dir / "packages", self.data_dir)
+        self.on_blocked = on_blocked
+        self._watched: list[tuple[Connector, Confined]] = []
+        """Processes others start (a swarm stage's agents), whose blocks `drain` reports."""
         self.setups = SetupStore(self.data_dir / "setup.json")
         self._sign_ins: dict[str, dict[str, Any]] = {}
         """Sign-ins under way by their `state`, each bound to the browser session it began in."""
@@ -434,13 +467,17 @@ class Connectors:
                 self._signed_in(connector, now_shared, now_world),
                 self.data_dir,
             )
+            blocked: list[str] = []
             try:
-                answer = self._tool(connector, test, {}, env)
+                answer = self._tool(connector, test, {}, env, blocked=blocked)
                 ok = answer.get("ok") is True
                 said = str(answer.get("message") or "")
                 check = KeyCheck(ok, said or ("The setup works." if ok else "The test failed."))
             except ConnectorError as exc:
                 check = KeyCheck(False, str(exc))
+            if blocked:  # the Connectors page shows the test's message
+                said = f"{check.message} The sandbox blocked: {'; '.join(blocked)}."
+                check = KeyCheck(check.ok, said)
             if not check.ok:
                 return check
         self.setups.put(name, world_id, now_shared, now_world)
@@ -560,16 +597,152 @@ class Connectors:
         return resolved
 
     def _tool(
-        self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
+        self,
+        connector: Connector,
+        tool: str,
+        arguments: dict[str, Any],
+        env: dict[str, str],
+        stage: Stage | None = None,
+        blocked: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Call one tool. A package's tool failing with an `auth_failed` message marks
-        its oauth fields for sign-in again (oauth.is_auth_failure)."""
+        """Call one tool in a session of its own (`_open`)."""
+        with self._open(connector, env, stage, blocked) as call:
+            return call(tool, arguments)
+
+    @contextmanager
+    def _open(
+        self,
+        connector: Connector,
+        env: dict[str, str],
+        stage: Stage | None = None,
+        blocked: list[str] | None = None,
+    ) -> Iterator[Caller]:
+        """A session with the connector's process, in the sandbox (`confine`); what the sandbox
+        blocked is reported after each call and at the end (and added to `blocked`). A
+        package's tool failing with an `auth_failed` message marks its oauth fields for sign-in
+        again (oauth.is_auth_failure)."""
+        confined, sandboxed = self.confine(connector, env, stage)
+
+        def report() -> None:
+            if confined and (lines := confined.blocked()):
+                self.on_blocked(connector, stage, lines)
+                if blocked is not None:
+                    blocked.extend(lines)
+
+        def caller(call: Caller) -> Caller:
+            def tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+                try:
+                    return call(name, arguments)
+                except ConnectorError as exc:
+                    if connector.version is not None and oauth.is_auth_failure(str(exc)):
+                        self._needs_sign_in(connector)
+                    raise
+                finally:
+                    report()
+
+            return tool
+
         try:
-            return self.transport.call(connector, tool, arguments, env)
-        except ConnectorError as exc:
-            if connector.version is not None and oauth.is_auth_failure(str(exc)):
-                self._needs_sign_in(connector)
-            raise
+            with self.transport.session(sandboxed, env) as call:
+                yield caller(call)
+        finally:
+            report()
+
+    # The sandbox (ADR 0021)
+
+    def confine(
+        self,
+        connector: Connector,
+        env: Mapping[str, str],
+        stage: Stage | None = None,
+        argv: list[str] | None = None,
+        extra: Grants | None = None,
+        session: bool = True,
+    ) -> tuple[Confined | None, Connector]:
+        """The connector with its command (or `argv`) wrapped to run in the sandbox with what it
+        may use (`grants`, plus `extra`), and where its blocked attempts land; a URL connector,
+        which runs elsewhere, as it is. Raises ConnectorError when the sandbox cannot start."""
+        command = argv or connector.command
+        if not command:
+            return None, connector
+        grants = self.grants(connector, env, stage)
+        if extra:
+            grants.reads += extra.reads
+            grants.writes += extra.writes
+            grants.domains += extra.domains
+        cwd = Path(connector.folder) if connector.folder else None
+        try:
+            confined = self.packages.sandbox.wrap(command, cwd, grants, env, session=session)
+        except SandboxUnavailable as exc:
+            raise ConnectorError(f"{connector.name}: {exc}") from exc
+        return confined, replace(connector, command=confined.argv, folder=str(confined.cwd))
+
+    def grants(
+        self, connector: Connector, env: Mapping[str, str], stage: Stage | None = None
+    ) -> Grants:
+        """What a connector's process may use besides its package folder (ADR 0021): its
+        Owned Folders (read and write), the data directory's folders its Manifest declares and
+        the folders its `path` Settings name, and links in those (read), the run's folders when
+        it runs for a stage (reading the run's, writing its stage's), and the hosts its Manifest
+        declares plus those of its Services' URLs. A local package (the add form's) may also
+        use the folders its command names."""
+        m, world_id = connector.manifest, connector.world_id or ""
+        world = self.data_dir / "worlds" / world_id
+        permissions = m.get("permissions", {})
+        grants = Grants(domains=list(permissions.get("network", [])))
+        for f in m.get("owned_folders", []):
+            folder = world / "assets" / f["folder"]
+            folder.mkdir(parents=True, exist_ok=True)
+            grants.reads.append(folder)
+            grants.writes.append(folder)
+        for name in permissions.get("folders", []):
+            grants.reads.append(self.data_dir / name.replace("{world}", world_id))
+        by_key = {f["key"]: f for f in setup.fields(m)}
+        for f in by_key.values():
+            if f["type"] == "path" and (folder := self._grantable(env.get(setup.env_name(f)))):
+                grants.reads.append(folder)
+                # a link the operator put in it (a template kept in its own folder) is followed
+                links = (p for p in folder.iterdir() if p.is_symlink())
+                grants.reads += [t for p in links if (t := self._grantable(str(p)))]
+        for service in m.get("services", []):
+            urls = env.get(setup.env_name(by_key[service["url"]]), "")
+            grants.domains += [h for u in urls.split(",") if (h := domain(u))]
+        if connector.version and self.packages.source(connector.name, connector.version) == LOCAL:
+            for arg in connector.command:
+                if not arg.startswith("/"):
+                    continue
+                named = Path(arg)
+                if folder := self._grantable(str(named.parent if named.is_file() else named)):
+                    grants.reads.append(folder)
+                    if not named.is_file():  # a folder it works in, as a notes server's
+                        grants.writes.append(folder)
+        if stage:
+            run = world / "runs" / stage[0]
+            (run / stage[1]).mkdir(parents=True, exist_ok=True)
+            grants.reads.append(run)
+            grants.writes.append(run / stage[1])
+        return grants
+
+    def _grantable(self, value: str | None) -> Path | None:
+        """A folder an operator named (a `path` Setting, a local package's command) when the
+        sandbox may grant it: an existing folder, never the data directory, one holding it or
+        the home folder, nor the sandbox's own folder. Files are never granted, so no
+        `setup.json` or `.env` either."""
+        if not value:
+            return None
+        path = Path(value).expanduser().resolve()
+        data, home = self.data_dir.resolve(), Path.home().resolve()
+        if not path.is_dir() or data.is_relative_to(path) or home.is_relative_to(path):
+            return None
+        return None if path.is_relative_to(self.packages.sandbox.scratch) else path
+
+    def drain(self) -> None:
+        """Report what the sandbox blocked in the processes others started, and forget those
+        whose scratch folder is gone."""
+        for connector, confined in self._watched:
+            if lines := confined.blocked():
+                self.on_blocked(connector, None, lines)
+        self._watched = [(c, w) for c, w in self._watched if w.folder.is_dir()]
 
     def _needs_sign_in(self, connector: Connector) -> None:
         assert connector.world_id is not None
@@ -638,9 +811,11 @@ class Connectors:
         declared: dict[str, Any] | None = None,
         input_types: list[str | None] | None = None,
         world_types: str | None = None,
+        network: list[str] | None = None,
     ) -> Connector:
-        """A validated, unsaved connector, as the add form describes it. Raises ValueError
-        naming the first problem."""
+        """A validated, unsaved connector, as the add form describes it, `network` the hosts
+        its sandbox lets it reach (ADR 0021), its registry's added when npx or uvx fetches it.
+        Raises ValueError naming the first problem."""
         name, server = name.strip(), server.strip()
         if not NAME.match(name):
             raise ValueError("a name is lower_snake_case, as workflows call it: fal_video")
@@ -679,6 +854,10 @@ class Connectors:
         world_types = (world_types or "").strip() or None
         if world_types and not declared:
             raise ValueError("world_types answers declared types: declare types first")
+        hosts = [h.strip().lower() for h in network or [] if h.strip()]
+        if bad := [h for h in hosts if not DOMAIN.match(h)]:
+            raise ValueError(f"network domains are hosts, as api.example.com: {', '.join(bad)}")
+        hosts = _network(command, hosts)
         return Connector(
             new_id("conn"),
             world_id,
@@ -692,13 +871,19 @@ class Connectors:
             types=declared,
             input_types=list(input_types),
             world_types=world_types,
+            manifest={"permissions": {"network": hosts}} if hosts else {},
         )
 
     def test(self, connector: Connector, secrets: dict[str, str]) -> list[Tool]:
-        """Start a drafted server once with its keys and return its tools. Saves nothing."""
-        return self.transport.list_tools(
-            connector, self._env(connector, self._keys(connector, secrets))
-        )
+        """Start a drafted server once with its keys, in the sandbox with the network domains
+        it declares, and return its tools. Saves nothing."""
+        env = self._env(connector, self._keys(connector, secrets))
+        confined, sandboxed = self.confine(connector, env)
+        try:
+            return self.transport.list_tools(sandboxed, env)
+        finally:
+            if confined and (lines := confined.blocked()):
+                self.on_blocked(connector, None, lines)
 
     def add(self, connector: Connector, secrets: dict[str, str]) -> Connector:
         """Install a drafted connector as a local Connector Package, enable it in its world and
@@ -783,16 +968,18 @@ class Connectors:
             if connector is None or not connector.has_server:
                 continue
             env = self._env(connector)
-            servers[name] = (
-                {"type": "http", "url": connector.url, "headers": env}
-                if connector.url
-                else {
-                    "type": "stdio",
-                    "command": connector.command[0],
-                    "args": connector.command[1:],
-                    "env": env,
-                }
-            )
+            if connector.url:
+                servers[name] = {"type": "http", "url": connector.url, "headers": env}
+                continue
+            confined, sandboxed = self.confine(connector, env)
+            assert confined is not None  # it has a command
+            self._watched.append((connector, confined))
+            servers[name] = {
+                "type": "stdio",
+                "command": sandboxed.command[0],
+                "args": sandboxed.command[1:],
+                "env": env,
+            }
         return servers
 
     def _resolved(self, connector: Connector) -> setup.Values:
@@ -1046,11 +1233,14 @@ class Connectors:
                 raise ConnectorError(f"{name} publishes only the values a gate confirmed")
         env = self._env(connector)
         call = done
-        if call is None or call.status != "polling":
-            call = self._call(connector, world_id, run_id, stage_id, visit, config, env, call)
-        while call.status == "polling":
-            time.sleep(self.poll_seconds)
-            call = self._poll(connector, call, env)
+        # One process for the call and the polls of its long job, so the sandbox it runs in,
+        # and the network it grants, lasts as long as the job.
+        with self._open(connector, env, (run_id, stage_id)) as tool:
+            if call is None or call.status != "polling":
+                call = self._call(connector, world_id, run_id, stage_id, visit, config, tool, call)
+            while call.status == "polling":
+                time.sleep(self.poll_seconds)
+                call = self._poll(connector, call, tool)
         return call
 
     def _call(
@@ -1061,7 +1251,7 @@ class Connectors:
         stage_id: str,
         visit: int,
         config: dict[str, Any],
-        env: dict[str, str],
+        call_tool: Caller,
         before: Call | None,
     ) -> Call:
         params = dict(config.get("params") or {})
@@ -1093,7 +1283,7 @@ class Connectors:
             )
         )
         try:
-            response = self._tool(connector, tool, request, env)
+            response = call_tool(tool, request)
         except Exception as exc:
             self._fail(call, str(exc))
             raise
@@ -1121,10 +1311,10 @@ class Connectors:
             self._fail(call, error)
             raise ConnectorError(f"{connector.name}: nothing was posted. {error}")
 
-    def _poll(self, connector: Connector, call: Call, env: dict[str, str]) -> Call:
+    def _poll(self, connector: Connector, call: Call, call_tool: Caller) -> Call:
         assert call.poll_tool is not None and call.job_id is not None
         try:
-            answer = self._tool(connector, call.poll_tool, {"job_id": call.job_id}, env)
+            answer = call_tool(call.poll_tool, {"job_id": call.job_id})
         except Exception as exc:
             self._fail(call, str(exc))
             raise

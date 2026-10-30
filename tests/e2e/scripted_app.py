@@ -22,6 +22,8 @@ import json
 import os
 import tempfile
 import wave
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,7 @@ from fastapi import FastAPI
 from swarmify_api.main import create_app as real_app
 from swarmify_api.planner import SYSTEM as PLANNER_SYSTEM
 from swarmify_connectors import Connector, FakeTransport, McpTransport, packages
+from swarmify_connectors.mcp_transport import Caller
 from swarmify_learning import SYSTEM as RETRO_SYSTEM
 from swarmify_memory import GRAPH_OUT
 from swarmify_swarm import SdkRuntime, tool_id
@@ -130,7 +133,7 @@ stages:
     calls: remotion_render
     input: ideas.md
     output: short.mp4
-    params: {project: /tmp, composition: Short}
+    params: {project: shorts, composition: Short}
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve
@@ -218,6 +221,11 @@ class Transport(McpTransport):
             return voice(Path(arguments["output_path"]))
         return super().call(connector, tool, arguments, env)
 
+    @contextmanager
+    def session(self, connector: Connector, env: dict[str, str]) -> Iterator[Caller]:
+        """Each call of a stage's session by itself, so the fakes above answer theirs."""
+        yield lambda tool, arguments: self.call(connector, tool, arguments, env)
+
 
 GRAPH = {
     "directed": False,
@@ -267,6 +275,10 @@ def create_app() -> FastAPI:
         script = next(s for marker, s in scripts.items() if marker in prompt)
         return script.transport(options)
 
+    # The template the e2e workflows render, where the render package's templates folder is:
+    # its sandbox lets it read nothing else of the data directory.
+    template = Path(os.environ["SWARMIFY_DATA_DIR"]) / "remotion" / "shorts"
+    template.mkdir(parents=True, exist_ok=True)
     return real_app(
         transport=Transport(),
         runtime=SdkRuntime(transport=transport),

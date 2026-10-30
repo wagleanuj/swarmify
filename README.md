@@ -14,7 +14,11 @@ workspace), one monorepo. Domain docs live in the Obsidian vault, see `CONTEXT.m
    (`echo 'eval "$(mise activate zsh)"' >> ~/.zshrc`). mise installs the pinned Python, Node, uv
    and pnpm from `mise.toml`; nothing else is needed globally.
 2. `mise install` installs the toolchains.
-3. `mise run install` installs Python and web dependencies and Playwright's Chromium.
+3. `mise run install` installs Python and web dependencies (the connector sandbox's launcher
+   among them) and Playwright's Chromium.
+4. On Linux, install bubblewrap, socat and ripgrep for the connector sandbox
+   (`apt install bubblewrap socat ripgrep`); Ubuntu 24.04 and later also need
+   `sysctl kernel.apparmor_restrict_unprivileged_userns=0`. macOS has what it needs.
 
 Run pnpm through mise (`mise run ...` or `mise x -- pnpm ...`). A bare `pnpm` may resolve to
 corepack, which cannot download the pinned pnpm and exits with an error that is easy to miss
@@ -310,8 +314,9 @@ may take their names.
 A connector's keys are Credentials of its package's Setup (see Connector Packages), stored in
 `<data dir>/setup.json` with mode 600; the app refuses to read it when group or others can.
 Values never enter the database, a run, a workflow or an API response. A command connector gets
-exactly its own values as its process environment, merged over the MCP SDK's safe defaults (HOME,
-PATH, USER, SHELL, TERM, LOGNAME); a URL connector gets them as request headers of the same name.
+exactly its own values as its process environment, merged over the MCP SDK's safe defaults (PATH,
+USER, SHELL, TERM, LOGNAME), and runs in the connector sandbox (see The connector sandbox); a URL
+connector gets them as request headers of the same name.
 
 - `GET /api/worlds/<id>/connectors` lists the packages the world enables, each with the keys of
   its required Setup fields still `missing` for the world.
@@ -345,8 +350,9 @@ PATH, USER, SHELL, TERM, LOGNAME); a URL connector gets them as request headers 
   keeps the declared schema. `note`, when there is one, goes to the planner. The core passes the
   schema on unread: a voice package could list the world's voices in it, a publish connector the
   channels a world has keys for.
-- `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
-  saving nothing. `POST /api/worlds/<id>/connectors`, the connectors page's add form (issue
+- `POST /api/worlds/<id>/connectors/test` starts the draft's server once, in the sandbox, and
+  returns its tools, saving nothing. The add form's `network` lists the hosts it may reach
+  (`api.example.com`, `*.example.com`); a server npx or uvx fetches also reaches its registry. `POST /api/worlds/<id>/connectors`, the connectors page's add form (issue
   211), writes a minimal Manifest for it and installs it as a local Connector Package (see
   below; its `source` is `local` and its version `0.0.N`, reusing a local version with the same
   Manifest), enables it in the world and saves the given key values as its shared Setup values:
@@ -362,8 +368,9 @@ PATH, USER, SHELL, TERM, LOGNAME); a URL connector gets them as request headers 
   of calling again, and a send-back that reruns the stage calls the connector again.
 - A long job answers `{"job_id": ..., "poll": "<tool>"}`; swarmify calls that tool with
   `{"job_id": ...}` every 2 s until it answers `status: done` or `failed`, with optional `progress`
-  (0 to 1) and `message`. A wrapper keeps job state outside its process, since every call and
-  poll is a fresh MCP session.
+  (0 to 1) and `message`. The stage keeps one MCP session, so one process in its sandbox, for the
+  call and its polls; a wrapper still keeps job state outside its process, since a job resumed
+  after a restart is polled in a new session.
 - Every change to a call appends a `connector_call.updated` event carrying the whole call, progress
   included; `GET /api/stages/<stage id>/call` returns the raw request and response, which the run
   page keeps under a connector stage's `Technical details`.
@@ -381,10 +388,13 @@ output file exists, an `artifact.created` event announces it, typed by its sidec
 A Connector Package is a folder with a `swarmify-connector.toml` Manifest at its root and the
 connector's code beside it (ADR 0019). It is installed once for the whole install (ADR 0023):
 `POST /api/packages` (`{"source": "connectors/<name>"}`, a folder of this repository, or an
-absolute local path; git URLs come once connectors run sandboxed) checks the Manifest, copies the
-folder to `<data dir>/packages/<name>/<version>/` and runs its `install` step there with a bare
-environment (PATH, HOME and uv's cache, none of Swarmify's keys), so its dependencies land beside
-it. An invalid Manifest is refused with a 422 naming the field (`config[1].options: ...`); a
+absolute local path; git URLs come with issue 225) checks the Manifest, copies the folder to
+`<data dir>/packages/<name>/<version>/` and runs its `install` step there in the connector sandbox
+with a bare environment (PATH and uv's Python, none of Swarmify's keys), so its dependencies land
+beside it: it writes only that folder and reaches only its runtime's registry (PyPI for `uv`, npm
+for `npm`) and the hosts `permissions.install_network` adds. A package of this repository shares
+uv's and npm's caches; any other starts with empty ones, so it cannot plant a poisoned download
+for the next install. An invalid Manifest is refused with a 422 naming the field (`config[1].options: ...`); a
 version already installed, or a failing step, is refused with its reason, and nothing new is
 left behind. `.swarmify-install.json`, written last, records the install (its `source` and
 `installed_at`); a version folder without it does not count. `GET /api/packages` lists every
@@ -489,9 +499,10 @@ url = "endpoint"                  # the [[config]] key holding its URL
 health = "/health"
 
 [permissions]                     # Credentials come from secret [[config]] fields, never listed
-network = ["api.example.org"]
-services = ["echo_service"]
-folders = ["~/echo-cache"]
+network = ["api.example.org"]     # hosts it reaches; "localhost" alone: its own loopback servers
+services = ["echo_service"]       # Services whose URLs (its Setting's) it reaches
+folders = ["echo-cache", "worlds/{world}/assets"]   # data directory folders it reads
+install_network = ["downloads.example.org"]         # hosts its install step reaches too
 ```
 
 The full fixture is `packages/connectors/tests/fixtures/packages/echo`, and every rule has an
@@ -507,8 +518,9 @@ tool is called with no arguments in a process holding the candidate values, and 
 `{"ok": true|false, "message": "..."}`; anything but `ok: true` saves nothing and shows the
 message. Every connector process gets exactly its own resolved values as environment variables
 named by each field's `env`, and nothing else of the app's or another package's. A `path` value
-that is relative reaches it taken from the data directory, so `default = "."` is the data
-directory itself.
+that is relative reaches it taken from the data directory (`default = "remotion"` is
+`<data dir>/remotion`), and the sandbox lets it read that folder, unless it is the data directory
+or a folder holding it or the home folder.
 
 #### OAuth sign-in
 
@@ -540,6 +552,58 @@ providers), forward the port from the device you sign in on with
 `ssh -L 8000:localhost:8000 <host>`, open `http://localhost:8000` and sign in there. The token is
 stored on the host either way, and refreshing needs no browser. The provider never calls the
 redirect URI itself, the browser follows it, so Tailscale Serve is enough; Funnel is not needed.
+
+### The connector sandbox
+
+Every connector process (a stage's call and its polls, a publish preview, a Setup test, a check,
+a health or world types call, a swarm stage's MCP server, a remote approver's listener) and every
+install step runs in an OS sandbox, Anthropic's sandbox-runtime (ADR 0021): Seatbelt on macOS;
+bubblewrap, socat and a seccomp filter on Linux, where `bwrap`, `socat` and `rg` must be installed
+(the image has them). `packages/connectors/sandbox/launcher.mjs` starts it with what Swarmify
+grants (`swarmify_connectors/sandbox.py`), and Swarmify refuses to start a connector it cannot
+sandbox.
+
+- Files: nothing of the data directory, the home folders or the temp folders is readable but its
+  package folder (read only); for a stage's call, the run's other stage folders (read) and its own
+  (read and write); its Owned Folders in the world (read and write); the data directory folders
+  `permissions.folders` names, `{world}` being the world it runs for, and the folders its `path`
+  Settings name and the links in them (read); and a scratch folder of its own, its HOME and
+  TMPDIR. A local package (the add form's) may also use the folders its command names. The
+  runtimes it needs stay readable: Python, uv, Node and the folders on its PATH.
+- Network: only the hosts `permissions.network` names and those of its Services' URLs, through
+  the sandbox's proxy, which also decides localhost and private addresses (a Service on
+  `localhost:8881` is reached through it when the Setting names it). `localhost` alone in
+  `network` lets it bind and reach its own loopback servers, as Remotion's server and the browser
+  rendering it. A remote approver's listener also reaches Swarmify's `/mcp/remote_approvals` (at
+  `SWARMIFY_INTERNAL_URL`, else `SWARMIFY_BASE_URL`).
+- Environment: its own Setup values and the few variables every process needs, never another
+  package's nor the API's own (the sign-in password, the Claude token), whatever starts it.
+- Every blocked attempt (a read, a write, a connection) is reported with the connector's name:
+  for a stage's call in the step's live log on the run page (`Blocked by the sandbox: read
+  /data/setup.json`), for a Setup test in the message the Connectors page shows, for an install
+  step in its error there, and in the API's log always. macOS reports what Seatbelt denies; on
+  Linux the proxy reports connections by name and `observe.py`, a seccomp tripwire the command runs
+  under, reports reads and writes outside the grants and connections past the proxy (bubblewrap's
+  mounts and network namespace are the wall; the tripwire only tells).
+- A stage keeps one sandboxed process for its call and polls. A process it leaves running for a
+  long job stays in the sandbox until it ends, without network once its session closes.
+
+The fixture `packages/connectors/tests/fixtures/packages/intruder` tries to list another world's
+folder, read `setup.json`, find another package's key in its environment and `/proc`, and reach a
+host by name and an address directly; `packages/connectors/tests/test_sandbox.py` holds each one
+refused and reported, on macOS locally and on Linux in CI.
+
+Its limits: on macOS, Seatbelt does not stop a process reading the arguments and environment of
+another process of the same user (`sysctl` `KERN_PROCARGS2`), which Linux's PID namespace does, so
+a Mac running packages it does not trust runs Swarmify in Docker. A `localhost` grant opens every
+loopback port on macOS, where each sandbox on Linux has a loopback of its own, and there it also
+gives what Chromium needs and sandbox-runtime's profile refuses (any Mach service but the
+clipboard, IOKit, sysctls, and its shared memory in the user's temp folder): a render's browser
+runs in it, while its files, writes and network stay as granted. sandbox-runtime keeps
+`/tmp/claude` writable for every sandboxed process. On Linux a write into a hidden folder lands
+in the empty stand-in bubblewrap mounts there and is gone with the process, never reaching the
+real folder (reported all the same). A denied read of a file that does not exist is reported on
+Linux, not by Seatbelt.
 
 ## Build Sessions
 
@@ -607,6 +671,8 @@ The session's sandbox:
   them and the model's own credentials for every command. The world's skills are not loaded
   (Claude Code refuses writes inside a plugin's folder, and the build folder is in the world's).
 - `npm install` reuses one cache, `<data dir>/npm-cache`, so a run does not download everything.
+- In Docker the session's Claude CLI runs in the `sandbox` service (`SWARMIFY_SANDBOX_CLI`, see
+  Deployment), where its sandbox can start; the api container cannot start one.
 
 Tests drive the builder with the scripted CLI (`apps/api/tests/test_build_session_http.py` with
 the fixture package, `test_build_http.py` with a default package).
@@ -1154,15 +1220,16 @@ The same `compose.yaml` runs on the Mac (Docker Desktop) and on a Debian VM (Doc
 compose plugin, `apt install docker.io docker-compose-plugin` or Docker's own apt repo). `web`
 (Caddy, `docker/Caddyfile`) serves the built skin and proxies `/api`, event streams unbuffered,
 to `api`; it is the only service with a published port. `api` (API and runner) and `graph-writer`
-(the GraphWriter, ADR 0003) share one volume, `data`, mounted at `/data`. The compose project's network is named `swarmify`,
+(the GraphWriter, ADR 0003) share one volume, `data`, mounted at `/data`; `sandbox` runs every
+connector process (see below) with the folders of it they use. The compose project's network is named `swarmify`,
 which a package's own compose file joins for the Services it runs (its README says how). The skin has its own image, so a UI-only change rebuilds and
 restarts only `web`: runs in the api (an agent session, a Build Session) carry on. One image
 serves `api` and `graph-writer`. It holds the runtimes packages install with, uv's Python and
 Node with `npm` and `npx`, and nothing a single package needs (ADR 0026): a package's install
 step fetches its own dependencies, a headless browser included, into `/data/packages`. Beside
-them are the shared libraries and fonts such a browser needs, bubblewrap and socat for Build
-Sessions, and the Claude Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for
-graphify.
+them are the shared libraries and fonts such a browser needs, bubblewrap, socat and ripgrep for
+the connector sandbox and Build Sessions, the sandbox's launcher, and the Claude Code CLI the
+Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 
 1. On any machine where you can open a browser and are logged in to Claude Code, run
    `claude setup-token`. It prints a one-year OAuth token for your Pro, Max, Team or Enterprise
@@ -1210,14 +1277,25 @@ graphify.
   and the reverse `tar xzf` on the VM.
 - A package's Setup lives in the volume's `/data/setup.json`, set from the connectors page as
   natively.
-- A Build Session sandboxes with bubblewrap (in the image, with
-  `socat` for the Agent SDK's network filter). bubblewrap needs user namespaces and a fresh `/proc`, which Docker's
-  default seccomp, AppArmor and masked paths refuse, so `compose.yaml` runs `api` with
-  `security_opt: seccomp=unconfined, apparmor=unconfined, systempaths=unconfined`. That loosens the
-  container to tighten the build inside it; without it a build stage fails rather than run
-  unsandboxed.
+- The connector sandbox (see The connector sandbox) and a Build Session's Bash sandbox with
+  bubblewrap, which needs unprivileged user, mount, PID and network namespaces and a fresh `/proc`:
+  Docker's default seccomp profile, AppArmor's `docker-default` and its masked `/proc` paths
+  refuse each. So `api`, which holds the Claude token, the sign-in password and every Setup value,
+  keeps Docker's defaults and starts no sandbox: it hands every connector process, install step
+  and Build Session CLI to the `sandbox` service over a socket in the `sandbox-socket` volume
+  (`SWARMIFY_SANDBOX_RUNNER`, `swarmify_connectors/runner.py`, which starts nothing but the
+  sandbox's launcher and the Claude CLI). `sandbox` alone gets the narrowest exceptions that work
+  everywhere: `docker/seccomp-sandbox.json` (Docker's default profile plus `clone`, `mount`,
+  `pivot_root`, `umount2` and `unshare`, which it allows only with `CAP_SYS_ADMIN`, never given),
+  `apparmor=unconfined` (`docker-default` denies every mount; a host profile would have to be
+  installed on each host) and `systempaths=unconfined` (the kernel refuses a fresh `/proc` over a
+  masked one). It holds nothing at rest worth stealing: no token, password or `setup.json`, only
+  the folders of `data` the sandboxed processes use (`packages`, `worlds`, `remotion`,
+  `npm-cache` and `sandbox`, which the one-shot `folders` service makes first), each process
+  bringing the values it is given. A folder a `path` Setting names must be one of those to exist
+  there. It needs Docker Engine 26 or later for volume subpaths.
 - A file a package reads from the data directory (a template, say) must be inside the container:
-  copy it into the volume (`docker compose cp ./shorts api:/data/<folder>/shorts`), as its README
+  copy it into the volume (`docker compose cp ./shorts api:/data/remotion/shorts`), as its README
   says.
 - Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same sign-in
@@ -1250,7 +1328,9 @@ graphify.
   `packages/learning` and `packages/notifications` each have a Storage port with a SQLite adapter.
   Workflows learns which connectors a world allows through a function the composition root passes
   in, backed by the connector registry. `packages/connectors` also declares ConnectorTransport, with
-  the MCP adapter and `FakeTransport` for tests.
+  the MCP adapter and `FakeTransport` for tests, and holds the connector sandbox: its launcher in
+  `packages/connectors/sandbox` (Node, on Anthropic's sandbox-runtime, a pnpm workspace member),
+  `sandbox.py`, `observe.py` and the Docker runner, `runner.py`.
 - `apps/api` FastAPI composition root; serves `apps/web/dist` at `/` when it exists (natively
   and in the e2e suite; in Docker the `web` container serves it). Also home of
   the `swarmify-mcp` server, which exposes the same actions as MCP tools. Both delete a world

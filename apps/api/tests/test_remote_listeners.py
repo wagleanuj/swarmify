@@ -16,9 +16,11 @@ from swarmify_connectors import Packages
 PAGER = Path(__file__).parents[3] / "packages/connectors/tests/fixtures/packages/pager"
 
 
-def started(folder: Path) -> list[dict]:
-    file = folder / "listened.json"
-    return [json.loads(line) for line in file.read_text().splitlines()] if file.exists() else []
+def started(data: Path) -> list[dict]:
+    """What each listener started with, oldest first: each writes it in its own HOME, a scratch
+    folder of the connector sandbox."""
+    files = sorted(data.glob("sandbox/*/home/listened.json"), key=lambda f: f.stat().st_mtime)
+    return [json.loads(line) for f in files for line in f.read_text().splitlines()]
 
 
 def test_the_core_keeps_one_listener_per_set_of_setup_values_running(tmp_path: Path) -> None:
@@ -27,7 +29,7 @@ def test_the_core_keeps_one_listener_per_set_of_setup_values_running(tmp_path: P
     shutil.copytree(PAGER, repo / "pager")
     registry.packages = Packages(tmp_path / "packages", repo)
     registry.packages.install("pager")
-    folder = tmp_path / "packages/pager/1.0.0"
+    folder = tmp_path
     operator = Operator(migrated_db(tmp_path))
     listeners = remote.Listeners(
         registry, lambda name: operator.provision(f"{name} remote approvals", remote.SCOPE), "u"
@@ -47,7 +49,7 @@ def test_the_core_keeps_one_listener_per_set_of_setup_values_running(tmp_path: P
         assert [t.name for t in operator.tokens()] == ["pager remote approvals"]
 
         (process,) = listeners.running.values()
-        process.kill()
+        process.terminate()  # the sandbox launcher stops what it started, and exits
         process.wait()
         listeners.sync()  # it exited: started again, with the same token
         until(lambda: len(started(folder)) == 2)

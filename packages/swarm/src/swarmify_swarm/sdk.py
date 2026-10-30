@@ -99,7 +99,12 @@ def _sdk_tool(spec: AgentTool) -> Any:
     return tool(spec.name, spec.description, spec.schema)(handler)
 
 
-def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) -> ClaudeAgentOptions:
+def options(
+    spec: SessionSpec,
+    hooks: SessionHooks,
+    model: str | None = None,
+    sandboxed_cli: str | None = None,
+) -> ClaudeAgentOptions:
     async def pre_tool(data: Any, _tool_use_id: str | None, _context: Any) -> Any:
         if data["tool_name"] in HARNESS:
             return {}
@@ -135,17 +140,26 @@ def options(spec: SessionSpec, hooks: SessionHooks, model: str | None = None) ->
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[pre_tool])]},
         sandbox=spec.sandbox,  # type: ignore[arg-type]  # the CLI's settings shape, a superset
         env=spec.env,
+        cli_path=sandboxed_cli if spec.sandbox else None,
     )
 
 
 class SdkRuntime:
-    def __init__(self, transport: TransportFactory | None = None, model: str | None = None):
-        """`model` runs every session whose spec names none; the default model by default."""
+    def __init__(
+        self,
+        transport: TransportFactory | None = None,
+        model: str | None = None,
+        sandboxed_cli: str | None = None,
+    ):
+        """`model` runs every session whose spec names none; the default model by default.
+        `sandboxed_cli` is the CLI a session with an OS sandbox (a Build Session) runs on,
+        where that sandbox can start: in Docker, one that runs it in the sandbox runner."""
         self.transport = transport
         self.model = model or default_model()
+        self.sandboxed_cli = sandboxed_cli
 
     async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
-        opts = options(spec, hooks, spec.model or self.model)
+        opts = options(spec, hooks, spec.model or self.model, self.sandboxed_cli)
         custom = self.transport(opts) if self.transport else None
         spent, steps, session = 0.0, set[str](), spec.resume or ""
         async with ClaudeSDKClient(opts, transport=custom) as client:

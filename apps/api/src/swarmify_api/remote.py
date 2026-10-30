@@ -24,6 +24,7 @@ from typing import Any
 from mcp.client.stdio import get_default_environment
 
 from swarmify_connectors import Connector, ConnectorError, Connectors
+from swarmify_connectors.sandbox import Confined, Grants, domain
 from swarmify_kernel import Event
 from swarmify_kernel.sqlite import connect
 from swarmify_memory import ArtifactFile
@@ -202,8 +203,10 @@ class RemoteApprovals:
 
 class Listeners:
     """The long-lived `listen` processes of remote approvers, kept running by `sync`: started
-    with the package's Setup values, the MCP URL and a token of scope `remote_approvals` the core
-    provisions for the package, restarted when one exits, stopped once no world wants it."""
+    in the connector sandbox (ADR 0021) with the package's Setup values, the MCP URL, which its
+    network may reach besides what its Manifest declares, and a token of scope
+    `remote_approvals` the core provisions for the package; restarted when one exits, stopped
+    once no world wants it. What the sandbox blocks is reported each sync."""
 
     # ponytail: a process that keeps dying restarts every sync (15 s), with no backoff past that;
     # a revoked token is provisioned again only when the API restarts.
@@ -213,8 +216,12 @@ class Listeners:
         self.url = url
         self.tokens: dict[str, str] = {}
         self.running: dict[str, subprocess.Popen[bytes]] = {}
+        self.confined: dict[str, tuple[Connector, Confined]] = {}
 
     def sync(self) -> None:
+        for connector, confined in self.confined.values():
+            if lines := confined.blocked():
+                self.registry.on_blocked(connector, None, lines)
         wanted = {
             repr((c.name, c.version, sorted(env.items()))): (c, env)
             for c, env in self.registry.listeners()
@@ -224,6 +231,7 @@ class Listeners:
                 if process.returncode is not None:
                     log.warning("a listener exited with %s; starting it again", process.returncode)
                 self._stop(self.running.pop(key))
+                self.confined.pop(key, None)
         for key, (connector, env) in wanted.items():
             if key in self.running:
                 continue
@@ -235,17 +243,25 @@ class Listeners:
                 "SWARMIFY_MCP_URL": self.url,
                 "SWARMIFY_API_TOKEN": self.tokens[connector.name],
             }
+            core = Grants(domains=[h] if (h := domain(self.url)) else [])
+            listen = connector.manifest["listen"]
             try:
-                self.running[key] = subprocess.Popen(
-                    connector.manifest["listen"], cwd=connector.folder, env=full
+                confined, sandboxed = self.registry.confine(
+                    connector, full, argv=listen, extra=core, session=False
                 )
-            except OSError as exc:
+                assert confined is not None  # a listen command
+                self.running[key] = subprocess.Popen(
+                    sandboxed.command, cwd=connector.folder, env=full
+                )
+                self.confined[key] = (connector, confined)
+            except (OSError, ConnectorError) as exc:
                 log.error("%s's listener did not start: %s", connector.name, exc)
 
     def stop(self) -> None:
         for process in self.running.values():
             self._stop(process)
         self.running.clear()
+        self.confined.clear()
 
     @staticmethod
     def _stop(process: subprocess.Popen[bytes]) -> None:

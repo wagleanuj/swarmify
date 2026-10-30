@@ -28,14 +28,20 @@ def app(tmp_path: Path) -> FastAPI:
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A template in the templates folder (the data directory's remotion/), its dependencies
+    installed (a fake Remotion CLI, fake_npx.py), and a Chrome Headless Shell on PATH."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    npx = bin_dir / "npx"
-    npx.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
-    npx.chmod(0o755)
+    shell = bin_dir / "chrome-headless-shell"
+    shell.write_text("#!/bin/sh\n")
+    shell.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    (tmp_path / "video" / "node_modules").mkdir(parents=True)
-    return tmp_path / "video"
+    template = tmp_path / "data" / "remotion" / "video"
+    cli = template / "node_modules" / ".bin" / "remotion"
+    cli.parent.mkdir(parents=True)
+    cli.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
+    cli.chmod(0o755)
+    return template
 
 
 @pytest.fixture

@@ -61,7 +61,7 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
         expect(page.get_by_test_id("problems")).to_contain_text("needs an input, the script")
         fixed = re.sub(
             r"( *)calls: remotion_render\n",
-            r"\g<0>\1input: ideas.md\n\1params: {project: /tmp, composition: Short}\n",
+            r"\g<0>\1input: ideas.md\n\1params: {project: shorts, composition: Short}\n",
             yaml.input_value(),
         )
         yaml.fill(

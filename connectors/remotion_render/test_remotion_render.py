@@ -1,7 +1,8 @@
 """The Remotion render connector: the package installed through the real install path (with the
-suite's fake `npm` and `npx`), given to a world as a default, started over stdio MCP and rendering
-with a fake Remotion CLI on PATH (`fake_npx.py`). `SWARMIFY_REMOTION_PROJECT` opts in to one real
-render."""
+suite's fake `npm` and `npx`), given to a world as a default, started over stdio MCP in the
+connector sandbox and rendering with a fake Remotion CLI as the project's own (`fake_npx.py`),
+its project a template in the templates folder or a build folder of the run.
+`SWARMIFY_REMOTION_PROJECT` opts in to one real render."""
 
 import json
 import os
@@ -80,28 +81,34 @@ def real(given: Given) -> Connectors:
 
 @pytest.fixture
 def fake_npx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Put a fake Remotion CLI first on PATH, as `npx`, and a fake `npm` that prints its command
-    and makes `node_modules`. Returns a ready Remotion project, its dependencies installed."""
+    """A ready template in the templates folder (the data directory's `remotion/`), its
+    dependencies installed: a fake Remotion CLI (`fake_npx.py`) as its own. A Chrome Headless
+    Shell goes on PATH, as Swarmify's image has one."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    npx = bin_dir / "npx"
-    npx.write_text(f"#!{sys.executable}\n" + (HERE / "fake_npx.py").read_text())
-    npm = bin_dir / "npm"
-    npm.write_text(
-        f"#!{sys.executable}\nimport os, sys\nprint('fake npm', *sys.argv[1:])\n"
-        "os.mkdir('node_modules')\n"
-    )
-    for tool in (npx, npm):
-        tool.chmod(0o755)
+    shell = bin_dir / "chrome-headless-shell"
+    shell.write_text("#!/bin/sh\n")
+    shell.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    project = tmp_path / "video"
+    project = tmp_path / "remotion" / "video"
     (project / "src").mkdir(parents=True)
-    (project / "node_modules").mkdir()
+    cli = project / rr.CLI
+    cli.parent.mkdir(parents=True)
+    cli.write_text(f"#!{sys.executable}\n" + (HERE / "fake_npx.py").read_text())
+    cli.chmod(0o755)
     return project
 
 
-def stage(tmp_path: Path, project: Path, composition: str = "Short", **params: Any) -> dict:
-    script = tmp_path / "stages/1-script/artifacts/files/script.md"
+RUN = Path("worlds") / W / "runs" / "run_1"
+"""Where the run's files are under the data directory: all a render may read of it."""
+
+
+def stage(
+    data: Path, project: Path, composition: str = "Short", at: str = "stage_2", **params: Any
+) -> dict:
+    """The stage `at` rendering the run's script; its output in that stage's own folder, the
+    only one it may write."""
+    script = data / RUN / "stage_1" / "artifacts" / "script.md"
     script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text("# Why the chase works\n\nHook, then the reveal.\n")
     return {
@@ -112,7 +119,7 @@ def stage(tmp_path: Path, project: Path, composition: str = "Short", **params: A
             "project": str(project),
             "composition": composition,
             "input_path": str(script),
-            "output_path": str(tmp_path / "stages/2-render/artifacts/files/short.mp4"),
+            "output_path": str(data / RUN / at / "artifacts" / "short.mp4"),
             "frontmatter": {"world": W, "run": "run_1", "stage": "render"},
             **params,
         },
@@ -143,20 +150,20 @@ def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     ]
 
 
-def test_its_settings_reach_the_process_the_data_folder_from_the_data_directory(
+def test_its_settings_reach_the_process_the_templates_folder_from_the_data_directory(
     given: Given, tmp_path: Path
 ) -> None:
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
     assert render is not None and render.version == "1.0.0"
-    assert connectors._env(render) == {"REMOTION_DATA_DIR": str(tmp_path)}
-    connectors.save_setup(W, "remotion_render", {"data_folder": "elsewhere"}, {"concurrency": "2"})
+    assert connectors._env(render) == {"REMOTION_TEMPLATES": str(tmp_path / "remotion")}
+    connectors.save_setup(W, "remotion_render", {"templates": "elsewhere"}, {"concurrency": "2"})
     assert connectors._env(render) == {
-        "REMOTION_DATA_DIR": str(tmp_path / "elsewhere"),
+        "REMOTION_TEMPLATES": str(tmp_path / "elsewhere"),
         "SWARMIFY_RENDER_CONCURRENCY": "2",
     }
-    connectors.save_setup(W, "remotion_render", {"data_folder": "/srv/swarmify"}, {})
-    assert connectors._env(render)["REMOTION_DATA_DIR"] == "/srv/swarmify"
+    connectors.save_setup(W, "remotion_render", {"templates": "/srv/templates"}, {})
+    assert connectors._env(render)["REMOTION_TEMPLATES"] == "/srv/templates"
     with pytest.raises(ValueError, match="Render concurrency: does not match"):
         connectors.save_setup(W, "remotion_render", {}, {"concurrency": "--gl=angle"})
 
@@ -178,13 +185,14 @@ def test_a_saved_render_stage_names_its_project_and_composition(
         "remotion_render needs params.composition, the composition ID",  # its params schema
         f"the Remotion project {gone} does not exist",  # its check
     ]
-    ok = {"project": str(tmp_path), "composition": "Short"}
+    (tmp_path / "remotion" / "video").mkdir(parents=True)
+    ok = {"project": str(tmp_path / "remotion" / "video"), "composition": "Short"}
     assert connectors.stage_problems(W, {**render, "params": ok}) == []
     named = {"project": "shorts", "composition": "Short"}
     assert connectors.stage_problems(W, {**render, "params": named}) == [
         f"the Remotion project shorts does not exist in {tmp_path / 'remotion'}"
     ]
-    (tmp_path / "remotion" / "shorts").mkdir(parents=True)
+    (tmp_path / "remotion" / "shorts").mkdir()
     assert connectors.stage_problems(W, {**render, "params": named}) == []
     assert connectors.stage_problems(W, {"calls": "remotion_render", "params": named}) == [
         "remotion_render needs an input, the script",
@@ -248,19 +256,22 @@ def own_browser(installed: Path) -> Iterator[Path]:
 def test_its_own_browser_is_the_one_remotion_uses_else_one_on_path(
     tmp_path: Path, real: Connectors, fake_npx: Path, request: pytest.FixtureRequest
 ) -> None:
+    shell = tmp_path / "bin" / "chrome-headless-shell"  # as Swarmify's image has
     config = stage(tmp_path, fake_npx)
     real.run_stage(W, "run_1", "stage_2", config)
-    assert rendered(config)["browser"] == ""  # none: Remotion finds or downloads its own
-
-    shell = tmp_path / "bin" / "chrome-headless-shell"  # as Swarmify's image has
-    shell.write_text("#!/bin/sh\n")
-    shell.chmod(0o755)
-    real.run_stage(W, "run_1", "stage_3", config)
     assert rendered(config)["browser"] == str(shell)
 
     own = request.getfixturevalue("own_browser")
-    real.run_stage(W, "run_1", "stage_4", config)
+    config = stage(tmp_path, fake_npx, at="stage_3")
+    real.run_stage(W, "run_1", "stage_3", config)
     assert Path(rendered(config)["browser"]).resolve() == own.resolve()
+
+    shell.unlink()  # none: a render cannot download one, having no network
+    if shutil.which("chrome-headless-shell"):
+        pytest.skip("a Chrome Headless Shell on this PATH")
+    own.unlink()
+    with pytest.raises(ConnectorError, match="no Chrome Headless Shell: reinstall"):
+        real.run_stage(W, "run_1", "stage_4", stage(tmp_path, fake_npx, at="stage_4"))
 
 
 def test_the_render_concurrency_setting_caps_the_tabs_rendering_at_once(
@@ -273,36 +284,34 @@ def test_the_render_concurrency_setting_caps_the_tabs_rendering_at_once(
     assert rendered(config)["concurrency"] == ""
 
     real.save_setup(W, "remotion_render", {"concurrency": "2"}, {})
+    config = stage(tmp_path, fake_npx, at="stage_3")
     real.run_stage(W, "run_1", "stage_3", config)
     assert rendered(config)["concurrency"] == "2"
 
 
-def test_a_relative_project_is_a_template_under_the_data_folder(
+def test_a_relative_project_is_a_template_in_the_templates_folder(
     tmp_path: Path, real: Connectors, fake_npx: Path
 ) -> None:
-    """The data folder is the data directory, tmp_path. A symlink there is followed, so a
-    template can stay in its own folder."""
-    (tmp_path / "remotion").mkdir()
-    (tmp_path / "remotion" / "shorts").symlink_to(fake_npx)
+    """The templates folder is the data directory's remotion/. A symlink there is followed, its
+    target readable in the sandbox too, so a template can stay in its own folder."""
+    kept = tmp_path / "kept" / "shorts"
+    kept.parent.mkdir()
+    fake_npx.rename(kept)
+    (tmp_path / "remotion" / "shorts").symlink_to(kept)
     config = stage(tmp_path, Path("shorts"))
     assert real.run_stage(W, "run_1", "stage_2", config).status == "done"
     assert rendered(config)["composition"] == "Short"
 
 
-@pytest.mark.parametrize(("lockfile", "command"), [(True, "ci"), (False, "install")])
-def test_a_template_without_node_modules_installs_them_once_before_rendering(
-    tmp_path: Path, real: Connectors, fake_npx: Path, lockfile: bool, command: str
+def test_a_project_without_node_modules_is_refused_saying_how_to_install_them(
+    tmp_path: Path, real: Connectors, fake_npx: Path
 ) -> None:
-    (fake_npx / "node_modules").rmdir()
-    if lockfile:
-        (fake_npx / "package-lock.json").write_text("{}")
-    config = stage(tmp_path, fake_npx)
-    log = Path(config["params"]["output_path"]).with_name(".short.mp4.log")
-    real.run_stage(W, "run_1", "stage_2", config)
-    assert f"fake npm {command}" in log.read_text() and "Encoded 3/3" in log.read_text()
-    assert (fake_npx / "node_modules").is_dir()
-    real.run_stage(W, "run_1", "stage_3", config)  # fake npm fails if node_modules exists
-    assert "fake npm" not in log.read_text() and "Encoded 3/3" in log.read_text()
+    """A render never installs: the sandbox has no network for it, and a project's
+    package.json may be an agent's, whose scripts would run."""
+    shutil.rmtree(fake_npx / "node_modules")
+    with pytest.raises(ConnectorError, match="has no node_modules: run npm ci there"):
+        real.run_stage(W, "run_1", "stage_2", stage(tmp_path, fake_npx))
+    assert not (fake_npx / "node_modules").exists()
 
 
 def test_the_sidecar_records_the_template_commit_of_a_git_checkout(
@@ -317,6 +326,8 @@ def test_the_sidecar_records_the_template_commit_of_a_git_checkout(
     subprocess.run([*git, "init", "-q"], check=True)
     subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "template"], check=True)
     sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    config = stage(tmp_path, fake_npx, at="stage_3")
+    sidecar = Path(config["params"]["output_path"]).with_name("short.mp4.md")
     real.run_stage(W, "run_1", "stage_3", config)
     assert f'commit: "{sha.stdout.strip()}"' in sidecar.read_text()
 
@@ -400,9 +411,10 @@ def test_a_repeated_call_attaches_to_the_render_instead_of_starting_another(
     reason="set SWARMIFY_REMOTION_PROJECT (and SWARMIFY_REMOTION_COMPOSITION) for a real render",
 )
 def test_a_real_render(tmp_path: Path, real: Connectors) -> None:
-    project = Path(os.environ["SWARMIFY_REMOTION_PROJECT"])
+    (tmp_path / "remotion").mkdir()  # linked in the templates folder, where its sandbox reads
+    (tmp_path / "remotion" / "real").symlink_to(Path(os.environ["SWARMIFY_REMOTION_PROJECT"]))
     composition = os.environ.get("SWARMIFY_REMOTION_COMPOSITION", "Main")
-    config = stage(tmp_path, project, composition, frames="0-9")
+    config = stage(tmp_path, Path("real"), composition, frames="0-9")
     call = real.run_stage(W, "run_1", "stage_2", config)
     video = Path(config["params"]["output_path"])
     assert call.status == "done" and video.stat().st_size > 1000
@@ -414,65 +426,45 @@ def test_pid_zero_is_never_a_live_render() -> None:
     assert not rr.alive(0) and rr.alive(os.getpid())
 
 
-# A project an agent wrote (a remotion_build stage) renders sandboxed
+# A project an agent wrote (a remotion_build stage) renders in the connector sandbox
 
 
 def _built(tmp_path: Path, fake_npx: Path, given: Given) -> tuple[Connectors, dict, Path]:
-    """A render stage of a project a build stage wrote: under the data directory's worlds. The
-    data directory is `data`, so the fake CLI in tmp_path/bin stays readable."""
-    data = tmp_path / "data"
-    data.mkdir()
-    (data / ".env").write_text("YOUTUBE_CLIENT_SECRET=s3cret\n")
-    (data / ".env").chmod(0o600)
-    connectors = given(McpTransport(), data)
-    project = data / "worlds/w/runs/run_1/stage_2/build"
-    project.parent.mkdir(parents=True)
+    """A render stage of a project a build stage wrote, in its stage's `build` folder, with the
+    data directory's keys beside it and the sandbox's blocks recorded."""
+    (tmp_path / ".env").write_text("YOUTUBE_CLIENT_SECRET=s3cret\n")
+    (tmp_path / ".env").chmod(0o600)
+    connectors = given(McpTransport())
+    connectors.blocked = []  # type: ignore[attr-defined]
+    connectors.on_blocked = lambda c, at, lines: connectors.blocked.append((c.name, at, lines))  # type: ignore[attr-defined]
+    project = tmp_path / RUN / "stage_2" / "build"
+    project.parent.mkdir(parents=True, exist_ok=True)
     fake_npx.rename(project)
-    shell = tmp_path / "bin" / "chrome-headless-shell"  # as in the image: nothing to download
-    shell.write_text("#!/bin/sh\n")
-    shell.chmod(0o755)
     config = stage(tmp_path, project, "Snoop")
     config["params"]["output_path"] = str(project.parent / "artifacts/video.mp4")
     return connectors, config, project
 
 
-SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")
-
-
-@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
 def test_a_built_project_renders_in_a_sandbox_it_cannot_leave(
     tmp_path: Path, given: Given, fake_npx: Path
 ) -> None:
+    """The agent's code tries to read the data directory's keys, plant a file outside its
+    stage and reach the internet: each is refused, and each is in the stage's run log."""
     connectors, config, project = _built(tmp_path, fake_npx, given)
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
-    out = rendered(config)
-    snooped = out["snooped"]
+    snooped = rendered(config)["snooped"]
     assert set(snooped) == {"read_keys", "write_outside", "network"}
-    assert all(v.startswith("refused") for v in snooped.values()), snooped
-    assert not (tmp_path / "data/planted.txt").exists()
-    assert out["browser"] == str(tmp_path / "bin" / "chrome-headless-shell")
-
-
-def test_a_built_project_is_never_installed_outside_the_sandbox(
-    tmp_path: Path, given: Given, fake_npx: Path
-) -> None:
-    """Its package.json is the agent's: `npm install` would run the agent's scripts."""
-    connectors, config, project = _built(tmp_path, fake_npx, given)
-    (project / "node_modules").rmdir()
-    with pytest.raises(ConnectorError, match="the build left no node_modules"):
-        connectors.run_stage(W, "run_1", "stage_2", config)
-    assert not (project / "node_modules").exists()
-
-
-def test_a_built_project_needs_a_browser_it_cannot_download_in_the_sandbox(
-    tmp_path: Path, given: Given, fake_npx: Path
-) -> None:
-    connectors, config, _ = _built(tmp_path, fake_npx, given)
-    (tmp_path / "bin" / "chrome-headless-shell").unlink()
-    if shutil.which("chrome-headless-shell"):
-        pytest.skip("a Chrome Headless Shell on this PATH")
-    with pytest.raises(ConnectorError, match="no Chrome Headless Shell: reinstall"):
-        connectors.run_stage(W, "run_1", "stage_2", config)
+    assert snooped["read_keys"].startswith("refused") and snooped["network"].startswith("refused")
+    # Linux hides the data directory behind an empty folder of the sandbox's own, which takes
+    # the write and is gone with it; macOS refuses it
+    if sys.platform != "linux":
+        assert snooped["write_outside"].startswith("refused"), snooped
+    assert not (tmp_path / "planted.txt").exists()
+    lines = [line for _, at, said in connectors.blocked for line in said]  # type: ignore[attr-defined]
+    assert {at for _, at, _ in connectors.blocked} == {("run_1", "stage_2")}  # type: ignore[attr-defined]
+    assert f"read {(tmp_path / '.env').resolve()}" in lines, lines
+    assert f"write {(tmp_path / 'planted.txt').resolve()}" in lines, lines
+    assert any(line.startswith("connect example.com") for line in lines), lines
 
 
 @pytest.fixture
@@ -495,20 +487,10 @@ def port_3000() -> Iterator[None]:
 def test_a_render_uses_a_free_port_not_one_another_server_holds(
     tmp_path: Path, given: Given, fake_npx: Path, port_3000: None, built: bool
 ) -> None:
-    """Template renders and remotion_build's sandboxed renders alike."""
-    if built and not SANDBOX:
-        pytest.skip("no OS sandbox here")
+    """Template renders and remotion_build's renders alike."""
     connectors, config = (
         _built(tmp_path, fake_npx, given)[:2]
         if built
         else (given(McpTransport()), stage(tmp_path, fake_npx))
     )
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
-
-
-def test_with_no_sandbox_a_built_project_does_not_render(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(rr.shutil, "which", lambda _: None)
-    with pytest.raises(OSError, match="install bubblewrap"):
-        rr.sandboxed(["npx"], tmp_path / "p", tmp_path / "o/v.mp4", tmp_path)

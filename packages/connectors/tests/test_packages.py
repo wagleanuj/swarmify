@@ -1,6 +1,7 @@
 """Connector Packages: Manifests checked against fixture files, one per rule, and installs of a
 fixture package from a folder into a packages folder."""
 
+import json
 import shutil
 from pathlib import Path
 
@@ -84,11 +85,29 @@ def test_a_failed_install_step_leaves_nothing_behind(packages: Packages, tmp_pat
     assert packages.list() == []
 
 
+def test_an_install_step_runs_in_the_sandbox_and_its_error_says_what_it_blocked(
+    packages: Packages, tmp_path: Path
+) -> None:
+    """An install step writes only its version folder: reading the data directory's Setup
+    values is refused, and the error the Connectors page shows says so."""
+    secrets = tmp_path / "data" / "setup.json"
+    secrets.parent.mkdir(parents=True, exist_ok=True)
+    secrets.write_text('{"other": {"shared": {"api_key": "s3cret"}}}')
+    step = json.dumps(
+        ["python3", "-c", "import sys; print(open(sys.argv[1]).read())", str(secrets)]
+    )
+    with pytest.raises(InstallError) as failed:
+        packages.install(str(copy_echo(tmp_path, step)))
+    assert "s3cret" not in str(failed.value)
+    assert f"The sandbox blocked: read {secrets.resolve()}" in str(failed.value)
+
+
 def test_an_install_step_that_cannot_start_leaves_nothing_behind(
     packages: Packages, tmp_path: Path
 ) -> None:
     source = copy_echo(tmp_path, '["no-such-tool-anywhere"]')
-    with pytest.raises(InstallError, match="install step did not run"):
+    # it starts in the sandbox, where the shell finds no such command
+    with pytest.raises(InstallError, match=r"failed \(127\): .*no-such-tool-anywhere"):
         packages.install(str(source))
     assert not (packages.root / "echo").exists()
 

@@ -28,14 +28,13 @@ SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")
 
 @pytest.fixture
 def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Chrome Headless Shell on PATH, as the image has; the Remotion CLI is the project's own,
+    which `_installs` fakes."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    npx = bin_dir / "npx"
-    npx.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
     shell = bin_dir / "chrome-headless-shell"
     shell.write_text("#!/bin/sh\n")
-    for tool in (npx, shell):
-        tool.chmod(0o755)
+    shell.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
 
@@ -49,8 +48,12 @@ def opened() -> Iterator[list[TestClient]]:
 
 
 def _installs(options: Any) -> None:
-    """What `npm install` leaves, done by the scripted builder."""
-    (Path(options.cwd) / "node_modules").mkdir()
+    """What `npm install` leaves, done by the scripted builder: the project's Remotion CLI, a
+    fake one (fake_npx.py)."""
+    cli = Path(options.cwd) / "node_modules" / ".bin" / "remotion"
+    cli.parent.mkdir(parents=True)
+    cli.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
+    cli.chmod(0o755)
 
 
 def build_run(

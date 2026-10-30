@@ -86,7 +86,7 @@ health = "/health"
 [permissions]
 network = ["api.example.org"]
 services = ["echo_service"]
-folders = ["~/echo-cache"]
+folders = ["echo-cache", "worlds/{world}/assets"]
 
 [[owned_folders]]              # a folder of each world's assets it owns
 folder = "echoes"
