@@ -20,6 +20,7 @@ assert args[:2] == ["remotion", "render"], args
 _, _, entry, composition, output = args[:5]
 props = next(a.split("=", 1)[1] for a in sys.argv if a.startswith("--props="))
 browser = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--browser-executable=")), "")
+concurrency = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--concurrency=")), "")
 port = int(next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--port=")), "3000"))
 try:
     socket.create_connection(("localhost", port), timeout=1).close()
@@ -58,6 +59,7 @@ if composition != "Empty":
                 "entry": entry,
                 "composition": composition,
                 "browser": browser,
+                "concurrency": concurrency,
                 "snooped": snooped,
                 **given,
             }

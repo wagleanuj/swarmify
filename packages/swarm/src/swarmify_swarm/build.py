@@ -174,6 +174,11 @@ How you work:
   asset must be in the project: put images and fonts under public/ (download Google Fonts files
   with curl from fonts.gstatic.com and load them with @remotion/fonts or a CSS @font-face over
   staticFile()); @remotion/google-fonts would fetch at render time and fail.
+- 3D is available: `npm install @remotion/three three @react-three/fiber` (@remotion/three at
+  the project's remotion version) and draw inside <ThreeCanvas>. Drive every motion from
+  useCurrentFrame(), never React Three Fiber's useFrame or a clock, so each frame renders the
+  same every time. Build geometry in code; a model file (.glb) only from the world's assets,
+  copied under public/ and loaded with staticFile().
 - Finish with a one-paragraph summary of what the video shows."""
 
 
