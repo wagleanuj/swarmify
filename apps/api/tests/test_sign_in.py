@@ -154,7 +154,12 @@ def test_a_token_is_shown_once_and_never_opens_the_http_api(client: TestClient) 
     token = made.json()
     assert token["name"] == "Claude Code" and token["token"].startswith("swm_")
     assert client.get("/api/tokens").json() == [
-        {"id": token["id"], "name": "Claude Code", "created_at": token["created_at"]}
+        {
+            "id": token["id"],
+            "name": "Claude Code",
+            "created_at": token["created_at"],
+            "scope": "mcp",
+        }
     ]
     assert client.post("/api/tokens", json={"name": " "}).status_code == 422
     bearer = {"Authorization": f"Bearer {token['token']}"}

@@ -1,0 +1,52 @@
+# The Slack connector (README.md beside this file): Remote Approvals in Slack. Installed with this
+# repository's packages but enabled only by the worlds that want it, as it needs a Slack app.
+name = "slack"
+version = "1.0.0"
+label = "Slack"
+about = "Posts each gate to a Slack channel with a button per answer, and updates the message once the gate is answered, there or in Swarmify. Needs a Slack app of your own in Socket Mode (its README)."
+kind = "notify"
+stage_types = []
+enable_by_default = false
+capabilities = ["remote_approvals"]
+
+runtime = "uv"
+install = ["uv", "sync", "--frozen", "--no-dev"]
+command = [".venv/bin/python", "slack_connector.py"]
+# Socket Mode: an outbound websocket to Slack, so Swarmify needs no public URL. The core keeps
+# this process running while a world enables the package with its Setup done.
+listen = [".venv/bin/python", "slack_connector.py", "listen"]
+
+[setup]
+test = "check_setup"
+help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/slack#setup"
+
+[[config]]
+key = "bot_token"
+label = "Bot token"
+type = "string"
+secret = true
+required = true
+env = "SLACK_BOT_TOKEN"
+help = "The xoxb- token on your Slack app's OAuth & Permissions page. It needs the chat:write scope."
+
+[[config]]
+key = "app_token"
+label = "App-level token"
+type = "string"
+secret = true
+required = true
+env = "SLACK_APP_TOKEN"
+help = "An xapp- token from Basic Information, App-Level Tokens, with the connections:write scope. Socket Mode connects with it."
+
+[[config]]
+key = "channel"
+label = "Channel"
+type = "string"
+required = true
+scope = "world"
+env = "SLACK_CHANNEL"
+pattern = "^[A-Z0-9]{8,}$"
+help = "The ID of the channel this world's gates go to, as C0123ABCDEF (the channel's details, at the bottom). Invite the app to it."
+
+[permissions]
+network = ["slack.com", "*.slack.com"]

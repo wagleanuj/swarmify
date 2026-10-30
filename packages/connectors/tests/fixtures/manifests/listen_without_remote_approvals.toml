@@ -1,0 +1,10 @@
+# error: listen: is the long-lived process of a remote_approvals connector
+name = "pager"
+version = "1.0.0"
+label = "Pager"
+about = "Tells a person about gates."
+kind = "notify"
+stage_types = []
+runtime = "uv"
+command = ["python", "server.py"]
+listen = ["python", "server.py", "listen"]

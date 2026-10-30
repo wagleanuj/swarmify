@@ -436,10 +436,12 @@ class Connectors:
 
     def install_defaults(self) -> dict[str, str]:
         """Install each package of this repository's `connectors/` folder whose version is not
-        installed yet, and keep them as the defaults worlds are given. The first install of a
-        package carries what V1 kept for it into its shared Setup: a Setting from the app's env
-        and a Credential from the credentials file, each found by its field's `env` name. One
-        that does not install is logged and left out; the others still are."""
+        installed yet, and keep them as the defaults worlds are given, but for those whose
+        Manifest says `enable_by_default = false`, which a world enables when it wants them.
+        The first install of a package carries what V1 kept for it into its shared Setup: a
+        Setting from the app's env and a Credential from the credentials file, each found by its
+        field's `env` name. One that does not install is logged and left out; the others still
+        are."""
         for manifest in sorted((self.packages.repo / DEFAULTS).glob(f"*/{MANIFEST}")):
             source = f"{DEFAULTS}/{manifest.parent.name}"
             try:
@@ -454,7 +456,8 @@ class Connectors:
                 continue
             if first:
                 self._carry(m)
-            self.defaults[m["name"]] = m["version"]
+            if m.get("enable_by_default", True):
+                self.defaults[m["name"]] = m["version"]
         return self.defaults
 
     def _carry(self, m: dict[str, Any]) -> None:
@@ -1006,6 +1009,41 @@ class Connectors:
                     except (httpx.HTTPError, httpx.InvalidURL) as exc:
                         checks.append(HealthCheck(url, False, str(exc) or type(exc).__name__))
         return checks
+
+    # Remote Approvals: a notify connector posts gates and delivers their answers
+
+    def remote_approvers(self, world_id: str) -> list[Connector]:
+        """The world's connectors offering the `remote_approvals` Capability with their Setup
+        done: those a gate is posted through."""
+        return [
+            c
+            for c in self.list_all(world_id)
+            if "remote_approvals" in c.manifest.get("capabilities", []) and not self.missing(c)
+        ]
+
+    def ask(self, connector: Connector, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Call one of a connector's Capability tools, as `post_gate`. Raises ConnectorError."""
+        return self._tool(connector, tool, arguments, self._env(connector))
+
+    def listeners(self) -> list[tuple[Connector, dict[str, str]]]:
+        """Each long-lived process (a Manifest's `listen`) to keep running, with its Setup
+        values: one per package version some world enables with its Setup done, and per distinct
+        set of values, so worlds sharing them share one process."""
+        found: dict[str, tuple[Connector, dict[str, str]]] = {}
+        for package in self.packages.list():
+            if package.state != "installed":
+                continue
+            for world_id in self.pinned_by(package.name, package.version):
+                connector = self.package_connector(world_id, package.name, package.version)
+                if connector is None or "listen" not in connector.manifest:
+                    continue
+                try:
+                    env = self._env(connector)
+                except (ConnectorError, PermissionError):
+                    continue  # its Setup is not done in this world
+                key = repr((package.name, package.version, sorted(env.items())))
+                found.setdefault(key, (connector, env))
+        return list(found.values())
 
     # Publish stages (ADR 0007)
 

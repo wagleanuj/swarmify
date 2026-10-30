@@ -133,18 +133,20 @@ def test_gate_opened_and_run_ended_reach_the_notifier_and_the_world_stream(
     at(runner, run.id, "waiting_gate", "pick")
     runner.decide(run.id, choice="idea 1")
     at(runner, run.id, "done")
-    wait_for(lambda: len(notifier.events) == 2)
-    opened, ended = notifier.events
+    wait_for(lambda: len(notifier.events) == 3)
+    opened, closed, ended = notifier.events
     assert opened.type == "gate.opened" and opened.world_id == "world_1" and opened.run_id == run.id
     assert opened.payload == {
         "run_id": run.id,
         "name": "Weekly short",
         "stage_index": 1,
+        "visit": 0,
         "stage": "pick",
         "kind": "pick",
         "ask": "Pick one idea.",
         "publish": None,
     }
+    assert closed.type == "gate.closed" and closed.payload["resolution"]["choice"] == "idea 1"
     assert ended.type == "run.ended"
     assert ended.payload == {"run_id": run.id, "name": "Weekly short", "status": "done"}
 

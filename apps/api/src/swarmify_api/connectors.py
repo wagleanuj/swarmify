@@ -61,7 +61,7 @@ class ConnectorView(BaseModel):
     id: str
     world_id: str | None
     name: str
-    kind: Literal["tool", "stage", "publish"]
+    kind: Literal["tool", "stage", "publish", "notify"]
     command: list[str]
     url: str | None
     credentials: list[str]

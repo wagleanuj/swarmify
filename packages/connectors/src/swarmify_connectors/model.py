@@ -3,8 +3,10 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-Kind = Literal["tool", "stage", "publish"]
-KINDS: tuple[Kind, ...] = ("tool", "stage", "publish")
+Kind = Literal["tool", "stage", "publish", "notify"]
+KINDS: tuple[Kind, ...] = ("tool", "stage", "publish", "notify")
+"""A `notify` connector runs in no stage: it tells a person about gates, and may offer Remote
+Approvals."""
 STAGE_TYPES = ("swarm", "connector")
 CallStatus = Literal["running", "polling", "done", "failed"]
 

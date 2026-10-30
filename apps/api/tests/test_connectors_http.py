@@ -119,6 +119,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
         ("fal_video", "0.0.1", "local"),
+        ("slack", "1.0.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
     ]
@@ -307,13 +308,18 @@ def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient
 
 
 def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
-    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech", "upload_post"]
+    # the defaults: slack is installed too, but no world is given it
+    assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "slack",
+        "speech",
+        "upload_post",
+    ]
     source = "packages/connectors/tests/fixtures/packages/echo"
     installed = client.post("/api/packages", json={"source": source})
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed[0] == installed.json() and len(listed) == 3
+    assert listed[0] == installed.json() and len(listed) == 4
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -341,7 +347,11 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     refused = client.post("/api/packages", json={"source": str(source)})
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
-    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech", "upload_post"]
+    assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "slack",
+        "speech",
+        "upload_post",
+    ]
 
 
 ECHO = """name: Say it

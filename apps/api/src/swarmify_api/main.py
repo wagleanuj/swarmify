@@ -6,7 +6,8 @@ The GraphWriter runs in the API process unless `SWARMIFY_GRAPH_WRITER=external` 
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db`, the DBOS system database
 `dbos.sqlite` and `worlds/<id>/`. DBOS launches in the lifespan, so runs execute only while the
 app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` is the operator's sign-in
-password (auth.py); the MCP server is also served over HTTP at `/mcp`, for API tokens.
+password (auth.py); the MCP server is also served over HTTP at `/mcp`, for API tokens, and its
+Remote Approvals part at `/mcp/remote_approvals`, for the connectors that offer them (remote.py).
 """
 
 import asyncio
@@ -43,6 +44,7 @@ from swarmify_api import (
     mcp,
     notifications,
     planner,
+    remote,
     runs,
     tasks,
     upkeep,
@@ -71,6 +73,7 @@ from swarmify_learning import SqliteStorage as LearningStorage
 from swarmify_memory import (
     ASSETS,
     DEBOUNCE,
+    ArtifactFile,
     GraphIndex,
     GraphWriter,
     McpGraphIndex,
@@ -84,6 +87,7 @@ from swarmify_notifications import SqliteStorage as ChannelStorage
 from swarmify_runs import (
     DEFAULT_CAP,
     Connector,
+    Gate,
     Notifier,
     OverBudget,
     Previews,
@@ -695,12 +699,23 @@ def create_app(
         world = world_svc.get(world_id)
         return getattr(world, name) if world else None
 
+    def open_gate(run_id: str) -> Gate | None:
+        return next((g for g in runner.storage.open_gates() if g.run_id == run_id), None)
+
+    def cards(run_id: str, index: int) -> list[ArtifactFile]:
+        run = runner.get(run_id)
+        return agents.run_artifacts(memory, run, index) if run else []
+
+    # Each world's Slack webhook stays the Channel until the world sets up a remote approver.
+    approvers = remote.RemoteApprovals(
+        migrated_db(root), registry, channels, open_gate, cards, base_url()
+    )
     runner = Runner(
         run_storage(root),
         root / "dbos.sqlite",
         connector or call_connector,
         root,
-        notifier or channels,
+        notifier or approvers,
         swarm=run_swarm,
         take=take,
         previews=previews(registry, world_svc, pins),
@@ -726,6 +741,7 @@ def create_app(
                 await to_thread.run_sync(lambda: whiteboard.expire(clock()))
                 # Runs the MCP process started wait queued for this process to enqueue them.
                 await to_thread.run_sync(runner.adopt)
+                await to_thread.run_sync(listeners.sync)
             except Exception:
                 log.exception("sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
@@ -761,8 +777,9 @@ def create_app(
         if os.environ.get("SWARMIFY_GRAPH_WRITER") != "external":
             rebuilds.start()
         # A session manager runs once, and a test may enter the lifespan twice: a fresh one each.
-        tools.streamable_http_app(stateless_http=True, json_response=True, host="0.0.0.0")
-        async with tools.session_manager.run():
+        for server in (tools, approvals):
+            server.streamable_http_app(stateless_http=True, json_response=True, host="0.0.0.0")
+        async with tools.session_manager.run(), approvals.session_manager.run():
             yield
         stop.set()
         for task in (sweeper, upkeeper):
@@ -771,6 +788,8 @@ def create_app(
                 await task
         if rebuilds.is_alive():
             await to_thread.run_sync(lambda: rebuilds.join(5))
+        await to_thread.run_sync(listeners.stop)
+        await to_thread.run_sync(approvers.flush)
         await to_thread.run_sync(index.close)
         await to_thread.run_sync(runner.shutdown)
 
@@ -820,7 +839,14 @@ def create_app(
     # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
     # Stateless: each request stands alone, so nothing is lost when the api restarts.
     app.router.routes.append(Route("/mcp", McpEndpoint(tools)))
+    approvals = mcp.approvals_server(runner)
+    app.router.routes.append(Route(remote.PATH, McpEndpoint(approvals)))
     operator = auth.Operator(migrated_db(root))
+    listeners = remote.Listeners(
+        registry,
+        lambda name: operator.provision(f"{name} remote approvals", remote.SCOPE),
+        base_url().rstrip("/") + remote.PATH,
+    )
     if password := os.environ.get("SWARMIFY_PASSWORD"):
         operator.set_password(password)
     app.include_router(auth.router(operator))

@@ -1975,7 +1975,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "tool" | "stage" | "publish";
+            kind: "tool" | "stage" | "publish" | "notify";
             /** Command */
             command: string[];
             /** Url */
@@ -2107,6 +2107,8 @@ export interface components {
             publish?: {
                 [key: string]: unknown;
             } | null;
+            /** By */
+            by?: string | null;
         };
         /** EnabledPackage */
         EnabledPackage: {
@@ -2521,6 +2523,11 @@ export interface components {
             name: string;
             /** Created At */
             created_at: string;
+            /**
+             * Scope
+             * @default mcp
+             */
+            scope: string;
             /** Token */
             token: string;
         };
@@ -2970,7 +2977,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "tool" | "stage" | "publish";
+            kind: "tool" | "stage" | "publish" | "notify";
             /** Command */
             command: string[];
             /** Url */
@@ -3360,6 +3367,11 @@ export interface components {
             name: string;
             /** Created At */
             created_at: string;
+            /**
+             * Scope
+             * @default mcp
+             */
+            scope: string;
         };
         /** TokenCreate */
         TokenCreate: {

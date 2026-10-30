@@ -8,7 +8,9 @@ password set or stored nothing is checked, which is right only on 127.0.0.1.
 A browser signs in at `POST /api/session` and gets a session cookie: a random id signed with the
 install's secret (HttpOnly, SameSite Lax, Secure over https), stored hashed with its expiry, so
 signing out ends it. API tokens reach only the MCP server at `/mcp`: shown once, stored hashed,
-revocable. The middleware is pure ASGI, so event streams pass through unbuffered. The skin's
+revocable. A token's scope says how much of it: `mcp` all of it, any other scope only the server
+at `/mcp/<scope>`, as the token the core provisions for a Remote Approval connector. The
+middleware is pure ASGI, so event streams pass through unbuffered. The skin's
 static files, `/api/health` and `/api/session` stay open; every other `/api` path and `/mcp` is
 refused without a session.
 """
@@ -39,6 +41,7 @@ MIGRATIONS = Path(__file__).parent / "migrations"
 COOKIE = "swarmify_session"
 SESSION = timedelta(days=30)
 MCP = "/mcp"
+FULL = "mcp"
 OPEN = frozenset({"/api/health", "/api/session"})
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 
@@ -64,6 +67,8 @@ class Token(BaseModel):
     id: str
     name: str
     created_at: str
+    scope: str = FULL
+    """`mcp` for the whole MCP server; `remote_approvals` for a connector's, which Swarmify made."""
 
 
 class NewToken(Token):
@@ -138,31 +143,41 @@ class Operator:
 
     def tokens(self) -> list[Token]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT id, name, created_at FROM api_tokens ORDER BY id")
+            rows = conn.execute("SELECT id, name, created_at, scope FROM api_tokens ORDER BY id")
             return [Token(**dict(r)) for r in rows]
 
-    def create_token(self, name: str) -> NewToken:
+    def create_token(self, name: str, scope: str = FULL) -> NewToken:
         made = NewToken(
             id=new_id("tok"),
             name=name,
             created_at=self.clock().isoformat(),
+            scope=scope,
             token=f"swm_{secrets.token_urlsafe(32)}",
         )
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO api_tokens VALUES (?, ?, ?, ?)",
-                (made.id, name, _digest(made.token), made.created_at),
+                "INSERT INTO api_tokens (id, name, hash, created_at, scope) VALUES (?, ?, ?, ?, ?)",
+                (made.id, name, _digest(made.token), made.created_at, scope),
             )
         return made
+
+    def provision(self, name: str, scope: str) -> str:
+        """A fresh token of `scope` for a process the core starts, replacing the one it made
+        under that name before (only its hash was kept, so it cannot be handed out again)."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM api_tokens WHERE name = ? AND scope = ?", (name, scope))
+        return self.create_token(name, scope).token
 
     def revoke_token(self, token_id: str) -> bool:
         with self._conn() as conn:
             return conn.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,)).rowcount > 0
 
-    def token_valid(self, token: str) -> bool:
+    def token_scope(self, token: str) -> str | None:
+        """The scope of a live token, None for an unknown or revoked one."""
         with self._conn() as conn:
-            found = conn.execute("SELECT 1 FROM api_tokens WHERE hash = ?", (_digest(token),))
-            return found.fetchone() is not None
+            found = conn.execute("SELECT scope FROM api_tokens WHERE hash = ?", (_digest(token),))
+            row = found.fetchone()
+            return row["scope"] if row else None
 
 
 class Throttle:
@@ -189,7 +204,8 @@ class Throttle:
 
 
 class SignedIn:
-    """Refuses `/api` and `/mcp` without a session cookie; `/mcp` also takes a Bearer token."""
+    """Refuses `/api` and `/mcp` without a session cookie; `/mcp` also takes a Bearer token,
+    one scoped to a part of it only there."""
 
     def __init__(self, app: ASGIApp, operator: Operator) -> None:
         self.app = app
@@ -204,7 +220,10 @@ class SignedIn:
         if (cookie := conn.cookies.get(COOKIE)) and self.operator.session(cookie):
             return True
         scheme, _, token = conn.headers.get("authorization", "").partition(" ")
-        return mcp and scheme.lower() == "bearer" and self.operator.token_valid(token.strip())
+        if not mcp or scheme.lower() != "bearer":
+            return False
+        reach = self.operator.token_scope(token.strip())
+        return reach == FULL or (reach is not None and path == f"{MCP}/{reach}")
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan" or self.allowed(scope):
