@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
 import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { ModelSelect, useModels } from "./ModelSelect";
+import { Tokens } from "./Tokens";
 
 type World = components["schemas"]["World"];
 type Spend = components["schemas"]["Spend"];
@@ -332,6 +333,7 @@ export function Settings() {
           </p>
         </div>
       </Row>
+      <Tokens Row={Row} />
       <Row title="Danger" about="Deleting a world cannot be undone.">
         <div className="panel set-panel">
           <p>Deleting {name} removes its folder, runs, library and memory, with every file they made.</p>

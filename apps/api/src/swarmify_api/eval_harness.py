@@ -13,7 +13,7 @@ The baseline arm runs every swarm stage with one agent, the swarm arm with `swar
     uv run swarmify-eval --kind research-briefs          # its 8 tasks, 2 trials an arm
     uv run swarmify-eval --kind typed-lists --tasks 2 --k 1   # a smoke run
 
-`SWARMIFY_PASSWORD` (and `SWARMIFY_USER`) are sent as basic auth when set.
+When `SWARMIFY_PASSWORD` is set the harness signs in with it first, as a browser does.
 """
 
 import argparse
@@ -160,6 +160,11 @@ def run_eval(
     return report
 
 
+def sign_in(http: httpx.Client, password: str) -> None:
+    """Sign `http` in as the operator: it keeps the session cookie for every later call."""
+    http.post("/api/session", json={"password": password}).raise_for_status()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         prog="swarmify-eval",
@@ -174,11 +179,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--timeout", type=float, default=Settings.timeout_s, help="seconds a trial")
     p.add_argument("--clean", action="store_true", help="delete trial worlds afterwards")
     a = p.parse_args(argv)
-    password = os.environ.get("SWARMIFY_PASSWORD")
-    auth = (os.environ.get("SWARMIFY_USER", "swarmify"), password) if password else None
     # a judge session answers within minutes; every other call within seconds
     timeout = httpx.Timeout(60, read=600)
-    with httpx.Client(base_url=a.api, auth=auth, timeout=timeout) as http:
+    with httpx.Client(base_url=a.api, timeout=timeout) as http:
+        if password := os.environ.get("SWARMIFY_PASSWORD"):
+            sign_in(http, password)
         kind = kinds[a.kind]
         report = run_eval(
             http,

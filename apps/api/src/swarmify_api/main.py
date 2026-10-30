@@ -5,7 +5,8 @@ The GraphWriter runs in the API process unless `SWARMIFY_GRAPH_WRITER=external` 
 `swarmify-graph-writer` process does it instead; never both (ADR 0003).
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db`, the DBOS system database
 `dbos.sqlite` and `worlds/<id>/`. DBOS launches in the lifespan, so runs execute only while the
-app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` turns on basic auth.
+app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` is the operator's sign-in
+password (auth.py); the MCP server is also served over HTTP at `/mcp`, for API tokens.
 """
 
 import asyncio
@@ -24,13 +25,16 @@ import yaml
 from anyio import to_thread
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 from starlette.responses import Response
-from starlette.types import Scope
+from starlette.routing import Route
+from starlette.types import Receive, Scope, Send
 
 from swarmify_api import (
     agents,
+    auth,
     connectors,
     evals,
     graph,
@@ -46,7 +50,6 @@ from swarmify_api import (
     workflows,
     worlds,
 )
-from swarmify_api.auth import BasicAuth
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import Connector as ConnectorDef
 from swarmify_connectors import (
@@ -128,6 +131,7 @@ def migrated_db(root: Path) -> Path:
             SWARM_MIGRATIONS,
             NOTIFICATIONS_MIGRATIONS,
             LEARNING_MIGRATIONS,
+            auth.MIGRATIONS,
         )
     return db
 
@@ -384,6 +388,16 @@ class SpaFiles(StaticFiles):
             if exc.status_code != 404 or path == "api" or path.startswith("api/"):
                 raise
             return await super().get_response("index.html", scope)
+
+
+class McpEndpoint:
+    """`/mcp`, handed to the session manager of the lifespan that is running."""
+
+    def __init__(self, tools: MCPServer) -> None:
+        self.tools = tools
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.tools.session_manager.handle_request(scope, receive, send)
 
 
 class Health(BaseModel):
@@ -718,7 +732,10 @@ def create_app(
         )
         if os.environ.get("SWARMIFY_GRAPH_WRITER") != "external":
             rebuilds.start()
-        yield
+        # A session manager runs once, and a test may enter the lifespan twice: a fresh one each.
+        tools.streamable_http_app(stateless_http=True, json_response=True, host="0.0.0.0")
+        async with tools.session_manager.run():
+            yield
         stop.set()
         for task in (sweeper, upkeeper):
             task.cancel()
@@ -766,9 +783,15 @@ def create_app(
         world_svc, workflow_svc, whiteboard, runner, delete, memory=memory, retro=retro
     )
     app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
+    # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
+    # Stateless: each request stands alone, so nothing is lost when the api restarts.
+    app.router.routes.append(Route("/mcp", McpEndpoint(tools)))
+    operator = auth.Operator(migrated_db(root))
+    if password := os.environ.get("SWARMIFY_PASSWORD"):
+        operator.set_password(password)
+    app.include_router(auth.router(operator))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
-    if password := os.environ.get("SWARMIFY_PASSWORD"):
-        user = os.environ.get("SWARMIFY_USER", "swarmify")
-        app.add_middleware(BasicAuth, user=user, password=password)
+    if operator.enabled:
+        app.add_middleware(auth.SignedIn, operator=operator)
     return app
