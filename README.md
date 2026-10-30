@@ -492,7 +492,7 @@ The full fixture is `packages/connectors/tests/fixtures/packages/echo`, and ever
 invalid fixture beside it in `fixtures/manifests`.
 
 Once a world enables a package, the Connectors page draws its Setup form from the `[[config]]`
-fields (`oauth` fields wait for their sign-in). Values live in `<data dir>/setup.json`, mode 600,
+fields. Values live in `<data dir>/setup.json`, mode 600,
 keyed by package, then `shared` or the world, then field key; Credentials (secret fields) are
 never returned by the API, only whether they are set. For a world, a field resolves to the
 world's value, else the shared one (a `scope = "world"` field has none), else its default, and a
@@ -501,6 +501,43 @@ tool is called with no arguments in a process holding the candidate values, and 
 `{"ok": true|false, "message": "..."}`; anything but `ok: true` saves nothing and shows the
 message. Every connector process gets exactly its own resolved values as environment variables
 named by each field's `env`, and nothing else of the app's or another package's.
+
+#### OAuth sign-in
+
+A field of `type = "oauth"` is an account Swarmify signs in to for the connector. Its
+`[config.oauth]` table gives `authorize_url`, `token_url`, `scopes`, `pkce` (true unless set
+false), `client = "operator"` and optionally `authorize_params`, extra query parameters for the
+provider's sign-in page (Google needs `{ access_type = "offline", prompt = "consent" }` to issue a
+refresh token). You register your own app with the provider; its client ID and secret are two
+shared Credentials the form adds before the field, `<key>_client_id` and `<key>_client_secret`,
+which only Swarmify uses. Register the redirect URI the form shows,
+`<the address you open Swarmify at>/api/setup/oauth/callback`: Swarmify takes it from the
+request (with `X-Forwarded-Host` and `X-Forwarded-Proto` behind Caddy or Tailscale Serve), so
+sign in from the same address you registered.
+
+**Sign in** sends the browser to the provider with a one-time `state` bound to your session and
+a PKCE challenge; the provider sends it back to the callback, which checks the state (once, within
+ten minutes, same session) and trades the code for the token set. The token set is stored as the
+field's Credential in `setup.json` (shared, or the world's own for `scope = "world"`) and is never
+returned by the API. Each time the connector's process starts it gets a current access token as
+the field's `env`: one with five minutes or less left is refreshed first, keeping a rotated
+refresh token. A refresh the provider refuses (revoked, or the app's secret changed) marks the
+field **Needs sign-in**, and so does a connector reporting an auth failure: a tool error whose
+message holds the word `auth_failed`, as `raise ToolError("auth_failed: token revoked")` does in
+the Python MCP SDK. Signing in again clears it. Tokens are never logged.
+
+Google and a `*.ts.net` address: Google accepts a redirect URI for a "Web application" client
+when it uses https, its host is not a raw IP, and its top-level domain is on the public suffix
+list ([Google's redirect URI rules](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation)).
+`https://<host>.<tailnet>.ts.net/api/setup/oauth/callback` meets all three: `.net` is a public
+suffix, and `ts.net` itself is on the [list](https://publicsuffix.org/list/public_suffix_list.dat)
+(private section, submitted by Tailscale). The provider never calls the redirect URI itself, the
+browser follows it, so Tailscale Serve is enough; Funnel is not needed. While the app's consent
+screen is in Testing, add yourself as a test user. If a provider refuses the address, use the
+loopback fallback: register `http://localhost:8000/api/setup/oauth/callback` (http is allowed for
+localhost), forward the port from the device you sign in on with
+`ssh -L 8000:localhost:8000 <host>`, open `http://localhost:8000` and sign in there. The token is
+stored on the host either way, and refreshing needs no browser.
 
 ## Remotion render
 

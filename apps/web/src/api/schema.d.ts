@@ -834,6 +834,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/packages/{name}/setup/oauth/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Sign In
+         * @description Begin signing in to the package's `oauth` field `key`: the browser goes to the
+         *     returned URL, and the provider sends it back to `/api/setup/oauth/callback` at the
+         *     origin this request came to (behind a proxy, its X-Forwarded-Proto and -Host), which
+         *     is the redirect URI to register with the provider. 422 until the field's client ID is
+         *     saved.
+         */
+        post: operations["start_sign_in_api_worlds__world_id__packages__name__setup_oauth__key__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finish Sign In
+         * @description Where the provider sends the browser back. The state must be one this session began
+         *     in the last ten minutes, once; the code is traded for the token set, stored as the
+         *     field's Credential. Redirects to the world's Connectors page with `sign_in` (the
+         *     package) or `sign_in_error` (why not) in the query. 400 for a stale or foreign state.
+         */
+        get: operations["finish_sign_in_api_setup_oauth_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stage_id}/call": {
         parameters: {
             query?: never;
@@ -1996,6 +2043,8 @@ export interface components {
             outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
+            /** Sign In */
+            sign_in: string[];
             /** Version */
             version: string | null;
         };
@@ -2975,6 +3024,8 @@ export interface components {
             outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
+            /** Sign In */
+            sign_in: string[];
             /** Version */
             version: string | null;
             check: components["schemas"]["KeyCheck"] | null;
@@ -3040,7 +3091,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "string" | "text" | "number" | "integer" | "boolean" | "choice" | "url" | "path";
+            type: "string" | "text" | "number" | "integer" | "boolean" | "choice" | "url" | "path" | "oauth";
             /** Secret */
             secret: boolean;
             /** Required */
@@ -3051,7 +3102,7 @@ export interface components {
              */
             scope: "shared" | "world";
             /** Env */
-            env: string;
+            env: string | null;
             /** Help */
             help: string | null;
             /** Options */
@@ -3072,6 +3123,8 @@ export interface components {
             shared_set: boolean;
             /** World Set */
             world_set: boolean;
+            /** Needs Sign In */
+            needs_sign_in: boolean;
         };
         /** SetupValues */
         SetupValues: {
@@ -3110,6 +3163,13 @@ export interface components {
         SignIn: {
             /** Password */
             password: string;
+        };
+        /** SignInStart */
+        SignInStart: {
+            /** Url */
+            url: string;
+            /** Redirect Uri */
+            redirect_uri: string;
         };
         /**
          * Skill
@@ -5306,6 +5366,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SavedSetup"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_sign_in_api_worlds__world_id__packages__name__setup_oauth__key__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInStart"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_sign_in_api_setup_oauth_callback_get: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

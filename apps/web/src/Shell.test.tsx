@@ -139,7 +139,7 @@ test("on a phone the world chip opens a sheet of every world and what each waits
 test("on a phone More lists every other page with a one-line summary, and the backdrop closes it", async () => {
   await page.viewport(390, 844);
   const today = new Date().toISOString();
-  const connector = { missing: [], builtin: false, kind: "tool", command: ["x"], url: null, name: "x" };
+  const connector = { missing: [], sign_in: [], builtin: false, kind: "tool", command: ["x"], url: null, name: "x" };
   fakeFetch({
     "GET /api/worlds": () => Response.json(worlds),
     "GET /api/gates": () => Response.json([]),

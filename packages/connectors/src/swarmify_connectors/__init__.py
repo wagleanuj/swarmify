@@ -13,11 +13,14 @@ A long job is a tool answer carrying `job_id` and `poll`, the tool to poll with
 `progress` (0 to 1), `message` and `error`.
 """
 
+import hmac
 import logging
 import os
 import re
+import secrets
 import shlex
 import sys
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import replace
@@ -28,7 +31,7 @@ from typing import Any
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
-from swarmify_connectors import builtin_publish, publish, remotion, setup, speech
+from swarmify_connectors import builtin_publish, oauth, publish, remotion, setup, speech
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
 from swarmify_connectors.mcp_transport import McpTransport
@@ -350,6 +353,10 @@ class Connectors:
         self.data_dir = credentials.path.parent  # credentials live in `<data dir>/.env`
         self.packages = packages or Packages(self.data_dir / "packages", self.data_dir)
         self.setups = SetupStore(self.data_dir / "setup.json")
+        self._sign_ins: dict[str, dict[str, Any]] = {}
+        """Sign-ins under way by their `state`, each bound to the browser session it began in."""
+        self._tokens = threading.Lock()
+        """One refresh at a time, so a rotated refresh token is never spent twice."""
 
     # Registry
 
@@ -379,7 +386,11 @@ class Connectors:
             m["kind"],
             m.get("command", []),
             m.get("url"),
-            [setup.env_name(f) for f in setup.fields(m) if f.get("secret")],
+            [
+                setup.env_name(f)
+                for f in setup.fields(m)
+                if setup.secret(f) and "client_of" not in f
+            ],
             stage_types=m["stage_types"],
             about=m["about"],
             types=m.get("types", {}),
@@ -477,7 +488,7 @@ class Connectors:
                     raise ValueError(f"{name} has no Setup field {key}")
                 if where == "shared" and setup.scope(field) == "world":
                     raise ValueError(f"{field['label']}: is set per world, not shared")
-                if field.get("secret") and raw == "":
+                if setup.secret(field) and raw == "":
                     continue
                 value = setup.coerce(field, raw)
                 if value is None:
@@ -485,13 +496,16 @@ class Connectors:
                 else:
                     values[key] = value
         resolved = setup.resolve(connector.manifest, now_shared, now_world)
-        if gaps := setup.missing(connector.manifest, resolved):
+        gaps = setup.missing(connector.manifest, resolved)
+        if gaps := [k for k in gaps if declared[k]["type"] != "oauth"]:  # signed in apart
             raise ValueError(f"{declared[gaps[0]]['label']}: is required")
         check = None
         if test := connector.manifest.get("setup", {}).get("test"):
-            env = setup.environment(connector.manifest, resolved)
+            env = setup.environment(
+                connector.manifest, self._signed_in(connector, now_shared, now_world)
+            )
             try:
-                answer = self.transport.call(connector, test, {}, env)
+                answer = self._tool(connector, test, {}, env)
                 ok = answer.get("ok") is True
                 said = str(answer.get("message") or "")
                 check = KeyCheck(ok, said or ("The setup works." if ok else "The test failed."))
@@ -501,6 +515,147 @@ class Connectors:
                 return check
         self.setups.put(name, world_id, now_shared, now_world)
         return check
+
+    # OAuth sign-in for an `oauth` Setup field (spec V2, OAuth)
+
+    def start_sign_in(
+        self, world_id: str, name: str, key: str, redirect_uri: str, bound_to: str
+    ) -> str:
+        """Where to send the browser to sign in to the package's oauth field `key`. The one-time
+        state is bound to `bound_to`, a digest of the session asking, and lasts ten minutes.
+        Raises ValueError when the field is unknown or its app's client ID is not saved."""
+        connector, shared, _ = self.setup_values(world_id, name)
+        field = self._oauth_field(connector, key)
+        client_id = shared.get(f"{key}_client_id")
+        if not client_id:
+            raise ValueError(f"{field['label']}: save its client ID first, then sign in")
+        state, verifier = secrets.token_urlsafe(32), oauth.new_verifier()
+        now = time.monotonic()
+        self._sign_ins = {s: p for s, p in self._sign_ins.items() if p["until"] > now}
+        self._sign_ins[state] = {
+            "world_id": world_id,
+            "name": name,
+            "key": key,
+            "verifier": verifier,
+            "redirect_uri": redirect_uri,
+            "bound_to": bound_to,
+            "until": now + 600,
+        }
+        return oauth.authorize_url(field, client_id, redirect_uri, state, verifier)
+
+    def sign_in_for(self, state: str, bound_to: str) -> dict[str, Any]:
+        """The sign-in `state` names, used up, when it is current and began in the same session.
+        Raises ValueError otherwise."""
+        pending = self._sign_ins.pop(state, None)
+        if (
+            pending is None
+            or pending["until"] < time.monotonic()
+            or not hmac.compare_digest(pending["bound_to"], bound_to)
+        ):
+            raise ValueError(
+                "This sign-in is stale or began in another browser. Start it again from the"
+                " Connectors page."
+            )
+        return pending
+
+    def finish_sign_in(self, pending: dict[str, Any], code: str) -> None:
+        """Trade the provider's code for the token set and store it as the field's Credential:
+        shared, or the world's own for a field set per world. Raises ValueError (or
+        oauth.SignInNeeded) saying why, never with a token in it."""
+        world_id, name, key = pending["world_id"], pending["name"], pending["key"]
+        connector, shared, _ = self.setup_values(world_id, name)
+        field = self._oauth_field(connector, key)
+        client = (
+            str(shared.get(f"{key}_client_id", "")),
+            str(shared.get(f"{key}_client_secret", "")),
+        )
+        tokens = oauth.exchange(field, client, code, pending["verifier"], pending["redirect_uri"])
+        self.setups.put_value(name, self._token_world(connector, field), key, tokens)
+        log.info("%s signed in to %s for %s", world_id, name, key)
+
+    def sign_in_needed(self, connector: Connector) -> list[str]:
+        """Keys of the package's oauth fields whose token set the provider refused."""
+        if connector.version is None or connector.world_id is None:
+            return []
+        try:
+            shared, world = self.setups.values(connector.name, connector.world_id)
+        except PermissionError:
+            return []
+        resolved = setup.resolve(connector.manifest, shared, world)
+        return [
+            f["key"]
+            for f in setup.fields(connector.manifest)
+            if setup.needs_sign_in(f, resolved.get(f["key"]))
+        ]
+
+    def _oauth_field(self, connector: Connector, key: str) -> dict[str, Any]:
+        for f in connector.manifest.get("config", []):
+            if f["key"] == key and f["type"] == "oauth":
+                return dict(f)
+        raise ValueError(f"{connector.name} has no sign-in field {key}")
+
+    def _token_world(self, connector: Connector, field: dict[str, Any]) -> str | None:
+        # ponytail: a shared oauth field signs in once for every world; no per-world override.
+        return connector.world_id if setup.scope(field) == "world" else None
+
+    def _signed_in(
+        self, connector: Connector, shared: setup.Values, world: setup.Values
+    ) -> setup.Values:
+        """The package's resolved values with each oauth token set swapped for a current access
+        token: refreshed first when it is near expiry, the refreshed set stored (and set in
+        `shared` or `world`). A refused refresh marks the field for sign-in again."""
+        resolved = setup.resolve(connector.manifest, shared, world)
+        with self._tokens:
+            for f in connector.manifest.get("config", []):
+                tokens = resolved.get(f["key"])
+                if f["type"] != "oauth" or not isinstance(tokens, dict):
+                    continue
+                where = world if setup.scope(f) == "world" else shared
+                key = f["key"]
+                client = (
+                    str(shared.get(f"{key}_client_id", "")),
+                    str(shared.get(f"{key}_client_secret", "")),
+                )
+                try:
+                    now = oauth.fresh(f, client, tokens)
+                except oauth.SignInNeeded as exc:
+                    log.warning("%s needs sign-in again: %s", connector.name, exc)
+                    now = {**tokens, "needs_sign_in": True}
+                except ValueError as exc:
+                    raise ConnectorError(str(exc)) from None
+                if now != tokens:
+                    where[key] = now
+                    self.setups.put_value(connector.name, self._token_world(connector, f), key, now)
+                resolved[key] = now if now.get("needs_sign_in") else now["access_token"]
+        return resolved
+
+    def _tool(
+        self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
+    ) -> dict[str, Any]:
+        """Call one tool. A package's tool failing with an `auth_failed` message marks
+        its oauth fields for sign-in again (oauth.is_auth_failure)."""
+        try:
+            return self.transport.call(connector, tool, arguments, env)
+        except ConnectorError as exc:
+            if connector.version is not None and oauth.is_auth_failure(str(exc)):
+                self._needs_sign_in(connector)
+            raise
+
+    def _needs_sign_in(self, connector: Connector) -> None:
+        assert connector.world_id is not None
+        with self._tokens:
+            shared, world = self.setups.values(connector.name, connector.world_id)
+            for f in connector.manifest.get("config", []):
+                where = world if setup.scope(f) == "world" else shared
+                tokens = where.get(f["key"])
+                if f["type"] == "oauth" and isinstance(tokens, dict):
+                    marked = {**tokens, "needs_sign_in": True}
+                    self.setups.put_value(
+                        connector.name, self._token_world(connector, f), f["key"], marked
+                    )
+                    log.warning(
+                        "%s reported an auth failure: %s needs sign-in", connector.name, f["key"]
+                    )
 
     def find(
         self, world_id: str, name: str, pins: Mapping[str, str] | None = None
@@ -530,9 +685,7 @@ class Connectors:
         assets = self.data_dir / "worlds" / world_id / "assets"  # the run's `assets_path`
         args = {"world": world_id, "assets_path": str(assets)}
         try:
-            answer = self.transport.call(
-                connector, connector.world_types, args, self._env(connector)
-            )
+            answer = self._tool(connector, connector.world_types, args, self._env(connector))
         except ConnectorError as exc:
             log.warning("%s could not answer its types for %s: %s", connector.name, world_id, exc)
             return connector.types, ""
@@ -687,7 +840,7 @@ class Connectors:
         if tool is None or self.missing(connector):
             return None
         try:
-            answer = self.transport.call(connector, tool, {}, self._env(connector))
+            answer = self._tool(connector, tool, {}, self._env(connector))
         except ConnectorError as exc:
             return KeyCheck(False, str(exc))
         return KeyCheck(True, _account(connector.name, answer))
@@ -751,7 +904,12 @@ class Connectors:
     def _env(self, connector: Connector, extra: dict[str, str] | None = None) -> dict[str, str]:
         if connector.version is not None:
             # A package gets exactly its own Setup values for the world it runs for (ADR 0024).
-            resolved = self._resolved(connector)
+            assert connector.world_id is not None
+            # ponytail: the access token is fresh when the process starts; a swarm stage's agents
+            # holding one server longer than the token lives would need the server to re-read it.
+            resolved = self._signed_in(
+                connector, *self.setups.values(connector.name, connector.world_id)
+            )
             if gaps := setup.missing(connector.manifest, resolved):
                 raise ConnectorError(
                     f"{connector.name} needs its Setup on the Connectors page: {', '.join(gaps)}"
@@ -779,7 +937,7 @@ class Connectors:
         one without a health tool. Raises ConnectorError when the tool cannot be called."""
         if not connector.health:
             return []
-        answer = self.transport.call(connector, connector.health, {}, self._env(connector))
+        answer = self._tool(connector, connector.health, {}, self._env(connector))
         return [
             HealthCheck(str(c.get("name", "")), bool(c.get("ok")), str(c.get("message", "")))
             for c in answer.get("checks") or []
@@ -819,7 +977,7 @@ class Connectors:
             shown = builtin_publish.preview(connector.name, args)
         else:
             try:
-                raw = self.transport.call(connector, "preview", args, self._env(connector))
+                raw = self._tool(connector, "preview", args, self._env(connector))
             except ConnectorError as exc:
                 raw = {"fields": [], "problems": [f"{connector.name} preview failed: {exc}"]}
             shown = publish.checked_preview(raw)
@@ -875,9 +1033,7 @@ class Connectors:
         connector = self.find(world_id, "youtube")
         if connector is None or not video_ids:
             return {}
-        answer = self.transport.call(
-            connector, "views", {"video_ids": video_ids}, self._env(connector)
-        )
+        answer = self._tool(connector, "views", {"video_ids": video_ids}, self._env(connector))
         counts = answer.get("views")
         if not isinstance(counts, dict):
             raise ConnectorError(f"youtube views answered without counts: {answer}")
@@ -977,7 +1133,7 @@ class Connectors:
             )
         )
         try:
-            response = self.transport.call(connector, tool, request, env)
+            response = self._tool(connector, tool, request, env)
         except Exception as exc:
             self._fail(call, str(exc))
             raise
@@ -1016,7 +1172,7 @@ class Connectors:
         background = connector.name == "upload_post"  # an upload Upload-Post moved off
         args = {"requestId": call.job_id} if background else {"job_id": call.job_id}
         try:
-            answer = self.transport.call(connector, call.poll_tool, args, env)
+            answer = self._tool(connector, call.poll_tool, args, env)
         except Exception as exc:
             self._fail(call, str(exc))
             raise

@@ -129,6 +129,10 @@ SCHEMA: dict[str, Any] = {
                             "scopes": _strings,
                             "pkce": {"type": "boolean"},
                             "client": {"enum": ["operator"]},
+                            "authorize_params": {
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            },
                         },
                     },
                 },
@@ -263,6 +267,11 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             bad(f"{at}.options", "a choice field lists its options, and only a choice field")
         if (kind == "oauth") != ("oauth" in field):
             bad(f"{at}.oauth", "an oauth field declares [config.oauth], and only an oauth field")
+        if kind == "oauth":
+            for suffix in ("_client_id", "_client_secret"):  # its app's two shared Credentials
+                if field["key"] + suffix in keys:
+                    bad(f"{at}.key", f"{field['key']}{suffix} is declared twice")
+                keys[field["key"] + suffix] = field
         if "default" in field:
             value = field["default"]
             if kind == "oauth":

@@ -7,6 +7,7 @@ Values are keyed by package, not version, so they outlive an upgrade; a field's 
 finds a value saved under its old key. For a world, a field resolves to the world's value, else
 the shared one (a `world`-scoped field has none), else its default. The process gets each
 resolved field as the environment variable its `env` names, the upper-cased key by default.
+An `oauth` field's value is its token set (see `oauth`); the process gets a fresh access token.
 """
 
 import json
@@ -16,15 +17,30 @@ import stat
 from pathlib import Path
 from typing import Any
 
-FORM_TYPES = ("string", "text", "number", "integer", "boolean", "choice", "url", "path")
-"""The field types the form draws; `oauth` fields wait for their sign-in (#212)."""
+from swarmify_connectors.oauth import client_fields
 
 Values = dict[str, Any]
 
 
 def fields(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    """The Manifest's `[[config]]` fields the form draws, in order."""
-    return [f for f in manifest.get("config", []) if f["type"] in FORM_TYPES]
+    """The Manifest's `[[config]]` fields in order, each `oauth` field after its app's client
+    id and secret."""
+    out = []
+    for f in manifest.get("config", []):
+        if f["type"] == "oauth":
+            out += client_fields(f)
+        out.append(f)
+    return out
+
+
+def secret(field: dict[str, Any]) -> bool:
+    """A Credential: never returned through the API. A token set always is one."""
+    return bool(field.get("secret")) or field["type"] == "oauth"
+
+
+def needs_sign_in(field: dict[str, Any], value: Any) -> bool:
+    """An oauth field whose token set the provider refused."""
+    return field["type"] == "oauth" and isinstance(value, dict) and bool(value.get("needs_sign_in"))
 
 
 def scope(field: dict[str, Any]) -> str:
@@ -51,6 +67,9 @@ def coerce(field: dict[str, Any], value: Any) -> Any:
 
     def bad(why: str) -> ValueError:
         return ValueError(f"{label}: {why}")
+
+    if kind == "oauth":
+        raise bad("is set by signing in, not typed")
 
     if kind == "boolean":
         if isinstance(value, bool):
@@ -101,16 +120,23 @@ def resolve(manifest: dict[str, Any], shared: Values, world: Values) -> Values:
 
 
 def missing(manifest: dict[str, Any], resolved: Values) -> list[str]:
-    """Keys of required fields that resolve to nothing."""
-    return [f["key"] for f in fields(manifest) if f.get("required") and f["key"] not in resolved]
+    """Keys of required fields that resolve to nothing, or to a sign-in to do again."""
+    return [
+        f["key"]
+        for f in fields(manifest)
+        if f.get("required") and (f["key"] not in resolved or needs_sign_in(f, resolved[f["key"]]))
+    ]
 
 
 def environment(manifest: dict[str, Any], resolved: Values) -> dict[str, str]:
-    """The resolved values as the process environment they reach it as."""
+    """The resolved values as the process environment they reach it as. An oauth field reaches
+    it only once its token set is replaced by the access token; its app's client never does."""
     out = {}
     for f in fields(manifest):
-        if f["key"] in resolved:
+        if f["key"] in resolved and "client_of" not in f:
             value = resolved[f["key"]]
+            if isinstance(value, dict):
+                continue
             if isinstance(value, bool):
                 value = "true" if value else "false"
             out[env_name(f)] = str(value)
@@ -145,6 +171,16 @@ class SetupStore:
         saved = data.setdefault(package, {})
         saved["shared"] = shared
         saved.setdefault("worlds", {})[world_id] = world
+        self._write(data)
+
+    def put_value(self, package: str, world_id: str | None, key: str, value: Any) -> None:
+        """Set one value, the shared one when `world_id` is None, as a sign-in does."""
+        data = self.read()
+        saved = data.setdefault(package, {})
+        where = saved.setdefault("shared", {})
+        if world_id is not None:
+            where = saved.setdefault("worlds", {}).setdefault(world_id, {})
+        where[key] = value
         self._write(data)
 
     def delete_world(self, world_id: str) -> None:

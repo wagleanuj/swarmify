@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
-import { parseKeys } from "./Connectors";
+import { browser, parseKeys } from "./Connectors";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
 const base = {
@@ -16,6 +16,7 @@ const base = {
   capabilities: [],
   outputs: [],
   missing: [],
+  sign_in: [],
 };
 const builtins = [
   { ...base, id: "builtin_youtube", name: "youtube", kind: "publish", stage_types: ["connector"], about: "Publishes to YouTube.", label: "YouTube" },
@@ -425,4 +426,55 @@ test("draws a package's Setup form from its fields, tests before saving and show
   await setup.getByRole("button", { name: "Test and save" }).click();
   await expect.element(screen.getByRole("status")).toHaveTextContent("Setup saved. Signed in as probe.");
   await expect.element(row).toMatchTextContent(/Probe.*Ready\s*Change setup/);
+});
+
+test("an oauth field signs in through the provider and shows when the provider refused it", async () => {
+  const field = { required: false, scope: "shared", help: null, options: null, default: null, min: null, max: null, pattern: null, shared: null, world: null, shared_set: false, world_set: false, needs_sign_in: false };
+  const form = {
+    package: "probe",
+    version: "1.0.0",
+    help_url: null,
+    test: null,
+    missing: [],
+    fields: [
+      { ...field, key: "account_client_id", label: "Account client ID", type: "string", env: null, secret: true, shared_set: true },
+      { ...field, key: "account_client_secret", label: "Account client secret", type: "string", env: null, secret: true },
+      { ...field, key: "account", label: "Account", type: "oauth", env: "PROBE_TOKEN", secret: true, scope: "world", world_set: true, needs_sign_in: true },
+    ],
+  };
+  const probe = { ...base, id: "package_probe", world_id: "world_1", name: "probe", kind: "stage", stage_types: ["connector"], builtin: false, about: "", command: ["python3", "server.py"], credentials: ["PROBE_TOKEN"], version: "1.0.0", label: "Probe", sign_in: ["account"] };
+  const go = vi.spyOn(browser, "go").mockImplementation(() => undefined);
+  let started = 0;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, probe]),
+    "GET /api/worlds/world_1/packages/probe/setup": () => Response.json(form),
+    "POST /api/worlds/world_1/packages/probe/setup/oauth/account": () =>
+      ++started === 1
+        ? Response.json({ detail: "Account: save its client ID first, then sign in" }, { status: 422 })
+        : Response.json({ url: "https://auth.example.org/authorize?state=s", redirect_uri: "x" }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  const row = screen.getByRole("list", { name: "Steps of their own" }).getByRole("listitem");
+  await expect.element(row).toMatchTextContent(/Probe.*Needs sign-in/);
+  await row.getByRole("button", { name: "Set up probe" }).click();
+  const setup = screen.getByRole("form", { name: "Setup of Probe" });
+  await expect.element(setup.getByLabelText(/^Account client ID.*every world/)).toHaveAttribute("type", "password");
+  await expect.element(setup.getByText(/The provider refused the sign-in\. Probe steps fail until you sign in again\./)).toBeVisible();
+  await expect.element(setup.getByText(`${window.location.origin}/api/setup/oauth/callback`)).toBeVisible();
+  expect(setup.getByRole("textbox", { name: /^Account ·/ }).elements()).toHaveLength(0);
+
+  const button = setup.getByRole("button", { name: "Sign in to Account" });
+  await expect.element(button).toHaveTextContent("Sign in again");
+  await button.click();
+  await expect.element(setup.getByRole("alert")).toHaveTextContent("Account: save its client ID first, then sign in");
+  await button.click();
+  await vi.waitFor(() => expect(go).toHaveBeenCalledWith("https://auth.example.org/authorize?state=s"));
+});
+
+test("the page says how a sign-in went when the provider sends the browser back", async () => {
+  fakeFetch({ "GET /api/worlds/world_1": () => Response.json(video) });
+  const { screen, router } = await mountAt("/worlds/world_1/connectors?sign_in=probe");
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Signed in. probe gets a fresh access token each time it starts.");
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({}));
 });

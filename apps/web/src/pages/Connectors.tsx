@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
@@ -70,6 +70,7 @@ export function parseKeys(text: string): Record<string, string> {
 }
 
 export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
+  if (c.sign_in.length > 0) return { text: "Needs sign-in", tone: "warn" };
   if (c.missing.length > 0) return { text: c.version ? "Needs setup" : "Needs a key", tone: "warn" };
   // a Build Session runs inside swarmify (a session, then the render), so it needs no server
   if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && !c.capabilities.includes("build_session")) {
@@ -99,6 +100,19 @@ export function Connectors() {
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Where an OAuth sign-in lands: the callback sends the browser back here saying how it went.
+  const search = connectorsRoute.useSearch();
+  const navigate = useNavigate();
+  const [signIn] = useState(() =>
+    search.sign_in
+      ? { ok: true, message: `Signed in. ${search.sign_in} gets a fresh access token each time it starts.` }
+      : search.sign_in_error
+        ? { ok: false, message: search.sign_in_error }
+        : null,
+  );
+  useEffect(() => {
+    if (signIn) void navigate({ to: ".", search: {}, replace: true });
+  }, [signIn, navigate]);
 
   const stageTypes: StageType[] = kind === "publish" ? ["connector"] : allowed;
   const body: NewConnector = { name, kind, server, credentials: parseKeys(keys), stage_types: stageTypes };
@@ -249,6 +263,7 @@ export function Connectors() {
         </button>
       </header>
       {error && <p role="alert">{error}</p>}
+      {signIn && <p role={signIn.ok ? "status" : "alert"}>{signIn.message}</p>}
       {adding && (
       <form className="panel add-connector" onSubmit={test} aria-label="Add a connector">
         <h2>Add a connector</h2>
@@ -744,6 +759,7 @@ function Setup({
   return (
     <form className="set-keys setup" onSubmit={save} aria-label={`Setup of ${connector.label}`}>
       {form.fields.map((f) => {
+        if (f.type === "oauth") return <SignIn key={f.key} f={f} connector={connector} worldId={worldId} />;
         const required = f.required && f.default === null && !f.shared_set && !f.world_set;
         return (
           <div key={f.key} className="setup-field">
@@ -790,5 +806,55 @@ function Setup({
       </div>
       {shown}
     </form>
+  );
+}
+
+/** Leaving the app for a provider's sign-in page; a seam for tests. */
+export const browser = { go: (url: string) => window.location.assign(url) };
+
+/** An `oauth` field: Swarmify runs the sign-in, so there is no value to type, only the button
+ * that sends the browser to the provider and back to this page. */
+function SignIn({ f, connector, worldId }: { f: SetupField; connector: Pick<Connector, "name" | "label">; worldId: string }) {
+  const [said, setSaid] = useState<string | null>(null);
+  const signedIn = f.shared_set || f.world_set;
+  const state = f.needs_sign_in
+    ? `The provider refused the sign-in. ${connector.label} steps fail until you sign in again.`
+    : signedIn
+      ? "Signed in. Swarmify refreshes the access token before it expires."
+      : "Not signed in.";
+
+  async function go() {
+    setSaid(null);
+    const { data, error } = await api.POST("/api/worlds/{world_id}/packages/{name}/setup/oauth/{key}", {
+      params: { path: { world_id: worldId, name: connector.name, key: f.key } },
+    });
+    if (data) browser.go(data.url);
+    else setSaid(detail(error) ?? "Could not start the sign-in. Try again.");
+  }
+
+  return (
+    <div className="setup-field">
+      <span>
+        {f.label}
+        {f.required ? "" : <span className="faint-title"> (optional)</span>}
+        <span className="faint-title"> · {f.scope === "world" ? "this world" : "every world"} · sign-in</span>
+      </span>
+      <div className="row">
+        <span className={f.needs_sign_in ? "pill warning" : "faint"}>{state}</span>
+        <button type="button" onClick={go} aria-label={`Sign in to ${f.label}`}>
+          {f.needs_sign_in || signedIn ? "Sign in again" : "Sign in"}
+        </button>
+      </div>
+      <p className="faint">
+        Save the client ID and secret of the app you registered with the provider first. Its redirect URI is{" "}
+        <code>{window.location.origin}/api/setup/oauth/callback</code>.
+      </p>
+      {f.help && <p className="faint">{f.help}</p>}
+      {said && (
+        <span role="alert" className="key-check">
+          {said}
+        </span>
+      )}
+    </div>
   );
 }
