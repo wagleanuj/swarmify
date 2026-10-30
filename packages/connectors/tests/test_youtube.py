@@ -119,6 +119,22 @@ def test_a_first_upload_is_tagged_with_its_key(video: Path) -> None:
     assert json.loads(start.content)["snippet"]["tags"] == ["swarmify-stage_1"]
 
 
+def test_tags_go_beside_the_retry_tag_never_instead(video: Path) -> None:
+    google = FakeGoogle()
+    with httpx.Client(transport=httpx.MockTransport(google)) as http:
+        publish(http, ENV, video, "t", idempotency_key="stage_1", tags=["owls", "owl facts"])
+        publish(http, ENV, video, "t", tags=["owls"])
+    starts = [
+        json.loads(r.content)
+        for r in google.requests
+        if r.method == "POST" and r.url.path.startswith("/upload")
+    ]
+    assert [s["snippet"]["tags"] for s in starts] == [
+        ["owls", "owl facts", "swarmify-stage_1"],
+        ["owls"],
+    ]
+
+
 def test_google_errors_and_missing_inputs_are_tool_errors(video: Path, tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(FakeGoogle(403))) as http:
         with pytest.raises(ToolError, match=r"uploading the video failed \(403\): quotaExceeded"):

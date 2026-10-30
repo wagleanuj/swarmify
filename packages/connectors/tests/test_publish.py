@@ -56,6 +56,8 @@ def test_the_preview_is_what_will_go_out() -> None:
     assert [(f["key"], f["label"], f["editable"]) for f in shown["fields"]] == [
         ("title", "Title", True),
         ("description", "Description", True),
+        ("hashtags", "Hashtags", True),
+        ("tags", "Tags", True),
         ("visibility", "Visibility", False),
         ("made_for_kids", "Made for kids", False),
         ("schedule", "When", False),
@@ -64,12 +66,14 @@ def test_the_preview_is_what_will_go_out() -> None:
     assert values(shown) == {
         "title": "Five hooks",
         "description": "d",
+        "hashtags": "",
+        "tags": "",
         "visibility": "public",
         "made_for_kids": False,
         "schedule": "2026-11-03T09:00:00Z",
         "video": "short.mp4",
     }
-    assert shown["fields"][4]["hint"] == "Private until then, then public."
+    assert shown["fields"][6]["hint"] == "Private until then, then public."
     assert values(preview("upload_post", stage("upload_post", user="me")))["platforms"] == [
         "youtube"
     ]
@@ -145,6 +149,7 @@ def test_youtube_uploads_with_the_previewed_values(
         "input_path": "/runs/r/short.mp4",
         "title": "Five hooks",
         "description": "",
+        "tags": [],
         "visibility": "public",
         "schedule": "2099-01-01T09:00:00Z",
         "made_for_kids": False,
@@ -475,3 +480,68 @@ def test_a_preview_that_cannot_be_had_is_a_problem(
     transport.outputs["preview"] = [answer]
     shown = connectors.publish_preview(W, {"calls": "webhook", "params": {}})
     assert shown is not None and any(problem in p for p in shown["problems"])
+
+
+def test_hashtags_and_tags_come_from_the_metadata_and_the_gate_may_edit_them() -> None:
+    metadata = {"hashtags": ["#Owls", "nature", "#AnimalFacts"], "tags": "owls, owl facts"}
+    shown = values(preview("youtube", stage(description="Why owls turn."), metadata=metadata))
+    assert (shown["hashtags"], shown["tags"]) == ("#Owls #nature #AnimalFacts", "owls, owl facts")
+    edits = {"hashtags": "#Owls #Birds", "tags": "owls"}
+    edited = values(preview("youtube", stage(), metadata=metadata, edits=edits))
+    assert (edited["hashtags"], edited["tags"]) == ("#Owls #Birds", "owls")
+    assert values(preview("youtube", stage(hashtags="owls birds")))["hashtags"] == "#owls #birds"
+
+
+NINE = ", ".join(["x" * 49] * 9)  # 9 tags of 49 and 8 commas: 449 characters
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"hashtags": "#two words, #fine"},  # three hashtags: #two #words #fine
+        {"hashtags": "#a #b #c #d #e"},
+        {"tags": NINE},
+        {"tags": ", ".join(["x" * 49] * 8 + ["x" * 50])},  # 450, the limit exactly
+        {"description": "é" * 2_497, "hashtags": "#ok"},  # 4,994 bytes, 2 newlines, #ok: 4,999
+        {"description": "é" * 2_497 + "a", "hashtags": "#ok"},  # 5,000, the limit exactly
+    ],
+)
+@pytest.mark.parametrize("connector", ["youtube", "upload_post"])
+def test_hashtags_and_tags_within_the_limits_pass(connector: str, params: dict[str, Any]) -> None:
+    assert preview(connector, stage(connector, user="me", **params))["problems"] == []
+
+
+@pytest.mark.parametrize(
+    ("params", "problem"),
+    [
+        ({"hashtags": ["two words"]}, "not #two words"),
+        ({"hashtags": "#owls! #fine"}, "one word of letters, digits or _, not #owls!"),
+        ({"hashtags": "#a #b #c #d #e #f"}, "6 hashtags, at most 5"),
+        ({"tags": NINE + ", y"}, "the tags take 451 characters, at most 450"),
+        ({"tags": ["owl facts"] * 41}, "the tags take 491 characters"),  # quoted: 11 each
+        ({"description": "é" * 2_498, "hashtags": "#ok"}, "is 5001 bytes, the limit is 5000"),
+    ],
+)
+@pytest.mark.parametrize("connector", ["youtube", "upload_post"])
+def test_hashtags_and_tags_past_the_limits_are_problems(
+    connector: str, params: dict[str, Any], problem: str
+) -> None:
+    problems = preview(connector, stage(connector, user="me", **params))["problems"]
+    assert any(problem in p for p in problems), problems
+
+
+def test_hashtags_end_the_description_and_tags_reach_both_connectors() -> None:
+    config = stage("upload_post", user="me", description="Why owls turn.", hashtags="#owls #birds")
+    config["confirmed"]["tags"] = "owls, owl facts"
+    _, args = builtin_publish.request("youtube", config["confirmed"], config["params"], "k")
+    assert args["description"] == "Why owls turn.\n\n#owls #birds"
+    assert args["tags"] == ["owls", "owl facts"]
+    _, args = builtin_publish.request("upload_post", config["confirmed"], config["params"], "k")
+    assert args["description"] == "Why owls turn.\n\n#owls #birds"
+    assert args["platformOptions"]["youtubeTags"] == ["owls", "owl facts"]
+    bare = stage("upload_post", user="me")
+    _, args = builtin_publish.request("upload_post", bare["confirmed"], bare["params"], "k")
+    assert (args["description"], "youtubeTags" in args["platformOptions"]) == ("", False)
+    only = stage(hashtags="owls")
+    _, args = builtin_publish.request("youtube", only["confirmed"], only["params"], "k")
+    assert args["description"] == "#owls"

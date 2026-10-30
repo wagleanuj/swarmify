@@ -688,7 +688,9 @@ The built-in `youtube` and `upload_post` take these params:
     params:
       title: Five hooks that work      # required, at most 100 characters
       description: optional
-      metadata: script.md              # optional: take title and description from its frontmatter
+      metadata: script.md              # optional: take title, description, hashtags and tags from its frontmatter
+      hashtags: [owls, nature]         # optional, at most 5, one word each, `#` optional
+      tags: [owls, owl facts]          # optional, YouTube's keywords, 450 characters in all
       visibility: public               # public, unlisted or private (default private)
       schedule: "+1d 09:00"            # optional, see below; needs public
       made_for_kids: false             # YouTube's COPPA declaration (default false)
@@ -698,13 +700,19 @@ The built-in `youtube` and `upload_post` take these params:
 
 `metadata` names a file an earlier stage of the run left (the newest of that name, like `input`);
 the core hands its YAML frontmatter to the connector, and for the built-ins the `title` and
-`description` there win over the params, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
+`description` there (and `hashtags` and `tags`) win over the params, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
 problem the gate shows. `schedule` is ISO 8601 with a timezone, or relative: `09:00` (the next
 09:00), `+1d 09:00` (tomorrow at 09:00), either with an IANA timezone after it
 (`+1d 09:00 Europe/London`, UTC by default). A relative schedule is resolved when the gate is
 shown, so a scheduled workflow posts every run. `made_for_kids` goes to YouTube as
 `selfDeclaredMadeForKids` (to Upload-Post as `youtubeSelfDeclaredMadeForKids`); content made for
 children must set it.
+`hashtags` go out as the description's last line (`#owls #nature`), where YouTube shows up to
+three above the title; a hashtag with a space or punctuation, more than five, or a description
+over YouTube's 5,000 bytes with them is a problem the gate shows. `tags` go to YouTube's tags
+(`snippet.tags`, Upload-Post's `youtubeTags`) beside the retry tag, which is why they stop at 450
+of YouTube's 500 characters. Both are editable at the gate. Writing them is the workflow's job,
+for example the script stage's frontmatter; Swarmify never makes them up.
 
 The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
 and the `gate.opened` event): the connector, its `fields` (each a `key`, `label`, `value`,
@@ -747,8 +755,9 @@ until they move into their own packages.
   YouTube Data API v3, create an OAuth client of type Desktop app, then run
   `YOUTUBE_CLIENT_ID=... YOUTUBE_CLIENT_SECRET=... uv run python -m swarmify_connectors.youtube authorize`,
   allow the upload and read-only scopes in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
-  `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. The
-  default quota is 10,000 units a day and an upload costs 1,600, so about six uploads a day.
+  `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. By
+  default uploads have their own quota of 100 a day; the retry check and the other reads share
+  10,000 units a day ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)).
 - `upload_post` is Upload-Post's official MCP (`npx -y @upload-post/mcp@0.11.4`, needs Node),
   adopted as is (ADR 0015) with `UPLOAD_POST_API_KEY` from app.upload-post.com. Swarmify calls its
   `upload_video` tool with the call's idempotency key. Posting now records
