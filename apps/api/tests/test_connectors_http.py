@@ -1,7 +1,10 @@
 """Connectors over HTTP: the registry, test-and-list-tools, and a connector stage's raw call,
 with the fake ConnectorTransport and real DBOS on SQLite behind the app."""
 
+import os
+import shutil
 import stat
+import subprocess
 import time
 from collections.abc import Callable, Iterator
 from contextlib import closing
@@ -10,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -323,7 +327,7 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
         "youtube",
     ]
     source = "packages/connectors/tests/fixtures/packages/echo"
-    installed = client.post("/api/packages", json={"source": source})
+    installed = install(client, source)
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
@@ -336,7 +340,7 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
         "state": "installed",
         "source": source,
     }
-    again = client.post("/api/packages", json={"source": source})
+    again = install(client, source)
     assert again.status_code == 422
     assert again.json()["detail"] == "echo 1.0.0 is already installed"
     # installed for the whole install: no world holds it, and the built-ins are unchanged
@@ -352,7 +356,7 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     source.mkdir()
     fixture = Path(__file__).parents[3] / "packages/connectors/tests/fixtures/manifests"
     (source / "swarmify-connector.toml").write_text((fixture / "bad_kind.toml").read_text())
-    refused = client.post("/api/packages", json={"source": str(source)})
+    refused = install(client, str(source))
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
     assert [p["name"] for p in client.get("/api/packages").json()] == [
@@ -363,6 +367,54 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
         "upload_post",
         "youtube",
     ]
+
+
+def git(cwd: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    who = ["-c", "user.name=t", "-c", "user.email=t@example.org"]
+    return subprocess.run(
+        ["git", *who, *args], cwd=cwd, env=env, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_install_from_git_at_a_tag_once_its_permissions_are_approved(
+    client: TestClient, tmp_path: Path
+) -> None:
+    work = tmp_path / "echo"
+    fixtures = Path(__file__).parents[3] / "packages/connectors/tests/fixtures"
+    shutil.copytree(fixtures / "packages/echo", work)
+    git(work, "init", "-q")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "echo")
+    git(work, "tag", "v1.0.0")
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(tmp_path / "echo.git"))
+    source = {"source": str(tmp_path / "echo.git"), "ref": "v1.0.0"}
+
+    review = client.post("/api/packages/review", json=source)
+    assert review.status_code == 200, review.text
+    shown = review.json()
+    assert shown["commit"] == git(work, "rev-parse", "HEAD") and shown["upgrade"] is None
+    some = {"network: api.example.org", "credentials: ECHO_KEY", "sign_in: auth.example.org"}
+    assert some <= set(shown["permissions"])
+    assert not (tmp_path / "packages/echo").exists()  # reviewing ran nothing of it
+
+    approve = {**source, "commit": shown["commit"]}
+    refused = client.post("/api/packages", json={**approve, "approved": shown["permissions"][1:]})
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "approve these permissions first: network: api.example.org"
+    assert not (tmp_path / "packages/echo").exists()
+    installed = client.post("/api/packages", json={**approve, "approved": shown["permissions"]})
+    assert installed.status_code == 201, installed.text
+    assert {k: installed.json()[k] for k in ("name", "version", "ref", "commit")} == {
+        "name": "echo",
+        "version": "1.0.0",
+        "ref": "v1.0.0",
+        "commit": shown["commit"],
+    }
+    assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
+
+    http = client.post("/api/packages/review", json={"source": "http://example.org/x.git"})
+    assert http.status_code == 422 and http.json()["detail"].startswith("http:// is refused")
 
 
 ECHO = """name: Say it
@@ -381,7 +433,7 @@ stages:
 
 def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None:
     source = "packages/connectors/tests/fixtures/packages/echo"
-    assert client.post("/api/packages", json={"source": source}).status_code == 201
+    assert install(client, source).status_code == 201
     one, two = world(client), world(client)
     refused = client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO})
     assert refused.status_code == 422
@@ -438,7 +490,7 @@ def test_a_packages_setup_form_tests_before_saving_and_never_returns_a_credentia
     client: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
     source = "packages/connectors/tests/fixtures/packages/probe"
-    assert client.post("/api/packages", json={"source": source}).status_code == 201
+    assert install(client, source).status_code == 201
     one, two = world(client), world(client)
     for w in (one, two):
         client.put(f"/api/worlds/{w}/packages/probe", json={"version": "1.0.0"})

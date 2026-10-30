@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from api_fakes import YOUTUBE_ENV, sign_in_youtube, youtube_outcomes
+from api_fakes import YOUTUBE_ENV, install, sign_in_youtube, youtube_outcomes
 from fastapi.testclient import TestClient
 from test_publish_http import MAKER, at_gate, setup, until, weekly
 
@@ -87,7 +87,7 @@ CLICKS = "packages/connectors/tests/fixtures/packages/clicks"
 def test_a_connector_reporting_clicks_shows_in_the_record_and_the_scorecard(
     running: TestClient, transport: FakeTransport, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    assert running.post("/api/packages", json={"source": CLICKS}).status_code == 201
+    assert install(running, CLICKS).status_code == 201
     world = running.post("/api/worlds", json={"name": "Links"}).json()["id"]
     assert running.put(f"/api/worlds/{world}/packages/clicks", json={"version": "1.0.0"}).is_success
     keys = {"shared": {"token": "t"}}

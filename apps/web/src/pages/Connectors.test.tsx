@@ -430,3 +430,80 @@ test("the page says how a sign-in went when the provider sends the browser back"
   await expect.element(screen.getByRole("status")).toHaveTextContent("Signed in. probe gets a fresh access token each time it starts.");
   await vi.waitFor(() => expect(router.state.location.search).toEqual({}));
 });
+
+test("installing from git shows every permission, marks what an upgrade adds, and installs only the approved commit", async () => {
+  const sent: unknown[] = [];
+  const permissions = ["network: api.example.org", "network: eu.example.org", "credentials: ECHO_KEY", "sign_in: auth.example.org", "capabilities: remote_approvals"];
+  const review = {
+    name: "echo",
+    version: "2.0.0",
+    label: "Echo",
+    about: "Says it back.",
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    permissions,
+    upgrade: { from: "1.0.0", added: ["network: eu.example.org"], removed: [] },
+  };
+  const pkg = { name: "echo", version: "2.0.0", label: "Echo", kind: "stage", about: "Says it back.", source: "https://example.org/echo.git", installed_at: "2026-10-30T10:00:00+00:00", state: "installed", problem: null, ref: "v2.0.0", commit: review.commit };
+  const calls = fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json(defaults),
+    "POST /api/packages/review": async (req) => {
+      sent.push(await req.json());
+      return Response.json(review);
+    },
+    "POST /api/packages": async (req) => {
+      sent.push(await req.json());
+      return Response.json(pkg, { status: 201 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Install a package" }).click();
+  const form = screen.getByRole("form", { name: "Install a package" });
+  await form.getByRole("textbox", { name: "Git URL or folder" }).fill("https://example.org/echo.git");
+  await form.getByRole("textbox", { name: /Tag, branch or commit/ }).fill("v2.0.0");
+  await form.getByRole("button", { name: "Review permissions" }).click();
+
+  const shown = form.getByRole("region", { name: "Permissions of echo 2.0.0" });
+  await expect.element(shown).toMatchTextContent(/Echo 2\.0\.0 asks for/);
+  await expect.element(shown).toMatchTextContent(/At commit 0123456789ab\./);
+  await expect.element(shown).toMatchTextContent(/Hosts it reaches\s*api\.example\.org, eu\.example\.org \(new\)/);
+  await expect.element(shown).toMatchTextContent(/Credentials it is given\s*ECHO_KEY/);
+  await expect.element(shown).toMatchTextContent(/Sign-in hosts Swarmify calls for it\s*auth\.example\.org/);
+  await expect.element(shown).toMatchTextContent(/Capabilities it uses\s*remote approvals/);
+  await expect.element(shown.getByRole("status")).toHaveTextContent("New since 1.0.0: network: eu.example.org. Installing 2.0.0 grants it too.");
+  expect(calls).not.toContain("POST /api/packages");
+
+  await shown.getByRole("button", { name: "Approve and install 2.0.0" }).click();
+  await expect.element(screen.getByText("Installed Echo 2.0.0. Enable it below in each world that uses it.")).toBeVisible();
+  expect(sent).toEqual([
+    { source: "https://example.org/echo.git", ref: "v2.0.0" },
+    { source: "https://example.org/echo.git", ref: "v2.0.0", commit: review.commit, approved: permissions },
+  ]);
+});
+
+test("an upgrade adding no permission says so, and a refused source says why", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "POST /api/packages/review": async (req) => {
+      const { source } = await req.json();
+      return source.startsWith("http://")
+        ? Response.json({ detail: "http:// is refused: install from an https:// URL or a path" }, { status: 422 })
+        : Response.json({ name: "echo", version: "1.1.0", label: "Echo", about: "Says it back.", commit: null, permissions: [], upgrade: { from: "1.0.0", added: [], removed: ["network: old.example.org"] } });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Install a package" }).click();
+  const form = screen.getByRole("form", { name: "Install a package" });
+  const url = form.getByRole("textbox", { name: "Git URL or folder" });
+  await url.fill("http://example.org/echo.git");
+  await form.getByRole("button", { name: "Review permissions" }).click();
+  await expect.element(form.getByRole("alert")).toHaveTextContent("http:// is refused: install from an https:// URL or a path");
+
+  await url.fill("/srv/echo");
+  await form.getByRole("button", { name: "Review permissions" }).click();
+  const shown = form.getByRole("region", { name: "Permissions of echo 1.1.0" });
+  await expect.element(shown.getByRole("status")).toHaveTextContent("Nothing new since 1.0.0: the permissions you approved for it.");
+  await expect.element(shown).toMatchTextContent(/No longer asks for: network: old\.example\.org\./);
+  await expect.element(shown).toMatchTextContent(/It asks for no permissions/);
+  await expect.element(shown.getByRole("button", { name: "Install 1.1.0" })).toBeVisible();
+});

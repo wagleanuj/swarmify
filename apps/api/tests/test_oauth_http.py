@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -61,7 +62,7 @@ token_url = "{provider.url}/token"
 pkce = true
 """
     )
-    assert client.post("/api/packages", json={"source": str(source)}).status_code == 201
+    assert install(client, str(source)).status_code == 201
     w = client.post("/api/worlds", json={"name": "Signs in"}).json()["id"]
     client.put(f"/api/worlds/{w}/packages/probe", json={"version": "1.0.0"})
     body = {"shared": {"account_client_id": "app", "account_client_secret": "shh"}}

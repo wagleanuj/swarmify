@@ -101,9 +101,48 @@ class Tested(BaseModel):
     tools: list[Tool]
 
 
+Ref = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
 class PackageSource(BaseModel):
     source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
-    """A folder of this repository, as `connectors/<name>`, or an absolute local path."""
+    """A git URL (https only, no credentials in it), a folder of this repository, as
+    `connectors/<name>`, or an absolute local path."""
+    ref: Ref | None = None
+    """The tag, branch or commit to install from git; none for a git URL's default branch, or
+    for a folder copied as it is. A local path given one is cloned at it."""
+
+
+class PackageInstall(PackageSource):
+    commit: Ref | None = None
+    """The commit the review resolved the ref to, so what installs is what was reviewed."""
+    approved: list[Annotated[str, StringConstraints(max_length=400)]] = Field(max_length=500)
+    """The permissions the operator approved, as the review lists them: each one the package
+    declares must be here, or nothing of it runs."""
+
+
+class Upgrade(BaseModel):
+    from_: str = Field(alias="from")
+    """The newest installed version, which this one is compared with."""
+    added: list[str]
+    """The permissions this version declares that it does not: approving asks again."""
+    removed: list[str]
+
+
+class PackageReview(BaseModel):
+    """What installing a package would grant, read without running any of it (issue 225)."""
+
+    name: str
+    version: str
+    label: str
+    about: str
+    commit: str | None
+    """The commit a git source's ref resolved to; null for a folder."""
+    permissions: list[str]
+    """Every permission it declares, as `network: api.example.org`; the kinds are network,
+    install_network, folders, services, owned_folders, credentials, sign_in, capabilities."""
+    upgrade: Upgrade | None
+    """For a package with a version installed already, how its permissions change."""
 
 
 class EnabledPackage(BaseModel):
@@ -288,13 +327,31 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         """Every Connector Package version installed for the whole install (ADR 0023)."""
         return packages.list()
 
-    @api.post("/packages", status_code=201)
-    def install_package(body: PackageSource) -> Package:
-        """Copy the package to `<data dir>/packages/<name>/<version>/` and run its install step
-        there. 422 naming the field for an invalid Manifest, or saying why it did not install
-        (that version is installed already, the step failed); nothing new is left behind."""
+    @api.post("/packages/review")
+    def review_package(body: PackageSource) -> PackageReview:
+        """Fetch the package (a git source is cloned at its ref, running none of its code) and
+        say what installing it would grant, for the operator to approve. 422 naming the field
+        for an invalid Manifest, or saying why it cannot install (a refused URL, an unknown ref,
+        a symlink out of the package, that version installed already)."""
         try:
-            return packages.install(body.source)
+            review = packages.review(body.source, body.ref)
+        except ManifestError as exc:
+            raise HTTPException(422, f"invalid Manifest: {exc}") from exc
+        except InstallError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return PackageReview(**review)
+
+    @api.post("/packages", status_code=201)
+    def install_package(body: PackageInstall) -> Package:
+        """Copy the package, from git at the reviewed commit, to
+        `<data dir>/packages/<name>/<version>/` and run its install step there, once every
+        permission it declares is in `approved`. 422 naming the field for an invalid Manifest,
+        or saying why it did not install (a permission not approved, that version installed
+        already, the step failed); nothing new is left behind."""
+        try:
+            return packages.install(
+                body.source, ref=body.ref, commit=body.commit, approved=body.approved
+            )
         except ManifestError as exc:
             raise HTTPException(422, f"invalid Manifest: {exc}") from exc
         except InstallError as exc:

@@ -33,12 +33,14 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=3.12.15 UV_PYTHON_PREFEREN
 # The shared libraries and fonts a package's headless browser needs (a package installs the
 # browser itself, ADR 0026); bubblewrap, socat and ripgrep for the OS sandbox every connector
 # process and a Build Session's Bash run in (ADRs 0018, 0021), which the `sandbox` service of
-# compose.yaml starts; the font cache made now, which a sandboxed browser cannot write
+# compose.yaml starts; git, to clone a package installed from a git URL (issue 225); the font
+# cache made now, which a sandboxed browser cannot write
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev \
     libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
     fonts-noto-core fonts-noto-color-emoji fontconfig \
     bubblewrap socat ripgrep \
+    git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && fc-cache -f
 # Node and npm, for the packages that install with them (ADR 0026)
