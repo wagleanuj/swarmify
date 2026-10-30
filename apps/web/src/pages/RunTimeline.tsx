@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { api } from "../api/client";
+import { labelOf, useConnectors } from "../api/connectors";
 import { dropGate, useOpenGates } from "../api/gates";
 import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
 import { actOn, type Call, current, duration, type Gate, money, type Run, STATUS_LABEL, statusLine, took } from "../api/runs";
@@ -11,7 +12,6 @@ import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
 import { the } from "../skin";
-import { LABEL } from "./Connectors";
 import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
 import { type MenuItem, Menu } from "./Menu";
@@ -64,6 +64,7 @@ export function RunTimeline() {
   const [topbar, setTopbar] = useState<Element | null>(null);
   useEffect(() => setTopbar(document.getElementById("topbar-slot")), []);
   const openGates = useOpenGates().gates ?? [];
+  const connectors = useConnectors(worldId);
   const chosen = run?.stages.find((s) => s.id === search.stage);
   const stage = run ? (chosen ?? arrivalStage(run, loaded)) : undefined;
   const stageId = stage?.id;
@@ -290,6 +291,7 @@ export function RunTimeline() {
   const post = artifacts.filter((a) => a.type === "publish").at(-1);
   const postLink = post ? Object.values((post.fields.links as Record<string, string> | undefined) ?? {})[0] : undefined;
   const made = stage ? artifacts.filter((a) => a.stage === stage.id) : [];
+  const kind = (s: Stage) => kindOf(s, artifacts.filter((a) => a.stage === s.id), connectors[s.calls ?? ""]);
   const gateStage = gate ? run.stages.find((s) => s.id === gate.stage_id) : undefined;
   const open = gate && gate.stage_id === stageId ? gate : null;
   const done = !open && answered && answered.stageId === stageId ? answered : null;
@@ -338,7 +340,7 @@ export function RunTimeline() {
                   <Glyph status={s.status} />
                   <span className="step-name">
                     {s.name}
-                    <small>{s.status === "waiting" ? "waiting for you" : kindOf(s)}</small>
+                    <small>{s.status === "waiting" ? "waiting for you" : kind(s)}</small>
                   </span>
                   <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>
                 </button>
@@ -364,9 +366,9 @@ export function RunTimeline() {
             </span>
           )}
           <p role="status" data-testid="status-line" className={`status-line state-${run.status}`}>
-            {statusLine(run, gate?.ask)}
+            {statusLine(run, gate?.ask, connectors)}
             {run.send_backs > 0 && ` Sent back ${run.send_backs === 1 ? "once" : `${run.send_backs} times`}.`}
-            {run.status === "done" && post && ` Posted to ${LABEL[String(post.fields.connector)] ?? String(post.fields.connector)}.`}
+            {run.status === "done" && post && ` Posted to ${labelOf(connectors, String(post.fields.connector))}.`}
           </p>
           <Lineage run={run} worldId={worldId} />
         </div>
@@ -426,7 +428,7 @@ export function RunTimeline() {
         <button type="button" className="step-button" aria-haspopup="dialog" aria-expanded={stepsOpen} onClick={() => setStepsOpen(true)}>
           <span>
             <small>
-              Step {stage.index + 1} of {run.stages.length} · {kindOf(stage)}
+              Step {stage.index + 1} of {run.stages.length} · {kind(stage)}
             </small>
             <b>{stage.name}</b>
           </span>
@@ -453,6 +455,7 @@ export function RunTimeline() {
             tasks={tasks}
             verdicts={verdicts}
             call={calls[stage.id]}
+            connectors={connectors}
             onTaskAdded={(task) => setTasks((prev) => upsert(prev, task))}
             lead={
               open ? (

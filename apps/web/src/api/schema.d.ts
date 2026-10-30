@@ -1805,6 +1805,12 @@ export interface components {
             input_types: (string | null)[];
             /** World Types */
             world_types: string | null;
+            /** Label */
+            label: string;
+            /** Capabilities */
+            capabilities: string[];
+            /** Outputs */
+            outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
         };
@@ -2198,6 +2204,16 @@ export interface components {
              * @default
              */
             detail: string;
+        };
+        /**
+         * MediaFile
+         * @description A file a connector makes or takes, as its Manifest declares it.
+         */
+        MediaFile: {
+            /** Description */
+            description: string;
+            /** Media Type */
+            media_type: string;
         };
         /** Message */
         Message: {
@@ -2726,6 +2742,12 @@ export interface components {
             input_types: (string | null)[];
             /** World Types */
             world_types: string | null;
+            /** Label */
+            label: string;
+            /** Capabilities */
+            capabilities: string[];
+            /** Outputs */
+            outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
             check: components["schemas"]["KeyCheck"] | null;

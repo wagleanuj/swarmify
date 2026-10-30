@@ -154,6 +154,8 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
     # The sidebar gives way to a bottom tab bar; every tab and More's rows are a 44px thumb tap.
     expect(phone.get_by_role("navigation", name="Main")).to_be_hidden()
     tabs = phone.get_by_role("navigation", name="Tabs")
+    # On / the world's three tabs appear once the worlds load, after the heading.
+    expect(tabs.locator(".tabbar-item")).to_have_count(5)
     heights = tabs.locator(".tabbar-item").evaluate_all("as => as.map(a => a.offsetHeight)")
     assert len(heights) == 5 and all(h >= 44 for h in heights), f"{path} has tabs {heights}px tall"
     tabs.get_by_role("button", name="More").click()

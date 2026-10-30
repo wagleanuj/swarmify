@@ -44,6 +44,13 @@ class NewConnector(BaseModel):
     `{"types": {name: schema}, "note": "..."}`; a type it declares changes only there."""
 
 
+class MediaFile(BaseModel):
+    """A file a connector makes or takes, as its Manifest declares it."""
+
+    description: str
+    media_type: str
+
+
 class ConnectorView(BaseModel):
     id: str
     world_id: str | None
@@ -64,6 +71,12 @@ class ConnectorView(BaseModel):
     """The declared type of a stage's `input`, or of each of its `inputs` in order."""
     world_types: str | None
     """The tool that answers its types for one world; None when they never depend on it."""
+    label: str
+    """What a person reads for it: its Manifest's label, else its name."""
+    capabilities: list[str]
+    """The core-owned contracts it offers, as `build_session` (Manifest `capabilities`)."""
+    outputs: list[MediaFile]
+    """What a stage of it makes, which a skin picks a step's panel by (ADR 0025)."""
     missing: list[str]
     """Credential names the credentials file does not hold yet."""
 
@@ -94,7 +107,14 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
     api = APIRouter(prefix="/api", tags=["connectors"])
 
     def view(connector: Connector) -> ConnectorView:
-        return ConnectorView(**asdict(connector), missing=connectors.missing(connector))
+        m = connector.manifest
+        return ConnectorView(
+            **asdict(connector),
+            label=m.get("label") or connector.name,
+            capabilities=m.get("capabilities", []),
+            outputs=m.get("outputs", []),
+            missing=connectors.missing(connector),
+        )
 
     def world_or_404(world_id: str) -> None:
         if worlds.get(world_id) is None:

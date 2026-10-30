@@ -94,6 +94,7 @@ it with `output_type: script`. `parse_script` is the strict check of what arrive
 
 MANIFEST: dict[str, Any] = {
     "name": "speech",
+    "label": "Speech",
     "kind": "stage",
     "stage_types": ["connector"],
     "about": "Voices a script, one take per scene, with word timings and cut points. Needs a"
@@ -141,7 +142,8 @@ MANIFEST: dict[str, Any] = {
         {
             "description": "timings.json, with the takes in narration/ beside it",
             "media_type": "application/json",
-        }
+        },
+        {"description": "the takes, one per scene, in narration/", "media_type": "audio/wav"},
     ],
     "health": "speech_health",
     "types": {"script": SCRIPT},

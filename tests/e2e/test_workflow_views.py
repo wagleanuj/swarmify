@@ -38,8 +38,10 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
         page.get_by_label("Stage type to add").select_option("connector")
         page.get_by_role("button", name="Add stage").click()
         expect(cards.locator("li")).to_have_count(3)
-        page.get_by_label("Output of render").fill("short.mp4")  # story 15
-        expect(cards).to_contain_text("render")
+        # A new connector stage names no connector until you do (#219).
+        page.get_by_label("Calls of new step").fill("remotion_render")
+        page.get_by_label("Output of new step").fill("short.mp4")  # story 15
+        expect(cards).to_contain_text("new step")
 
         page.get_by_role("tab", name="YAML").click()
         yaml = page.get_by_label("Workflow YAML")
@@ -52,7 +54,7 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
         ):
             expect(yaml).to_contain_text(line)
         expect(yaml).to_contain_text("kind: approve")
-        expect(yaml).to_contain_text("connector: render")
+        expect(yaml).to_contain_text("connector: new step")
         # A render stage names its Remotion project and composition before it can be saved.
         expect(page.get_by_test_id("problems")).to_contain_text("needs params.project")
         yaml.fill(

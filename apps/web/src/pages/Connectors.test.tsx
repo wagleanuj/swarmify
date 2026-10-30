@@ -13,10 +13,12 @@ const base = {
   builtin: true,
   created_at: null,
   health: null,
+  capabilities: [],
+  outputs: [],
   missing: [],
 };
 const builtins = [
-  { ...base, id: "builtin_youtube", name: "youtube", kind: "publish", stage_types: ["connector"], about: "Publishes to YouTube." },
+  { ...base, id: "builtin_youtube", name: "youtube", kind: "publish", stage_types: ["connector"], about: "Publishes to YouTube.", label: "YouTube" },
 ];
 const fal = {
   ...base,
@@ -29,6 +31,7 @@ const fal = {
   stage_types: ["connector"],
   builtin: false,
   about: "",
+  label: "fal_video",
   missing: ["FAL_KEY"],
 };
 
@@ -199,7 +202,7 @@ test("the page says keys are shared by every world, and a failing key check warn
 });
 
 test("shows whether each speech engine is up", async () => {
-  const speech = { ...base, id: "builtin_speech", name: "speech", kind: "stage", stage_types: ["connector"], command: ["python"], about: "Voices a script.", health: "speech_health" };
+  const speech = { ...base, id: "builtin_speech", name: "speech", kind: "stage", stage_types: ["connector"], command: ["python"], about: "Voices a script.", health: "speech_health", label: "Speech" };
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, speech]),

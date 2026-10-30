@@ -133,6 +133,7 @@ MANIFESTS: dict[str, dict[str, Any]] = {
     for m in (
         {
             "name": "remotion_render",
+            "label": "Remotion render",
             "kind": "stage",
             "stage_types": ["connector"],
             "about": "Renders a script with the Remotion CLI. Needs Node and a Remotion project.",
@@ -160,6 +161,7 @@ MANIFESTS: dict[str, dict[str, Any]] = {
         },
         {
             "name": "remotion_build",
+            "label": "Remotion build",
             "kind": "stage",
             "stage_types": ["connector"],
             "about": "Writes a Remotion project from the script in a sandboxed coding session,"
@@ -195,9 +197,11 @@ MANIFESTS: dict[str, dict[str, Any]] = {
             "outputs": [
                 {"description": "the video, video.mp4 by default", "media_type": "video/mp4"}
             ],
+            "capabilities": ["build_session"],
         },
         {
             "name": "youtube",
+            "label": "YouTube",
             "kind": "publish",
             "stage_types": ["connector"],
             "about": "Uploads to YouTube through the Data API; a schedule keeps it private until"
@@ -209,6 +213,7 @@ MANIFESTS: dict[str, dict[str, Any]] = {
         },
         {
             "name": "upload_post",
+            "label": "Upload-Post",
             "kind": "publish",
             "stage_types": ["connector"],
             "about": "Posts or schedules to YouTube, TikTok and Instagram through Upload-Post's"

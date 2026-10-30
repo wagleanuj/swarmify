@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { Connectors } from "./connectors";
 import { type Call, type Run, useWorldEvents } from "./events";
 import type { components } from "./schema";
 
@@ -29,11 +30,6 @@ export function progress(run: Run): string {
   return `${done} of ${run.stages.length} stages`;
 }
 
-/** Connectors that post: a run that has one and did not reach it says nothing went out.
- * ponytail: the built-in publishers by name; carry the connector kind on the stage view when a
- * world adds its own. */
-export const PUBLISHERS = new Set(["youtube", "upload_post"]);
-
 type Stage = Run["stages"][number];
 const FINISHED = ["done", "skipped"];
 
@@ -46,18 +42,19 @@ export function current(run: Run): Stage | undefined {
 }
 
 /** One sentence that answers "is it working, and do I need to do anything?". `ask` is what the
- * open gate asks, when the run waits at one. */
-export function statusLine(run: Run, ask?: string | null, now = Date.now()): string {
-  const line = sentence(run, ask, now);
+ * open gate asks, when the run waits at one; `connectors` say which steps post. */
+export function statusLine(run: Run, ask?: string | null, connectors: Connectors = {}, now = Date.now()): string {
+  const line = sentence(run, ask, connectors, now);
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
-function sentence(run: Run, ask?: string | null, now = Date.now()): string {
+function sentence(run: Run, ask: string | null | undefined, connectors: Connectors, now: number): string {
   const at = current(run);
   const total = run.stages.length;
   const seconds = duration(run, now);
   const kept = " Finished stages keep their artifacts.";
-  const posted = run.stages.some((s) => PUBLISHERS.has(s.calls ?? "") && s.status !== "done");
+  // A run that has a step that posts and did not reach it says nothing went out.
+  const posted = run.stages.some((s) => connectors[s.calls ?? ""]?.kind === "publish" && s.status !== "done");
   const nothing = posted ? " Nothing was posted." : "";
   switch (run.status) {
     case "queued":
