@@ -300,10 +300,9 @@ the world's event stream and handed to the notifier; the adapter logs a line unt
 A connector is an MCP server (a command line or an http(s) URL), the credential names it needs,
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
-Every world starts with the built-in stage connector `remotion_build` (see Remotion build
-below), and with the default packages (see Connector Packages), today `remotion_render` (see
-Remotion render), `speech` (see Speech) and the publish connectors `youtube` and `upload_post`
-(see Publishing).
+Every world starts with the default packages (see Connector Packages), today `remotion_build`
+(see Remotion build), `remotion_render` (see Remotion render), `speech` (see Speech) and the
+publish connectors `youtube` and `upload_post` (see Publishing).
 
 `web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
 with no package, version or credentials. A swarm stage lists them in `tools` like a tool
@@ -566,55 +565,54 @@ Headless Shell beside it, and enabled for every world. Its README covers its Set
 folder its templates are under, the render concurrency), the stage's params, the render and its
 sidecar, and the sandbox a project an agent wrote renders in.
 
-## Remotion build
+## Build Sessions
 
-Swarm agents have no shell (ADR 0018), so a video Swarmify makes itself comes from one built-in
-stage connector, `remotion_build`: one coding session writes a Remotion project for the run's
-script, then the render code above, not the agent, turns it into the stage's video.
+Swarm agents have no shell (ADR 0018), so code is written and run in one place only: a Build
+Session, a Capability any package may request (`capabilities = ["build_session"]`). Its Manifest
+supplies the session and the tool to run on its result; the core runs the session and knows
+nothing of what it builds. `remotion_build` (below) is the first; the fixture package
+`packages/connectors/tests/fixtures/packages/sketch` proves it is generic.
 
-```yaml
-  - connector: video
-    calls: remotion_build
-    input: script.md            # the script artifact an earlier stage produced
-    # or inputs: [script.md, timings.json], the script first, the rest named to the builder
-    output: video.mp4           # the default
-    params:                     # all optional
-      base: shorts              # a template in <data dir>/remotion/ to start from (a name, not a path)
-      composition: Main         # the default
-      brief: Bold captions, 20 seconds, a cold open.
-      model: claude-sonnet-5-5  # over the world's worker model (the Cast), else the default
-      max_turns: 80             # the default
-      minutes: 20               # the session's time limit, the default
+```toml
+capabilities = ["build_session"]
+
+[permissions]
+network = ["registry.npmjs.org"]       # the only hosts the session's Bash may reach
+
+[build_session]
+system = "system.md"                   # the session's system prompt, a file of the package
+brief = "brief.md"                     # its task, with $input, $folder and the stage's $params
+starter = "starter"                    # the folder a fresh build starts as a copy of
+templates = "mine"                     # optional: params.base names <data dir>/mine/<base> instead
+output = "page.html"                   # optional: the stage's output when it names none
+tool = "publish_page"                  # called on the result as the stage's call, a long job
+connector = "other_package"            # optional: whose tool it is; no server of its own then
+arguments = { site = "$folder" }       # the tool's arguments, beside input_path and output_path
+
+[build_session.notes]
+"palette.json" = "palette.md"          # added to the brief when an input has this name ($file)
 ```
 
-The stage copies `base` (else a minimal starter shipped in the repo,
-`packages/connectors/src/swarmify_connectors/remotion_starter`, composition `Main`), without its
+A stage calling such a package copies the starter (or the `base` template), without its
 `node_modules` or `.git`, into a fresh `<stage folder>/build/`, and runs one session there as
-agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the script path (the first of
-`inputs`, whose other paths the prompt names too), the world's assets by path (when it has any,
-to copy into `public/`), the brief and the run's gate decisions as required reading. It is logged, costed against the run's Budget and
-stopped by it like any agent; failing twice, or running out of time, fails the stage with the
-builder's last log lines. Then the render runs as a `remotion_render` call on the build folder
-(its call shows on the timeline as usual, a failed render fails the stage with the CLI's last
-lines), the video gets its sidecar and becomes the stage's artifact, and the build folder stays
-for a person to open, without its `node_modules` (`npm ci` brings them back).
+agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the package's system prompt and
+brief, the stage's other inputs and the world's assets by path, the run's gate decisions as
+required reading and the stage's `params.brief` (the operator's). Its params `model` (over the
+world's worker model, the Cast), `max_turns` (80) and `minutes` (20) set the session's model and
+limits. It is logged, costed against the run's Budget and stopped by it like any agent; failing
+twice, or running out of time, fails the stage with the builder's last log lines. Then the
+package's `tool` runs on the build folder as the stage's call (on the timeline as usual; a
+failed call fails the stage), its output becomes the stage's artifact, and the build folder stays
+for a person to open, without its `node_modules` (`npm ci` brings them back). A restart with the
+call under way resumes it rather than building again.
 
 A send-back that reruns the stage revises, it does not start over: the last build is kept as
-`<stage folder>/build.v<n>/` (n counting the run's visits from 1) with the video it rendered beside
-it as `build.v<n>.mp4`, `build/` starts as a copy of it, and the prompt opens with "This is a
-revision": the send-back note (when the send-back named this stage) and the previous version are
-required reading, change what the note asks and keep the rest. Both stay inside the stage folder,
-which the session may read. A stage never run, or whose last render failed, starts fresh.
-
-When one of `inputs` is a `timings.json` (the speech package's), the brief turns voice
-first, as the spike on branch `spike/voice-first-video` proved: copy the timings and their takes
-into `public/`, take the composition's length from the voice timeline, play each line as a trimmed
-`<Audio>` in a `<Sequence>` spaced by its pause (scaled for the style, none after a
-`joined_next` line), page karaoke captions per line with `createTikTokStyleCaptions` and
-`white-space: pre`, and duck a music bed from the world's assets under speech. The prompt carries a
-sample composition doing all of it,
-`packages/swarm/src/swarmify_swarm/voice_first.tsx`, which a test type-checks in the starter. The
-starter ships `@remotion/captions`.
+`<stage folder>/build.v<n>/` (n counting the run's visits from 1) with the output it made beside
+it as `build.v<n>` plus the output's suffix, `build/` starts as a copy of it, and the prompt opens
+with "This is a revision": the send-back note (when the send-back named this stage) and the
+previous version are required reading, change what the note asks and keep the rest. Both stay
+inside the stage folder, which the session may read. A stage never run, or whose last call
+failed, starts fresh.
 
 The session's sandbox:
 
@@ -622,7 +620,7 @@ The session's sandbox:
   `allowUnsandboxedCommands: false` and `failIfUnavailable`, so a command never runs outside it.
   Writes reach only the build folder and the npm cache; the data directory is unreadable except
   the build folder, the npm cache and the stage's own world (the script, decisions and assets); the
-  network reaches only `registry.npmjs.org`, `fonts.googleapis.com` and `fonts.gstatic.com`.
+  network reaches only the package's `permissions.network`.
 - The PreToolUse hooks enforce the same paths without the sandbox: Write and Edit only inside
   the build folder, Read, Glob and Grep only inside it or the world's folder (resolved, so `..`
   and a symlink pointing out are outside), never a `.env`; a Bash command asking to leave the
@@ -634,20 +632,15 @@ The session's sandbox:
   (Claude Code refuses writes inside a plugin's folder, and the build folder is in the world's).
 - `npm install` reuses one cache, `<data dir>/npm-cache`, so a run does not download everything.
 
-The render executes the agent's code (its `remotion.config.ts`, its `node_modules`), so a project
-under the data directory's `worlds/` renders in an OS sandbox of its own: `sandbox-exec` on macOS,
-`bwrap` on Linux, and no render where neither exists. It has no network beyond loopback (fonts and
-images must be files in `public/`, which the builder is told), reads nothing of the data directory
-but the project, the output folder and the shared browser, and writes only those and temp. It
-never installs: a build that left no `node_modules` fails. Chrome Headless Shell is the one the
-remotion_render package's install step downloaded beside it (else one on `PATH`). On macOS that profile starts from allow-all and denies network, the data
-directory, writes, other processes, Apple Events and Launch Services, since Chrome needs Mach
-services a deny-all profile refuses; Linux unshares every namespace.
+Tests drive the builder with the scripted CLI (`apps/api/tests/test_build_session_http.py` with
+the fixture package, `test_build_http.py` with `remotion_build`).
 
-Tests drive the builder with the scripted CLI and the render with a fake `npx` inside the real
-sandbox. One real build, on your subscription and the real Remotion CLI, runs when you opt in:
-`SWARMIFY_REAL_BUILD=1 uv run pytest apps/api/tests/test_build_http.py -k real -s` (about a
-minute on a Mac, most of it the first npm install and the Chrome download).
+## Remotion build
+
+`remotion_build` is a default Connector Package, `connectors/remotion_build`: a Build Session
+that writes a Remotion project for the run's script, then renders it through the
+remotion_render package's own render tool. Its README covers the stage, the starter, the
+voice-first brief and the sandbox the render runs in.
 
 ## Speech
 
@@ -1276,8 +1269,8 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `docker run --rm -v swarmify_data:/data -v "$PWD":/out debian tar czf /out/data.tgz -C /data .`
   and the reverse `tar xzf` on the VM.
 - Connector keys live in the volume's `/data/.env`, set from the connectors page as natively.
-- A `remotion_build` stage sandboxes with bubblewrap (in the image, with `socat` for the Agent
-  SDK's network filter). bubblewrap needs user namespaces and a fresh `/proc`, which Docker's
+- A Build Session (as a `remotion_build` stage) sandboxes with bubblewrap (in the image, with
+  `socat` for the Agent SDK's network filter). bubblewrap needs user namespaces and a fresh `/proc`, which Docker's
   default seccomp, AppArmor and masked paths refuse, so `compose.yaml` runs `api` with
   `security_opt: seccomp=unconfined, apparmor=unconfined, systempaths=unconfined`. That loosens the
   container to tighten the build inside it; without it a build stage fails rather than run
@@ -1287,7 +1280,7 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `project: shorts` finds it, as natively. The first render installs its dependencies. The
   remotion_render package renders with the Chrome Headless Shell its install step put beside it in
   `/data/packages`, using the shared libraries the image installs; the image's own copy of Chrome
-  stays until `remotion_build` is a package too (issue 222).
+  goes with issue 222.
 - The image sets `SWARMIFY_RENDER_CONCURRENCY=2`, which the first start carries into the
   remotion_render package's Render concurrency Setting, passed to Remotion as `--concurrency`:
   with no GPU a 3D scene (`@remotion/three`) renders in software, and the default of half the

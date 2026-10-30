@@ -53,7 +53,6 @@ def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
     ("over", "problem"),
     [
         ({"name": "Fal Video"}, "lower_snake_case"),
-        ({"name": "remotion_build"}, "built-in"),
         ({"name": "graph"}, "Agent Tool"),
         ({"kind": "plugin"}, "kind is one of"),
         ({"server": "  "}, "MCP command or a URL"),
@@ -174,7 +173,7 @@ def test_add_installs_a_local_package_enabled_for_the_world_with_its_keys_as_cre
     assert connectors.find(W, "fal_video") == saved
     assert (saved.version, saved.world_id, saved.builtin) == ("0.0.1", W, False)
     assert connectors.enabled(W) == {"fal_video": "0.0.1"}
-    assert connectors.list_all("world_2")[-1].name != "fal_video"
+    assert connectors.find("world_2", "fal_video") is None
     (package,) = connectors.packages.list()
     assert (package.name, package.source, package.state) == ("fal_video", "local", "installed")
     m = saved.manifest

@@ -119,6 +119,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
         ("fal_video", "0.0.1", "local"),
+        ("remotion_build", "1.0.0", "connectors/remotion_build"),
         ("remotion_render", "1.0.0", "connectors/remotion_render"),
         ("slack", "1.0.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
@@ -127,6 +128,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
+        {"name": "remotion_build", "version": "1.0.0"},
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
@@ -307,13 +309,14 @@ def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient
     assert check["name"] == down and check["ok"] is False and check["message"]
     assert client.get(f"/api/worlds/{w}/packages/echo/health").status_code == 404
     assert client.get("/api/worlds/nope/packages/speech/health").status_code == 404
-    assert client.get("/api/connectors/builtin_remotion_build/health").json() == []
+    assert client.get(f"/api/worlds/{w}/packages/remotion_build/health").json() == []
     assert client.get("/api/connectors/nope/health").status_code == 404
 
 
 def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
     # the defaults: slack is installed too, but no world is given it
     assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "remotion_build",
         "remotion_render",
         "slack",
         "speech",
@@ -325,7 +328,7 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed[0] == installed.json() and len(listed) == 6
+    assert listed[0] == installed.json() and len(listed) == 7
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -354,6 +357,7 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
     assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "remotion_build",
         "remotion_render",
         "slack",
         "speech",
@@ -389,7 +393,8 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
-        {"name": "remotion_render", "version": "1.0.0"},  # the default packages
+        {"name": "remotion_build", "version": "1.0.0"},  # the default packages
+        {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.0.0"},
@@ -404,6 +409,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
 
     assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
     assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "remotion_build", "version": "1.0.0"},
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
@@ -411,6 +417,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.0"},
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},

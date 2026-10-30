@@ -100,7 +100,7 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
         )
         assert not refused.is_error and refused.structured_content
         assert [v["rule"] for v in refused.structured_content["violations"]] == [
-            "connector_params"  # its script
+            "unknown_connector"  # a package this world was never given
         ]
         assert (
             await client.call_tool("list_workflows", {"world_id": world.id})

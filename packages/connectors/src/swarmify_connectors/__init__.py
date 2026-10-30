@@ -32,7 +32,7 @@ import httpx
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
-from swarmify_connectors import oauth, publish, remotion, setup
+from swarmify_connectors import build_session, oauth, publish, setup
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
 from swarmify_connectors.mcp_transport import McpTransport
@@ -115,55 +115,9 @@ def from_manifest(m: dict[str, Any]) -> Connector:
     )
 
 
-_SCRIPT_IN = {"description": "the script", "media_type": "text/markdown"}
-# Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019): the core
-# and the planner read only these fields, so moving one into a package moves its module and
-# this entry.
-MANIFESTS: dict[str, dict[str, Any]] = {
-    m["name"]: m
-    for m in (
-        {
-            "name": "remotion_build",
-            "label": "Remotion build",
-            "kind": "stage",
-            "stage_types": ["connector"],
-            "about": "Writes a Remotion project from the script in a sandboxed coding session,"
-            " then renders it. Needs Node.",
-            "params": {
-                "type": "object",
-                "properties": {
-                    "base": {
-                        "type": "string",
-                        "description": "a template's name under the data directory's remotion"
-                        " folder to start from, else a minimal starter",
-                    },
-                    "composition": {"type": "string", "default": "Main"},
-                    "brief": {
-                        "type": "string",
-                        "description": "free text for the builder: style, length, pacing",
-                    },
-                    "model": {"type": "string"},
-                    "max_turns": {"type": "integer", "default": 80},
-                    "minutes": {
-                        "type": "integer",
-                        "default": 20,
-                        "description": "the session's time limit",
-                    },
-                },
-            },
-            "planner_notes": "This is how a workflow makes a video. One sandboxed coding session"
-            " writes a Remotion project for the script, reading the run's gate decisions, then"
-            " swarmify renders it. It costs a coding session from the run's budget. Give it the"
-            " script as input, or inputs: the script first, then files the builder should also"
-            " read (as speech's timings.json).",
-            "inputs": [_SCRIPT_IN],
-            "outputs": [
-                {"description": "the video, video.mp4 by default", "media_type": "video/mp4"}
-            ],
-            "capabilities": ["build_session"],
-        },
-    )
-}
+# Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019). None is
+# left: every connector is a package now, and issue 222 removes this path.
+MANIFESTS: dict[str, dict[str, Any]] = {}
 
 BUILTINS = [from_manifest(m) for m in MANIFESTS.values()]
 
@@ -1046,17 +1000,18 @@ class Connectors:
                 raw = None
             if isinstance(raw, dict) and isinstance(raw.get("fields"), list):
                 return publish.checked_preview(raw)["problems"]
-        if connector.builtin and connector.name == "remotion_build":
-            script = config.get("input") or config.get("inputs")
-            out = [] if script else ["remotion_build needs an input, the script"]
-            if params.get("base"):
-                try:
-                    remotion.template(str(params["base"]), self.data_dir)
-                except ValueError as exc:
-                    out.append(str(exc))
-            return out
         manifest = connector.manifest  # a built-in's or an installed package's
+        session = manifest.get("build_session")
+        if session and not config.get("output"):
+            config = {**config, "output": session.get("output")}  # its default output, if any
         out = _manifest_problems(manifest, config, params) if manifest else []
+        if session and session.get("templates") and params.get(build_session.BASE):
+            try:
+                build_session.template(
+                    str(params[build_session.BASE]), self.data_dir, session["templates"]
+                )
+            except ValueError as exc:
+                out.append(str(exc))
         if "check" in manifest.get("capabilities", []):
             # The Check capability: rules a JSON Schema cannot say, as a template that exists.
             # Until its Setup is done it cannot run; the Connectors page says what is missing.

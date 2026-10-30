@@ -1,0 +1,34 @@
+# A fixture Connector Package requesting a Build Session (ADR 0018): the core runs the session with
+# its prompts, starter and network, then calls its own `finish` tool on the result.
+name = "sketch"
+version = "1.0.0"
+label = "Sketch"
+about = "Has a page written in a Build Session, then publishes it. A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["python3", "server.py"]
+capabilities = ["build_session"]
+
+[permissions]
+network = ["pypi.org"]
+
+[build_session]
+system = "session/system.md"
+brief = "session/brief.md"
+starter = "session/starter"
+tool = "finish"
+arguments = { site = "$folder", tone = "$tone" }
+
+[build_session.notes]
+"palette.json" = "session/palette.md"
+
+[params]
+type = "object"
+[params.properties.tone]
+type = "string"
+default = "calm"
+
+[[inputs]]
+description = "the copy"
+media_type = "text/markdown"

@@ -60,8 +60,8 @@ from swarmify_connectors import (
     Credentials,
     McpTransport,
     Packages,
+    build_session,
     publish,
-    remotion,
 )
 from swarmify_connectors import SqliteStorage as ConnectorStorage
 from swarmify_kernel import AGENT_TOOLS
@@ -467,44 +467,65 @@ def create_app(
     channels = notification_service(root)
     learning_svc = learning_service(root)
 
-    def build_stage(run: Run, stage_id: str, stage: StageDef) -> None:
-        """`remotion_build` (ADR 0018): seed `<stage>/build/` from the template `base` or the
-        starter (or, on a send-back, from the last build to revise), run one sandboxed coding
-        session in it (swarmify_swarm.build), then render its composition through
-        the remotion_render package like any render stage, sandboxed because the project lies
-        under a world (its `built`). A call already rendering or done for this
-        visit skips the session, so a restart resumes the render. The folder stays, without
-        its node_modules once the video is out, for a person to open."""
+    def build_stage(
+        run: Run, stage_id: str, stage: StageDef, package: ConnectorDef, recorded: dict[str, str]
+    ) -> None:
+        """A Build Session (ADR 0018), as the stage's package asks in its Manifest: seed
+        `<stage>/build/` from its starter or the template `base` names (or, on a send-back, from
+        the last build, to revise), run one sandboxed coding session in it
+        (swarmify_swarm.build) with the package's prompts and network, then call its `tool` on
+        the result as the stage's call, a long job, on its `connector` (another package whose
+        tool it reuses) or itself. A call already running or done for this visit skips the
+        session, so a restart resumes the call. The folder stays, without its node_modules
+        once the call is done, for a person to open."""
+        session = package.manifest["build_session"]
+        source = Path(package.folder or "")
         folder = world_svc.folder(run.world_id)
-        output = stage.config.get("output") or "video.mp4"
+        output = stage.config.get("output") or session.get("output", "")
         config = with_files(folder, run, stage_id, {**stage.config, "output": output})
-        params = config["params"]
-        # the script is `input` or the first of `inputs`; the rest are the builder's to read
-        script, *others = params.get("input_paths") or [params.get("input_path") or ""]
-        if not script:
-            raise ConnectorError("remotion_build needs an input, the script")
-        params["input_path"] = script
+        schema = (package.manifest.get("params") or {}).get("properties") or {}
+        defaults = {k: p["default"] for k, p in schema.items() if "default" in p}
+        params = {**defaults, **config["params"]}
+        # the first input is `input` or the first of `inputs`; the rest are the builder's to read
+        first, *others = params.get("input_paths") or [params.get("input_path") or ""]
+        if not first and package.manifest.get("inputs"):
+            said = package.manifest["inputs"][0]["description"]
+            raise ConnectorError(f"{package.name} needs an input, {said}")
+        if first:
+            params["input_path"] = first
         project = folder / "runs" / run.id / stage_id / "build"
-        composition = str(params.get("composition") or "Main")
+        values = {**params, "input": first, "folder": project}
+        made = Path(params["output_path"]) if output else None
         call = registry.call_for(stage_id)
         if call is None or call.visit != run.send_backs or call.status == "failed":
             # A send-back revises the last good build, kept as build.v<n> (n counting visits
-            # from 1); a stage never run, or one whose last render failed, starts fresh.
+            # from 1); a stage never run, or one whose last call failed, starts fresh.
             last = call if call is not None and call.status == "done" else None
             previous = project.with_name(f"build.v{last.visit + 1}") if last else None
-            video = Path(params["output_path"])
             try:
                 if previous and (previous.exists() or project.exists()):
-                    remotion.keep(project, previous, video)
+                    build_session.keep(project, previous, made)
                 else:
                     previous = None
-                    remotion.seed(project, params.get("base"), root)
+                    base = params.get(build_session.BASE)
+                    templates = session.get("templates")
+                    start = (
+                        build_session.template(str(base), root, templates)
+                        if base and templates
+                        else source / session["starter"]
+                    )
+                    build_session.seed(project, start)
                 limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
             except ValueError as exc:
                 raise ConnectorError(str(exc)) from exc
+            inputs = [Path(p) for p in [first, *others] if p]
             world = world_svc.get(run.world_id)
             cache = root / "npm-cache"
             secrets = registry.secret_names(run.world_id) + ["SWARMIFY_PASSWORD"]
+            domains = package.manifest.get("permissions", {}).get("network", [])
+            revises = [previous] if previous else []
+            if previous and made:
+                revises.append(previous.with_name(previous.name + made.suffix))
             try:
                 swarm.build(
                     run.world_id,
@@ -513,44 +534,48 @@ def create_app(
                     stage.name,
                     folder,
                     project,
-                    Path(script),
-                    composition=composition,
+                    system=(source / session["system"]).read_text(),
+                    task=build_session.task(package.manifest, source, values, inputs),
                     inputs=[Path(p) for p in others],
                     brief=str(params.get("brief") or ""),
-                    sandbox=build.sandbox(project, folder, root, cache, secrets),
+                    sandbox=build.sandbox(project, folder, root, cache, secrets, domains),
                     env={**dict.fromkeys(secrets, ""), "npm_config_cache": str(cache)},
                     data_dir=root,
                     model=params.get("model") or (world.model_for("worker") if world else None),
                     max_turns=int(limits.get("max_turns", build.MAX_TURNS)),
                     minutes=limits.get("minutes", build.MINUTES),
-                    revises=[previous, previous.with_name(previous.name + video.suffix)]
-                    if previous
-                    else [],
+                    revises=revises,
                     note=run.send_back_note(stage.name),
                 )
             except Stopped as exc:
                 raise OverBudget(str(exc)) from exc
-        keep = ("input_path", "output_path", "frontmatter")
-        render = {
-            "calls": "remotion_render",
+        arguments = session.get("arguments", {})
+        then = {
+            "calls": session.get("connector", package.name),
             "output": output,
             "params": {
-                "project": str(project),
-                "composition": composition,
-                **{k: params[k] for k in keep},
+                "tool": session["tool"],
+                **{k: build_session.fill(v, values) for k, v in arguments.items()},
+                **{
+                    k: params[k]
+                    for k in ("input_path", "output_path", "frontmatter")
+                    if k in params
+                },
             },
         }
-        registry.run_stage(run.world_id, run.id, stage_id, render, run.send_backs)
-        memory.record(run.world_id, run.id, stage_id, "remotion_build", Path(params["output_path"]))
+        registry.run_stage(run.world_id, run.id, stage_id, then, run.send_backs, recorded)
+        if made and made.is_file():
+            memory.record(run.world_id, run.id, stage_id, package.name, made)
         shutil.rmtree(project / "node_modules", ignore_errors=True)
 
     def pins(run: Run) -> dict[str, str]:
         return recorded_pins(workflow_svc, run)
 
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
-        if stage.config.get("calls") == "remotion_build":
-            return build_stage(run, stage_id, stage)
         recorded = pins(run)
+        called = registry.find(run.world_id, str(stage.config.get("calls", "")), recorded)
+        if called is not None and "build_session" in called.manifest.get("capabilities", []):
+            return build_stage(run, stage_id, stage, called, recorded)
         if not registry.is_publish(run.world_id, stage.config, recorded):
             folder = world_svc.folder(run.world_id)
             config = with_files(folder, run, stage_id, stage.config)
