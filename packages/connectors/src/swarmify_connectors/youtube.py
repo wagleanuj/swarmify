@@ -130,8 +130,7 @@ def publish(
         status = {**status, "privacyStatus": "private", "publishAt": schedule}
     token = access_token(http, env)
     snippet: dict[str, Any] = {"title": title, "description": description}
-    if tags:
-        snippet["tags"] = list(tags)
+    keywords = list(tags or [])
     if idempotency_key:
         tag = f"swarmify-{idempotency_key}"
         if done := uploaded_under(http, token, tag):
@@ -140,7 +139,9 @@ def publish(
                 "url": f"https://youtu.be/{done}",
                 "publish_at": schedule or None,
             }
-        snippet["tags"] = [*(tags or []), tag]  # beside the real tags, never instead
+        keywords.append(tag)  # beside the real tags, never instead
+    if keywords:
+        snippet["tags"] = keywords
     size = video.stat().st_size
     started = http.post(
         UPLOAD_URL,

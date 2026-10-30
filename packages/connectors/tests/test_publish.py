@@ -501,11 +501,14 @@ NINE = ", ".join(["x" * 49] * 9)  # 9 tags of 49 and 8 commas: 449 characters
         {"hashtags": "#two words, #fine"},  # three hashtags: #two #words #fine
         {"hashtags": "#a #b #c #d #e"},
         {"tags": NINE},
+        {"tags": ", ".join(["x" * 49] * 8 + ["x" * 50])},  # 450, the limit exactly
         {"description": "é" * 2_497, "hashtags": "#ok"},  # 4,994 bytes, 2 newlines, #ok: 4,999
+        {"description": "é" * 2_497 + "a", "hashtags": "#ok"},  # 5,000, the limit exactly
     ],
 )
-def test_hashtags_and_tags_within_the_limits_pass(params: dict[str, Any]) -> None:
-    assert preview("youtube", stage(**params))["problems"] == []
+@pytest.mark.parametrize("connector", ["youtube", "upload_post"])
+def test_hashtags_and_tags_within_the_limits_pass(connector: str, params: dict[str, Any]) -> None:
+    assert preview(connector, stage(connector, user="me", **params))["problems"] == []
 
 
 @pytest.mark.parametrize(
@@ -519,10 +522,11 @@ def test_hashtags_and_tags_within_the_limits_pass(params: dict[str, Any]) -> Non
         ({"description": "é" * 2_498, "hashtags": "#ok"}, "is 5001 bytes, the limit is 5000"),
     ],
 )
+@pytest.mark.parametrize("connector", ["youtube", "upload_post"])
 def test_hashtags_and_tags_past_the_limits_are_problems(
-    params: dict[str, Any], problem: str
+    connector: str, params: dict[str, Any], problem: str
 ) -> None:
-    problems = preview("youtube", stage(**params))["problems"]
+    problems = preview(connector, stage(connector, user="me", **params))["problems"]
     assert any(problem in p for p in problems), problems
 
 

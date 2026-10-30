@@ -31,8 +31,8 @@ TITLE_MAX = 100  # YouTube's limit, the tightest of the platforms we post to
 DESCRIPTION_BYTES = 5_000  # YouTube's limit
 HASHTAGS_MAX = 5  # well under YouTube's 60: more reads as spam (research 2026-10-30)
 TAGS_CHARS = 500  # YouTube's limit for all tags together, commas and quotes included
-RETRY_TAG = "swarmify-"  # youtube.py tags each upload swarmify-<idempotency key>
-RETRY_ROOM = 50  # what that tag and its comma can take of TAGS_CHARS
+# youtube.py tags each upload swarmify-<stage id>.<visit>: about 45 characters with its comma.
+TAGS_ROOM = TAGS_CHARS - 50
 EDITABLE = ("title", "description", "hashtags", "tags")
 _HASHTAG = re.compile(r"^\w+$")
 
@@ -59,8 +59,12 @@ def tags_length(names: list[str]) -> int:
 
 def description(text: str, tagged: list[str]) -> str:
     """The description as it goes out: the hashtags as its last line."""
-    line = " ".join(f"#{h}" for h in tagged)
-    return f"{text.rstrip()}\n\n{line}" if text.strip() and line else text or line
+    line = hashtag_line(tagged)
+    return f"{text.strip()}\n\n{line}" if text.strip() and line else text.strip() or line
+
+
+def hashtag_line(names: list[str]) -> str:
+    return " ".join(f"#{h}" for h in names)
 
 
 _RELATIVE = re.compile(r"^(?:\+(\d+)d\s+)?([01]?\d|2[0-3]):([0-5]\d)(?:\s+(\S+))?$")
@@ -128,21 +132,20 @@ def preview(connector: str, args: dict[str, Any], now: datetime | None = None) -
         problems.append("a scheduled video goes public at its time; set visibility: public")
     if schedule and schedule <= now.strftime("%Y-%m-%dT%H:%M:%SZ"):
         problems.append(f"the schedule {schedule} has already passed")
-    tagged, keywords = hashtags(params.get("hashtags")), tags(params.get("tags"))
-    bad = [h for h in tagged if not _HASHTAG.match(h)]
+    hashes, keywords = hashtags(params.get("hashtags")), tags(params.get("tags"))
+    bad = [h for h in hashes if not _HASHTAG.match(h)]
     if bad:
         problems.append(
             f"a hashtag is one word of letters, digits or _, not {', '.join('#' + b for b in bad)}"
         )
-    if len(tagged) > HASHTAGS_MAX:
-        problems.append(f"{len(tagged)} hashtags, at most {HASHTAGS_MAX}")
-    if tags_length(keywords) > TAGS_CHARS - RETRY_ROOM:
+    if len(hashes) > HASHTAGS_MAX:
+        problems.append(f"{len(hashes)} hashtags, at most {HASHTAGS_MAX}")
+    if (length := tags_length(keywords)) > TAGS_ROOM:
         problems.append(
-            f"the tags take {tags_length(keywords)} characters, at most"
-            f" {TAGS_CHARS - RETRY_ROOM} with room for the retry tag"
+            f"the tags take {length} characters, at most {TAGS_ROOM} with room for the retry tag"
         )
     text = str(params.get("description") or "").strip()
-    size = len(description(text, tagged).encode())
+    size = len(description(text, hashes).encode())
     if size > DESCRIPTION_BYTES:
         problems.append(
             f"the description with its hashtags is {size} bytes, the limit is {DESCRIPTION_BYTES}"
@@ -153,7 +156,7 @@ def preview(connector: str, args: dict[str, Any], now: datetime | None = None) -
     fields = [
         _field("title", "Title", title),
         _field("description", "Description", text),
-        _field("hashtags", "Hashtags", " ".join(f"#{h}" for h in tagged), "The last line."),
+        _field("hashtags", "Hashtags", hashtag_line(hashes), "The last line."),
         _field("tags", "Tags", ", ".join(keywords)),
     ]
     if connector == "upload_post":
