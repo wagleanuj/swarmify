@@ -9,7 +9,8 @@ the layer the Agent SDK puts a Build Session's Bash in (ADR 0018).
 - writes: only its scratch folder (its HOME and TMPDIR) and what `Grants.writes` names;
 - network: only `Grants.domains`, through sandbox-runtime's proxy; a bare `localhost` lets it bind
   and reach its own loopback servers (a render's browser talking to its bundle);
-- environment: what the caller gives it, which for a connector is its own Setup values only.
+- environment: what the caller gives it, which for a connector is its own Setup values only, and
+  no other process's (Linux's PID namespace; on macOS, launcher.mjs's Seatbelt rules).
 
 Every attempt the sandbox blocks lands in the launcher's `blocked.jsonl`, which `Confined.blocked`
 reads: proxy denials everywhere, Seatbelt's file denials on macOS, and on Linux the reads and
@@ -123,6 +124,8 @@ def _said(line: str) -> str | None:
         return f"write {target}"
     if op == "network-outbound" and target.startswith("remote:"):  # past the proxy
         return f"connect {target.removeprefix('remote:')}"
+    if op == "sysctl-read" and target.startswith("kern.procargs"):  # `kern.procargs2.<pid>`
+        return f"read the environment of process {target.rpartition('.')[2]}"
     return None
 
 

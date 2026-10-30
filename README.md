@@ -577,7 +577,10 @@ sandbox.
   rendering it. A remote approver's listener also reaches Swarmify's `/mcp/remote_approvals` (at
   `SWARMIFY_INTERNAL_URL`, else `SWARMIFY_BASE_URL`).
 - Environment: its own Setup values and the few variables every process needs, never another
-  package's nor the API's own (the sign-in password, the Claude token), whatever starts it.
+  package's nor the API's own (the sign-in password, the Claude token), whatever starts it. Nor
+  can it read another process's: on Linux the sandbox's PID namespace hides them, on macOS the
+  launcher adds Seatbelt rules denying every process outside its own sandbox's (`process-info*`
+  and the `kern.procargs` sysctls `ps eww` reads), which sandbox-runtime's profile leaves open.
 - Every blocked attempt (a read, a write, a connection) is reported with the connector's name:
   for a stage's call in the step's live log on the run page (`Blocked by the sandbox: read
   /data/setup.json`), for a Setup test in the message the Connectors page shows, for an install
@@ -591,19 +594,23 @@ sandbox.
 The fixture `packages/connectors/tests/fixtures/packages/intruder` tries to list another world's
 folder, read `setup.json`, find another package's key in its environment and `/proc`, and reach a
 host by name and an address directly; `packages/connectors/tests/test_sandbox.py` holds each one
-refused and reported, on macOS locally and on Linux in CI.
+refused and reported, on macOS locally and on Linux in CI. On macOS it also looks for the API's
+and a running connector's secrets in every process's arguments and environment (`sysctl`
+`KERN_PROCARGS2` and `KERN_PROCARGS` for every PID, and `ps axeww`), with and without a
+`localhost` grant, and finds none, where the same routes outside the sandbox find both.
 
-Its limits: on macOS, Seatbelt does not stop a process reading the arguments and environment of
-another process of the same user (`sysctl` `KERN_PROCARGS2`), which Linux's PID namespace does, so
-a Mac running packages it does not trust runs Swarmify in Docker. A `localhost` grant opens every
-loopback port on macOS, where each sandbox on Linux has a loopback of its own, and there it also
-gives what Chromium needs and sandbox-runtime's profile refuses (any Mach service but the
-clipboard, IOKit, sysctls, and its shared memory in the user's temp folder): a render's browser
-runs in it, while its files, writes and network stay as granted. sandbox-runtime keeps
-`/tmp/claude` writable for every sandboxed process. On Linux a write into a hidden folder lands
-in the empty stand-in bubblewrap mounts there and is gone with the process, never reaching the
-real folder (reported all the same). A denied read of a file that does not exist is reported on
-Linux, not by Seatbelt.
+Its limits: on macOS a process may still list the other processes (their IDs and short names,
+`kern.proc.all`), not their arguments or environment; Seatbelt's log drops most of a flood of
+denials, so a connector scanning every process is reported only in part; and a `localhost` grant
+lets it reach any Mach service, none of which we know to hand out another process's environment. A
+`localhost` grant also opens every loopback port on macOS, where each sandbox on Linux has a
+loopback of its own, and there it also gives what Chromium needs and sandbox-runtime's profile
+refuses (any Mach service but the clipboard, IOKit, sysctls, and its shared memory in the user's
+temp folder): a render's browser runs in it, while its files, writes and network stay as granted.
+sandbox-runtime keeps `/tmp/claude` writable for every sandboxed process. On Linux a write into a
+hidden folder lands in the empty stand-in bubblewrap mounts there and is gone with the process,
+never reaching the real folder (reported all the same). A denied read of a file that does not exist
+is reported on Linux, not by Seatbelt.
 
 ## Build Sessions
 

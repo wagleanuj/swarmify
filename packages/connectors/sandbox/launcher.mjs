@@ -57,6 +57,14 @@ const CHROMIUM = [
   "(allow sysctl-read)",
   '(deny mach-lookup (global-name-prefix "com.apple.pasteboard"))', // never the clipboard
 ].join("\n");
+// No process may read another's details, its arguments and environment above all (`ps eww`,
+// sysctl KERN_PROCARGS2): sandbox-runtime's profile leaves them open for any process of the same
+// user, the API and the other connectors among them, and a browser's sysctls would open them
+// again. Its own sandbox's processes (a browser's helpers) stay in sight.
+const OTHERS = [
+  "(deny process-info* (target others))",
+  '(deny sysctl-read (sysctl-name-prefix "kern.procargs"))',
+].join("\n");
 const browser = process.platform === "darwin" && plan.sandbox.network.allowLocalBinding;
 if (browser) {
   const temp = realpathSync(execFileSync("getconf", ["DARWIN_USER_TEMP_DIR"]).toString().trim());
@@ -125,8 +133,13 @@ try {
     : ["-u", "NO_PROXY", "-u", "no_proxy"];
   const command = ["env", ...proxied, ...(plan.observe ?? []), ...argv];
   let wrapped = await SandboxManager.wrapWithSandbox(command.map(quote).join(" "));
-  // at the profile's end, where Seatbelt's later rules win
-  if (browser) wrapped = wrapped.replace(/' \/bin\/(ba|z)?sh -c /, (rest) => `\n${CHROMIUM}${rest}`);
+  if (process.platform === "darwin") {
+    // at the profile's end, where Seatbelt's later rules win; never started without them
+    const last = [...(browser ? [CHROMIUM] : []), OTHERS].join("\n");
+    const before = wrapped;
+    wrapped = wrapped.replace(/' \/bin\/(ba|z)?sh -c /, (rest) => `\n${last}${rest}`);
+    if (wrapped === before) throw new Error("sandbox-runtime's Seatbelt command changed shape");
+  }
   const tag = /\(with message "([^"]+)"\)/.exec(wrapped)?.[1];
   if (process.platform === "darwin" && tag) await watchSeatbelt(tag);
   // `; exit` keeps the shell as the sandbox's parent (bubblewrap dies with its parent), and
