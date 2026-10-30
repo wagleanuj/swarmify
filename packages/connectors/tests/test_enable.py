@@ -66,7 +66,6 @@ def test_enabling_again_moves_the_pin(connectors: Connectors, packages: Packages
         ("echo", "2.0.0", "echo 2.0.0 is not installed"),
         ("nothing", "1.0.0", "nothing 1.0.0 is not installed"),
         ("..", "1.0.0", "is not installed"),
-        ("remotion_build", "1.0.0", "'remotion_build' is a built-in connector"),
         ("graph", "1.0.0", "Agent Tool"),
     ],
 )

@@ -1,0 +1,61 @@
+# The Remotion build connector (README.md beside this file). A default package: Swarmify installs
+# it from this folder and enables it for every world that has not decided otherwise. It has no
+# server of its own: it asks the core for a Build Session, then renders through remotion_render.
+name = "remotion_build"
+version = "1.0.0"
+label = "Remotion build"
+about = "Writes a Remotion project from the script in a sandboxed coding session, then renders it. Needs Node."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "npm"
+
+planner_notes = "This is how a workflow makes a video. One sandboxed coding session writes a Remotion project for the script, reading the run's gate decisions, then swarmify renders it. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read (as speech's timings.json)."
+
+capabilities = ["build_session"]
+
+# The session's network (ADR 0018): npm installs and Google Fonts files.
+[permissions]
+network = ["registry.npmjs.org", "fonts.googleapis.com", "fonts.gstatic.com"]
+
+[build_session]
+system = "system.md"
+brief = "brief.md"
+starter = "starter"
+templates = "remotion"   # params.base names a template under <data dir>/remotion/ instead
+output = "video.mp4"
+# The render is remotion_render's own code path, so the two never drift and share one browser.
+connector = "remotion_render"
+tool = "remotion_render"
+arguments = { project = "$folder", composition = "$composition" }
+
+[build_session.notes]
+"timings.json" = "voice_first.md"   # the speech package's narration: the brief turns voice first
+
+[params]
+type = "object"
+[params.properties.base]
+type = "string"
+description = "a template's name under the data directory's remotion folder to start from, else a minimal starter"
+[params.properties.composition]
+type = "string"
+default = "Main"
+[params.properties.brief]
+type = "string"
+description = "free text for the builder: style, length, pacing"
+[params.properties.model]
+type = "string"
+[params.properties.max_turns]
+type = "integer"
+default = 80
+[params.properties.minutes]
+type = "integer"
+default = 20
+description = "the session's time limit"
+
+[[inputs]]
+description = "the script"
+media_type = "text/markdown"
+
+[[outputs]]
+description = "the video, video.mp4 by default"
+media_type = "video/mp4"

@@ -1,3 +1,27 @@
+The video is voice first: $file is the narration, one take per scene, and the
+picture follows the voice, never the other way round.
+- Copy $name into public/, and each take it names (`file`, relative to its folder, as
+  narration/hook.wav) to the same path under public/.
+- The voice sets the length: each line is a clip of its take from `cut_in` to `cut_out` (seconds),
+  placed after the previous line's clip and its pause, and the composition's durationInFrames
+  comes from that timeline, never a fixed number.
+- Each clip is an `<Audio src={staticFile(take.file)} trimBefore trimAfter>` (in frames) inside a
+  `<Sequence from durationInFrames>`. Never trim or stretch speech to fit a picture.
+- `pause_after` is the script's pause; scale the pauses for the style (shorter for a fast cut,
+  longer before a reveal). A line with `joined_next: true` runs into the next with no silence to
+  cut in: keep the two back to back, with no pause. A line's `directions` (as whispering, laugh)
+  say how it was voiced, for the picture to match; `unrecognized` lists the script's other
+  bracketed asides, spoken as plain words.
+- Captions are karaoke: each line's `words` are Remotion Captions (ms from the take's start, so
+  move them onto the timeline), paged per line with createTikTokStyleCaptions from
+  @remotion/captions (`npm install @remotion/captions` if the project lacks it) so a page never
+  crosses lines, the spoken word highlighted; words are inline-block spans with white-space: pre,
+  or their leading spaces vanish. Scaling the spoken word up covers the spaces beside it: pad it
+  sideways by what the scale adds, or highlight by colour alone.
+- Music: a bed from the world's assets, when it has one, under the whole video and ducked under
+  speech (about 0.45 between lines, 0.12 while a line plays). No bed, no music.
+A sample composition doing all this, to adapt to the script and the brief:
+```tsx
 // Voice first, after the spike's composition: the narration's timeline sets the video's length,
 // each line is a trimmed clip of its take, captions are karaoke paged per line, and the music bed
 // ducks under speech. Expects public/timings.json and its takes (public/narration/*.wav) copied
@@ -58,3 +82,4 @@ export const Main = () => {
     </AbsoluteFill>
   );
 };
+```

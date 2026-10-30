@@ -34,9 +34,10 @@ from swarmify_connectors import Connector, FakeTransport, McpTransport, packages
 from swarmify_learning import SYSTEM as RETRO_SYSTEM
 from swarmify_memory import GRAPH_OUT
 from swarmify_swarm import SdkRuntime, tool_id
-from swarmify_swarm.build import SYSTEM as BUILDER_SYSTEM
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script, ScriptedTransport
 
+BUILDER_SYSTEM = (Path(__file__).parents[2] / "connectors/remotion_build/system.md").read_text()
+"""The remotion_build package's system prompt for its Build Session."""
 IDEAS_MD = """# Ideas
 
 ```

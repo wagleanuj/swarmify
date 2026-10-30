@@ -347,7 +347,8 @@ stages:
             "swarm_binary",
             "build video",
             "only a connector stage can make video.mp4: swarm agents write text, so produce a"
-            " script here and build the video from it in a remotion_build stage",
+            " script here and make the file from it in a connector stage (one requesting a Build"
+            " Session writes and runs code)",
         ),
         (
             "connector_params",

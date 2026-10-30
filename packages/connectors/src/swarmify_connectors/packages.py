@@ -45,6 +45,8 @@ _VERSION = "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$"
 _MEDIA = "^[a-z]+/([a-z0-9.+-]+|\\*)$"
 _strings = {"type": "array", "items": {"type": "string", "minLength": 1}}
 _text = {"type": "string", "minLength": 1}
+_inside = {"type": "string", "pattern": "^(?![/~])(?!.*(^|/)\\.\\.(/|$)).+$"}
+"""A path inside the package folder, relative to it."""
 _file = {
     "type": "object",
     "additionalProperties": False,
@@ -173,6 +175,25 @@ SCHEMA: dict[str, Any] = {
             },
         },
         "capabilities": {"type": "array", "uniqueItems": True, "items": {"enum": CAPABILITIES}},
+        # The Build Session Capability (ADR 0018): the core runs one sandboxed coding session in
+        # a build folder seeded from `starter`, then calls `tool` on the result as the stage's
+        # call. The session's network is `permissions.network`.
+        "build_session": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["system", "brief", "starter", "tool"],
+            "properties": {
+                "system": _inside,
+                "brief": _inside,
+                "starter": _inside,
+                "notes": {"type": "object", "additionalProperties": _inside},
+                "templates": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,59}$"},
+                "output": {"type": "string", "pattern": "^[^/\\\\]+$"},
+                "connector": {"type": "string", "pattern": _SNAKE},
+                "tool": {"type": "string", "pattern": _TOOL},
+                "arguments": {"type": "object", "additionalProperties": {"type": "string"}},
+            },
+        },
         "primary_metric": {"type": "string", "pattern": _SNAKE},
         "permissions": {
             "type": "object",
@@ -252,7 +273,12 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     def bad(field: str, why: str) -> None:
         raise ManifestError(f"{field}: {why}")
 
-    if ("command" in manifest) == ("url" in manifest):
+    session = manifest.get("build_session")
+    if ("build_session" in manifest.get("capabilities", [])) != bool(session):
+        bad("build_session", "is the [build_session] of the build_session capability, both or none")
+    servers = ("command" in manifest) + ("url" in manifest)
+    # A Build Session calling another package's tool needs no server of its own.
+    if servers == 2 or (servers == 0 and not (session and "connector" in session)):
         bad("command", "give the command that starts its MCP server, or its url, not both")
     if (manifest["kind"] == "notify") == bool(manifest["stage_types"]):
         bad("stage_types", "a notify connector runs in no stage; every other runs in one")
@@ -331,7 +357,14 @@ def read_manifest(folder: Path) -> dict[str, Any]:
         manifest = tomllib.loads(file.read_text())
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise ManifestError(f"manifest: {MANIFEST} is not TOML: {exc}") from exc
-    return check_manifest(manifest)
+    check_manifest(manifest)
+    session = manifest.get("build_session", {})
+    files = {k: session[k] for k in ("system", "brief", "starter") if k in session}
+    files |= {f"notes.{k}": v for k, v in session.get("notes", {}).items()}
+    for field, path in files.items():
+        if not (folder / path).exists():
+            raise ManifestError(f"build_session.{field}: {path} is not in the package")
+    return manifest
 
 
 def _changes(old: dict[str, Any], new: dict[str, Any]) -> dict[str, list[str]]:

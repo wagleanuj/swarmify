@@ -1,15 +1,18 @@
-"""The one coding session Swarmify runs: a build stage writing a Remotion project (ADR 0018).
+"""The one kind of coding session Swarmify runs: a Build Session (ADR 0018), which a connector
+package requests in its Manifest, supplying the system prompt, the brief, the starter files and the
+network domains; the core knows nothing of what it builds.
 
 Swarm agents have no shell. A build session does, inside its build folder only: the Agent SDK's OS
 sandbox (Seatbelt on macOS, bubblewrap on Linux) runs every Bash command with no way out
 (`allowUnsandboxedCommands: false`, `failIfUnavailable`), writes limited to the build folder and the
 npm cache, reads of the data directory denied except the build folder, the npm cache and the stage's
-own world (its read-only `assets/` included), and network limited to the npm registry and Google
-Fonts. The PreToolUse hooks enforce the same path rules on the file tools, so a sandbox that is off
-or misconfigured still cannot write outside the folder or read the data directory's `.env`; for Bash
-they refuse an unsandboxed command and, as a tripwire, one that names the data directory or a `.env`
-file. The environment carries no connector keys: the composition root blanks them, and the sandbox
-unsets them and the model credentials for every command.
+own world (its read-only `assets/` included), and network limited to the domains the package
+declares (`permissions.network`). The PreToolUse hooks enforce the same path rules on the file
+tools, so a sandbox that is off or misconfigured still cannot write outside the folder or read the
+data directory's `.env`; for Bash they refuse an unsandboxed command and, as a tripwire, one that
+names the data directory or a `.env` file. The environment carries no connector keys: the
+composition root blanks them, and the sandbox unsets them and the model credentials for every
+command.
 """
 
 import re
@@ -21,8 +24,6 @@ from swarmify_swarm.model import AgentRole
 from swarmify_swarm.ports import Storage
 
 TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
-DOMAINS = ["registry.npmjs.org", "fonts.googleapis.com", "fonts.gstatic.com"]
-"""Where the sandboxed Bash may connect: npm installs and Google Fonts files."""
 MODEL_CREDENTIALS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
 """The CLI needs these to reach the model; its Bash commands do not."""
 WRITES = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path"}
@@ -32,8 +33,6 @@ ROLE: AgentRole = "worker"
 AGENT = "builder"
 MAX_TURNS, MINUTES = 80, 20.0
 """A build stage's defaults; its params `max_turns` and `minutes` override them."""
-VOICE_EXAMPLE = Path(__file__).with_name("voice_first.tsx")
-"""The spike's voice-first composition (2026-10-28), reading the speech connector's timings."""
 
 
 def readable(build: Path, world_folder: Path) -> list[Path]:
@@ -49,9 +48,15 @@ def readable(build: Path, world_folder: Path) -> list[Path]:
 
 
 def sandbox(
-    build: Path, world_folder: Path, data_dir: Path, cache: Path, secrets: list[str]
+    build: Path,
+    world_folder: Path,
+    data_dir: Path,
+    cache: Path,
+    secrets: list[str],
+    domains: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """The session's SandboxSettings. `secrets` are the connector key names to unset."""
+    """The session's SandboxSettings. `secrets` are the connector key names to unset, `domains`
+    the only hosts its Bash may reach (the package's `permissions.network`)."""
     build, world_folder, data_dir, cache = (
         p.resolve() for p in (build, world_folder, data_dir, cache)
     )
@@ -60,7 +65,7 @@ def sandbox(
         "failIfUnavailable": True,
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
-        "network": {"allowedDomains": DOMAINS},
+        "network": {"allowedDomains": list(domains)},
         "filesystem": {
             "allowWrite": [str(build), str(cache)],
             "denyRead": [str(data_dir)],
@@ -112,86 +117,28 @@ def refusal(
 
 
 def prompt(
-    script: Path,
-    composition: str,
+    task: str,
     brief: str,
     decisions: list[str],
     inputs: Sequence[Path] = (),
     assets: Sequence[Path] = (),
 ) -> str:
-    """`inputs` are the stage's other input files, beside the script; `assets` the world's."""
+    """The package's `task` for this stage, then what the core adds to every Build Session:
+    the stage's other input files, the world's assets, the run's decisions and the operator's
+    `brief`."""
     lines = [
-        f"Build the Remotion project in this folder (your working directory) so that"
-        f" composition `{composition}` turns the script at {script} into a finished short video.",
-        "Read the script first. The render passes it as input props: getInputProps() returns"
-        " {script: <its text>, scriptPath: <its path>}, so the composition must read the script"
-        " from there, not from a copied file.",
-        "The stage's other inputs, also yours to read (copy what the render needs into public/):"
-        f" {', '.join(map(str, inputs))}."
+        task,
+        f"The stage's other inputs, also yours to read: {', '.join(map(str, inputs))}."
         if inputs
         else "",
         "The world's assets, read-only files the operator added (music beds, sound effects,"
-        f" logos); copy what the video uses into public/: {', '.join(map(str, assets))}."
+        f" logos): {', '.join(map(str, assets))}."
         if assets
         else "",
-        *(voice_first(t) for t in inputs if t.name == "timings.json"),
         *decisions,
         f"The operator's brief: {brief}" if brief else "",
     ]
     return "\n".join(line for line in lines if line)
-
-
-def voice_first(timings: Path) -> str:
-    """The build rules for narration the speech connector voiced into `timings`."""
-    return f"""The video is voice first: {timings} is the narration, one take per scene, and the
-picture follows the voice, never the other way round.
-- Copy {timings.name} into public/, and each take it names (`file`, relative to its folder, as
-  narration/hook.wav) to the same path under public/.
-- The voice sets the length: each line is a clip of its take from `cut_in` to `cut_out` (seconds),
-  placed after the previous line's clip and its pause, and the composition's durationInFrames
-  comes from that timeline, never a fixed number.
-- Each clip is an `<Audio src={{staticFile(take.file)}} trimBefore trimAfter>` (in frames) inside a
-  `<Sequence from durationInFrames>`. Never trim or stretch speech to fit a picture.
-- `pause_after` is the script's pause; scale the pauses for the style (shorter for a fast cut,
-  longer before a reveal). A line with `joined_next: true` runs into the next with no silence to
-  cut in: keep the two back to back, with no pause. A line's `directions` (as whispering, laugh)
-  say how it was voiced, for the picture to match; `unrecognized` lists the script's other
-  bracketed asides, spoken as plain words.
-- Captions are karaoke: each line's `words` are Remotion Captions (ms from the take's start, so
-  move them onto the timeline), paged per line with createTikTokStyleCaptions from
-  @remotion/captions (`npm install @remotion/captions` if the project lacks it) so a page never
-  crosses lines, the spoken word highlighted; words are inline-block spans with white-space: pre,
-  or their leading spaces vanish. Scaling the spoken word up covers the spaces beside it: pad it
-  sideways by what the scale adds, or highlight by colour alone.
-- Music: a bed from the world's assets, when it has one, under the whole video and ducked under
-  speech (about 0.45 between lines, 0.12 while a line plays). No bed, no music.
-A sample composition doing all this, to adapt to the script and the brief:
-```tsx
-{VOICE_EXAMPLE.read_text().strip()}
-```"""
-
-
-SYSTEM = """You are the builder of Swarmify: you write a Remotion (React) project that renders a
-short video. You have Bash, Read, Write, Edit, Glob and Grep, and everything you run is
-sandboxed: you may write only inside the build folder, the network reaches only the npm registry
-and Google Fonts, and anything else is refused. Do not try to get around a refusal.
-
-How you work:
-- The folder is seeded with a working project (package.json, src/index.ts registering a Root
-  with the compositions). Keep src/index.ts as the entry point and keep the composition id you
-  are asked for.
-- Run `npm install` (add packages with `npm install <name>` if you need them), then write the
-  composition. Check it compiles with `npx tsc --noEmit`.
-- Do not render: Swarmify renders the composition when you finish, with no network. So every
-  asset must be in the project: put images and fonts under public/ (download Google Fonts files
-  with curl from fonts.gstatic.com and load them with @remotion/fonts or a CSS @font-face over
-  staticFile()); @remotion/google-fonts would fetch at render time and fail.
-- 3D is available: `npm install @remotion/three three @react-three/fiber` (@remotion/three at
-  the project's remotion version) and draw inside <ThreeCanvas>. Drive every motion from
-  useCurrentFrame(), never React Three Fiber's useFrame or a clock, so each frame renders the
-  same every time. Build geometry in code; a model file (.glb) only from the world's assets,
-  copied under public/ and loaded with staticFile().
-- Finish with a one-paragraph summary of what the video shows."""
 
 
 def last_lines(board: Storage, stage_id: str, n: int = 10) -> str:

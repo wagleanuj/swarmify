@@ -148,7 +148,6 @@ def test_the_planner_hears_what_a_connector_says_of_its_types_in_this_world(
 def test_the_planner_describes_each_connector_from_its_manifest(
     running: TestClient, script: Script
 ) -> None:
-    from swarmify_connectors import BUILTINS
     from swarmify_kernel import AGENT_TOOLS
 
     world = _world(running)
@@ -157,10 +156,6 @@ def test_the_planner_describes_each_connector_from_its_manifest(
     script.scripts = [[Answer({"reply": "Hi.", "yaml": None})]]
     assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
     system = str(script.sessions[0].system_prompt)
-    params = {
-        "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
-    }
-    assert {c.name for c in BUILTINS} == set(params)
     speech = system.split("\n- speech (")[1].split("\n- ")[0]  # a default package
     assert all(f"params.{p}" in speech for p in ("voice", "engines", "seed"))
     posts = system.split("\n- upload_post (")[1].split("\n- ")[0]
@@ -172,11 +167,9 @@ def test_the_planner_describes_each_connector_from_its_manifest(
     assert "only when the operator has a finished template" in render
     for param in ("project", "composition", "entry", "codec", "frames", "props"):
         assert f"params.{param}" in render, param
-    for c in BUILTINS:
-        entry = system.split(f"\n- {c.name} (")[1].split("\n- ")[0]
-        assert c.manifest["about"] in entry and c.manifest.get("planner_notes", "") in entry
-        for param in params[c.name]:
-            assert f"params.{param}" in entry, (c.name, param)
+    built = system.split("\n- remotion_build (")[1].split("\n- ")[0]
+    for param in ("base", "composition", "brief", "model", "max_turns", "minutes"):
+        assert f"params.{param}" in built, param
     # what the hand-written prompt said moved into each connector's own notes
     assert "This is how a workflow makes a video" in system
     assert "(pause 1.5s) is silence" in system and "params.user: required;" in system

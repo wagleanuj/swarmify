@@ -681,9 +681,9 @@ class Swarm:
         stage_name: str,
         world_folder: Path,
         folder: Path,
-        script: Path,
         *,
-        composition: str,
+        system: str,
+        task: str,
         brief: str,
         sandbox: dict[str, Any],
         env: dict[str, str],
@@ -695,8 +695,9 @@ class Swarm:
         revises: Sequence[Path] = (),
         note: str = "",
     ) -> None:
-        """One sandboxed coding session writing the Remotion project in `folder` (see build.py),
-        with the run's gate decisions as required reading. `revises` names the previous version
+        """One sandboxed coding session in `folder` (a Build Session, see build.py) with the
+        package's `system` prompt and `task`, the operator's `brief`, the stage's other `inputs`
+        and the run's gate decisions as required reading. `revises` names the previous version
         when the session revises it after a send-back with `note`, instead of starting over.
         Logged, costed and budgeted like any agent, as `builder`, whose closing summary ends the
         stage log. Raises StageError, with the builder's last log lines, when two sessions fail
@@ -713,10 +714,10 @@ class Swarm:
 
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
-                system_prompt=builds.SYSTEM,
+                system_prompt=system,
                 prompt="\n".join(
                     ([revision(note, [str(p) for p in revises])] if revises else [])
-                    + [builds.prompt(script, composition, brief, decisions, inputs, assets)]
+                    + [builds.prompt(task, brief, decisions, inputs, assets)]
                 ),
                 cwd=folder,
                 # No skills plugin: Claude Code refuses Write and Edit inside a plugin folder,
