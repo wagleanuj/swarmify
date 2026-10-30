@@ -559,6 +559,19 @@ test("on a phone the selected step comes before the step list", async () => {
   expect(top(panel.element())).toBeLessThan(top(screen.getByRole("navigation", { name: "Steps" }).element()));
 });
 
+test("on a phone a run with many steps still to come never scrolls sideways", async () => {
+  await page.viewport(390, 844);
+  // Waiting at step 2 of 9: seven steps not started, each a slot the strip must fit.
+  const later = Array.from({ length: 7 }, (_, i) => ({ ...stage(i + 2, `step ${i + 3}`, "connector", "pending"), started_at: null, ended_at: null }));
+  const waiting = run("waiting_gate", [research("done"), stage(1, "pick", "gate", "waiting", { ...timed(2, null), ask: "Pick one." }), ...later]);
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(waiting), "GET /api/gates": () => Response.json([]) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("strip")).toBeVisible();
+  const strip = screen.getByTestId("strip").element();
+  expect(strip.getBoundingClientRect().right).toBeLessThanOrEqual(390);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});
+
 test("a step lists what went in, linked to the step that made it, and every file it made", async () => {
   const script = made("stage_0", "script.md", { body: "# Script" });
   const note = made("stage_2", "notes.md", { type: "note" });
