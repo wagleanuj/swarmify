@@ -39,7 +39,7 @@ function timeWent(runs: Run[]): [string, { secs: number; gate: boolean }][] {
 
 const spentOf = (runs: Run[]) => runs.reduce((sum, r) => sum + r.spent_usd, 0);
 const shortId = (id: string) => (id.length > 10 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id);
-const when = (iso: string) =>
+export const when = (iso: string) =>
   new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export function Runs() {
@@ -119,7 +119,7 @@ export function Runs() {
       )}
       {runs && runs.length > 0 && (
         <>
-          <nav className="tabs" aria-label="Status">
+          <nav className="tabs chip-row" aria-label="Status">
             {TABS.map(([v, label, holds]) => (
               <Link
                 key={v}

@@ -4,6 +4,7 @@ import YAML from "yaml";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { usePhone } from "../usePhone";
 import { Scorecard } from "./Scorecard";
 
 type Violation = components["schemas"]["Violation"];
@@ -154,6 +155,7 @@ export function WorkflowEditor() {
   const setView = (tab: EditorTab) =>
     void navigate({ to: ".", search: { tab }, replace: true });
   const latestCheck = useRef(0);
+  const phone = usePhone();
 
   useEffect(() => {
     api
@@ -334,31 +336,53 @@ export function WorkflowEditor() {
     ["yaml", "YAML"],
     ...(workflowId ? ([["scorecard", "Scorecard"]] as [EditorTab, string][]) : []),
   ];
+  const heading = (
+    <div>
+      <div className="crumb">
+        <Link to="/worlds/$worldId/workflows" params={{ worldId }}>
+          Workflows
+        </Link>{" "}
+        / {title}
+      </div>
+      <h1>
+        {title} {versions.length > 0 && <span className="faint-title">v{versions[versions.length - 1]?.number}</span>}
+      </h1>
+      <p className="sub">
+        {steps.length > 0
+          ? `${steps.length} ${steps.length === 1 ? "step" : "steps"}: ${steps
+              .map((s, i) => {
+                const type = stageType(s);
+                return type ? asText(s[type]) : `stage ${i + 1}`;
+              })
+              .join(", ")}.`
+          : "No steps yet."}
+      </p>
+    </div>
+  );
+
+  // A phone reads the workflow; editing it stays on a larger screen.
+  if (phone)
+    return (
+      <main className="editor-page">
+        <header className="page">{heading}</header>
+        {error && <p role="alert">{error}</p>}
+        <p className="faint">Edit on a larger screen.</p>
+        {steps.length > 0 && (
+          <ol className="stage-rows" data-testid="stage-rows">
+            {steps.map((_, i) => (
+              <li key={i} className="stage-row">
+                <StageSummary stages={steps} index={i} />
+              </li>
+            ))}
+          </ol>
+        )}
+      </main>
+    );
 
   return (
     <main className="editor-page">
       <header className="page">
-        <div>
-          <div className="crumb">
-            <Link to="/worlds/$worldId/workflows" params={{ worldId }}>
-              Workflows
-            </Link>{" "}
-            / {title}
-          </div>
-          <h1>
-            {title} {versions.length > 0 && <span className="faint-title">v{versions[versions.length - 1]?.number}</span>}
-          </h1>
-          <p className="sub">
-            {steps.length > 0
-              ? `${steps.length} ${steps.length === 1 ? "step" : "steps"}: ${steps
-                  .map((s, i) => {
-                    const type = stageType(s);
-                    return type ? asText(s[type]) : `stage ${i + 1}`;
-                  })
-                  .join(", ")}.`
-              : "No steps yet."}
-          </p>
-        </div>
+        {heading}
         <div className="editor-actions">
           <span className="faint" role="status" data-testid="check-status">
             {checking ? "Checking..." : notice ?? (dirty ? "Unsaved changes." : "Everything here is saved.")}
@@ -585,29 +609,13 @@ function StageList({
         </label>
       </div>
       <ol className="stage-rows" data-testid="stage-rows">
-        {stages.map((stage, i) => {
-          const type = stageType(stage);
-          const { needs, makes } = contract(stages, i);
-          return (
-            <li key={i}>
-              <button type="button" className="stage-row" aria-current={i === selected || undefined} onClick={() => onSelect(i)}>
-                <span className="stage-main">
-                  <span className="stage-top">
-                    <span className={`pill type-${type ?? "unknown"}`}>{type ?? "unknown"}</span>
-                    <b>{stageName(stage, i)}</b>
-                  </span>
-                  <span className="muted">{stageWhat(stage)}</span>
-                </span>
-                <span className="stage-contract faint">
-                  {needs && <span>needs {needs}</span>}
-                  <span>
-                    makes <span className="ink">{makes || "nothing declared"}</span>
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
+        {stages.map((_, i) => (
+          <li key={i}>
+            <button type="button" className="stage-row" aria-current={i === selected || undefined} onClick={() => onSelect(i)}>
+              <StageSummary stages={stages} index={i} />
+            </button>
+          </li>
+        ))}
       </ol>
       <div className="add-stage">
         <select aria-label="Stage type to add" value={adding} onChange={(e) => setAdding(e.target.value as StageType)}>
@@ -622,6 +630,30 @@ function StageList({
         </button>
       </div>
     </div>
+  );
+}
+
+/** A stage row's text: its type and name, what it does, and what it needs and makes. */
+function StageSummary({ stages, index }: { stages: RawStage[]; index: number }) {
+  const stage = stages[index] ?? {};
+  const type = stageType(stage);
+  const { needs, makes } = contract(stages, index);
+  return (
+    <>
+      <span className="stage-main">
+        <span className="stage-top">
+          <span className={`pill type-${type ?? "unknown"}`}>{type ?? "unknown"}</span>
+          <b>{stageName(stage, index)}</b>
+        </span>
+        <span className="muted">{stageWhat(stage)}</span>
+      </span>
+      <span className="stage-contract faint">
+        {needs && <span>needs {needs}</span>}
+        <span>
+          makes <span className="ink">{makes || "nothing declared"}</span>
+        </span>
+      </span>
+    </>
   );
 }
 

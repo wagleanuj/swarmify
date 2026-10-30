@@ -103,7 +103,22 @@
 .skills .skill-list li + li { border-top: 1px solid var(--rule); }
 .skills .skill-list b { font-family: var(--mono); font-weight: 500; }
 
+/* Status and type tabs (.tabs.chip-row) become one row of chips on a phone; the library's
+   Filters chip opens the sheet that holds its other filters there. */
+.filters-chip { display: none; }
+.filters-sheet { display: grid; gap: 12px; }
+.filters-sheet select, .filters-sheet input, .filters-sheet button.primary { width: 100%; min-height: 44px; }
+
 @media (max-width: 48rem) {
+  .tabs.chip-row { flex-wrap: nowrap; gap: 6px; overflow-x: auto; margin: 0 -16px 16px; padding: 0 16px; border-bottom: 0; scrollbar-width: none; }
+  .chip-row .tab { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px; border: 1px solid var(--control); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .chip-row .tab[aria-current="page"] { background: var(--text); border-color: var(--text); color: #000; font-weight: 600; }
+  .chip-row .tab[aria-current="page"]::after { display: none; }
+  .chip-row .tab .num { color: inherit; font-weight: inherit; }
+  .lib-head { display: flex; flex-direction: column; }
+  .lib-head .filters { order: -1; margin-bottom: 12px; }
+  .lib-head .filters > :not([type="search"]) { display: none; }
+  .lib-head .filters input[type="search"] { flex: 1 1 100%; min-height: 40px; }
   .mem-cols, .lib-grid { grid-template-columns: minmax(0, 1fr); }
   .lib-grid.has-sel .lib-list { display: none; }
   .lib-detail { position: static; }

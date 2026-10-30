@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -40,7 +43,10 @@ async function check(req: Request) {
   return Response.json({ violations: [], model: { ...model, name: yaml.split("\n")[0]?.slice(6) } });
 }
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -371,4 +377,26 @@ test("a copy the other world refuses names what it lacks", async () => {
   await screen.getByRole("menuitem", { name: /Marketing/ }).click();
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/cannot run this workflow yet: no connector named 'render_video'/);
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
+});
+
+test("on a phone the editor shows the stages read-only and says to edit on a larger screen", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/workflows/wf_1/versions": () => Response.json([v1]),
+    "POST /api/worlds/world_1/workflows/check": check,
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
+  await expect.element(screen.getByRole("heading", { name: "Weekly short v1", level: 1 })).toBeVisible();
+  await expect.element(screen.getByText("Edit on a larger screen.")).toBeVisible();
+  const rows = screen.getByTestId("stage-rows").getByRole("listitem");
+  await expect.element(rows.first()).toMatchTextContent(/swarm.*research.*Find 5 short-form.*makes list\[idea\]/);
+  await expect.element(rows.nth(1)).toMatchTextContent(/gate.*pick.*Pick one idea/);
+  expect(screen.getByTestId("stage-rows").getByRole("button").elements()).toHaveLength(0);
+  expect(screen.getByRole("textbox").elements()).toHaveLength(0);
+  expect(screen.getByRole("tab").elements()).toHaveLength(0);
+  expect(screen.getByRole("button", { name: /^Save as version/ }).elements()).toHaveLength(0);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });

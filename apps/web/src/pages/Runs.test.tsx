@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch, run, stage as shared } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -7,7 +10,10 @@ const ts = "2026-10-26T10:00:00+00:00";
 const video = { id: "world_1", name: "Video", purpose: "", created_at: ts };
 const stage = (index: number, status: string) => shared(index, `s${index}`, "connector", status);
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -157,4 +163,29 @@ test("filters by workflow and ad hoc, and shows how long each run took", async (
   await expect.poll(names).toEqual(["Hooks"]);
   await screen.getByRole("link", { name: /^Done/ }).click();
   await expect.element(screen.getByTestId("no-match")).toMatchTextContent(/No runs done/);
+});
+
+test("on a phone the status tabs are one row of chips that scrolls inside itself, never the page", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": () =>
+      Response.json([
+        run("waiting_gate", [stage(0, "waiting")], { id: "run_4", name: "Asks" }),
+        run("running", [stage(0, "running")], { id: "run_3", name: "Goes" }),
+        run("done", [stage(0, "done")], { id: "run_2", name: "Made" }),
+        run("failed", [stage(0, "failed")], { id: "run_1", name: "Broke" }),
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs?status=running");
+  const tabs = screen.getByRole("navigation", { name: "Status" });
+  await expect.element(tabs.getByRole("link", { name: "Running 1" })).toHaveAttribute("aria-current", "page");
+  const chips = tabs.getByRole("link").elements();
+  expect(chips).toHaveLength(5);
+  expect(new Set(chips.map((c) => c.getBoundingClientRect().top)).size).toBe(1);
+  expect(tabs.element().scrollWidth).toBeGreaterThan(tabs.element().clientWidth);
+  expect(getComputedStyle(tabs.element()).overflowX).toBe("auto");
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });

@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
+import { Sheet } from "../Sheet";
 import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
 
 type Workflow = components["schemas"]["Workflow"];
@@ -43,6 +44,7 @@ export function Library() {
   const [error, setError] = useState<string | null>(null);
   const [seen, setSeen] = useState(0);
   const [said, setSaid] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -74,11 +76,41 @@ export function Library() {
   const shown = filter(all, filters)
     .filter((i) => (!search.type || i.type === search.type) && (!term || i.title.toLowerCase().includes(term)))
     .sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  const active = Object.values(filters).some(Boolean);
   const options = (pick: (i: Item) => [string, string]) =>
     [...new Map(all.map(pick)).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const types = [...new Set(all.map((i) => i.type))];
   const selected = all.find((i) => i.path === search.item);
+  const setCount = Object.values(filters).filter(Boolean).length;
+  const active = setCount > 0;
+  const clear = (
+    <button type="button" className="link" onClick={() => setFilters(NONE)}>
+      Clear filters
+    </button>
+  );
+  // One set of fields: inline on a wide screen, in the Filters sheet on a phone.
+  const fieldset = (
+    <>
+      <Select
+        label="Workflow"
+        value={filters.workflow}
+        onChange={set("workflow")}
+        options={options((i) => [i.workflow_id, workflows.find((w) => w.id === i.workflow_id)?.name ?? i.run_name])}
+      />
+      <Select label="Stage" value={filters.stage} onChange={set("stage")} options={options((i) => [i.stage_name, i.stage_name])} />
+      <Select
+        label="Run"
+        value={filters.run}
+        onChange={set("run")}
+        options={options((i) => [i.run_id, `${i.run_name} ${i.run_id.slice(-6)}`])}
+      />
+      <label>
+        From <input type="date" value={filters.from} onChange={(e) => set("from")(e.target.value)} />
+      </label>
+      <label>
+        To <input type="date" value={filters.to} onChange={(e) => set("to")(e.target.value)} />
+      </label>
+    </>
+  );
 
   return (
     <main>
@@ -112,57 +144,60 @@ export function Library() {
       )}
       {items && items.length > 0 && (
         <>
-          <nav className="tabs" aria-label="Types">
-            {[ANY, ...types].map((t) => (
-              <Link
-                key={t}
-                to="/worlds/$worldId/library"
-                params={{ worldId }}
-                search={(s) => ({ ...s, type: t || undefined })}
-                activeOptions={{ exact: true }}
-                className="tab"
+          <div className="lib-head">
+            <nav className="tabs chip-row" aria-label="Types">
+              {[ANY, ...types].map((t) => (
+                <Link
+                  key={t}
+                  to="/worlds/$worldId/library"
+                  params={{ worldId }}
+                  search={(s) => ({ ...s, type: t || undefined })}
+                  activeOptions={{ exact: true }}
+                  className="tab"
+                >
+                  {t ? t.replace(/_/g, " ") : "All"}{" "}
+                  <span className="num">{t ? all.filter((i) => i.type === t).length : all.length}</span>
+                </Link>
+              ))}
+              <button
+                type="button"
+                className="tab filters-chip"
+                aria-haspopup="dialog"
+                aria-label={setCount ? `Filters, ${setCount} set` : "Filters"}
+                onClick={() => setSheetOpen(true)}
               >
-                {t ? t.replace(/_/g, " ") : "All"}{" "}
-                <span className="num">{t ? all.filter((i) => i.type === t).length : all.length}</span>
-              </Link>
-            ))}
-          </nav>
-          <form className="filters" aria-label="Filters" onSubmit={(e) => e.preventDefault()}>
-            <input
-              type="search"
-              aria-label="Search the library"
-              placeholder="Search titles"
-              value={search.q ?? ""}
-              onChange={(e) => void navigate({ search: (s) => ({ ...s, q: e.target.value || undefined }), replace: true })}
-            />
-            <Select
-              label="Workflow"
-              value={filters.workflow}
-              onChange={set("workflow")}
-              options={options((i) => [i.workflow_id, workflows.find((w) => w.id === i.workflow_id)?.name ?? i.run_name])}
-            />
-            <Select label="Stage" value={filters.stage} onChange={set("stage")} options={options((i) => [i.stage_name, i.stage_name])} />
-            <Select
-              label="Run"
-              value={filters.run}
-              onChange={set("run")}
-              options={options((i) => [i.run_id, `${i.run_name} ${i.run_id.slice(-6)}`])}
-            />
-            <label>
-              From <input type="date" value={filters.from} onChange={(e) => set("from")(e.target.value)} />
-            </label>
-            <label>
-              To <input type="date" value={filters.to} onChange={(e) => set("to")(e.target.value)} />
-            </label>
-            <span className="faint" data-testid="count">
-              {shown.length} of {items.length}
-            </span>
-            {active && (
-              <button type="button" className="link" onClick={() => setFilters(NONE)}>
-                Clear filters
+                Filters {setCount > 0 && <span className="num">{setCount}</span>}
               </button>
-            )}
-          </form>
+            </nav>
+            <form className="filters" aria-label="Filters" onSubmit={(e) => e.preventDefault()}>
+              <input
+                type="search"
+                aria-label="Search the library"
+                placeholder="Search titles"
+                value={search.q ?? ""}
+                onChange={(e) => void navigate({ search: (s) => ({ ...s, q: e.target.value || undefined }), replace: true })}
+              />
+              {fieldset}
+              <span className="faint" data-testid="count">
+                {shown.length} of {items.length}
+              </span>
+              {active && clear}
+            </form>
+            <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} label="Filters">
+              <div className="filters-sheet">
+                {fieldset}
+                <div className="row">
+                  <span className="faint" data-testid="sheet-count">
+                    {shown.length} of {items.length}
+                  </span>
+                  {active && clear}
+                </div>
+                <button type="button" className="primary" onClick={() => setSheetOpen(false)}>
+                  Done
+                </button>
+              </div>
+            </Sheet>
+          </div>
           <div className={selected ? "lib-grid has-sel" : "lib-grid"}>
             <section className="panel lib-list" aria-label="Items">
               {shown.length === 0 && <p className="faint">No artifact matches these filters.</p>}

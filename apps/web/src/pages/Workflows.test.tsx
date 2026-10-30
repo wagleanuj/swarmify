@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch, run } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -14,7 +17,10 @@ const runs = [
   run("done", [], { id: "run_3", workflow_id: null, spent_usd: 9 }),
 ];
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -49,4 +55,37 @@ test("the sidebar's Workflows lists each with its version, runs and average cost
   await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
   await expect.poll(() => router.state.location.pathname).toBe("/worlds/world_1/runs/run_9");
   expect(started).toEqual({ baseline: false });
+});
+
+test("on a phone each workflow is a card: full name, cost against its budget, the last run, Start run and Edit", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([{ id: "world_1", name: "Video", purpose: "", created_at: ts }]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () =>
+      Response.json([{ ...workflows[0], name: "3D explainer short (Zack D. Films style)" }, workflows[1]]),
+    "GET /api/worlds/world_1/runs": () =>
+      Response.json([
+        run("waiting_gate", [], { id: "run_1", workflow_id: "wf_1", spent_usd: 4, budget_usd: 15, created_at: "2026-10-27T10:00:00+00:00" }),
+        ...runs.slice(1),
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows");
+  const cards = screen.getByTestId("workflow-card");
+  await expect.element(cards.first()).toBeVisible();
+  expect(screen.getByTestId("workflows").elements()).toHaveLength(0);
+  await expect.element(cards.first()).toMatchTextContent(/^3D explainer short \(Zack D\. Films style\)/);
+  await expect.element(cards.first()).toMatchTextContent(/v3 · 2 runs · about \$3\.25 a run of a \$15 budget/);
+  await expect.element(cards.first()).toMatchTextContent(/Last run Oct 27, .* · waiting for you/);
+  await expect.element(cards.nth(1)).toMatchTextContent(/Daily digest\s*v1 · no runs yet\s*Start run/);
+  const start = cards.first().getByRole("button", { name: "Start a run of 3D explainer short (Zack D. Films style)" });
+  const card = cards.first().element().getBoundingClientRect();
+  expect(start.element().getBoundingClientRect().width).toBeGreaterThan(card.width / 2);
+  expect(start.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  await expect
+    .element(cards.first().getByRole("link", { name: "Edit 3D explainer short (Zack D. Films style)" }))
+    .toHaveAttribute("href", "/worlds/world_1/workflows/wf_1");
+  const create = screen.getByRole("link", { name: "New workflow" });
+  expect(create.element().getBoundingClientRect().top).toBeGreaterThan(cards.nth(1).element().getBoundingClientRect().bottom);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
