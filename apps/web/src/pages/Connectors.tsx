@@ -395,7 +395,7 @@ export function Connectors() {
                       ) : (
                         c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />
                       )}
-                      {c.health && <Health connector={c} />}
+                      {(c.health || c.services.length > 0) && <Health connector={c} worldId={worldId} />}
                     </li>
                   );
                 })}
@@ -554,21 +554,24 @@ function detail(error: unknown): string | null {
   return typeof d === "string" ? d : null;
 }
 
-/** What a connector depends on, such as each speech engine, checked once when the page opens. */
-function Health({ connector }: { connector: Connector }) {
+/** What a connector depends on, such as each of a package's Services (an engine it calls),
+ * checked once when the page opens. Swarmify never starts them; the operator does. */
+function Health({ connector, worldId }: { connector: Connector; worldId: string }) {
   const [checks, setChecks] = useState<HealthCheck[] | string | null>(null);
 
   useEffect(() => {
-    api
-      .GET("/api/connectors/{connector_id}/health", { params: { path: { connector_id: connector.id } } })
+    const asked = connector.version
+      ? api.GET("/api/worlds/{world_id}/packages/{name}/health", { params: { path: { world_id: worldId, name: connector.name } } })
+      : api.GET("/api/connectors/{connector_id}/health", { params: { path: { connector_id: connector.id } } });
+    asked
       .then(({ data, error }) => setChecks(data ?? detail(error) ?? "Could not check them."))
       .catch(() => setChecks("Could not check them."));
-  }, [connector.id]);
+  }, [connector.id, connector.name, connector.version, worldId]);
 
-  if (checks === null) return <p className="faint health">Checking engines...</p>;
-  if (typeof checks === "string") return <p className="faint health">Engines not checked: {checks}</p>;
+  if (checks === null) return <p className="faint health">Checking services...</p>;
+  if (typeof checks === "string") return <p className="faint health">Services not checked: {checks}</p>;
   return (
-    <ul className="health" aria-label={`${connector.label} engines`}>
+    <ul className="health" aria-label={`${connector.label} services`}>
       {checks.map((h) => (
         <li key={h.name}>
           <span className="mono">{h.name}</span>{" "}

@@ -24,9 +24,7 @@ behind a pipe, so the web tests silently never run.
 
 | Task | What it does |
 |---|---|
-| `mise run dev` | API with reload on :8000 and Vite on :5173 (proxies `/api`); with `SWARMIFY_SPEECH=chatterbox` also the speech service |
-| `mise run speech` | installs and runs the Chatterbox Turbo speech service on :8881 (see Speech engines) |
-| `mise run voices:seed -- <world id> [presets...]` | gives a world starter voices from Kokoro presets (see Voices) |
+| `mise run dev` | API with reload on :8000 and Vite on :5173 (proxies `/api`) |
 | `mise run lint` | ruff, ruff format, pyright, import-boundary check, tsc |
 | `mise run test` | pytest with an 85 percent coverage gate, then Vitest (browser mode) |
 | `mise run e2e` | builds the web skin and runs Playwright against the real API |
@@ -303,8 +301,9 @@ A connector is an MCP server (a command line or an http(s) URL), the credential 
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
 Every world starts with the built-ins: the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
-build below) and `speech` (see Speech engines), and the two publish
-connectors `youtube` and `upload_post` (see Publishing below).
+build below) and the two publish
+connectors `youtube` and `upload_post` (see Publishing below), and with the default packages
+(see Connector Packages), today `speech` (see Speech).
 
 `web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
 with no package, version or credentials. A swarm stage lists them in `tools` like a tool
@@ -332,13 +331,16 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   the page warns, so a bad refresh token shows then rather than at publish. `check` is null for
   any other connector.
 - `GET /api/connectors/<id>/health` calls the connector's health tool, the one its `health`
-  field names, and answers `[{"name", "ok", "message"}]`, one per thing it depends on: for
-  `speech`, each engine in `SPEECH_ENDPOINTS`. The connectors page shows them as up or down when
-  it opens. It is `[]` for a connector without one, and 502 when the tool cannot be called.
+  field names, and answers `[{"name", "ok", "message"}]`, one per thing it depends on. It is `[]`
+  for a connector without one, and 502 when the tool cannot be called. A package's is
+  `GET /api/worlds/<id>/packages/<name>/health`: first a GET of each Service it declares
+  (`[[services]]`, at each URL its Setting holds, a comma-separated list being several, plus the
+  service's `health` path), then its health tool's checks. The connectors page shows them as up
+  or down when it opens.
 - Typed contracts (issue 133): a connector may declare named input types, each a JSON Schema
   (`types`, as `{"recipe": {...}}`), and which of a stage's inputs takes which (`input_types`, by
-  position over `input` or `inputs`, null for an untyped one). Built-ins declare them in their
-  manifest, as `speech` declares `script`; an added connector gives them in its
+  position over `input` or `inputs`, null for an untyped one). Built-ins and packages declare
+  them in their Manifest, as `speech` declares `script`; an added connector gives them in its
   `POST /api/worlds/<id>/connectors` body, checked to be lower_snake_case names of valid
   schemas. A swarm stage promises a type with `output_type: <name>`: its judge then answers each
   item's `fields` in the type's schema (structured output), an answer that does not fit fails
@@ -357,7 +359,7 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   `{"types": {name: schema}, "note": "..."}`. Only a type the connector declares may change, and
   only to a valid JSON Schema; a type it does not answer, or every type when the call fails,
   keeps the declared schema. `note`, when there is one, goes to the planner. The core passes the
-  schema on unread: `speech` uses it for the world's voices (below), a publish connector could
+  schema on unread: `speech` uses it for the world's voices (its README, Voices), a publish connector could
   list the channels a world has keys for.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors`, the connectors page's add form (issue
@@ -404,8 +406,18 @@ left behind. `.swarmify-install.json`, written last, records the install (its `s
 `installed_at`); a version folder without it does not count. `GET /api/packages` lists every
 installed version with its `label`, `kind`, `about` and `state` (`installed`, or `invalid` with
 the `problem` when its Manifest no longer passes), and the connectors page lists them under
-Installed packages. This is the first step: worlds do not enable packages yet, and today's
-built-ins keep working as above.
+Installed packages.
+
+Default packages (ADR 0023, issue 213): every package in this repository's `connectors/` folder.
+On startup Swarmify installs each whose version is not installed yet, and gives it to every
+world once, enabled at that version: the worlds there on upgrade, and each new world as it is
+made. A world's choice after that stands (disabling one keeps it disabled through restarts), and
+a newer default version installs beside the old one without moving a world's pin. The first
+install of a default carries what V1 kept for it into its shared Setup: a Setting's value from
+the app's environment and a Credential's from the credentials file, each by its field's `env`
+name. A default that does not install is logged and left out; the app still starts. The
+workflow check holds a package's stages to its Manifest: an input and an output when it
+declares them, and no params outside a closed `params` schema.
 
 Versions (issue 223): each saved workflow version records `packages`, the version of every
 package it calls as its world pinned it then, and its runs use those versions, never the
@@ -614,7 +626,7 @@ revision": the send-back note (when the send-back named this stage) and the prev
 required reading, change what the note asks and keep the rest. Both stay inside the stage folder,
 which the session may read. A stage never run, or whose last render failed, starts fresh.
 
-When one of `inputs` is a `timings.json` (the speech connector's, below), the brief turns voice
+When one of `inputs` is a `timings.json` (the speech package's), the brief turns voice
 first, as the spike on branch `spike/voice-first-video` proved: copy the timings and their takes
 into `public/`, take the composition's length from the voice timeline, play each line as a trimmed
 `<Audio>` in a `<Sequence>` spaced by its pause (scaled for the style, none after a
@@ -658,174 +670,18 @@ sandbox. One real build, on your subscription and the real Remotion CLI, runs wh
 `SWARMIFY_REAL_BUILD=1 uv run pytest apps/api/tests/test_build_http.py -k real -s` (about a
 minute on a Mac, most of it the first npm install and the Chrome download).
 
-## Speech engines
+## Speech
 
-Narration comes from text to speech engines that run as their own services, never inside the core
-(ADR 0019). Each speaks OpenAI's `POST /v1/audio/speech` and answers `GET /health`, listing in
-`tags` the delivery tags it understands written `[tag]` in the input (Chatterbox Turbo:
-`whispering`, `happy`, `angry`, `sarcastic`, `surprised`, `fear`, `crying`, `dramatic`,
-`narration`, `advertisement`, `laugh`, `chuckle`, `sigh`, `gasp`, `groan`, `cough`, `sniff`,
-`shush`, `clear throat`; Kokoro none). The speech
-connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
-`http://localhost:8881,http://localhost:8880` natively and
-`http://host.docker.internal:8881,http://kokoro:8880` in Compose.
+`speech` is a default Connector Package, `connectors/speech`: Swarmify installs it on startup and
+enables it for every world, so a workflow's `calls: speech` works with no setup. Its README covers
+its Setup (the speech engines, a Setting on the Connectors page, carried over from V1's
+`SPEECH_ENDPOINTS`), how to run the engines (Kokoro and Chatterbox, its own compose file), the
+script format and the voice catalog.
 
-| Engine | Port | License | Start it |
-|---|---|---|---|
-| Chatterbox Turbo (Resemble AI), the first choice: natural takes | 8881 | MIT; every take carries Resemble's PerTh watermark, inaudible | `mise run speech` |
-| Kokoro-FastAPI, the fallback: fast on a CPU, plainer voice | 8880 | Apache 2.0 | `docker compose up -d kokoro`, or natively `docker run -d -p 127.0.0.1:8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.1` |
+### Voices on the Assets page
 
-- `services/speech-chatterbox` is its own uv project, outside the workspace: PyTorch,
-  `chatterbox-tts`, `faster-whisper` and `setuptools<81` (the watermarker needs `pkg_resources`).
-  `mise run speech` syncs its venv and starts it; the first start downloads the models from Hugging
-  Face, later starts load them in about 30 seconds, once. On a Mac it runs on the GPU (MPS), so run
-  it natively there, not in Docker; elsewhere it runs on the CPU. `mise run dev` starts it too when
-  `SWARMIFY_SPEECH=chatterbox`.
-- Besides speech it serves `POST /v1/align`: form fields `file` (a take) and `text` (what it says)
-  give `{"timestamps": [{"word", "start_time", "end_time"}]}` in seconds, the shape Kokoro-FastAPI's
-  `/dev/captioned_speech` returns with its speech. faster-whisper (`small.en`, CPU) hears the words
-  and they are matched back to the text, so the text's spelling wins; words it missed or merged
-  share the gap between their heard neighbours. Speech takes an optional `seed` for repeatable
-  takes; it returns 16-bit WAV only, and Turbo speaks its built-in voice whatever `voice` says,
-  unless the request is a multipart form (the same fields) with a `reference` file: then it
-  clones that clip (5 to 10 s of speech; a shorter one is a 400), conditioning Turbo once per
-  clip and caching it, and `/health` says `"clips": true`. `test_speech_server.py` checks this
-  with a fake model.
-- On a host without an Apple GPU, Compose runs Chatterbox too: `docker compose --profile
-  chatterbox up -d --build`, with `SPEECH_ENDPOINTS=http://chatterbox:8881,http://kokoro:8880` in
-  `.env`. Its models stay in the `speech-models` volume. It needs about 7 GB of memory on the CPU
-  (its peak while loading), more than Docker Desktop's default leaves beside other containers. Both engines bind to `127.0.0.1` only:
-  they have no sign-in.
-- On a host with an NVIDIA GPU (a driver for CUDA 12.4 or newer and the NVIDIA Container Toolkit),
-  use `docker compose --profile chatterbox-gpu up -d --build` instead, with
-  `SPEECH_ENDPOINTS=http://chatterbox-gpu:8881,http://kokoro:8880`. It builds with PyTorch's CUDA
-  wheels and `/health` says `"device": "cuda"`; on the CPU Chatterbox runs at about 11x real
-  time. Natively on Linux, `uv sync --extra cpu` or `--extra cu124` picks the wheels.
-- `uv run pytest services --no-cov` includes a smoke test that speaks a sentence on every engine in
-  `SPEECH_ENDPOINTS` and aligns it where the engine can, and on an engine advertising
-  `whispering` checks a whispered take differs from the plain one and aligns to the same words;
-  it skips each engine that is not up.
-
-### The speech connector
-
-`speech` is a built-in stage connector, a plain MCP server (`python -m
-swarmify_connectors.speech`). Everything Swarmify knows about it (name, kind, stage types,
-command, credentials, the non-secret settings it reads from the app's environment
-(`SPEECH_ENDPOINTS`), a JSON schema of its params, inputs, outputs, health tool) is its
-`MANIFEST`, the shape of a V2 connector package (ADR 0019). The core reads only that manifest
-and never names `speech`, so moving the connector into a package is a move.
-
-```yaml
-- swarm: script
-  goal: Write the voice-over.
-  done_when: A script of short scenes.
-  output_type: script         # the type speech declares for its input; the check needs it
-  produces: [script.md]
-- connector: voice
-  calls: speech
-  input: script.md
-  output: timings.json
-  params: {seed: 7}           # optional: voice (wins over the script's), engines, seed
-- connector: video
-  calls: remotion_build
-  inputs: [script.md, timings.json]
-```
-
-- Its input is the declared type `script` (`speech.SCRIPT`, the JSON Schema of the block below),
-  so the swarm stage writing `script.md` declares `output_type: script` and its judge writes the
-  block. A hand-written script, prose included, still works where no swarm stage produces it.
-- The script is a fenced JSON block, `{"scenes": [{"id", "lines": [{"text", "pause_after"}]}]}`
-  (`pause_after` in seconds, default 0.3; ids are letters, digits, `_` or `-`), else each
-  paragraph is a scene and each sentence a line. Frontmatter and `#` headings are skipped. A
-  line that is not an object with a `text` string is refused with the scene, the line and the
-  shape expected.
-- Directions in a line's text, screenplay style, in round or square brackets:
-  - `(pause)` and `(beat)` are 0.5 s of silence, `(long pause)` 1.2 s, `(pause 1.5s)` as said.
-    At the end of a line they add to its `pause_after`; mid-line they split it in two lines
-    with that gap.
-  - A delivery direction becomes a tag: `[whispering]` or (whispers), `[laugh]` (laughs),
-    `[chuckle]`, `[sigh]`, `[gasp]` and so on as the tag's name or its verb; `[happy]`
-    (excited, cheerful, happily), `[dramatic]` (dramatically), `[crying]` (sadly), `[angry]`
-    (angrily), `[sarcastic]` (sarcastically), `[surprised]`, `[fear]` (scared, fearfully),
-    `[clear throat]`, `[cough]`, `[groan]`, `[sniff]`, `[shush]`, `[narration]`,
-    `[advertisement]` (`TAGS` in the connector). An engine hears a tag only when its `/health`
-    lists it; for the others it is taken out, so no engine reads a direction aloud.
-  - Anything else in brackets is spoken without them and listed in the line's `unrecognized`.
-  - Words for alignment and captions never hold a tag or a pause.
-- One take per scene. The engines are tried in the order of `SPEECH_ENDPOINTS` (or of
-  `params.engines`, which may only reorder or narrow that list, since the script is sent there);
-  when one fails, the whole run is redone on the next, so one video never mixes two voices.
-  `seed` goes to the engine; the voice is resolved per engine (Voices, below).
-- Word times come with the speech when the engine serves Kokoro-FastAPI's
-  `/dev/captioned_speech`, else from its `/v1/align`. Either way they are matched back to the
-  script, whose spelling wins; words the engine missed or merged share the gap between their
-  neighbours.
-- It writes the takes to `narration/<scene id>.wav` beside `timings.json`, which holds `engine`,
-  `voice` (the voice that spoke: a catalog name, an engine's own voice, or null for the engine's
-  default), `chosen` (the voice asked for), `seed`, `warnings` (catalog entries it ignored, and
-  a script voice no longer in the catalog) and per take its `file`, `duration` (seconds) and `lines`: each line's `text`,
-  `pause_after`, `directions` (its tags, as `["whispering"]`), `unrecognized`, `words` in
-  Remotion's `Caption` shape (`text` with the space before it,
-  `startMs` and `endMs` from the take's start, `timestampMs` and `confidence` null), and
-  `cut_in` and `cut_out` (seconds into the take). A cut between two lines sits in the middle of
-  the quietest 10 ms between them; the take keeps 0.05 s before its first word and 0.15 s after
-  its last. A line whose cut has no silence (a gap under 10 ms or louder than about -34 dBFS)
-  has `joined_next: true`, and the call's `joined` and `message` name it: cut there and the
-  word edge shows, so keep the two lines together or voice them again.
-- The workflow check wants an input and an output and refuses params outside the manifest's.
-- The run page's speech panel shows the voice that spoke, the one chosen when the engine could
-  not speak it, and the warnings.
-- Measured on an M3 Max with both engines warm, the spike's four scenes (11 lines): Kokoro 6.6 s
-  for 17.7 s of speech, Chatterbox Turbo 33 s for 20.6 s, which flagged "sleep all winter
-  long." running into "Good night" as the spike heard it. The health check takes 0.4 s.
-
-### Voices
-
-A voice is chosen per piece of content, and only the speech connector knows what a voice is. A
-world's catalog is `assets/voices/voices.json`, a list of entries, with the clips beside it:
-
-```json
-[
-  {"name": "narrator", "description": "Warm and calm, for bedtime facts",
-   "tags": ["warm", "calm"], "engine": "chatterbox", "clip": "narrator.wav",
-   "consent": "My own recording, 2026-10-29."},
-  {"name": "af_heart", "description": "Warm, friendly American woman",
-   "tags": ["warm", "friendly"], "engine": "chatterbox", "clip": "af_heart.wav",
-   "preset": "af_heart", "consent": "synthetic: Kokoro preset af_heart, Apache 2.0"}
-]
-```
-
-- `name` is letters, digits, `_` or `-`; `description` and `tags` tell the judge what it fits;
-  `engine` is the engine it was made for. `clip` is a reference recording in the same folder
-  (Chatterbox clones from 5 to 10 s of clear speech) and `preset` an engine's own voice name
-  (Kokoro's `af_heart`); an entry needs one of them, and may have both.
-- `consent` is required: a short statement of the right to use the voice (your own recording, or
-  a license that allows synthesis). An entry without it, or with a clip that is not in the
-  folder, a name used twice or a field of the wrong kind, is ignored, and a warning names it in
-  the speech stage's `timings.json`, its call's message and the run page.
-- With a catalog, the connector answers its `script` type for the world with an optional
-  top-level `voice` whose enum is the catalog's names, described by each one's description and
-  tags (`speech_types`), so the judge of the stage writing the script picks one that fits. It is
-  a typed field, so it shows on the script's approval gate and in the script's frontmatter. The
-  planner is told the world's voices.
-- Selection order: the speech stage's `params.voice` wins (a catalog name, else an engine's own
-  voice as before), then the script's `voice`, then the engine's default. A script voice no
-  longer in the catalog speaks the default, with a warning.
-- Per engine: an engine whose `/health` says `"clips": true` (the Chatterbox service) gets the
-  clip as an upload; an engine that lists the preset in `GET /v1/audio/voices` (Kokoro-FastAPI)
-  gets the preset. When the engine a run falls back to cannot speak the chosen voice, it speaks
-  the catalog entry it can that shares the most tags with it, else its default, and
-  `timings.json` records which voice spoke.
-- Starter voices without recording anyone: `mise run voices:seed -- <world id> [presets...]` has
-  Kokoro (`KOKORO_URL`, default `http://localhost:8880`; started with `docker compose up -d
-  kokoro` when it is not up, or it says so when Docker is unavailable) speak one neutral 9 s
-  sentence in each preset, by default eight varied ones (`af_heart` and `am_michael` warm,
-  `af_bella` and `am_puck` bright, `am_onyx` and `am_fenrir` deep, `bf_emma` British, `bm_fable`
-  a calm narrator), each checked against the engine's voices. It saves each take as
-  `<preset>.wav` in the world's `assets/voices/` and writes its entry, clip and preset both, so
-  Chatterbox clones the clip and Kokoro speaks the preset itself and a fallback keeps the voice,
-  with consent `synthetic: Kokoro preset <name>, Apache 2.0`. Entries of other names stay. It
-  reads `SWARMIFY_DATA_DIR` like the app.
+A world's voice catalog is `assets/voices/voices.json` with its clips (the speech package's README,
+Voices).
 - On the world's Assets page (sidebar, or More on a phone) every voice is a card you can play,
   with its clip length, tags, engine and the saved workflows whose speech step names it (`params.voice`,
   current versions). "Add a voice" uploads a clip (any audio the browser reads, saved as a 16-bit
@@ -838,8 +694,8 @@ world's catalog is `assets/voices/voices.json`, a list of entries, with the clip
   reason unless the clip is a 16-bit WAV of 5 to 10 s and the name is new),
   `PATCH /api/worlds/<id>/voices/<name>` (`{"description", "tags"}`) and
   `DELETE /api/worlds/<id>/voices/<name>`. Each change rewrites voices.json in one step
-  (`swarmify_connectors.voices`, as `voices:seed` writes it), keeping entries it does not touch
-  as they are.
+  (`swarmify_connectors.voices`, with the speech package's rules, as its seeding writes it),
+  keeping entries it does not touch as they are.
 
 ## Publishing
 
@@ -1211,8 +1067,8 @@ file) or deletes one (`DELETE /api/worlds/<id>/assets/<path>`). Both refuse path
 `assets/` and anything in `assets/voices/`: voices change only through the voices endpoints.
 
 Agents never write there. Swarm agents list them (`list_assets`) to name one in a script; a
-connector stage gets the folder as `assets_path` (the speech connector alone gives `voices/` a
-meaning, see Voices); the `remotion_build` session reads them (its
+connector stage gets the folder as `assets_path` (the speech package alone gives `voices/` a
+meaning, see Voices on the Assets page); the `remotion_build` session reads them (its
 sandbox and hooks allow reads in the world's folder and writes only in the build folder) and is
 given their paths to copy into `public/`. Nothing about them is video-specific, and they are
 kept out of the graph.
@@ -1385,8 +1241,8 @@ The same `compose.yaml` runs on the Mac (Docker Desktop) and on a Debian VM (Doc
 compose plugin, `apt install docker.io docker-compose-plugin` or Docker's own apt repo). `web`
 (Caddy, `docker/Caddyfile`) serves the built skin and proxies `/api`, event streams unbuffered,
 to `api`; it is the only service with a published port. `api` (API and runner) and `graph-writer`
-(the GraphWriter, ADR 0003) share one volume, `data`, mounted at `/data`. `kokoro` is a speech
-engine (see Speech engines). The skin has its own image, so a UI-only change rebuilds and
+(the GraphWriter, ADR 0003) share one volume, `data`, mounted at `/data`. The compose project's network is named `swarmify`,
+which a package's own compose file joins for the Services it runs (see Speech). The skin has its own image, so a UI-only change rebuilds and
 restarts only `web`: runs in the api (an agent session, a Remotion build) carry on. One image
 serves `api` and `graph-writer`. It holds Node and `npx`
 for the Remotion render connector, Chrome Headless Shell downloaded by Remotion's own
@@ -1412,13 +1268,20 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    makes `up -d --build` restart the api even when nothing in it changed.
 
    The api and graph-writer containers refuse to start without the token or the password, naming
-   the missing one (`docker/needs.sh`); `docker compose up -d kokoro` alone needs neither.
+   the missing one (`docker/needs.sh`).
 3. `docker compose up -d --build`, then open `http://<host>:8000` from any device on the LAN,
    phone included, and sign in. `docker compose logs -f` shows every service; the api container
-   is healthy once `/api/health` answers (open without signing in, like the skin's files).
+   is healthy once `/api/health` answers (open without signing in, like the skin's files). The
+   first start installs the default packages into the volume (`/data/packages`), fetching their
+   dependencies, so it needs the network once.
+4. For narration, start the speech engines from the speech package's compose file beside it,
+   with its GPU profile on an NVIDIA host:
+   `docker compose -f connectors/speech/compose.yaml --profile chatterbox-gpu up -d --build`, and
+   set the Speech engines Setting on the Connectors page to what that README says
+   (`connectors/speech/README.md`, Running the engines beside Swarmify).
 
-- Updating: `git pull`, then the same `docker compose up -d --build` (with `--profile ...` if
-  you use one). Only images whose inputs changed are rebuilt, and only their containers restart:
+- Updating: `git pull`, then the same `docker compose up -d --build`, and the speech package's
+  command with its profile. Only images whose inputs changed are rebuilt, and only their containers restart:
   a change under `apps/web` alone restarts `web` and leaves the api and its runs alone. For a
   UI-only update `docker compose up -d --build web` builds and restarts nothing else.
 - Sign-in is enforced in one place, the api (`auth.py`). `web` passes `/api` and `/mcp`
@@ -1426,6 +1289,12 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   data comes back without a session or, on `/mcp`, an API token. While the api is down the
   skin loads and every call answers 502.
 
+- Upgrading from V1, where `kokoro` and the `chatterbox` profiles were in this file: run
+  `docker compose up -d --build --remove-orphans` once, which stops V1's engines (their ports
+  would clash), then start them from the speech package's compose file as in step 4. A
+  `SPEECH_ENDPOINTS` in `.env` (as `http://chatterbox-gpu:8881,http://kokoro:8880`) is carried
+  into the package's Setting on that first start and keeps working, since the engines keep their
+  service names on the shared network; the models volume is reused.
 - Moving to Proxmox is a copy: the repo and `.env` onto the VM, `docker compose up -d --build`.
   To carry data across, stop both services and copy the volume, for example
   `docker run --rm -v swarmify_data:/data -v "$PWD":/out debian tar czf /out/data.tgz -C /data .`
@@ -1484,8 +1353,9 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   through one `world_deleter`: its folder, schedules, live runs (cancelled through DBOS) and every
   context's rows.
 - `apps/web` React skin with a typed client generated by openapi-typescript.
-- `services/` engines that run beside Swarmify, each its own project outside the workspace:
-  `speech-chatterbox` (see Speech engines).
+- `connectors/` the first-party Connector Packages, each with its Manifest, code, tests, README
+  and any compose file for the Services it calls, outside the uv workspace; Swarmify installs
+  them as default packages. `connectors/speech` (see Speech).
 - `tests/e2e` Playwright for Python against the real API. `test_phone.py` opens every page at
   390 by 844 signed in and fails if any scrolls sideways.
 

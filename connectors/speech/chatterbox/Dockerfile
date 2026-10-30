@@ -1,5 +1,5 @@
 # The Compose `chatterbox` profile (CPU wheels, slow but whole) and `chatterbox-gpu` (TORCH=cu124,
-# an NVIDIA GPU). On a Mac run it natively instead (`mise run speech`) so it gets the Apple GPU.
+# an NVIDIA GPU). On a Mac run it natively instead (../README.md) so it gets the Apple GPU.
 FROM python:3.12-slim
 ARG TORCH=cpu
 # OpenMP, which CTranslate2 (faster-whisper) loads

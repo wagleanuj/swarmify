@@ -1,0 +1,107 @@
+# The speech connector (README.md beside this file). A default package: Swarmify installs it from
+# this folder and enables it for every world that has not decided otherwise.
+name = "speech"
+version = "1.0.0"
+label = "Speech"
+about = "Voices a script, one take per scene, with word timings and cut points. Needs a speech engine (its README, Speech engines)."
+kind = "stage"
+stage_types = ["connector"]
+
+planner_notes = """The script is a fenced JSON block {"scenes": [{"id", "lines": [{"text", "pause_after"}]}]}, each line an object, pause_after optional seconds; else paragraphs become scenes and sentences lines. In a line's text, (pause), (beat), (long pause) or (pause 1.5s) is silence, and delivery directions (whispers), (laughs), (chuckles), (sighs), (gasps), (excited), (dramatically), (sadly), (angrily), (sarcastically), (surprised), (scared), or tags as [clear throat], [cough], [groan], [sniff], [shush], [narration], [advertisement], are voiced by engines that support them and never read aloud. It voices one take per scene into narration/ beside timings.json, which holds each line's words (Remotion Caption shape) and cut points; give a later build stage both the script and timings.json as inputs. Left without params.voice, the script's own voice speaks, which its judge picks when the world has voices."""
+input_types = ["script"]
+world_types = "speech_types"
+
+runtime = "uv"
+install = ["uv", "sync", "--frozen", "--no-dev"]
+command = [".venv/bin/python", "speech.py"]
+
+owned_folders = ["voices"]
+
+[params]
+type = "object"
+additionalProperties = false
+[params.properties.voice]
+type = "string"
+description = "fixes the voice for every script: a name from the world's voice catalog, else the engine's own, as af_heart; it wins over the script's voice"
+[params.properties.engines]
+type = "array"
+items = { type = "string" }
+description = "SPEECH_ENDPOINTS entries, in the order to try them"
+[params.properties.seed]
+type = "integer"
+description = "for repeatable takes"
+
+[[inputs]]
+description = "the script: fenced JSON scenes and lines, else paragraphs and sentences; directions in brackets, as (pause), (beat), (whispers), (laughs) or [sigh]"
+media_type = "text/markdown"
+
+[[outputs]]
+description = "timings.json, with the takes in narration/ beside it"
+media_type = "application/json"
+
+[[outputs]]
+description = "the takes, one per scene, in narration/"
+media_type = "audio/wav"
+
+# The script a stage writes for it (issue 133); `speech_types` adds a world's voices.
+[types.script]
+type = "object"
+description = "A voice-over script: scenes, each voiced as one take, of spoken lines."
+required = ["scenes"]
+
+[types.script.properties.description]
+type = "string"
+description = "One or two sentences describing the piece, used where it is published"
+
+[types.script.properties.scenes]
+type = "array"
+minItems = 1
+
+[types.script.properties.scenes.items]
+type = "object"
+additionalProperties = true
+description = "Other keys, such as a visual note for a later build stage, pass through untouched"
+required = ["id", "lines"]
+
+[types.script.properties.scenes.items.properties.id]
+type = "string"
+pattern = "^[A-Za-z0-9_-]{1,60}$"
+description = "Unique; letters, digits, _ or -, as s01"
+
+[types.script.properties.scenes.items.properties.lines]
+type = "array"
+minItems = 1
+
+[types.script.properties.scenes.items.properties.lines.items]
+type = "object"
+required = ["text", "pause_after"]
+
+[types.script.properties.scenes.items.properties.lines.items.properties.text]
+type = "string"
+minLength = 1
+description = "What is said. Directions in brackets: pauses (pause), (beat), (long pause), (pause 1.5s); delivery as [whispering] [happy] [angry] [sarcastic] [surprised] [fear] [crying] [dramatic] [narration] [advertisement] [laugh] [chuckle] [sigh] [gasp] [groan] [cough] [sniff] [shush] [clear throat], or screenplay words such as (whispers) or (laughs)"
+
+[types.script.properties.scenes.items.properties.lines.items.properties.pause_after]
+type = "number"
+minimum = 0
+description = "Seconds of silence after the line, 0.3 usually"
+
+[setup]
+help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/speech#setup"
+
+[[config]]
+key = "speech_endpoints"
+label = "Speech engines"
+type = "string"
+default = "http://localhost:8881,http://localhost:8880"
+env = "SPEECH_ENDPOINTS"
+help = "The engines' URLs, comma separated, in the order to try them. In Docker, beside this package's compose file: http://chatterbox:8881,http://kokoro:8880 (or chatterbox-gpu)."
+
+# Each URL in the Setting is an engine; the Connectors page shows whether each answers /health.
+[[services]]
+name = "engines"
+url = "speech_endpoints"
+health = "/health"
+
+[permissions]
+services = ["engines"]

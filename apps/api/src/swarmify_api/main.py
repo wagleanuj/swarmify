@@ -136,8 +136,8 @@ def migrated_db(root: Path) -> Path:
     return db
 
 
-def world_service(root: Path) -> Worlds:
-    return Worlds(SqliteStorage(migrated_db(root)), root)
+def world_service(root: Path, on_create: Callable[[str], None] = lambda _world_id: None) -> Worlds:
+    return Worlds(SqliteStorage(migrated_db(root)), root, on_create)
 
 
 def connector_service(
@@ -451,9 +451,15 @@ def create_app(
     that script no retro session turn it off."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
+    # Every world is given this repository's default packages once (ADR 0023): those there now
+    # on upgrade, each new one as it is made. Installed first, so their V1 keys are carried
+    # before the move below takes the keys of the connectors worlds added.
+    registry.install_defaults()
     registry.adopt_world_connectors()  # V1's world-added connectors become local packages
     whiteboard = task_board(root)
-    world_svc = world_service(root)
+    world_svc = world_service(root, on_create=registry.offer_defaults)
+    for world in world_svc.list_all():
+        registry.offer_defaults(world.id)
     memory = Memory(migrated_db(root), root)
     channels = notification_service(root)
     learning_svc = learning_service(root)

@@ -27,7 +27,8 @@ class Connector:
     about: str = ""
     created_at: str | None = None
     health: str | None = None
-    """The tool that checks what the connector depends on, answering `checks`; built-ins only."""
+    """The tool that checks what the connector depends on, answering `checks`. A package's
+    health also polls the Services it declares."""
     types: dict[str, Any] = field(default_factory=dict)
     """Named input types it declares, each a JSON Schema, as `script` (issue 133)."""
     input_types: list[str | None] = field(default_factory=list)

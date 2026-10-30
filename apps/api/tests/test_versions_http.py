@@ -14,17 +14,38 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_api import main
-from swarmify_connectors import FakeTransport
+from swarmify_connectors import Connector, FakeTransport
 
 V1 = "packages/connectors/tests/fixtures/packages/echo"
 V2 = "packages/connectors/tests/fixtures/packages/echo_2"
 SAY = """name: Say it
 stages:
+  - connector: draft
+    output: line.md
   - connector: say
     calls: echo
+    input: line.md
     output: said.wav
     params: {tool: echo}
 """
+DRAFT = {"name": "draft", "kind": "stage", "server": "uvx draft-mcp", "stage_types": ["connector"]}
+"""A world's own connector writing the line echo says, as its Manifest asks for an input."""
+
+
+class Writing(FakeTransport):
+    """Writes each stage's output, so the stage after it finds its input."""
+
+    def call(
+        self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
+    ) -> dict[str, Any]:
+        if arguments.get("output_path"):
+            Path(arguments["output_path"]).write_text("a line")
+        return super().call(connector, tool, arguments, env)
+
+
+@pytest.fixture
+def transport() -> FakeTransport:
+    return Writing()
 
 
 @pytest.fixture
@@ -41,7 +62,9 @@ def until(check: Callable[[], bool]) -> None:
 
 
 def world(client: TestClient, name: str) -> str:
-    return client.post("/api/worlds", json={"name": name}).json()["id"]
+    w = client.post("/api/worlds", json={"name": name}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    return w
 
 
 def pin(client: TestClient, w: str, version: str) -> Any:
@@ -62,7 +85,7 @@ def test_a_workflow_saved_on_v1_keeps_running_v1_after_the_world_moves_to_v2(
     w = world(client, "Studio")
     assert pin(client, w, "1.0.0").status_code == 200
     saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": SAY}).json()
-    assert saved["packages"] == {"echo": "1.0.0"}
+    assert saved["packages"]["echo"] == "1.0.0"
     assert pin(client, w, "2.0.0").status_code == 422  # it waits for 2.0.0's new Region
     values = {"shared": {"api_key": "k"}, "world": {"region": "eu"}}
     setup = f"/api/worlds/{w}/packages/echo/setup"
@@ -72,12 +95,12 @@ def test_a_workflow_saved_on_v1_keeps_running_v1_after_the_world_moves_to_v2(
     assert pin(client, w, "2.0.0").status_code == 200
     url = f"/api/workflows/{saved['workflow_id']}/versions"
     again = client.post(url, json={"yaml": SAY}).json()
-    assert again["packages"] == {"echo": "2.0.0"}
+    assert again["packages"]["echo"] == "2.0.0"
 
     transport.versions.clear()  # what the Setup test tool saw
     run_once(client, saved["workflow_id"], 1)
     run_once(client, saved["workflow_id"], 2)
-    assert transport.versions == ["1.0.0", "2.0.0"]
+    assert transport.versions[1::2] == ["1.0.0", "2.0.0"]  # each run's echo, after draft
 
 
 def test_the_switch_shows_the_diff_and_waits_for_a_new_required_field(client: TestClient) -> None:
@@ -98,7 +121,7 @@ def test_the_switch_shows_the_diff_and_waits_for_a_new_required_field(client: Te
     refused = pin(client, w, "2.0.0")
     assert refused.status_code == 422
     assert refused.json()["detail"] == "echo 2.0.0 needs a value for Region first"
-    assert client.get(f"/api/worlds/{w}/packages").json() == [{"name": "echo", "version": "1.0.0"}]
+    assert {"name": "echo", "version": "1.0.0"} in client.get(f"/api/worlds/{w}/packages").json()
     gone = client.get(f"/api/worlds/{w}/packages/echo/switch", params={"version": "9.0.0"})
     assert gone.status_code == 422
 
@@ -124,9 +147,10 @@ def test_uninstalling_a_version_in_use_is_refused_naming_its_users(client: TestC
 
     assert client.delete(f"/api/worlds/{studio}").status_code == 204  # its workflows go too
     assert client.delete("/api/packages/echo/1.0.0").status_code == 204
-    assert [p["version"] for p in client.get("/api/packages").json()] == ["2.0.0"]
+    echoes = [p["version"] for p in client.get("/api/packages").json() if p["name"] == "echo"]
+    assert echoes == ["2.0.0"]
     assert client.delete("/api/packages/echo/1.0.0").status_code == 404
-    assert saved["packages"] == {"echo": "1.0.0"}
+    assert saved["packages"]["echo"] == "1.0.0"
 
 
 def test_versions_saved_before_versions_were_recorded_are_stamped_on_upgrade(
@@ -141,4 +165,4 @@ def test_versions_saved_before_versions_were_recorded_are_stamped_on_upgrade(
 
     upgraded = TestClient(main.create_app(tmp_path, transport=FakeTransport(), retro=False))
     url = f"/api/workflows/{saved['workflow_id']}/versions/1"
-    assert upgraded.get(url).json()["packages"] == {"echo": "1.0.0"}
+    assert upgraded.get(url).json()["packages"]["echo"] == "1.0.0"

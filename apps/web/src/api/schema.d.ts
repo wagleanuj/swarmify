@@ -675,10 +675,32 @@ export interface paths {
         };
         /**
          * Connector Health
-         * @description What the connector depends on and whether each answers, as a speech connector's
-         *     engines. Empty for a connector without a health check.
+         * @description What a built-in or a world's own connector depends on and whether each answers.
+         *     Empty for one without a health check; a package's is under its world.
          */
         get: operations["connector_health_api_connectors__connector_id__health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/packages/{name}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Health
+         * @description Whether each Service the enabled package declares answers its health path, one check
+         *     per URL its Setting holds, then what its health tool finds (ADR 0026). 404 when the
+         *     world does not enable it, 502 when the tool cannot be called.
+         */
+        get: operations["package_health_api_worlds__world_id__packages__name__health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2025,6 +2047,8 @@ export interface components {
             created_at: string | null;
             /** Health */
             health: string | null;
+            /** Services */
+            services: string[];
             /** Types */
             types: {
                 [key: string]: {
@@ -3006,6 +3030,8 @@ export interface components {
             created_at: string | null;
             /** Health */
             health: string | null;
+            /** Services */
+            services: string[];
             /** Types */
             types: {
                 [key: string]: {
@@ -5067,6 +5093,38 @@ export interface operations {
             header?: never;
             path: {
                 connector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthCheck"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    package_health_api_worlds__world_id__packages__name__health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
             };
             cookie?: never;
         };

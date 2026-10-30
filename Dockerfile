@@ -54,6 +54,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/api apps/api
+# The default Connector Packages, installed from here into /data/packages on startup (ADR 0023)
+COPY connectors connectors
 COPY docker/needs.sh docker/needs.sh
 RUN uv sync --locked --no-dev --all-packages \
   && python -c "import sqlite3; assert sqlite3.sqlite_version_info >= (3, 42), sqlite3.sqlite_version"

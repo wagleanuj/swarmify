@@ -1,7 +1,7 @@
 """HTTP face of a world's Voices: the speech connector's catalog in `assets/voices/`, listed with
 each clip's address and the saved workflows whose speech step names the voice, and added to,
 edited and deleted through `swarmify_connectors.voices`, which writes voices.json as
-`voices:seed` does."""
+the speech package's seeding does."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from swarmify_connectors import voices as catalog
-from swarmify_connectors.speech import VOICES
+from swarmify_connectors.voices import VOICES
 from swarmify_memory import ASSETS, Memory
 from swarmify_workflows import ConnectorStage, Workflows
 from swarmify_worlds import Worlds

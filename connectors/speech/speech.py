@@ -12,8 +12,8 @@ answers its `script` type for that world with a `voice` to choose from (`speech_
 voices each script in the voice its stage or the script names, as each engine can (`resolve`).
 Only this connector gives `voices/` a meaning; to the core the schema is opaque.
 
-`MANIFEST` holds everything Swarmify needs to know about this connector, in the shape of a V2
-connector package's manifest (ADR 0019), so moving it into a package is a move, not a rewrite.
+It is a Connector Package (ADR 0019): `swarmify-connector.toml` beside it is everything Swarmify
+knows of it, including the engines as a Setting and a Service whose health the core polls.
 """
 
 import base64
@@ -24,6 +24,7 @@ import math
 import os
 import re
 import sys
+import tomllib
 import wave
 from array import array
 from itertools import accumulate
@@ -34,122 +35,12 @@ import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-SCRIPT: dict[str, Any] = {
-    "type": "object",
-    "description": "A voice-over script: scenes, each voiced as one take, of spoken lines.",
-    "properties": {
-        "description": {
-            "type": "string",
-            "description": "One or two sentences describing the piece, used where it is published",
-        },
-        "scenes": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-                "type": "object",
-                "additionalProperties": True,
-                "description": "Other keys, such as a visual note for a later build stage, pass"
-                " through untouched",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "pattern": "^[A-Za-z0-9_-]{1,60}$",
-                        "description": "Unique; letters, digits, _ or -, as s01",
-                    },
-                    "lines": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "text": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "description": "What is said. Directions in brackets:"
-                                    " pauses (pause), (beat), (long pause), (pause 1.5s);"
-                                    " delivery as [whispering] [happy] [angry] [sarcastic]"
-                                    " [surprised] [fear] [crying] [dramatic] [narration]"
-                                    " [advertisement] [laugh] [chuckle] [sigh] [gasp] [groan]"
-                                    " [cough] [sniff] [shush] [clear throat], or screenplay"
-                                    " words such as (whispers) or (laughs)",
-                                },
-                                "pause_after": {
-                                    "type": "number",
-                                    "minimum": 0,
-                                    "description": "Seconds of silence after the line, 0.3 usually",
-                                },
-                            },
-                            "required": ["text", "pause_after"],
-                        },
-                    },
-                },
-                "required": ["id", "lines"],
-            },
-        },
-    },
-    "required": ["scenes"],
-}
-"""The `script` type the connector declares (issue 133): a stage that writes its input promises
-it with `output_type: script`. `parse_script` is the strict check of what arrives."""
-
-MANIFEST: dict[str, Any] = {
-    "name": "speech",
-    "label": "Speech",
-    "kind": "stage",
-    "stage_types": ["connector"],
-    "about": "Voices a script, one take per scene, with word timings and cut points. Needs a"
-    " speech engine (README, Speech engines).",
-    "command": [sys.executable, "-m", "swarmify_connectors.speech"],
-    "credentials": [],
-    "settings": ["SPEECH_ENDPOINTS"],
-    "params": {
-        "type": "object",
-        "properties": {
-            "voice": {
-                "type": "string",
-                "description": "fixes the voice for every script: a name from the world's voice"
-                " catalog, else the engine's own, as af_heart; it wins over the script's voice",
-            },
-            "engines": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "SPEECH_ENDPOINTS entries, in the order to try them",
-            },
-            "seed": {"type": "integer", "description": "for repeatable takes"},
-        },
-        "additionalProperties": False,
-    },
-    "planner_notes": 'The script is a fenced JSON block {"scenes": [{"id", "lines":'
-    ' [{"text", "pause_after"}]}]}, each line an object, pause_after optional seconds;'
-    " else paragraphs become scenes and sentences lines. In a line's text, (pause), (beat),"
-    " (long pause) or (pause 1.5s) is silence, and delivery directions (whispers), (laughs),"
-    " (chuckles), (sighs), (gasps), (excited), (dramatically), (sadly), (angrily),"
-    " (sarcastically), (surprised), (scared), or tags as [clear throat], [cough], [groan],"
-    " [sniff], [shush], [narration], [advertisement], are voiced by engines that support them"
-    " and never read aloud. It voices one take per scene into narration/ beside timings.json,"
-    " which holds each line's words (Remotion Caption shape) and cut points; give a later"
-    " build stage both the script and timings.json as inputs. Left without params.voice, the"
-    " script's own voice speaks, which its judge picks when the world has voices.",
-    "inputs": [
-        {
-            "description": "the script: fenced JSON scenes and lines, else paragraphs and"
-            " sentences; directions in brackets, as (pause), (beat), (whispers), (laughs) or"
-            " [sigh]",
-            "media_type": "text/markdown",
-        }
-    ],
-    "outputs": [
-        {
-            "description": "timings.json, with the takes in narration/ beside it",
-            "media_type": "application/json",
-        },
-        {"description": "the takes, one per scene, in narration/", "media_type": "audio/wav"},
-    ],
-    "health": "speech_health",
-    "types": {"script": SCRIPT},
-    "input_types": ["script"],
-    "world_types": "speech_types",
-}
+MANIFEST: dict[str, Any] = tomllib.loads(
+    (Path(__file__).parent / "swarmify-connector.toml").read_text()
+)
+SCRIPT: dict[str, Any] = MANIFEST["types"]["script"]
+"""The `script` type the Manifest declares (issue 133): a stage that writes its input promises it
+with `output_type: script`. `parse_script` is the strict check of what arrives."""
 
 DEFAULT_ENDPOINTS = "http://localhost:8881,http://localhost:8880"
 PAUSE = 0.3
@@ -737,21 +628,6 @@ def speech_types(world: str = "", assets_path: str = "") -> dict[str, Any]:
         else ""
     )
     return {"types": {"script": script_type(voices)}, "note": note, "warnings": warnings}
-
-
-@mcp.tool(description="Whether each speech engine in SPEECH_ENDPOINTS answers its health check.")
-def speech_health() -> dict[str, Any]:
-    checks = []
-    with httpx.Client(timeout=3) as http:
-        for base in endpoints():
-            try:
-                http.get(f"{base}/health").raise_for_status()
-                checks.append({"name": base, "ok": True, "message": "up"})
-            except httpx.HTTPError as exc:
-                checks.append(
-                    {"name": base, "ok": False, "message": str(exc) or type(exc).__name__}
-                )
-    return {"checks": checks}
 
 
 if __name__ == "__main__":
