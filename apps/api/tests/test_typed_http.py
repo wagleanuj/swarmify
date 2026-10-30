@@ -111,10 +111,7 @@ def test_a_run_start_rechecks_the_contract(running: TestClient) -> None:
     world = world_with_cook(running, untyped)
     saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": recipe_flow("")})
     assert saved.status_code == 201, saved.json()
-    (cook,) = [
-        c for c in running.get(f"/api/worlds/{world}/connectors").json() if c["name"] == "cook"
-    ]
-    assert running.delete(f"/api/connectors/{cook['id']}").status_code == 204
+    assert running.delete(f"/api/worlds/{world}/packages/cook").status_code == 204
     assert running.post(f"/api/worlds/{world}/connectors", json=COOK).status_code == 201
 
     started = running.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={})

@@ -40,7 +40,15 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         expect(tools).to_contain_text("offers 5 tools", timeout=15_000)
         expect(tools).to_contain_text("render_status")
         page.get_by_role("button", name="Save connector").click()
-        expect(page.locator("[data-name=echo]")).to_contain_text("Ready")
+        added = page.locator("[data-name=echo]")
+        expect(added).to_contain_text("Ready")
+        expect(added).to_contain_text("package echo 0.0.")  # a local package, enabled here
+        here = page.locator("[data-package=echo]").filter(has_text="Enabled here")
+        expect(here).to_contain_text("An MCP server added on the Connectors page")
+        added.get_by_role("button", name="Set up echo").click()
+        form = page.get_by_role("form", name="Setup of echo")
+        key = form.get_by_label(re.compile(r"^ECHO_KEY · every world · Credential, set"))
+        expect(key).to_be_visible()
 
         created = httpx.post(
             f"{base_url}/api/worlds/{world['id']}/workflows", json={"yaml": RENDER}
@@ -79,7 +87,7 @@ def test_a_world_enables_an_installed_package_and_disables_it(page: Page, base_u
     try:
         httpx.put(f"{base_url}/api/worlds/{other['id']}/packages/echo", json={"version": "1.0.0"})
         page.goto(f"{base_url}/worlds/{world['id']}/connectors")
-        row = page.locator("[data-package=echo]")
+        row = page.locator("[data-package=echo]").filter(has_text="echo 1.0.0")
         expect(row).to_contain_text("echo 1.0.0")
         expect(row).to_contain_text("Installed")
         expect(page.get_by_test_id("connector-list")).to_contain_text("YouTube")

@@ -4,6 +4,7 @@ with the fake ConnectorTransport and real DBOS on SQLite behind the app."""
 import stat
 import time
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from sse import sse_events
+from swarmify_api.main import create_app, migrated_db, world_service
 from swarmify_connectors import ConnectorError, FakeTransport, Tool
+from swarmify_kernel.sqlite import connect
+from swarmify_workflows import ConnectorRef, Workflows
+from swarmify_workflows import SqliteStorage as WorkflowStorage
 
 FAL = {
     "name": "fal_video",
@@ -98,27 +103,43 @@ def test_test_explains_what_went_wrong(
     assert answer.status_code == 422 and problem in answer.json()["detail"]
 
 
-def test_add_keeps_the_secret_in_the_home_file_and_never_returns_it(
+def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     client: TestClient, tmp_path: Path
 ) -> None:
     w = world(client)
     added = client.post(f"/api/worlds/{w}/connectors", json=FAL)
     assert added.status_code == 201
     body = added.json()
-    assert (body["name"], body["command"], body["credentials"]) == (
+    assert (body["name"], body["command"], body["credentials"], body["version"]) == (
         "fal_video",
         ["uvx", "fal-mcp"],
         ["FAL_KEY"],
+        "0.0.1",
     )
     assert body["missing"] == [] and "s3cret" not in added.text
-    env = tmp_path / ".env"
-    assert env.read_text() == "FAL_KEY=s3cret\n"
-    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
+        ("fal_video", "0.0.1", "local")
+    ]
+    assert client.get(f"/api/worlds/{w}/packages").json() == [
+        {"name": "fal_video", "version": "0.0.1"}
+    ]
+    form = client.get(f"/api/worlds/{w}/packages/fal_video/setup")
+    (field,) = form.json()["fields"]
+    assert (field["label"], field["env"], field["secret"], field["scope"]) == (
+        "FAL_KEY",
+        "FAL_KEY",
+        True,
+        "shared",
+    )
+    assert field["shared_set"] and "s3cret" not in form.text
+    setup = tmp_path / "setup.json"
+    assert "s3cret" in setup.read_text() and stat.S_IMODE(setup.stat().st_mode) == 0o600
+    assert not (tmp_path / ".env").exists()
     listed = client.get(f"/api/worlds/{w}/connectors")
     assert "s3cret" not in listed.text and listed.json()[-1]["id"] == body["id"]
 
     again = client.post(f"/api/worlds/{w}/connectors", json=FAL)
-    assert again.status_code == 422 and "already exists" in again.json()["detail"]
+    assert again.status_code == 422 and "enables already" in again.json()["detail"]
     assert client.post("/api/worlds/world_nope/connectors", json=FAL).status_code == 404
 
 
@@ -154,13 +175,44 @@ def test_workflows_see_the_registry(client: TestClient) -> None:
     assert [v["rule"] for v in refused.json()["violations"]] == ["connector_stage_type"]
 
 
-def test_delete_removes_an_added_connector_but_never_a_built_in(client: TestClient) -> None:
+def test_an_added_connector_leaves_the_world_as_any_package_does(client: TestClient) -> None:
     w = world(client)
-    added = client.post(f"/api/worlds/{w}/connectors", json=FAL).json()
-    assert client.delete("/api/connectors/builtin_youtube").status_code == 409
-    assert client.delete(f"/api/connectors/{added['id']}").status_code == 204
-    assert client.delete(f"/api/connectors/{added['id']}").status_code == 404
+    client.post(f"/api/worlds/{w}/connectors", json=FAL)
+    assert client.delete(f"/api/worlds/{w}/packages/fal_video").status_code == 204
     assert client.get(f"/api/worlds/{w}/connectors").json()[-1]["builtin"]
+
+
+def test_a_v1_data_directory_moves_its_world_added_connectors_to_local_packages(
+    tmp_path: Path, transport: FakeTransport
+) -> None:
+    root = tmp_path / "v1"
+    db = migrated_db(root)
+    w = world_service(root).create("Video").id
+    with closing(connect(db)) as conn:
+        conn.execute(
+            "INSERT INTO connectors (id, world_id, name, kind, command, url, credentials,"
+            " stage_types, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("conn_1", w, "fal_video", "stage", '["uvx", "fal-mcp"]', None, '["FAL_KEY"]')
+            + ('["connector"]', "2026-10-01T00:00:00+00:00"),
+        )
+    ref = ConnectorRef("fal_video", "stage", frozenset({"connector"}))
+    saved = Workflows(WorkflowStorage(db), lambda _: {"fal_video": ref}).save(w, CLIP)
+    env = root / ".env"
+    env.write_text("FAL_KEY=s3cret\nYOUTUBE_CLIENT_ID=yt\n")
+    env.chmod(0o600)
+
+    app = create_app(root, transport=transport, poll_seconds=0.01, retro=False)
+    with TestClient(app) as client:
+        (fal,) = [c for c in client.get(f"/api/worlds/{w}/connectors").json() if not c["builtin"]]
+        assert (fal["name"], fal["version"], fal["missing"]) == ("fal_video", "0.0.1", [])
+        assert env.read_text() == "YOUTUBE_CLIENT_ID=yt\n"
+        with closing(connect(db)) as conn:
+            assert conn.execute("SELECT count(*) FROM connectors").fetchone()[0] == 0
+
+        run = client.post(f"/api/workflows/{saved.workflow_id}/runs", json={}).json()
+        until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+        assert transport.calls[0][:2] == ("fal_video", "fal_video")
+        assert transport.calls[0][3] == {"FAL_KEY": "s3cret"}
 
 
 def start(client: TestClient) -> dict[str, Any]:

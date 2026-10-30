@@ -38,7 +38,8 @@ def running(app: FastAPI) -> Iterator[TestClient]:
 def setup(client: TestClient) -> tuple[str, str, str]:
     """A world, its render connector and a workflow that passes today's check while it lasts."""
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
-    connector = client.post(f"/api/worlds/{world}/connectors", json=RENDER).json()["id"]
+    client.post(f"/api/worlds/{world}/connectors", json=RENDER).raise_for_status()
+    connector = f"/api/worlds/{world}/packages/render_video"  # disabling it removes it
     created = client.post(f"/api/worlds/{world}/workflows", json={"yaml": SHORT})
     assert created.status_code == 201, created.json()
     return world, connector, created.json()["workflow_id"]
@@ -46,7 +47,7 @@ def setup(client: TestClient) -> tuple[str, str, str]:
 
 def stale(client: TestClient, connector: str) -> None:
     """Remove the connector the workflow calls, so its saved version now fails the check."""
-    assert client.delete(f"/api/connectors/{connector}").status_code == 204
+    assert client.delete(connector).status_code == 204
 
 
 def refused(response, world: str, client: TestClient, runs_before: int) -> None:  # noqa: ANN001

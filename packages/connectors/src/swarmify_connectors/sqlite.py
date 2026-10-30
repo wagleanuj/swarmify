@@ -46,44 +46,12 @@ class SqliteStorage:
     def _conn(self) -> closing[sqlite3.Connection]:
         return closing(connect(self.path))
 
-    def add_connector(self, connector: Connector) -> None:
+    def world_connectors(self) -> list[Connector]:
         with self._conn() as conn:
-            try:
-                conn.execute(
-                    "INSERT INTO connectors (id, world_id, name, kind, command, url, credentials,"
-                    " stage_types, created_at, types, input_types, world_types)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        connector.id,
-                        connector.world_id,
-                        connector.name,
-                        connector.kind,
-                        json.dumps(connector.command),
-                        connector.url,
-                        json.dumps(connector.credentials),
-                        json.dumps(connector.stage_types),
-                        connector.created_at,
-                        json.dumps(connector.types),
-                        json.dumps(connector.input_types),
-                        connector.world_types,
-                    ),
-                )
-            except sqlite3.IntegrityError as exc:
-                if "UNIQUE" not in str(exc):
-                    raise
-                raise ValueError(f"a connector named '{connector.name}' already exists") from exc
-
-    def list_connectors(self, world_id: str) -> list[Connector]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM connectors WHERE world_id = ? ORDER BY created_at, id", (world_id,)
-            )
-            return [_connector(r) for r in rows]
-
-    def get_connector(self, connector_id: str) -> Connector | None:
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM connectors WHERE id = ?", (connector_id,)).fetchone()
-            return _connector(row) if row else None
+            return [
+                _connector(r)
+                for r in conn.execute("SELECT * FROM connectors ORDER BY created_at, id")
+            ]
 
     def delete_connector(self, connector_id: str) -> bool:
         with self._conn() as conn:

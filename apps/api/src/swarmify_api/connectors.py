@@ -32,8 +32,8 @@ class NewConnector(BaseModel):
     credentials: dict[str, Annotated[str, StringConstraints(max_length=4000)]] = Field(
         default_factory=dict, max_length=20
     )
-    """Credential name to value. An empty value means the file already holds it. Values go to
-    the credentials file only and are never returned."""
+    """Key name to value; each name becomes a Credential of the package's Setup. An empty value
+    keeps the one saved already. Values are never returned."""
     stage_types: list[Literal["swarm", "connector"]] = Field(min_length=1)
     types: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=20)
     """Input types it declares, a JSON Schema by name (lower_snake_case), as `script`."""
@@ -79,9 +79,10 @@ class ConnectorView(BaseModel):
     outputs: list[MediaFile]
     """What a stage of it makes, which a skin picks a step's panel by (ADR 0025)."""
     missing: list[str]
-    """Credential names the credentials file does not hold yet."""
+    """Credential names the credentials file does not hold yet; for a package, the keys of
+    required Setup fields with no value for this world."""
     version: str | None
-    """The Connector Package version the world pins; None for a built-in or the world's own."""
+    """The Connector Package version the world pins; None for a built-in."""
 
 
 class SavedKeys(ConnectorView):
@@ -243,21 +244,14 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
 
     @api.post("/worlds/{world_id}/connectors", status_code=201)
     def add_connector(world_id: str, body: NewConnector) -> ConnectorView:
+        """Write a minimal Manifest for the server, install it as a local Connector Package,
+        enable it in this world and save its keys as the package's shared Credentials (issue
+        211). An empty key takes the value the package or the credentials file holds already."""
         world_or_404(world_id)
         try:
             return view(connectors.add(draft(world_id, body), body.credentials))
-        except (ValueError, PermissionError) as exc:
+        except (ValueError, PermissionError, InstallError) as exc:
             raise HTTPException(422, str(exc)) from exc
-
-    @api.delete("/connectors/{connector_id}", status_code=204)
-    def delete_connector(connector_id: str) -> Response:
-        found = connectors.get(connector_id)
-        if found is None:
-            raise HTTPException(404, "connector not found")
-        if found.builtin:
-            raise HTTPException(409, "built-in connectors cannot be removed")
-        connectors.delete(connector_id)
-        return Response(status_code=204)
 
     @api.put("/connectors/{connector_id}/credentials")
     def set_credentials(connector_id: str, body: CredentialValues) -> SavedKeys:
