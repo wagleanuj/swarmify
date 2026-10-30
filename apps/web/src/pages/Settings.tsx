@@ -244,11 +244,11 @@ export function Settings() {
             </div>
             <div className="field">
               <label>
-                Workers per stage
+                Workers in the cast
                 <input type="number" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
               </label>
               <span className="faint">
-                Richard and Erlich always come along; this is how many workers the cast has. A stage starts one per ready task, up to this.{" "}
+                Richard and Erlich always come along; this is how many workers the cast has. A swarm stage runs one unless the workflow sets its agents.{" "}
                 <Link to="/worlds/$worldId/cast" params={{ worldId }}>
                   Meet the cast
                 </Link>

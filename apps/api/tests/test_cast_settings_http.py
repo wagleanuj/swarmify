@@ -339,27 +339,37 @@ def test_the_most_specific_model_wins_stage_then_role_then_world_then_global(
     assert bad.status_code == 422
 
 
-def test_the_workflow_agents_and_a_start_override_set_how_many_workers_run(
+def test_a_swarm_stage_runs_one_agent_unless_it_or_the_start_asks_for_more(
     running: TestClient, script: Script
 ) -> None:
-    world = _world(running)  # the world's cast has 4 workers
+    """ADR 0020: one worker by default though the world's cast has 4; a stage's `agents` runs
+    that many over the shared whiteboard as before; a start's `agents` overrides the stage's."""
+    world = _world(running)
     plan_two = [Answer({"tasks": [{"title": "Find hooks."}, {"title": "Find trends."}]})]
-    both = [GRAPH, CLAIM, NOTE, FINISH, CLAIM, FINISH, Say("Both done.")]
+    alone = [GRAPH, CLAIM, NOTE, FINISH, CLAIM, FINISH, Say("Both done.")]
+    one_each = [GRAPH, CLAIM, NOTE, FINISH, Say("Mine done.")]
+    two = RESEARCH.replace("tools: [web_search]", "tools: [web_search]\n    agents: 2")
 
-    def workers(yaml: str, body: dict) -> list[str]:
-        script.scripts = [plan_two, both, PASS]
+    def workers(yaml: str, body: dict, *work: list) -> list[str]:
+        script.scripts = [plan_two, *work, PASS]
         script.sessions.clear()
         wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()
         run = running.post(f"/api/workflows/{wf['workflow_id']}/runs", json=body).json()
-        assert _ended(running, run["id"])["status"] == "done"
-        # Saved as a workflow, the run's worker count is the workflow's `agents` again.
+        ended = _ended(running, run["id"])
+        assert ended["status"] == "done", [s.get("error") for s in ended["stages"]]
+        # Saved as a workflow, the stage keeps the worker count it ran with.
         saved = running.post(f"/api/runs/{run['id']}/workflow", json={})
-        assert saved.status_code == 201 and saved.json()["model"]["agents"] == 1, saved.text
+        assert saved.status_code == 201, saved.text
+        (stage,) = saved.json()["model"]["stages"]
+        assert ("agents:" in saved.json()["yaml"]) == (stage["agents"] > 1)
         agents = running.get(f"/api/runs/{run['id']}/agents").json()
-        return sorted(a["name"] for a in agents if a["name"].startswith("worker"))
+        names = sorted(a["name"] for a in agents if a["name"].startswith("worker"))
+        assert stage["agents"] == len(names)
+        return names
 
-    assert workers(RESEARCH.replace("stages:", "agents: 1\nstages:"), {}) == ["worker-1"]
-    assert workers(RESEARCH.replace("Research", "Other"), {"agents": 1}) == ["worker-1"]
+    assert workers(RESEARCH, {}, alone) == ["worker-1"]
+    assert workers(two, {}, one_each, one_each) == ["worker-1", "worker-2"]
+    assert workers(two.replace("Research", "Other"), {"agents": 1}, alone) == ["worker-1"]
     too_many = running.post("/api/workflows/wf_nope/runs", json={"agents": 9})
     assert too_many.status_code == 422
 

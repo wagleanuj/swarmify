@@ -31,7 +31,8 @@ from claude_agent_sdk._internal.transport import Transport  # the SDK's document
 
 LAST = "$last.id"
 """In a Call's input, stands for the `id` in the last successful answer that had one, so a
-script can finish the task it just claimed without knowing its id."""
+script can finish the task it just claimed without knowing its id. The session's own answers
+count first, so workers running side by side each finish the task they claimed."""
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,7 @@ class ScriptedTransport(Transport):
         self.options = options
         self.steps = steps
         self.script = script
+        self.last_id = script.last_id
         self.session_id = options.resume or f"session-{uuid.uuid4()}"
         self._send, self._inbox = anyio.create_memory_object_stream[dict[str, Any]](100)
         self._hooks: dict[str, list[dict[str, Any]]] = {}
@@ -223,7 +225,7 @@ class ScriptedTransport(Transport):
             if LAST in step.input.values():
                 step = Call(
                     step.tool,
-                    {k: self.script.last_id if v == LAST else v for k, v in step.input.items()},
+                    {k: self.last_id if v == LAST else v for k, v in step.input.items()},
                 )
             use_id = f"toolu_{next(self._ids)}"
             yield _assistant(
@@ -272,7 +274,7 @@ class ScriptedTransport(Transport):
                 with contextlib.suppress(ValueError):
                     data = json.loads(text)
                     if isinstance(data, dict) and isinstance(data.get("id"), str):
-                        self.script.last_id = data["id"]
+                        self.script.last_id = self.last_id = data["id"]
             yield {
                 "type": "user",
                 "message": {
