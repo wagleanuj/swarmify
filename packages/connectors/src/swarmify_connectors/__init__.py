@@ -462,7 +462,11 @@ class Connectors:
                 raw = self.transport.call(connector, "preview", args, self._env(connector))
             except ConnectorError as exc:
                 raw = {"fields": [], "problems": [f"{connector.name} preview failed: {exc}"]}
-            shown = publish.answer(raw)
+            shown = publish.checked_preview(raw)
+        # The gate's edits stand even when a connector forgets to apply them.
+        for f in shown["fields"]:
+            if f["editable"] and f["key"] in (edits or {}):
+                f["value"] = (edits or {})[f["key"]]
         return {"connector": connector.name, **shown}
 
     def stage_problems(self, world_id: str, config: dict[str, Any]) -> list[str]:

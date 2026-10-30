@@ -525,11 +525,12 @@ def create_app(
         assert shown is not None  # is_publish above
         if shown["problems"]:
             raise ConnectorError("; ".join(shown["problems"]))
-        # What was confirmed wins: a value the gate fixed, like a resolved schedule, stays fixed.
+        # What was confirmed goes out as is (a resolved schedule stays fixed); the fresh preview
+        # only fills in a decision recorded before a field existed.
         fields = [
             {**f, "value": (confirmed or {}).get(f["key"], f["value"])} for f in shown["fields"]
         ]
-        config["confirmed"] = {f["key"]: f["value"] for f in fields}
+        config["confirmed"] = {**{f["key"]: f["value"] for f in fields}, **(confirmed or {})}
         if config.get("input"):
             config["params"]["input_path"] = str(run_file(folder, run, str(config["input"])))
         if config.get("inputs"):

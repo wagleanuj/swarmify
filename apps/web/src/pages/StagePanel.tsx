@@ -344,12 +344,12 @@ function PublishPanel({ made, call }: { made: ArtifactFile[]; call: Call | null 
   const links = Object.values((f.links as Record<string, string> | undefined) ?? {});
   const where = LABEL[String(f.connector)] ?? String(f.connector ?? call?.connector ?? "");
   // What went out, as its connector described it; a post from before #127 kept fixed fields.
-  const sent = Array.isArray(f.sent)
-    ? (f.sent as { key: string; label: string; value?: unknown; hint?: string }[])
+  const sent: components["schemas"]["PublishField"][] = Array.isArray(f.sent)
+    ? (f.sent as components["schemas"]["PublishField"][])
     : [
-        { key: "title", label: "Title", value: f.title ?? post.title },
-        { key: "visibility", label: "Visibility", value: f.visibility },
-        { key: "schedule", label: "When", value: f.schedule ?? f.created ?? post.created },
+        { key: "title", label: "Title", value: f.title ?? post.title, editable: false, hint: "" },
+        { key: "visibility", label: "Visibility", value: f.visibility, editable: false, hint: "" },
+        { key: "schedule", label: "When", value: f.schedule ?? f.created ?? post.created, editable: false, hint: "" },
       ];
   return (
     <div className="published" data-testid="publish">

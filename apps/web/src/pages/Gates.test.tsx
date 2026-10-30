@@ -228,6 +228,36 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });
 
+test("a gate before a text post shows the connector's own fields, and sends the edited one", async () => {
+  const bodies: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () =>
+      Response.json([
+        gate("confirm", {
+          publish: {
+            connector: "webhook",
+            fields: [
+              { key: "to", label: "To", value: "#news", editable: false, hint: "" },
+              { key: "text", label: "Message", value: "New video is up", editable: true, hint: "" },
+            ],
+            problems: [],
+          },
+        }),
+      ]),
+    "POST /api/runs/run_1/decision": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(run("running", []));
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const out = screen.getByTestId("gate-run_1").getByRole("region", { name: "What goes out" });
+  await expect.element(out).toMatchTextContent(/Where\s*webhook\s*To\s*#news\s*Message/);
+  await out.getByLabelText("Message").fill("It is up");
+  await screen.getByRole("button", { name: "Confirm and post" }).click();
+  await vi.waitFor(() => expect(bodies).toEqual([{ note: "", edits: { text: "It is up" }, seen: { to: "#news" } }]));
+});
+
 const hooks = "---\nname: hooks\ndescription: Open on the hook.\n---\n\nWrite the hook first.\n";
 const proposal = {
   id: "prop_1",

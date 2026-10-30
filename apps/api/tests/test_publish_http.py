@@ -345,8 +345,9 @@ def test_a_worlds_own_publish_connector_posts_text_through_the_same_gate(
     assert answer.status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     (decision,) = running.get(f"/api/runs/{run['id']}").json()["decisions"]
+    assert decision["publish"] == {"to": "#news", "text": "It is up"}
     name, tool, args, _ = transport.calls[-1]
     assert (name, tool, args["fields"]) == ("webhook", "publish", decision["publish"])
     assert args["input_path"].endswith("01-render/short.mp4")
-    # the connector applies the edits itself; this fake answers the same fields every time
+    # the connector hears the edits, and they stand though this fake ignores them
     assert edits in [c[2]["edits"] for c in transport.calls if c[1] == "preview"]

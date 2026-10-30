@@ -427,10 +427,10 @@ def test_a_worlds_publish_connector_previews_and_publishes_through_its_own_tools
         "connector": "webhook",
         "fields": [
             {"key": "channel", "label": "Channel", "value": "#news", "editable": False, "hint": ""},
-            {"key": "text", "label": "Message", "value": "Hello", "editable": True, "hint": ""},
+            {"key": "text", "label": "Message", "value": "Hi", "editable": True, "hint": ""},
         ],
         "problems": [],
-    }
+    }  # the edit stands though this fake connector ignored it
     ((name, tool, args, env),) = transport.calls
     assert (name, tool, env) == ("webhook", "preview", {"HOOK_URL": "https://hooks.example/1"})
     assert args == {

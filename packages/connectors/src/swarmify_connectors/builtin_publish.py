@@ -80,7 +80,9 @@ def preview(connector: str, args: dict[str, Any], now: datetime | None = None) -
     problems = [bad_schedule] if bad_schedule else []
     if not isinstance(made_for_kids, bool):
         problems.append(f"made_for_kids is true or false, got {made_for_kids!r}")
-    if not title and not params.get("metadata"):  # a workflow check: the file is read at run time
+    # The workflow check passes `metadata` as configured, so a title may still come from that
+    # file; at the gate the core has read it and passes its frontmatter instead.
+    if not title and not params.get("metadata"):
         problems.append("a publish stage needs params.title")
     elif len(title) > TITLE_MAX:
         problems.append(f"the title is {len(title)} characters, the limit is {TITLE_MAX}")

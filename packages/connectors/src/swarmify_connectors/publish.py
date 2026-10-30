@@ -18,7 +18,7 @@ from typing import Any
 from swarmify_connectors import builtin_publish
 
 
-def answer(raw: Any) -> dict[str, Any]:
+def checked_preview(raw: Any) -> dict[str, Any]:
     """A connector's `preview` answer, checked: well-formed fields in, anything else a problem."""
     if not isinstance(raw, dict) or not isinstance(raw.get("fields"), list):
         return {"fields": [], "problems": [f"preview answered without fields: {raw!r}"[:300]]}
@@ -53,7 +53,7 @@ def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
     return {"status": status, "links": links, "id": response.get("id"), "failed": {}}
 
 
-def _shown(value: Any) -> str:
+def _text(value: Any) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, list):
@@ -66,7 +66,7 @@ def markdown(connector: str, fields: list[dict[str, Any]], out: dict[str, Any]) 
     because the graph reads bodies, not frontmatter."""
     values = {f["key"]: f["value"] for f in fields}
     title = str(values.get("title") or f"Posted to {connector}")
-    sent = [f"- {f['label']}: {_shown(f['value']) or f['hint'] or 'none'}" for f in fields]
+    sent = [f"- {f['label']}: {_text(f['value']) or f['hint'] or 'none'}" for f in fields]
     if out["links"]:
         landed = [f"- {p}: {url}" for p, url in out["links"].items()]
     else:
