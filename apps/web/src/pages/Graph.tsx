@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -51,10 +51,13 @@ export function Graph() {
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Loads can overlap (a rebuild streams in while one is in flight); only the latest one shows.
+  const loads = useRef(0);
   function load() {
+    const asked = ++loads.current;
     return api
       .GET("/api/worlds/{world_id}/graph", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setView(data));
+      .then(({ data }) => data && asked === loads.current && setView(data));
   }
 
   useEffect(() => {
@@ -66,10 +69,12 @@ export function Graph() {
   }, [worldId]);
 
   // Rebuilds arrive on the world's stream (ADR 0002); each one reloads the summary. Only new
-  // ones matter, so `since=now` skips replaying history.
+  // ones matter, so `since=now` skips replaying history. The stream starts at the head when it
+  // opens, which can be after the first load: reloading on open catches a rebuild in between.
   useEffect(() => {
     const source = new EventSource(`/api/worlds/${worldId}/events?since=now`);
     const reload = () => void load().catch(() => undefined);
+    source.addEventListener("open", reload);
     source.addEventListener("graph.rebuilt", reload);
     source.addEventListener("graph.failed", reload);
     return () => source.close();

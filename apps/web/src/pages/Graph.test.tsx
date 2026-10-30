@@ -173,3 +173,43 @@ test("a graph with no communities yet says so", async () => {
   const { screen } = await mountAt("/worlds/world_1/graph");
   await expect.element(screen.getByTestId("no-communities")).toBeVisible();
 });
+
+test("a rebuild between the first load and the stream opening shows once the stream opens", async () => {
+  let view: object = empty;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": () => Response.json(view),
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect.element(screen.getByTestId("rebuilt")).toHaveTextContent("Not built yet");
+
+  // The stream starts at the head when it opens, so this rebuild never comes down it.
+  view = built;
+  const stream = FakeEventSource.open.find((s) => s.url.startsWith("/api/worlds/world_1/events"));
+  stream?.dispatchEvent(new Event("open"));
+  await expect.element(screen.getByTestId("rebuilt")).toMatchTextContent(/rebuilt it just now: \+31 nodes/);
+});
+
+test("a slow load that answers after a newer one does not undo it", async () => {
+  let answer!: () => void;
+  const late = new Promise<void>((resolve) => (answer = resolve));
+  let loads = 0;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": async () => {
+      loads += 1;
+      if (loads === 1) {
+        await late;
+        return Response.json(empty);
+      }
+      return Response.json(built);
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  FakeEventSource.emit("graph.rebuilt", { payload: built.rebuilt });
+  await expect.element(screen.getByTestId("rebuilt")).toMatchTextContent(/\+31 nodes/);
+  answer();
+  await late;
+  await new Promise((r) => setTimeout(r, 50));
+  await expect.element(screen.getByTestId("rebuilt")).toMatchTextContent(/\+31 nodes/);
+});

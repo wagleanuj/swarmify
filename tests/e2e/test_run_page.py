@@ -29,7 +29,10 @@ stages:
 def test_a_voiced_build_shows_its_takes_its_build_and_its_video_then_the_gate_is_answered_here(
     page: Page, base_url: str
 ) -> None:
-    api = httpx.Client(base_url=base_url)
+    # Saving a workflow and starting a run run the workflow check, which starts the process of
+    # each package the workflow calls (a check, a preview, a world's types). That is real work,
+    # seconds under load, so these calls wait longer than httpx's 5 s default.
+    api = httpx.Client(base_url=base_url, timeout=30)
     world = api.post("/api/worlds", json={"name": "Shorts"}).json()
     try:
         wf = api.post(f"/api/worlds/{world['id']}/workflows", json={"yaml": VOICED})

@@ -40,8 +40,12 @@ def test_pick_a_card_then_review_the_video_in_place(
 ) -> None:
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Cards"}).json()["id"]
     try:
-        wf = httpx.post(f"{base_url}/api/worlds/{world}/workflows", json={"yaml": GOLDEN}).json()
-        run = httpx.post(f"{base_url}/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+        # Saving a workflow and starting a run run the workflow check, which starts the process of
+        # each package the workflow calls (a check, a preview, a world's types). That is real work,
+        # seconds under load, so these calls wait longer than httpx's 5 s default.
+        api = httpx.Client(base_url=f"{base_url}/api", timeout=30)
+        wf = api.post(f"/worlds/{world}/workflows", json={"yaml": GOLDEN}).json()
+        run = api.post(f"/workflows/{wf['workflow_id']}/runs", json={}).json()
         screen.goto("/gates")
         card = screen.get_by_test_id(f"gate-{run['id']}")
         expect(card).to_contain_text("Pick one idea.", timeout=20_000)

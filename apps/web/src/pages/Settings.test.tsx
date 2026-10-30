@@ -185,3 +185,23 @@ test("role names are neutral until the Pied Piper skin is turned on, in this bro
   await expect.element(screen.getByText(/The planner and the judge always come along/)).toBeVisible();
   expect(localStorage.getItem("swarmify.skin")).toBeNull();
 });
+
+test("the world's panels wait for the world, so a slow load cannot wipe what was typed", async () => {
+  let loaded!: () => void;
+  const ready = new Promise<void>((resolve) => (loaded = resolve));
+  fakeFetch({
+    "GET /api/worlds/world_1": async () => {
+      await ready;
+      return Response.json({ ...video, monthly_budget_usd: null, retention_days: 90, run_cap: 2, agent_count: 4 });
+    },
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  const budget = screen.getByRole("spinbutton", { name: "Monthly budget, dollars" });
+  await expect.element(budget).toBeDisabled();
+  await expect.element(screen.getByRole("spinbutton", { name: "Run cap" })).toBeDisabled();
+  loaded();
+  await expect.element(budget).toBeEnabled();
+  await budget.fill("50");
+  await expect.element(budget).toHaveValue(50);
+});
