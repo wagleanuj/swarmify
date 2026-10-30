@@ -9,8 +9,8 @@ GET  /health           ok once both models are loaded, with the delivery `tags` 
                        written in brackets in the input, as "[whispering] Who sleeps?", and
                        `clips: true`, since it takes a reference clip
 
-Both models load once at start. Chatterbox runs on the Apple GPU (MPS) when there is one, else on
-the CPU; faster-whisper runs on the CPU.
+Both models load once at start. Chatterbox runs on an NVIDIA GPU (CUDA) or the Apple GPU (MPS)
+when there is one, else on the CPU; faster-whisper runs on the CPU.
 """
 
 import hashlib
@@ -44,13 +44,22 @@ TAGS = [
 ]  # fmt: skip
 
 
+def device(torch: Any) -> str:
+    """Where Chatterbox runs: an NVIDIA GPU, else an Apple one, else the CPU."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     import torch
     from chatterbox.tts_turbo import ChatterboxTurboTTS
     from faster_whisper import WhisperModel
 
-    models["device"] = "mps" if torch.backends.mps.is_available() else "cpu"
+    models["device"] = device(torch)
     models["tts"] = ChatterboxTurboTTS.from_pretrained(device=models["device"])
     models["asr"] = WhisperModel("small.en", device="cpu", compute_type="int8")
     yield

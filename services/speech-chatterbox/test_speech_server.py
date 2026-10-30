@@ -77,3 +77,27 @@ def test_a_clip_turbo_cannot_use_is_refused(turbo: Turbo) -> None:
     r = client.post("/v1/audio/speech", data={"input": "Hi."}, files=files)
     assert r.status_code == 400 and "5 seconds" in r.json()["detail"]
     assert client.post("/v1/audio/speech", json={"input": " "}).status_code == 400
+
+
+class _Has:
+    def __init__(self, yes: bool) -> None:
+        self.yes = yes
+
+    def is_available(self) -> bool:
+        return self.yes
+
+
+class _Torch:
+    def __init__(self, cuda: bool, mps: bool) -> None:
+        self.cuda = _Has(cuda)
+        self.backends = type("B", (), {"mps": _Has(mps)})()
+
+
+@pytest.mark.parametrize(
+    ("cuda", "mps", "where"),
+    [(True, False, "cuda"), (False, True, "mps"), (False, False, "cpu"), (True, True, "cuda")],
+)
+def test_it_runs_on_an_nvidia_gpu_else_an_apple_one_else_the_cpu(
+    cuda: bool, mps: bool, where: str
+) -> None:
+    assert server.device(_Torch(cuda, mps)) == where

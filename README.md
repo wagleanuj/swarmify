@@ -525,6 +525,11 @@ connector tries them in the order `SPEECH_ENDPOINTS` lists, by default
   `.env`. Its models stay in the `speech-models` volume. It needs about 7 GB of memory on the CPU
   (its peak while loading), more than Docker Desktop's default leaves beside other containers. Both engines bind to `127.0.0.1` only:
   they have no sign-in.
+- On a host with an NVIDIA GPU (a driver for CUDA 12.4 or newer and the NVIDIA Container Toolkit),
+  use `docker compose --profile chatterbox-gpu up -d --build` instead, with
+  `SPEECH_ENDPOINTS=http://chatterbox-gpu:8881,http://kokoro:8880`. It builds with PyTorch's CUDA
+  wheels and `/health` says `"device": "cuda"`; on the CPU Chatterbox runs at about 11x real
+  time. Natively on Linux, `uv sync --extra cpu` or `--extra cu124` picks the wheels.
 - `uv run pytest services --no-cov` includes a smoke test that speaks a sentence on every engine in
   `SPEECH_ENDPOINTS` and aligns it where the engine can, and on an engine advertising
   `whispering` checks a whispered take differs from the plain one and aligns to the same words;
