@@ -2,12 +2,53 @@
 import { vi } from "vitest";
 
 import type { Gate, Run } from "../api/runs";
+import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 
 type Handler = (req: Request) => Response | Promise<Response>;
 
+type Connector = components["schemas"]["ConnectorView"];
+const builtin = (name: string, label: string, kind: Connector["kind"], over: Partial<Connector> = {}): Connector => ({
+  id: `builtin_${name}`,
+  world_id: null,
+  name,
+  kind,
+  command: ["python", "-m", name],
+  url: null,
+  credentials: [],
+  stage_types: ["connector"],
+  builtin: true,
+  about: "",
+  created_at: null,
+  health: null,
+  types: {},
+  input_types: [],
+  world_types: null,
+  label,
+  capabilities: [],
+  outputs: [],
+  missing: [],
+  ...over,
+});
+const video = [{ description: "the video", media_type: "video/mp4" }];
+/** The built-ins as `GET /api/worlds/world_1/connectors` describes them, which every fakeFetch
+ * answers unless a test routes it itself. */
+export const CONNECTORS: Connector[] = [
+  builtin("remotion_render", "Remotion render", "stage", { outputs: video }),
+  builtin("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
+  builtin("youtube", "YouTube", "publish"),
+  builtin("upload_post", "Upload-Post", "publish"),
+  builtin("speech", "Speech", "stage", {
+    outputs: [
+      { description: "timings.json, with the takes in narration/ beside it", media_type: "application/json" },
+      { description: "the takes, one per scene, in narration/", media_type: "audio/wav" },
+    ],
+  }),
+];
+
 /** Route fetch calls by `METHOD /path`; unmatched calls return 404. Returns the call log. */
-export function fakeFetch(routes: Record<string, Handler>) {
+export function fakeFetch(given: Record<string, Handler>) {
+  const routes: Record<string, Handler> = { "GET /api/worlds/world_1/connectors": () => Response.json(CONNECTORS), ...given };
   const calls: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const req = new Request(input, init);

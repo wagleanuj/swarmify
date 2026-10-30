@@ -122,6 +122,26 @@ def test_add_keeps_the_secret_in_the_home_file_and_never_returns_it(
     assert client.post("/api/worlds/world_nope/connectors", json=FAL).status_code == 404
 
 
+def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
+    client: TestClient,
+) -> None:
+    # ADR 0025: a skin picks a step's panel from these, never from the connector's name
+    w = world(client)
+    client.post(f"/api/worlds/{w}/connectors", json=FAL)
+    shown = {
+        c["name"]: (c["label"], c["capabilities"], [o["media_type"] for o in c["outputs"]])
+        for c in client.get(f"/api/worlds/{w}/connectors").json()
+    }
+    assert shown == {
+        "remotion_render": ("Remotion render", [], ["video/mp4"]),
+        "remotion_build": ("Remotion build", ["build_session"], ["video/mp4"]),
+        "youtube": ("YouTube", [], []),
+        "upload_post": ("Upload-Post", [], []),
+        "speech": ("Speech", [], ["application/json", "audio/wav"]),
+        "fal_video": ("fal_video", [], []),
+    }
+
+
 def test_workflows_see_the_registry(client: TestClient) -> None:
     w = world(client)
     swarm = (

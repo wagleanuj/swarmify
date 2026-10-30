@@ -248,7 +248,7 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
   await screen.getByLabelText("Remove pick").click();
   await screen.getByLabelText("Stage type to add").selectOptions("connector");
   await screen.getByRole("button", { name: "Add stage" }).click();
-  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/render.*connector/);
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/new step.*connector/);
 
   await screen.getByRole("tab", { name: "YAML" }).click();
   const yaml = screen.getByLabelText("Workflow YAML");
@@ -262,8 +262,8 @@ stages:
     tools: [ web_search ]
     output_type: list[idea]
     agents: 3
-  - connector: render
-    calls: remotion_render
+  - connector: new step
+    calls: ""
 `,
   );
 

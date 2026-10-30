@@ -15,15 +15,6 @@ type World = components["schemas"]["World"];
 type Kind = NewConnector["kind"];
 type StageType = NewConnector["stage_types"][number];
 
-/** Skin labels for the built-ins (ADR 0004); code keeps the plain names. */
-export const LABEL: Record<string, string> = {
-  remotion_render: "Remotion render",
-  remotion_build: "Remotion build",
-  youtube: "YouTube",
-  upload_post: "Upload-Post",
-  speech: "Speech",
-};
-
 const UTC_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?Z$/;
 
 /** A value a publish connector sends, as plain copy: a UTC time in local time with the UTC
@@ -77,8 +68,8 @@ export function parseKeys(text: string): Record<string, string> {
 
 export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
   if (c.missing.length > 0) return { text: "Needs a key", tone: "warn" };
-  // remotion_build runs inside swarmify (a session, then the render), so it has no server
-  if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && c.name !== "remotion_build") {
+  // a Build Session runs inside swarmify (a session, then the render), so it needs no server
+  if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && !c.capabilities.includes("build_session")) {
     return { text: "Not installed", tone: "off" };
   }
   return { text: "Ready", tone: "ok" };
@@ -327,7 +318,7 @@ export function Connectors() {
                     <li key={c.id} data-name={c.name} className="con-row">
                       <span className={s.tone === "ok" ? "dot live" : s.tone === "warn" ? "dot warn" : "dot"} />
                       <span className="con-main">
-                        <b>{LABEL[c.name] ?? c.name}</b>
+                        <b>{c.label}</b>
                         <span className={c.builtin ? "faint" : "faint mono"}>{where(c)}</span>
                       </span>
                       <span className="faint">{c.stage_types.join(", ")} steps</span>
@@ -398,7 +389,7 @@ function Health({ connector }: { connector: Connector }) {
   if (checks === null) return <p className="faint health">Checking engines...</p>;
   if (typeof checks === "string") return <p className="faint health">Engines not checked: {checks}</p>;
   return (
-    <ul className="health" aria-label={`${LABEL[connector.name] ?? connector.name} engines`}>
+    <ul className="health" aria-label={`${connector.label} engines`}>
       {checks.map((h) => (
         <li key={h.name}>
           <span className="mono">{h.name}</span>{" "}
@@ -422,7 +413,7 @@ function SetKeys({
 }) {
   const [open, setOpen] = useState(false);
   const [check, setCheck] = useState<KeyCheck | null>(null);
-  const label = LABEL[connector.name] ?? connector.name;
+  const label = connector.label;
 
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

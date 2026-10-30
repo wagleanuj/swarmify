@@ -25,7 +25,7 @@ type StageType = (typeof STAGE_TYPES)[number];
 const NEW_STAGE: Record<StageType, RawStage> = {
   swarm: { swarm: "new swarm", goal: "", done_when: "" },
   gate: { gate: "review", ask: "Approve?", kind: "approve" },
-  connector: { connector: "render", calls: "remotion_render" },
+  connector: { connector: "new step", calls: "" },
   workflow: { workflow: "child", runs: "" },
 };
 /** The per-stage fields the list edits. `list` fields are comma separated in the input. */
