@@ -153,10 +153,12 @@ class Runner(RunControl):
         monthly: Monthly = lambda _world_id: None,
         cap_for: CapFor | None = None,
         retro: Retro | None = None,
+        worlds: Callable[[], list[str]] | None = None,
     ) -> None:
         """`pin` and `take` serve workflow stages; without `pin` they fail the run. `spend` sums
         the agents' estimated cost of runs, for the Budget. `monthly` is each world's Monthly
-        Budget and `cap_for` its run cap (`cap` for every world when left out)."""
+        Budget and `cap_for` its run cap (`cap` for every world when left out). `worlds` lists
+        the ids of the worlds that exist; given it, launch drops the queues of any others."""
         super().__init__(
             storage, system_db, data_dir, notifier or LogNotifier(), previews, spend, monthly
         )
@@ -167,6 +169,7 @@ class Runner(RunControl):
         self.take = take
         self.cap_for = cap_for or (lambda _world_id: cap)
         self.poll_seconds = poll_seconds
+        self.worlds = worlds
         self._caps: dict[str, int] = {}
         """The cap each world's queue was last registered with."""
 
@@ -186,6 +189,8 @@ class Runner(RunControl):
         DBOS(config=config)
         DBOS.launch()
         self._caps.clear()
+        if self.worlds is not None:
+            self._drop_leaked_queues(self.worlds)
         DBOS.register_queue(
             CHILD_QUEUE, polling_interval_sec=self.poll_seconds, on_conflict="always_update"
         )
@@ -214,6 +219,17 @@ class Runner(RunControl):
         self.close()
         DBOS.destroy()
         _runner = None
+
+    @staticmethod
+    def _drop_leaked_queues(worlds: Callable[[], list[str]]) -> None:
+        """Delete the queues of deleted worlds that a delete which kept its queue left behind, each
+        still polled by its own thread. Queues are listed before worlds: a world created in
+        between has no queue yet, so every queue whose world is missing after is a leak."""
+        names = [q.name for q in DBOS.list_queues()]
+        live = {queue_name(w) for w in worlds()}
+        for name in names:
+            if name.startswith(queue_name("")) and name not in live:
+                DBOS.delete_queue(name)
 
     def promote(self, pinned: Pinned, index: int, artifact: Path, promoted_from: str) -> Run:
         """Start a Promote: a run of `pinned` that starts at stage `index` with `artifact` as

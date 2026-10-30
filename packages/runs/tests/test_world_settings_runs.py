@@ -7,9 +7,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from dbos import DBOS
 
 from runs_fakes import FakeConnector, FakeNotifier, wait_for
-from swarmify_runs import MonthSpent, Run, Runner, SqliteStorage, StageDef
+from swarmify_runs import MonthSpent, Run, Runner, SqliteStorage, StageDef, queue_name
 
 RENDER = StageDef("render", "connector", {"calls": "remotion_render"})
 PICK = StageDef("pick", "gate", {"ask": "Pick one.", "kind": "pick"})
@@ -114,3 +115,42 @@ def test_the_run_cap_is_per_world_and_a_raised_cap_takes_effect_live(
 
     for run in (first, second, other):
         wait_for(lambda run_id=run.id: ended(run_id))
+
+
+def test_launch_drops_the_queues_of_deleted_worlds_and_keeps_the_live_ones(
+    tmp_path: Path, storage: SqliteStorage
+) -> None:
+    """A world deleted before deletes took its queue left the queue in dbos.sqlite, each polled
+    by its own thread for the life of the app. Launch drops those, and only those."""
+
+    def runner(worlds: list[str] | None = None) -> Runner:
+        return Runner(
+            storage, tmp_path / "dbos.sqlite", connector, tmp_path, poll_seconds=0.05,
+            cap_for=lambda _w: 1, worlds=None if worlds is None else lambda: worlds,
+        )  # fmt: skip
+
+    def status(run_id: str) -> str | None:
+        return getattr(storage.get_run(run_id), "status", None)
+
+    connector = FakeConnector()
+    old = runner()
+    old.launch()
+    held = old.start("world_1", "wf_1", 1, "Held", [RENDER, PICK])
+    wait_for(lambda: status(held.id) == "waiting_gate")
+    queued = old.start("world_1", "wf_1", 1, "Queued", [RENDER])  # behind the cap of 1
+    ran = [old.start(w, "wf", 1, "Done", [RENDER]) for w in ("world_2", "world_3")]
+    for run in ran:
+        wait_for(lambda run_id=run.id: status(run_id) == "done")
+    old.shutdown()
+    storage.delete_world("world_2")  # how a delete went before it took the queue
+
+    new = runner(["world_1", "world_3"])
+    new.launch()
+    try:
+        assert DBOS.retrieve_queue(queue_name("world_2")) is None
+        assert DBOS.retrieve_queue(queue_name("world_3")) is not None  # live, nothing queued
+        assert status(queued.id) == "queued"
+        new.decide(held.id, "a")
+        wait_for(lambda: status(queued.id) == "done")  # its queued work survived the sweep
+    finally:
+        new.shutdown()
