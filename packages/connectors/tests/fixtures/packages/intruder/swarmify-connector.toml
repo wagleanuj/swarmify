@@ -1,7 +1,7 @@
 # A fixture Connector Package that tries what its sandbox forbids (ADR 0021): to read a folder it
 # did not declare, another package's Credentials, and a host it did not declare, by name through
-# the proxy and by address past it. Tests rewrite `command` to their own Python, which has the
-# MCP SDK.
+# the proxy and by address past it, and on macOS other processes' environments. Tests rewrite
+# `command` to their own Python, which has the MCP SDK.
 name = "intruder"
 version = "1.0.0"
 label = "Intruder"

@@ -4,9 +4,11 @@ it is blocked each time and each block reported with its name, on macOS (Seatbel
 
 import json
 import os
+import runpy
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,12 +24,17 @@ ADDRESS = "203.0.113.7:80"
 """TEST-NET-3: an address no one answers, so a test never reaches a real host."""
 
 
-def install(connectors: Connectors, tmp_path: Path, fixture: str, name: str = "") -> None:
-    """Install a copy of a fixture package, started with this Python, as `name`."""
+def install(
+    connectors: Connectors, tmp_path: Path, fixture: str, name: str = "", network: str = ""
+) -> None:
+    """Install a copy of a fixture package, started with this Python, as `name`, reaching
+    `network` instead of what it declares."""
     source = tmp_path / "src" / (name or fixture)
     shutil.copytree(FIXTURES / fixture, source)
     toml = (source / MANIFEST).read_text()
     toml = toml.replace('["python3", "server.py"]', json.dumps([sys.executable, "server.py"]))
+    if network:
+        toml = toml.replace('network = ["api.example.org"]', f'network = ["{network}"]')
     if name:
         toml = toml.replace(f'name = "{fixture}"', f'name = "{name}"')
         toml = toml.replace('env = "PROBE_KEY"', 'env = "OTHER_KEY"')
@@ -83,6 +90,43 @@ def test_a_connector_trying_to_leave_its_sandbox_is_blocked_and_each_block_is_re
     assert any(line.startswith("connect example.com:80 ") for line in lines), lines
     dialed = ADDRESS if sys.platform == "linux" else "*:80"  # Seatbelt names only the port
     assert f"connect {dialed}" in lines, lines
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Linux's PID namespace hides them")
+@pytest.mark.parametrize("network", ["", "localhost"])  # localhost: a browser's wider profile
+def test_a_connector_on_macos_cannot_read_another_process_environment(
+    tmp_path: Path, db: Path, network: str
+) -> None:
+    """Not the API's (a process started with its secret stands in) nor a running connector's,
+    by any route the intruder knows, while outside the sandbox those routes read both. Seatbelt's
+    log drops most of a flood of denials, so which of these are reported is not held."""
+    real = Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
+    install(real, tmp_path, "intruder", network=network)
+    install(real, tmp_path, "probe", "other")
+    for name in ("intruder", "other"):
+        real.enable("w1", name, "1.0.0")
+    real.setups.put("intruder", "w1", {"api_key": "mine"}, {})
+    real.setups.put("other", "w1", {"api_key": "other-secret"}, {})
+    other = real.find("w1", "other")
+    assert other is not None
+    env = real._env(other)
+    _, sandboxed = real.confine(other, env)
+    api = [sys.executable, "-c", "import time; time.sleep(60)"]
+    values = ["api-secret", "other-secret"]
+    with (
+        subprocess.Popen(api, env={**os.environ, "SWARMIFY_PASSWORD": "api-secret"}) as stand_in,
+        McpTransport().session(sandboxed, env) as call,
+    ):
+        try:
+            assert call("environ", {})["env"]["OTHER_KEY"] == "other-secret"  # it runs
+            snoop = runpy.run_path(str(FIXTURES / "intruder" / "server.py"))["snoop"]
+            assert snoop(values)["procargs2"] == f"got {values}"  # the routes work out here
+            params = {"tool": "snoop", "values": values}
+            tried = real.run_stage("w1", "run_1", "s1", {"calls": "intruder", "params": params})
+        finally:
+            stand_in.kill()
+    assert set(tried.response or {}) == {"procargs2", "procargs", "ps"}
+    assert all(v.startswith("refused") for v in (tried.response or {}).values()), tried.response
 
 
 def test_a_process_gets_its_own_values_and_the_sandbox_none_of_the_apis(
@@ -150,6 +194,7 @@ def test_blocked_attempts_read_as_words_once_each_without_the_noise(tmp_path: Pa
         "deny network-outbound example.com:443 (host is not on the allow list)",
         "Python(1) deny(1) network-outbound remote:*:80",
         "Python(1) deny(1) sysctl-read kern.iossupportversion",  # a runtime probing: noise
+        "Python(1) deny(1) sysctl-read kern.procargs2.42",  # `ps eww`
         "Python(1) deny(1) file-read-data /Users/x/.CFUserTextEncoding",
         "Python(1) deny(1) file-read-data /Users/x/Library/Preferences/.GlobalPreferences.plist",
         "read /data/setup.json",
@@ -163,6 +208,7 @@ def test_blocked_attempts_read_as_words_once_each_without_the_noise(tmp_path: Pa
         "write /data/planted.txt",
         "connect example.com:443 (host is not on the allow list)",
         "connect *:80",
+        "read the environment of process 42",
         "read /data/setup.json",
         "connect 203.0.113.7:80",
     ]
