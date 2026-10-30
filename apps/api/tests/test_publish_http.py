@@ -126,6 +126,8 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert vals(gate["publish"]) == {
         "title": "Five hooks that work",
         "description": "",
+        "hashtags": "",
+        "tags": "",
         "visibility": "public",
         "made_for_kids": False,
         "schedule": "2099-01-01T09:00:00Z",
@@ -134,6 +136,8 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert [f["key"] for f in gate["publish"]["fields"] if f["editable"]] == [
         "title",
         "description",
+        "hashtags",
+        "tags",
     ]
     assert [c[1] for c in transport.calls] == ["channel", "maker"]  # the key check, the render
 
@@ -206,6 +210,8 @@ title: "Why owls turn their heads"
 description: |
   Owls cannot move their eyes.
   So they turn their heads.
+hashtags: ["#Owls", "#AnimalFacts"]
+tags: [owls, owl facts]
 ---
 
 # Script
@@ -245,7 +251,11 @@ def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
 
     _, _, args, _ = transport.calls[-1]
-    assert (args["title"], args["description"]) == ("Owls, explained", "Edited.")
+    assert (args["title"], args["description"]) == (
+        "Owls, explained",
+        "Edited.\n\n#Owls #AnimalFacts",
+    )
+    assert args["tags"] == ["owls", "owl facts"]
     assert (args["schedule"], args["made_for_kids"]) == (shown["schedule"], True)
     (decision,) = running.get(f"/api/runs/{run['id']}").json()["decisions"]
     assert decision["publish"] == {**shown, **edited}

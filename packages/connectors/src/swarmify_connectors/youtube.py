@@ -121,6 +121,7 @@ def publish(
     schedule: str = "",
     made_for_kids: bool = False,
     idempotency_key: str = "",
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     if not video.is_file():
         raise ToolError(f"the video {video} does not exist")
@@ -129,6 +130,8 @@ def publish(
         status = {**status, "privacyStatus": "private", "publishAt": schedule}
     token = access_token(http, env)
     snippet: dict[str, Any] = {"title": title, "description": description}
+    if tags:
+        snippet["tags"] = list(tags)
     if idempotency_key:
         tag = f"swarmify-{idempotency_key}"
         if done := uploaded_under(http, token, tag):
@@ -137,7 +140,7 @@ def publish(
                 "url": f"https://youtu.be/{done}",
                 "publish_at": schedule or None,
             }
-        snippet["tags"] = [tag]
+        snippet["tags"] = [*(tags or []), tag]  # beside the real tags, never instead
     size = video.stat().st_size
     started = http.post(
         UPLOAD_URL,
@@ -175,7 +178,8 @@ def publish(
 
 @mcp.tool(
     description="Upload a video to YouTube. With `schedule` (ISO 8601) it stays private until"
-    " then and goes public at that time. `made_for_kids` is YouTube's COPPA declaration."
+    " then and goes public at that time. `made_for_kids` is YouTube's COPPA declaration; `tags`"
+    " are YouTube's keywords."
 )
 def youtube(
     input_path: str,
@@ -185,6 +189,7 @@ def youtube(
     schedule: str = "",
     idempotency_key: str = "",
     made_for_kids: bool = False,
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(timeout=httpx.Timeout(60.0, write=None)) as http:
         return publish(
@@ -197,6 +202,7 @@ def youtube(
             schedule,
             made_for_kids,
             idempotency_key,
+            tags,
         )
 
 

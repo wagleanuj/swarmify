@@ -7,7 +7,10 @@ Both take the same params: `title`, `description`, `visibility` (public, unliste
 `made_for_kids` (YouTube's COPPA flag, false by default) and an optional `schedule`: ISO 8601
 with a timezone, or relative, `HH:MM` (the next such time) or `+Nd HH:MM` (N days from now),
 either with an optional IANA timezone after it (UTC by default), resolved against `now`. The
-metadata file's `title` and `description` win over the params, and the gate's edits over both.
+metadata file's `title`, `description`, `hashtags` and `tags` win over the params, and the gate's
+edits over all. `hashtags` (a list, or one string; `#` optional) go out as the description's last
+line, where YouTube shows up to three above the title; `tags` (a list, or one comma-separated
+string) go to YouTube's tags beside the retry tag.
 A scheduled video stays private until its time, then goes public, so a schedule needs
 `visibility: public`.
 
@@ -25,7 +28,40 @@ NAMES = ("youtube", "upload_post")
 VISIBILITIES = ("public", "unlisted", "private")
 UNFINISHED = ("pending", "in_progress", "processing")  # get_status while it works
 TITLE_MAX = 100  # YouTube's limit, the tightest of the platforms we post to
-EDITABLE = ("title", "description")
+DESCRIPTION_BYTES = 5_000  # YouTube's limit
+HASHTAGS_MAX = 5  # well under YouTube's 60: more reads as spam (research 2026-10-30)
+TAGS_CHARS = 500  # YouTube's limit for all tags together, commas and quotes included
+RETRY_TAG = "swarmify-"  # youtube.py tags each upload swarmify-<idempotency key>
+RETRY_ROOM = 50  # what that tag and its comma can take of TAGS_CHARS
+EDITABLE = ("title", "description", "hashtags", "tags")
+_HASHTAG = re.compile(r"^\w+$")
+
+
+def _words(value: Any, split: str) -> list[str]:
+    """A list, or one string split on `split`, without empties."""
+    raw = value if isinstance(value, list) else re.split(split, str(value or ""))
+    return [w for w in (str(v).strip() for v in raw) if w]
+
+
+def hashtags(value: Any) -> list[str]:
+    """Each hashtag without its `#`."""
+    return [w.lstrip("#") for w in _words(value, r"[\s,]+") if w.lstrip("#")]
+
+
+def tags(value: Any) -> list[str]:
+    return _words(value, r",")
+
+
+def tags_length(names: list[str]) -> int:
+    """How YouTube counts tags: a tag with a space is counted as if quoted, commas count."""
+    return sum(len(t) + (2 if " " in t else 0) for t in names) + max(len(names) - 1, 0)
+
+
+def description(text: str, tagged: list[str]) -> str:
+    """The description as it goes out: the hashtags as its last line."""
+    line = " ".join(f"#{h}" for h in tagged)
+    return f"{text.rstrip()}\n\n{line}" if text.strip() and line else text or line
+
 
 _RELATIVE = re.compile(r"^(?:\+(\d+)d\s+)?([01]?\d|2[0-3]):([0-5]\d)(?:\s+(\S+))?$")
 
@@ -69,7 +105,7 @@ def preview(connector: str, args: dict[str, Any], now: datetime | None = None) -
     edits = {k: v for k, v in (args.get("edits") or {}).items() if k in EDITABLE}
     params = {
         **(args.get("params") or {}),
-        **{k: str(metadata[k]) for k in EDITABLE if metadata.get(k)},
+        **{k: metadata[k] for k in EDITABLE if metadata.get(k)},
         **edits,
     }
     now = now or datetime.now(UTC)
@@ -92,12 +128,33 @@ def preview(connector: str, args: dict[str, Any], now: datetime | None = None) -
         problems.append("a scheduled video goes public at its time; set visibility: public")
     if schedule and schedule <= now.strftime("%Y-%m-%dT%H:%M:%SZ"):
         problems.append(f"the schedule {schedule} has already passed")
+    tagged, keywords = hashtags(params.get("hashtags")), tags(params.get("tags"))
+    bad = [h for h in tagged if not _HASHTAG.match(h)]
+    if bad:
+        problems.append(
+            f"a hashtag is one word of letters, digits or _, not {', '.join('#' + b for b in bad)}"
+        )
+    if len(tagged) > HASHTAGS_MAX:
+        problems.append(f"{len(tagged)} hashtags, at most {HASHTAGS_MAX}")
+    if tags_length(keywords) > TAGS_CHARS - RETRY_ROOM:
+        problems.append(
+            f"the tags take {tags_length(keywords)} characters, at most"
+            f" {TAGS_CHARS - RETRY_ROOM} with room for the retry tag"
+        )
+    text = str(params.get("description") or "").strip()
+    size = len(description(text, tagged).encode())
+    if size > DESCRIPTION_BYTES:
+        problems.append(
+            f"the description with its hashtags is {size} bytes, the limit is {DESCRIPTION_BYTES}"
+        )
     inputs = args.get("inputs") or []
     if not inputs:
         problems.append("a publish stage needs an input: the video to post")
     fields = [
         _field("title", "Title", title),
-        _field("description", "Description", str(params.get("description") or "")),
+        _field("description", "Description", text),
+        _field("hashtags", "Hashtags", " ".join(f"#{h}" for h in tagged), "The last line."),
+        _field("tags", "Tags", ", ".join(keywords)),
     ]
     if connector == "upload_post":
         raw = params.get("platforms") or ["youtube"]
@@ -128,12 +185,15 @@ def request(
     """The tool and arguments that post the confirmed `values`. `params.input_path` is set by the
     run; `params.user` is Upload-Post's profile."""
     video = params.get("input_path") or ""
+    text = description(str(values["description"]), hashtags(values.get("hashtags")))
+    keywords = tags(values.get("tags"))
     if connector == "youtube":
         return "youtube", {
             "idempotency_key": idempotency_key,
             "input_path": video,
             "title": values["title"],
-            "description": values["description"],
+            "description": text,
+            "tags": keywords,
             "visibility": values["visibility"],
             "schedule": values["schedule"] or "",
             "made_for_kids": values["made_for_kids"],
@@ -143,13 +203,14 @@ def request(
         "user": str(params["user"]).strip(),
         "platforms": values["platforms"],
         "title": values["title"],
-        "description": values["description"],
+        "description": text,
         "asyncUpload": False,  # answer with the post links, not a request id to poll
         # platformOptions passes through to the SDK, which sends it as Idempotency-Key.
         "platformOptions": {
             "idempotencyKey": idempotency_key,
             "youtubePrivacyStatus": values["visibility"],
             "youtubeSelfDeclaredMadeForKids": values["made_for_kids"],
+            **({"youtubeTags": keywords} if keywords else {}),
         },
     }
     if values["schedule"]:
