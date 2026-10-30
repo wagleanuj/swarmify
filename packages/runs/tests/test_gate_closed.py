@@ -32,6 +32,7 @@ def test_a_remote_answer_names_its_gate_and_who_answered_and_the_close_says_so(
 ) -> None:
     run = runner.start("world_1", "wf_1", 1, "Draft", [WORK, REVIEW, PICK])
     waiting(runner, run.id, "review")
+    wait_for(lambda: any(e.type == "gate.opened" for e in notifier.events))  # notify follows save
     opened = next(e.payload for e in notifier.events if e.type == "gate.opened")
     assert (opened["stage_index"], opened["visit"]) == (1, 0)
 
