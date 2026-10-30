@@ -118,5 +118,6 @@ def test_a_stage_calls_an_enabled_package_started_in_its_folder(tmp_path: Path, 
     Packages(tmp_path / "packages", tmp_path).install(str(source))
     real = Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
     real.enable("w1", "echo", "1.0.0")
+    real.setups.put("echo", "w1", {"api_key": "k"}, {})  # its one required Setup field
     call = real.run_stage("w1", "r1", "s1", {"calls": "echo", "params": {"tool": "echo"}})
     assert call.status == "done" and call.response == {"text": "", "idempotency_key": "s1"}

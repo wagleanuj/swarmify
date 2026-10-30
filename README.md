@@ -474,6 +474,17 @@ folders = ["~/echo-cache"]
 The full fixture is `packages/connectors/tests/fixtures/packages/echo`, and every rule has an
 invalid fixture beside it in `fixtures/manifests`.
 
+Once a world enables a package, the Connectors page draws its Setup form from the `[[config]]`
+fields (`oauth` fields wait for their sign-in). Values live in `<data dir>/setup.json`, mode 600,
+keyed by package, then `shared` or the world, then field key; Credentials (secret fields) are
+never returned by the API, only whether they are set. For a world, a field resolves to the
+world's value, else the shared one (a `scope = "world"` field has none), else its default, and a
+value saved under a field's `renamed_from` key carries over. Before saving, the `[setup] test`
+tool is called with no arguments in a process holding the candidate values, and answers
+`{"ok": true|false, "message": "..."}`; anything but `ok: true` saves nothing and shows the
+message. Every connector process gets exactly its own resolved values as environment variables
+named by each field's `env`, and nothing else of the app's or another package's.
+
 ## Remotion render
 
 `remotion_render` is our stdio MCP wrapper over `npx remotion render`

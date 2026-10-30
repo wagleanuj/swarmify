@@ -8,6 +8,8 @@ import { connectorsRoute } from "../router";
 type Connector = components["schemas"]["ConnectorView"];
 type HealthCheck = components["schemas"]["HealthCheck"];
 type KeyCheck = components["schemas"]["KeyCheck"];
+type SetupField = components["schemas"]["SetupField"];
+type SetupView = components["schemas"]["SetupView"];
 type NewConnector = components["schemas"]["NewConnector"];
 type Package = components["schemas"]["Package"];
 type Tool = components["schemas"]["Tool"];
@@ -67,7 +69,7 @@ export function parseKeys(text: string): Record<string, string> {
 }
 
 export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
-  if (c.missing.length > 0) return { text: "Needs a key", tone: "warn" };
+  if (c.missing.length > 0) return { text: c.version ? "Needs setup" : "Needs a key", tone: "warn" };
   // a Build Session runs inside swarmify (a session, then the render), so it needs no server
   if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && !c.capabilities.includes("build_session")) {
     return { text: "Not installed", tone: "off" };
@@ -357,7 +359,11 @@ export function Connectors() {
                       </span>
                       <span className="faint">{c.stage_types.join(", ")} steps</span>
                       <span className={s.tone === "warn" ? "pill warning" : "pill"}>{s.text}</span>
-                      {c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />}
+                      {c.version ? (
+                        <Setup connector={c} worldId={worldId} onSaved={load} />
+                      ) : (
+                        c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />
+                      )}
                       {!c.builtin && !c.version && (
                         <button type="button" className="link" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}>
                           Remove
@@ -522,6 +528,147 @@ function SetKeys({
           Stored in ~/.swarmify/.env, mode 600, shared by every world. Never shown again.
         </span>
       </div>
+    </form>
+  );
+}
+
+/** The control for one Setup field's value in one scope, named `<scope>:<key>`. */
+function FieldInput({ f, scope, required }: { f: SetupField; scope: "shared" | "world"; required: boolean }) {
+  const saved = scope === "shared" ? f.shared : f.world;
+  const set = scope === "shared" ? f.shared_set : f.world_set;
+  const name = `${scope}:${f.key}`;
+  const value = saved === null || saved === undefined ? "" : String(saved);
+  const fallback = scope === "world" && f.scope === "shared" ? "Use the shared value" : f.default !== null ? `Default: ${f.default === true ? "Yes" : f.default === false ? "No" : f.default}` : "Not set";
+  if (f.type === "boolean" || f.type === "choice") {
+    const options: [string, string][] = f.type === "boolean" ? [["true", "Yes"], ["false", "No"]] : (f.options ?? []).map((o) => [o, o]);
+    return (
+      <select name={name} defaultValue={value} required={required}>
+        <option value="">{fallback}</option>
+        {options.map(([v, label]) => (
+          <option key={v} value={v}>
+            {label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  const placeholder = f.secret && set ? "Saved; leave empty to keep it" : fallback === "Not set" || fallback.startsWith("Use") ? "" : fallback;
+  if (f.type === "text") return <textarea name={name} defaultValue={value} rows={3} required={required} placeholder={placeholder} />;
+  const type = f.secret ? "password" : f.type === "url" ? "url" : f.type === "number" || f.type === "integer" ? "number" : "text";
+  return (
+    <input
+      name={name}
+      type={type}
+      defaultValue={value}
+      required={required}
+      placeholder={placeholder}
+      step={f.type === "integer" ? 1 : f.type === "number" ? "any" : undefined}
+      min={f.min ?? undefined}
+      max={f.max ?? undefined}
+      pattern={f.pattern ?? undefined}
+      autoComplete="off"
+      spellCheck={false}
+    />
+  );
+}
+
+/** A package's Setup form, drawn from its Manifest's fields (ADR 0024). Its test runs with the
+ * candidate values before anything is saved, and what it said is shown either way. */
+function Setup({ connector, worldId, onSaved }: { connector: Connector; worldId: string; onSaved: () => Promise<unknown> }) {
+  const [form, setForm] = useState<SetupView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<KeyCheck | null>(null);
+  const path = { params: { path: { world_id: worldId, name: connector.name } } };
+
+  async function open() {
+    setSaid(null);
+    const { data, error } = await api.GET("/api/worlds/{world_id}/packages/{name}/setup", path);
+    if (data) setForm(data);
+    else setSaid({ ok: false, message: detail(error) ?? "Could not load its setup. Try again." });
+  }
+
+  async function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!form) return;
+    const values = new FormData(e.currentTarget);
+    const pick = (scope: string) =>
+      Object.fromEntries(form.fields.filter((f) => values.has(`${scope}:${f.key}`)).map((f) => [f.key, String(values.get(`${scope}:${f.key}`)).trim()]));
+    setBusy(true);
+    setSaid(null);
+    const { data, error } = await api.PUT("/api/worlds/{world_id}/packages/{name}/setup", { ...path, body: { shared: pick("shared"), world: pick("world") } });
+    setBusy(false);
+    if (error || !data) {
+      setSaid({ ok: false, message: detail(error) ?? "Could not save it. Try again." });
+      return;
+    }
+    setForm(null);
+    setSaid(data.check ?? { ok: true, message: "" });
+    await onSaved();
+  }
+
+  const shown = said && (
+    <span role={said.ok ? "status" : "alert"} className="key-check">
+      {said.ok ? `Setup saved. ${said.message}` : said.message}
+    </span>
+  );
+  if (!form) {
+    return (
+      <>
+        <button type="button" onClick={open} aria-label={`Set up ${connector.name}`}>
+          {connector.missing.length > 0 ? "Set up" : "Change setup"}
+        </button>
+        {shown}
+      </>
+    );
+  }
+  return (
+    <form className="set-keys setup" onSubmit={save} aria-label={`Setup of ${connector.label}`}>
+      {form.fields.map((f) => {
+        const required = f.required && f.default === null && !f.shared_set && !f.world_set;
+        return (
+          <div key={f.key} className="setup-field">
+            <label>
+              <span>
+                {f.label}
+                {f.required ? "" : <span className="faint-title"> (optional)</span>}
+                <span className="faint-title"> · {f.scope === "world" ? "this world" : "every world"}</span>
+                {f.secret && <span className="faint-title"> · Credential, {f.shared_set || f.world_set ? "set" : "not set"}</span>}
+              </span>
+              <FieldInput f={f} scope={f.scope} required={required} />
+            </label>
+            {f.help && <p className="faint">{f.help}</p>}
+            {f.scope === "shared" && (
+              <details open={f.world_set}>
+                <summary>This world only</summary>
+                <label>
+                  {f.label} here
+                  <FieldInput f={f} scope="world" required={false} />
+                </label>
+              </details>
+            )}
+          </div>
+        );
+      })}
+      <div className="row">
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? (form.test ? "Testing..." : "Saving...") : form.test ? "Test and save" : "Save"}
+        </button>
+        <button type="button" onClick={() => setForm(null)}>
+          Cancel
+        </button>
+        <span className="faint">
+          Stored in the data folder, mode 600, for {connector.label} only. Credentials are never shown again.
+          {form.help_url && (
+            <>
+              {" "}
+              <a href={form.help_url} target="_blank" rel="noreferrer">
+                Setup help
+              </a>
+            </>
+          )}
+        </span>
+      </div>
+      {shown}
     </form>
   );
 }
