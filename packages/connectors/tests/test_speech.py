@@ -418,8 +418,8 @@ def test_a_speech_stage_is_checked_for_its_script_output_and_params(
     ok = {"calls": "speech", "input": "script.md", "output": "timings.json", "params": {"seed": 7}}
     assert connectors.stage_problems("w", ok) == []
     assert connectors.stage_problems("w", {"calls": "speech", "params": {"speed": 2}}) == [
-        f"speech needs an input, {sp.MANIFEST['inputs'][0]}",
-        f"speech needs an output, {sp.MANIFEST['outputs'][0]}",
+        f"speech needs an input, {sp.MANIFEST['inputs'][0]['description']}",
+        f"speech needs an output, {sp.MANIFEST['outputs'][0]['description']}",
         "speech does not take params.speed",
     ]
 
@@ -428,8 +428,8 @@ def test_a_stage_is_checked_against_its_manifest_not_its_name(
     connectors: Connectors, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # what #111 moves into a package: the core reads the rules from the manifest alone
-    monkeypatch.setitem(sp.MANIFEST, "inputs", ["the words"])
-    monkeypatch.setitem(sp.MANIFEST, "outputs", ["voice.json"])
+    monkeypatch.setitem(sp.MANIFEST, "inputs", [{"description": "the words"}])
+    monkeypatch.setitem(sp.MANIFEST, "outputs", [{"description": "voice.json"}])
     monkeypatch.setitem(sp.MANIFEST["params"], "properties", {"speed": {"type": "number"}})
     assert connectors.stage_problems("w", {"calls": "speech", "params": {"seed": 1}}) == [
         "speech needs an input, the words",

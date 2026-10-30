@@ -36,6 +36,9 @@ class Connector:
     world_types: str | None = None
     """The tool that answers its types for one world (issue 140), given `world` and the world's
     `assets_path`, as `{"types": {name: schema}, "note": "..."}`; `types` stays the fallback."""
+    manifest: dict[str, Any] = field(default_factory=dict, compare=False)
+    """The Manifest that declares it (ADR 0019), which the planner describes it from; empty for
+    a connector a world added by hand, whose fields above stand in."""
 
     @property
     def has_server(self) -> bool:
