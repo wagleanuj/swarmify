@@ -1,0 +1,10 @@
+# error: input_types[0]: line is not one of its types
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+input_types = ["line"]

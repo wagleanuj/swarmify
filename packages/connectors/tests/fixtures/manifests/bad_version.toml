@@ -1,0 +1,9 @@
+# error: version: 
+name = "bad"
+version = "one"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]

@@ -368,6 +368,97 @@ each of `inputs`, in their order, so one connector can take a script and its voi
 `frontmatter` (world, run, stage) for a sidecar. Workflow params may not set these five. When the call is done and the
 output file exists, an `artifact.created` event announces it, typed by its sidecar.
 
+### Connector Packages
+
+A Connector Package is a folder with a `swarmify-connector.toml` Manifest at its root and the
+connector's code beside it (ADR 0019). It is installed once for the whole install (ADR 0023):
+`POST /api/packages` (`{"source": "connectors/<name>"}`, a folder of this repository, or an
+absolute local path; git URLs come once connectors run sandboxed) checks the Manifest, copies the
+folder to `<data dir>/packages/<name>/<version>/` and runs its `install` step there with a bare
+environment (PATH, HOME and uv's cache, none of Swarmify's keys), so its dependencies land beside
+it. An invalid Manifest is refused with a 422 naming the field (`config[1].options: ...`); a
+version already installed, or a failing step, is refused with its reason, and nothing new is
+left behind. `.swarmify-install.json`, written last, records the install (its `source` and
+`installed_at`); a version folder without it does not count. `GET /api/packages` lists every
+installed version with its `label`, `kind`, `about` and `state` (`installed`, or `invalid` with
+the `problem` when its Manifest no longer passes), and the connectors page lists them under
+Installed packages. This is the first step: worlds do not enable packages yet, and today's
+built-ins keep working as above.
+
+The Manifest, every section checked at install even where Swarmify does not act on it yet:
+
+```toml
+name = "echo"                     # lower_snake_case; workflows call the connector by it
+version = "1.0.0"                 # semver; installs side by side by version
+label = "Echo"                    # what the UI shows
+about = "Says back what it is given, as audio."
+kind = "stage"                    # tool | stage | publish
+stage_types = ["connector"]       # swarm and/or connector; a publish package only connector
+
+# Planning
+planner_notes = "Use echo to voice a short line."
+input_types = ["line"]            # the declared type of each input, by position; "" for untyped
+world_types = "echo_types"        # a tool answering its types for one world; needs [types]
+
+# Running
+runtime = "uv"                    # uv | npm | container
+command = ["uv", "run", "server.py"]   # how to start its MCP server; or url = "https://..."
+install = ["uv", "sync"]          # optional, run in the installed folder
+health = "echo_health"            # optional tool answering {"checks": [...]}
+
+owned_folders = ["echoes"]        # folders of each world's assets it owns
+capabilities = ["check"]          # publish | outcomes | build_session | check | remote_approvals
+# primary_metric = "views"        # with the outcomes capability
+
+[params]                          # a JSON Schema of a stage's params, with descriptions
+type = "object"
+additionalProperties = false
+properties.loud = { type = "boolean", description = "Say it louder" }
+
+[[inputs]]                        # and [[outputs]]: what it reads and makes
+description = "the line to say"
+media_type = "text/markdown"      # a media type, as audio/wav or video/*
+
+[types.line]                      # named input types, each a JSON Schema
+type = "object"
+properties.text = { type = "string" }
+
+[setup]
+test = "check_setup"              # a tool called with the candidate values before saving
+help_url = "https://example.org/echo/setup"
+
+[[config]]                        # one per Setup field
+key = "api_key"                   # lower_snake_case, unique
+label = "API key"
+type = "string"                   # string | text | number | integer | boolean | choice | url | path | oauth
+secret = true                     # a Credential; otherwise a Setting
+required = true
+scope = "shared"                  # shared (a world may override) | world
+env = "ECHO_KEY"                  # the variable it reaches the connector as; default KEY upper-cased
+help = "Any value works."
+# also: default, options (choice only), min, max, pattern, renamed_from,
+# and for type = "oauth" a [config.oauth] table: authorize_url, token_url, scopes, pkce, client
+
+[[config]]
+key = "endpoint"
+label = "Echo service URL"
+type = "url"
+default = "http://localhost:8099"
+
+[[services]]                      # a program it calls that the operator runs
+name = "echo_service"
+url = "endpoint"                  # the [[config]] key holding its URL
+health = "/health"
+
+[permissions]                     # Credentials come from secret [[config]] fields, never listed
+network = ["api.example.org"]
+services = ["echo_service"]
+folders = ["~/echo-cache"]
+```
+
+The full fixture is `packages/connectors/tests/fixtures/packages/echo`, and every rule has an
+invalid fixture beside it in `fixtures/manifests`.
+
 ## Remotion render
 
 `remotion_render` is our stdio MCP wrapper over `npx remotion render`

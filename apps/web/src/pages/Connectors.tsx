@@ -9,6 +9,7 @@ type Connector = components["schemas"]["ConnectorView"];
 type HealthCheck = components["schemas"]["HealthCheck"];
 type KeyCheck = components["schemas"]["KeyCheck"];
 type NewConnector = components["schemas"]["NewConnector"];
+type Package = components["schemas"]["Package"];
 type Tool = components["schemas"]["Tool"];
 type World = components["schemas"]["World"];
 type Kind = NewConnector["kind"];
@@ -96,6 +97,7 @@ export function Connectors() {
   const { worldId } = connectorsRoute.useParams();
   const [world, setWorld] = useState<World | null | undefined>(undefined);
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Kind>("stage");
   const [server, setServer] = useState("");
@@ -123,6 +125,10 @@ export function Connectors() {
       .then(({ data, response }) => setWorld(response.status === 404 ? null : (data ?? null)))
       .catch(() => setError("Could not load this world. Is the API running?"));
     void load().catch(() => undefined);
+    api
+      .GET("/api/packages")
+      .then(({ data }) => data && setPackages(data))
+      .catch(() => undefined);
   }, [worldId]);
 
   async function test(e: FormEvent<HTMLFormElement>) {
@@ -340,6 +346,34 @@ export function Connectors() {
             </section>
           );
         })}
+        {packages.length > 0 && (
+          <section className="panel" aria-labelledby="group-packages">
+            <div className="panel-head">
+              <h2 id="group-packages">Installed packages</h2>
+              <span className="faint">
+                Installed once for every world. <span className="num">{packages.length}</span>
+              </span>
+            </div>
+            <ul className="con-list" aria-label="Installed packages">
+              {packages.map((p) => (
+                <li key={`${p.name}@${p.version}`} data-package={p.name} className="con-row">
+                  <span className={p.state === "installed" ? "dot live" : "dot warn"} />
+                  <span className="con-main">
+                    <b>{p.label}</b>
+                    <span className="faint">{p.problem ?? p.about}</span>
+                  </span>
+                  <span className="faint mono">
+                    {p.name} {p.version}
+                  </span>
+                  {p.kind && <span className="faint">{p.kind}</span>}
+                  <span className={p.state === "installed" ? "pill" : "pill warning"}>
+                    {p.state === "installed" ? "Installed" : "Invalid Manifest"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </main>
   );

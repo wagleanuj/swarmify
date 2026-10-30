@@ -56,3 +56,19 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         expect(page.get_by_test_id("call")).not_to_contain_text("e2e-secret")
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
+
+
+def test_an_installed_package_shows_on_the_connectors_page(page: Page, base_url: str) -> None:
+    source = "packages/connectors/tests/fixtures/packages/echo"
+    installed = httpx.post(f"{base_url}/api/packages", json={"source": source})
+    assert installed.status_code == 201, installed.text
+    world = httpx.post(f"{base_url}/api/worlds", json={"name": "Packages"}).json()
+    try:
+        page.goto(f"{base_url}/worlds/{world['id']}/connectors")
+        row = page.locator("[data-package=echo]")
+        expect(row).to_contain_text("Echo")
+        expect(row).to_contain_text("echo 1.0.0")
+        expect(row).to_contain_text("Installed")
+        expect(page.get_by_test_id("connector-list")).to_contain_text("Web search")
+    finally:
+        httpx.delete(f"{base_url}/api/worlds/{world['id']}")
