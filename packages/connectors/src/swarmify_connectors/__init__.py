@@ -1,8 +1,9 @@
 """Connectors context: the only way the swarm touches anything outside the box.
 
-A Connector is an MCP server plus its credentials plus the stage types allowed to use it. Each
-world adds its own; the built-ins need no setup; an installed Connector Package gives a world a
-Connector, named as the package, only once the world enables it at a pinned version (ADR 0023).
+A Connector is an MCP server plus its credentials plus the stage types allowed to use it. The
+built-ins live in code; every other is an installed Connector Package, giving a world a Connector
+named as the package only once the world enables it at a pinned version (ADR 0023). The "add an
+MCP server" form writes a minimal Manifest and installs it as a local package (issue 211).
 A connector stage calls one Tool through the ConnectorTransport port with the stage id as its
 Idempotency Key, records the raw call and response, and polls a long job until it ends,
 appending a `connector_call.updated` event per change so the timeline shows progress.
@@ -28,7 +29,6 @@ from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
 from swarmify_connectors import builtin_publish, publish, remotion, setup, speech
-from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
 from swarmify_connectors.mcp_transport import McpTransport
@@ -251,6 +251,44 @@ BUILTINS = [from_manifest(m) for m in MANIFESTS.values()]
 # The cheap read-only tool each built-in publish connector proves its keys with.
 KEY_CHECKS = {"youtube": "channel", "upload_post": "get_account_info"}
 
+KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
+"""A key name the add form takes; lower-cased, it is its Setup field's key."""
+_RUNTIMES = {
+    "npx": "npm",
+    "node": "npm",
+    "npm": "npm",
+    "docker": "container",
+    "podman": "container",
+}
+
+
+def _local_manifest(c: Connector) -> dict[str, Any]:
+    """The minimal Manifest of a connector the add form drafted: each key name a required,
+    shared Credential reaching the process as that name."""
+    server = c.url or shlex.join(c.command)
+    m: dict[str, Any] = {
+        "name": c.name,
+        "version": "0.0.0",  # install_local picks the real one
+        "label": c.name,
+        "about": f"An MCP server added on the Connectors page: {server}",
+        "kind": c.kind,
+        "stage_types": c.stage_types,
+        "runtime": "uv" if c.url else _RUNTIMES.get(Path(c.command[0]).name, "uv"),
+        **({"url": c.url} if c.url else {"command": c.command}),
+        "config": [
+            {"key": n.lower(), "label": n, "type": "string", "secret": True, "required": True}
+            | {"scope": "shared", "env": n}
+            for n in c.credentials
+        ],
+    }
+    if c.types:
+        m["types"] = c.types
+    if c.input_types:
+        m["input_types"] = [t or "" for t in c.input_types]  # TOML has no null: "" is untyped
+    if c.world_types:
+        m["world_types"] = c.world_types
+    return m
+
 
 def _account(connector: str, answer: dict[str, Any]) -> str:
     if connector == "youtube" and answer.get("channel"):
@@ -316,13 +354,13 @@ class Connectors:
     # Registry
 
     def list_all(self, world_id: str, pins: Mapping[str, str] | None = None) -> list[Connector]:
-        """Built-ins first, then the packages the world enables by name, then the world's own in
-        the order they were added. A run passes `pins`, the package versions its workflow
-        version recorded (issue 223), which win over the world's current pins."""
+        """Built-ins first, then the packages the world enables, by name. A run passes `pins`,
+        the package versions its workflow version recorded (issue 223), which win over the
+        world's current pins."""
         enabled = self.storage.enabled_packages(world_id)
         chosen = {n: (pins or {}).get(n, v) for n, v in enabled.items()}
         packaged = [self.package_connector(world_id, n, v) for n, v in chosen.items()]
-        return [*BUILTINS, *(c for c in packaged if c), *self.storage.list_connectors(world_id)]
+        return [*BUILTINS, *(c for c in packaged if c)]
 
     # Connector Packages a world enables (ADR 0023)
 
@@ -345,7 +383,7 @@ class Connectors:
             stage_types=m["stage_types"],
             about=m["about"],
             types=m.get("types", {}),
-            input_types=m.get("input_types", []),
+            input_types=[t or None for t in m.get("input_types", [])],
             world_types=m.get("world_types"),
             version=version,
             folder=str(self.packages.root / name / version),
@@ -363,8 +401,6 @@ class Connectors:
             raise ValueError(f"'{name}' is a built-in connector")
         if name in AGENT_TOOLS:
             raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
-        if any(c.name == name for c in self.storage.list_connectors(world_id)):
-            raise ValueError(f"this world has its own connector named '{name}': remove it first")
         try:
             self.packages.manifest(name, version)
         except (InstallError, ManifestError) as exc:
@@ -509,9 +545,8 @@ class Connectors:
         return types, note.strip() if isinstance(note, str) else ""
 
     def get(self, connector_id: str) -> Connector | None:
-        """A built-in or a world's own connector; a package's has no id outside its world."""
-        builtin = next((c for c in BUILTINS if c.id == connector_id), None)
-        return builtin or self.storage.get_connector(connector_id)
+        """A built-in; a package's connector has no id outside its world."""
+        return next((c for c in BUILTINS if c.id == connector_id), None)
 
     def draft(
         self,
@@ -525,7 +560,8 @@ class Connectors:
         input_types: list[str | None] | None = None,
         world_types: str | None = None,
     ) -> Connector:
-        """A validated, unsaved connector. Raises ValueError naming the first problem."""
+        """A validated, unsaved connector, as the add form describes it. Raises ValueError
+        naming the first problem."""
         name, server = name.strip(), server.strip()
         if not NAME.match(name):
             raise ValueError("a name is lower_snake_case, as workflows call it: fal_video")
@@ -534,7 +570,7 @@ class Connectors:
         if name in AGENT_TOOLS:
             raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
         if name in self.storage.enabled_packages(world_id):
-            raise ValueError(f"'{name}' is a Connector Package this world enables")
+            raise ValueError(f"'{name}' is a Connector Package this world enables already")
         if kind not in KINDS:
             raise ValueError(f"kind is one of {', '.join(KINDS)}")
         if not server:
@@ -544,7 +580,7 @@ class Connectors:
             command = [] if url else shlex.split(server)
         except ValueError as exc:
             raise ValueError(f"cannot read the command: {exc}") from exc
-        bad = [n for n in credentials if not CREDENTIAL_NAME.match(n)]
+        bad = [n for n in credentials if not KEY_NAME.match(n)]
         if bad:
             raise ValueError(f"credential names are UPPER_SNAKE_CASE: {', '.join(bad)}")
         types = [t for t in STAGE_TYPES if t in stage_types]
@@ -582,20 +618,60 @@ class Connectors:
         )
 
     def test(self, connector: Connector, secrets: dict[str, str]) -> list[Tool]:
-        """Start the server once with its credentials and return its tools. Saves nothing."""
-        return self.transport.list_tools(connector, self._env(connector, secrets))
+        """Start a drafted server once with its keys and return its tools. Saves nothing."""
+        return self.transport.list_tools(
+            connector, self._env(connector, self._keys(connector, secrets))
+        )
 
     def add(self, connector: Connector, secrets: dict[str, str]) -> Connector:
-        """Save the connector; non-empty `secrets` are merged into the credentials file."""
-        self.credentials.read()  # surface a bad file mode before anything is saved
-        self.storage.add_connector(connector)
-        values = {k: v for k, v in secrets.items() if v and k in connector.credentials}
-        if values:
-            self.credentials.set(values)
-        return connector
+        """Install a drafted connector as a local Connector Package, enable it in its world and
+        save its keys as the package's shared Setup values. Raises ManifestError, or
+        PermissionError for a setup or credentials file others can read."""
+        assert connector.world_id is not None
+        keys = self._keys(connector, secrets)  # surfaces a bad file mode before anything is saved
+        shared, world = self.setups.values(connector.name, connector.world_id)
+        version = self.packages.install_local(_local_manifest(connector)).version
+        self.storage.enable_package(connector.world_id, connector.name, version, _now())
+        self.setups.put(
+            connector.name,
+            connector.world_id,
+            shared | {k.lower(): v for k, v in keys.items()},
+            world,
+        )
+        found = self.find(connector.world_id, connector.name)
+        assert found is not None
+        return found
 
-    def delete(self, connector_id: str) -> bool:
-        return self.storage.delete_connector(connector_id)
+    def _keys(self, connector: Connector, secrets: dict[str, str]) -> dict[str, str]:
+        """Each of a drafted connector's key names to its value: as entered, else its package's
+        saved one, else the credentials file's. Names with none are left out."""
+        assert connector.world_id is not None
+        saved, _ = self.setups.values(connector.name, connector.world_id)
+        file = self.credentials.read()
+        out = {}
+        for n in connector.credentials:
+            if value := secrets.get(n) or saved.get(n.lower()) or file.get(n):
+                out[n] = value
+        return out
+
+    def adopt_world_connectors(self) -> None:
+        """The one-time move of every connector a world added before Connector Packages (issue
+        211): each becomes a local package enabled for its world, its keys copied from the
+        credentials file into its Setup, and its row goes, so workflows calling it by name run
+        unchanged. The keys then leave the file unless a built-in uses them. A row that cannot
+        move is logged and kept."""
+        moved: set[str] = set()
+        for c in self.storage.world_connectors():
+            try:
+                self.add(c, {})
+            except (ValueError, InstallError) as exc:  # ManifestError is a ValueError
+                log.warning("could not move %s of %s to a package: %s", c.name, c.world_id, exc)
+                continue
+            self.storage.delete_connector(c.id)
+            moved.update(c.credentials)
+        kept = {n for c in BUILTINS for n in c.credentials}
+        kept |= {n for c in self.storage.world_connectors() for n in c.credentials}
+        self.credentials.remove(moved - kept)
 
     def set_credentials(self, connector: Connector, values: dict[str, str]) -> KeyCheck | None:
         """Merge values for the connector's own credential names; others are refused. Then, for

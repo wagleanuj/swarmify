@@ -25,13 +25,10 @@ class ConnectorTransport(Protocol):
 
 
 class Storage(Protocol):
-    def add_connector(self, connector: Connector) -> None:
-        """Raises ValueError when the world already has a connector of that name."""
+    def world_connectors(self) -> list[Connector]:
+        """Every world's connector rows from before Connector Packages, oldest first; only the
+        one-time move to local packages (issue 211) reads them."""
         ...
-
-    def list_connectors(self, world_id: str) -> list[Connector]: ...
-
-    def get_connector(self, connector_id: str) -> Connector | None: ...
 
     def delete_connector(self, connector_id: str) -> bool: ...
 

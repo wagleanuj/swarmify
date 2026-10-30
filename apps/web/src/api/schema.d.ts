@@ -612,7 +612,12 @@ export interface paths {
         /** List Connectors */
         get: operations["list_connectors_api_worlds__world_id__connectors_get"];
         put?: never;
-        /** Add Connector */
+        /**
+         * Add Connector
+         * @description Write a minimal Manifest for the server, install it as a local Connector Package,
+         *     enable it in this world and save its keys as the package's shared Credentials (issue
+         *     211). An empty key takes the value the package or the credentials file holds already.
+         */
         post: operations["add_connector_api_worlds__world_id__connectors_post"];
         delete?: never;
         options?: never;
@@ -635,23 +640,6 @@ export interface paths {
          */
         post: operations["test_connector_api_worlds__world_id__connectors_test_post"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/connectors/{connector_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Connector */
-        delete: operations["delete_connector_api_connectors__connector_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4966,35 +4954,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Tested"];
                 };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_connector_api_connectors__connector_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connector_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Validation Error */
             422: {

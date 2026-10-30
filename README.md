@@ -311,7 +311,8 @@ with no package, version or credentials. A swarm stage lists them in `tools` lik
 connector (`tools: [web_search, graph]`); the Connectors page does not show them and no connector
 may take their names.
 
-Credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with mode 600; the
+The built-ins' credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with
+mode 600 (a package's live in its Setup, below); the
 app refuses to read it when group or others can. Values never enter the database, a run, a
 workflow or an API response. A command connector gets exactly its own credentials as its process
 environment, merged over the MCP SDK's safe defaults (HOME, PATH, USER, SHELL, TERM, LOGNAME); a
@@ -359,9 +360,15 @@ world uses, so two worlds cannot post to different YouTube channels yet, and the
   schema on unread: `speech` uses it for the world's voices (below), a publish connector could
   list the channels a world has keys for.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
-  saving nothing. `POST /api/worlds/<id>/connectors` saves it and merges the given credential
-  values into the file (an empty value means the file already has it). `DELETE
-  /api/connectors/<id>` removes an added one.
+  saving nothing. `POST /api/worlds/<id>/connectors`, the connectors page's add form (issue
+  211), writes a minimal Manifest for it and installs it as a local Connector Package (see
+  below; its `source` is `local` and its version `0.0.N`, reusing a local version with the same
+  Manifest), enables it in the world and saves the given key values as its shared Setup values:
+  each key name becomes a required, shared Credential reaching the server as that name (an
+  empty value takes the one the package or `.env` holds already). It leaves a world as any
+  package does, `DELETE /api/worlds/<id>/packages/<name>`. On upgrade, every connector a world
+  added before packages becomes such a local package enabled for its world, its keys moved from
+  `.env` to its Setup (a key a built-in also uses stays), so workflows calling it run unchanged.
 - A connector stage calls the tool named like its connector (or `params.tool`) with `params`, its
   `input` (or `inputs`) and `output` artifact names and `idempotency_key` set to the stage id (`<stage id>.<n>`
   on the run's nth send-back), through the ConnectorTransport port. The call is recorded once per

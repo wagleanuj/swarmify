@@ -451,6 +451,7 @@ def create_app(
     that script no retro session turn it off."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
+    registry.adopt_world_connectors()  # V1's world-added connectors become local packages
     whiteboard = task_board(root)
     world_svc = world_service(root)
     memory = Memory(migrated_db(root), root)

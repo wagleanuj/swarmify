@@ -6,6 +6,8 @@ cannot say, raising ManifestError naming the field. Installing copies the packag
 `<data dir>/packages/<name>/<version>/` and runs its `install` step there, so its dependencies
 land beside it; the install is recorded once for the whole install by `.swarmify-install.json`,
 written last, so a version folder without it never counts and a failed step removes the folder.
+A local package is one Swarmify wrote the Manifest of itself, from the Connectors page's "add an
+MCP server" form (issue 211); it has no code of its own, only the command or URL it names.
 """
 
 import json
@@ -13,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,6 +29,8 @@ from swarmify_connectors.model import KINDS, STAGE_TYPES
 
 MANIFEST = "swarmify-connector.toml"
 RECORD = ".swarmify-install.json"
+LOCAL = "local"
+"""The install source recorded for a local package."""
 INSTALL_SECONDS = 900
 COPY_SKIPS = shutil.ignore_patterns(".git", ".venv", "node_modules", "__pycache__", RECORD)
 CAPABILITIES = ("publish", "outcomes", "build_session", "check", "remote_approvals")
@@ -336,6 +341,26 @@ def manifest_diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _toml(value: Any) -> str:
+    """`value` as a TOML value, tables inline. Raises ManifestError for a null, which TOML lacks."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)  # a JSON string is a TOML basic string
+    if isinstance(value, list):
+        return f"[{', '.join(_toml(v) for v in value)}]"
+    if isinstance(value, dict):
+        return f"{{{', '.join(f'{_toml(str(k))} = {_toml(v)}' for k, v in value.items())}}}"
+    raise ManifestError(f"manifest: TOML has no {value!r}")
+
+
+def write_manifest(manifest: dict[str, Any]) -> str:
+    """The Manifest as the text of a `swarmify-connector.toml`."""
+    return "".join(f"{k} = {_toml(v)}\n" for k, v in manifest.items())
+
+
 def _install_env() -> dict[str, str]:
     """What the install step sees: enough to find uv, npm and their caches, and none of the
     app's own variables (no keys, no VIRTUAL_ENV pointing at Swarmify's venv)."""
@@ -383,7 +408,27 @@ class Packages:
             raise InstallError(f"no package folder at {path}")
         return path
 
-    def install(self, source: str) -> Package:
+    def install_local(self, manifest: dict[str, Any]) -> Package:
+        """Install a Manifest Swarmify wrote as a local package. An installed local version
+        with the same Manifest is reused; else it installs as the next free `0.0.N`. Raises
+        ManifestError for a bad Manifest."""
+        name = manifest["name"]
+        mine = [p for p in self.list() if p.name == name and p.source == LOCAL]
+        for p in mine:
+            if p.state == "installed" and self.manifest(name, p.version) == {
+                **manifest,
+                "version": p.version,
+            }:
+                return p
+        n = len(mine) + 1
+        while (self.root / name / f"0.0.{n}").exists():
+            n += 1
+        with tempfile.TemporaryDirectory() as folder:
+            text = write_manifest({**manifest, "version": f"0.0.{n}"})
+            (Path(folder) / MANIFEST).write_text(text)
+            return self.install(folder, LOCAL)
+
+    def install(self, source: str, record_as: str | None = None) -> Package:
         """Copy the package at `source` to `<root>/<name>/<version>/` and run its install step
         there. Raises ManifestError for a bad Manifest, InstallError when the version is
         installed already or the step fails; either way nothing new is left behind."""
@@ -398,7 +443,7 @@ class Packages:
             shutil.copytree(folder, target, ignore=COPY_SKIPS)
             if manifest.get("install"):
                 self._run_install(manifest, target)
-            record = {"source": source, "installed_at": datetime.now(UTC).isoformat()}
+            record = {"source": record_as or source, "installed_at": datetime.now(UTC).isoformat()}
             (target / f"{RECORD}.tmp").write_text(json.dumps(record))
             (target / f"{RECORD}.tmp").replace(target / RECORD)
         except BaseException:

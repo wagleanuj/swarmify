@@ -78,15 +78,11 @@ def test_only_an_installed_version_under_a_free_name_enables(
     assert connectors.enabled("w1") == {}
 
 
-def test_a_package_and_a_worlds_own_connector_never_share_a_name(
+def test_a_world_never_adds_a_connector_named_as_a_package_it_enables(
     connectors: Connectors, packages: Packages
 ) -> None:
-    own = connectors.draft("w1", "echo", "stage", "uvx echo", [], ["connector"])
-    connectors.add(own, {})
-    with pytest.raises(ValueError, match="its own connector named 'echo'"):
-        connectors.enable("w1", "echo", "1.0.0")
     connectors.enable("w2", "echo", "1.0.0")
-    with pytest.raises(ValueError, match="a Connector Package this world enables"):
+    with pytest.raises(ValueError, match="a Connector Package this world enables already"):
         connectors.draft("w2", "echo", "stage", "uvx echo", [], ["connector"])
 
 

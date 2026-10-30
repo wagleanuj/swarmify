@@ -80,10 +80,7 @@ export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off
 
 function where(c: Connector): string {
   if (c.version) return `${c.about} · package ${c.name} ${c.version}`;
-  if (c.missing.length > 0) return `${c.builtin ? c.about : c.url ?? c.command.join(" ")} · ${c.missing.join(", ")} not set`;
-  if (c.builtin) return c.about;
-  const server = c.url ?? c.command.join(" ");
-  return c.credentials.length ? `${server} · ${c.credentials.join(", ")}` : `${server} · no key`;
+  return c.missing.length > 0 ? `${c.about} · ${c.missing.join(", ")} not set` : c.about;
 }
 
 export function Connectors() {
@@ -167,19 +164,7 @@ export function Connectors() {
     setServer("");
     setKeys("");
     setTested(null);
-    await load();
-  }
-
-  async function remove(c: Connector) {
-    if (!window.confirm(`Remove ${c.name}? Workflows that call it stop passing their checks.`)) return;
-    const { error } = await api.DELETE("/api/connectors/{connector_id}", {
-      params: { path: { connector_id: c.id } },
-    });
-    if (error) {
-      setError("Could not remove it. Try again.");
-      return;
-    }
-    await load();
+    await Promise.all([load(), loadEnabled(), loadPackages()]);
   }
 
   /** A switch of the pinned version first shows what changes in the Manifest. */
@@ -252,8 +237,9 @@ export function Connectors() {
         <div>
           <h1>Connectors</h1>
           <p className="sub">
-            {connectors.length} connectors, {waiting} waiting on a key. Any MCP server can be one: its keys
-            live in ~/.swarmify/.env, never inside a run or a shared workflow, and are shared by every world.
+            {connectors.length} connectors, {waiting} waiting on a key. Any MCP server can be one: Swarmify
+            installs it as a local package with its keys in its Setup. The built-ins' keys live in
+            ~/.swarmify/.env and are shared by every world. No key ever enters a run or a shared workflow.
             Web search and the world's graph are not connectors: they are Agent Tools Swarmify gives swarm steps,
             with nothing to set up.
           </p>
@@ -294,7 +280,7 @@ export function Connectors() {
           />
         </label>
         <label>
-          Keys, one NAME=value per line (stored in ~/.swarmify/.env, mode 600)
+          Keys, one NAME=value per line (saved as its Setup's Credentials, mode 600)
           <textarea
             value={keys}
             onChange={(e) => setKeys(e.target.value)}
@@ -385,7 +371,7 @@ export function Connectors() {
                       <span className={s.tone === "ok" ? "dot live" : s.tone === "warn" ? "dot warn" : "dot"} />
                       <span className="con-main">
                         <b>{c.label}</b>
-                        <span className={c.builtin || c.version ? "faint" : "faint mono"}>{where(c)}</span>
+                        <span className="faint">{where(c)}</span>
                       </span>
                       <span className="faint">{c.stage_types.join(", ")} steps</span>
                       <span className={s.tone === "warn" ? "pill warning" : "pill"}>{s.text}</span>
@@ -393,11 +379,6 @@ export function Connectors() {
                         <Setup connector={c} worldId={worldId} onSaved={load} />
                       ) : (
                         c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />
-                      )}
-                      {!c.builtin && !c.version && (
-                        <button type="button" className="link" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}>
-                          Remove
-                        </button>
                       )}
                       {c.health && <Health connector={c} />}
                     </li>

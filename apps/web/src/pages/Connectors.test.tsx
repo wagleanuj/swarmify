@@ -22,7 +22,7 @@ const builtins = [
 ];
 const fal = {
   ...base,
-  id: "conn_1",
+  id: "package_fal_video",
   world_id: "world_1",
   name: "fal_video",
   kind: "stage",
@@ -30,9 +30,10 @@ const fal = {
   credentials: ["FAL_KEY"],
   stage_types: ["connector"],
   builtin: false,
-  about: "",
+  about: "An MCP server added on the Connectors page: uvx fal-mcp",
   label: "fal_video",
-  missing: ["FAL_KEY"],
+  missing: ["fal_key"],
+  version: "0.0.1",
 };
 
 beforeEach(() => FakeEventSource.install());
@@ -41,7 +42,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("lists connectors by kind with their steps and health, and flags a missing key with Set keys", async () => {
+test("lists connectors by kind with their steps and health, and flags a missing key", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, fal]),
@@ -54,15 +55,18 @@ test("lists connectors by kind with their steps and health, and flags a missing 
     .element(screen.getByRole("region", { name: "Publishing" }))
     .toMatchTextContent(/Always after a gate\..*YouTube.*connector steps\s*Not installed/);
   const added = screen.getByRole("list", { name: "Steps of their own" }).getByRole("listitem");
-  await expect.element(added).toMatchTextContent(/fal_video\s*uvx fal-mcp · FAL_KEY not set\s*connector steps\s*Needs a key\s*Set keys/);
-  await expect.element(added.getByRole("button", { name: "Set keys for fal_video" })).toHaveTextContent("Set keys");
-  await expect.element(screen.getByRole("button", { name: "Remove fal_video" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Remove youtube" }).elements()).toHaveLength(0);
+  await expect
+    .element(added)
+    .toMatchTextContent(/fal_video\s*An MCP server added on the Connectors page: uvx fal-mcp · package fal_video 0\.0\.1\s*connector steps\s*Needs setup\s*Set up/);
+  await expect.element(added.getByRole("button", { name: "Set up fal_video" })).toBeVisible();
+  expect(screen.getByRole("button", { name: /^Remove/ }).elements()).toHaveLength(0);
 });
 
 test("tests a draft, shows its tools, and saves it only after a passing test", async () => {
   const bodies: unknown[] = [];
   let listed: object[] = builtins;
+  const falPackage = { name: "fal_video", version: "0.0.1", label: "fal_video", kind: "stage", about: fal.about, state: "installed" };
+  let installed: (typeof falPackage)[] = [];
   const calls = fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json(listed),
@@ -73,8 +77,11 @@ test("tests a draft, shows its tools, and saves it only after a passing test", a
     "POST /api/worlds/world_1/connectors": async (req) => {
       bodies.push(await req.json());
       listed = [...builtins, { ...fal, missing: [] }];
+      installed = [falPackage];
       return Response.json({ ...fal, missing: [] }, { status: 201 });
     },
+    "GET /api/packages": () => Response.json(installed),
+    "GET /api/worlds/world_1/packages": () => Response.json(installed.map((p) => ({ name: p.name, version: p.version }))),
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
   await screen.getByRole("button", { name: "Add a connector" }).click();
@@ -105,6 +112,10 @@ test("tests a draft, shows its tools, and saves it only after a passing test", a
   await expect.element(screen.getByTestId("connector-list")).toMatchTextContent(/fal_video.*Ready/);
   expect(bodies[2]).toEqual(bodies[0]);
   expect(calls.filter((c) => c === "GET /api/worlds/world_1/connectors")).toHaveLength(2);
+  // Saving installed it as a local package, enabled here.
+  await expect
+    .element(screen.getByRole("list", { name: "Installed packages" }))
+    .toMatchTextContent(/fal_video 0\.0\.1.*Enabled here/);
   await expect.element(screen.getByRole("textbox", { name: "Name" })).toHaveValue("");
 });
 

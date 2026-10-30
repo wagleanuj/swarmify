@@ -315,9 +315,9 @@ def test_a_start_refuses_a_connector_that_turned_publish_after_the_save(
     yaml = "name: Sneaky\nstages:\n  - connector: post\n    calls: poster\n"
     poster = {**MAKER, "name": "poster"}
     world, workflow = setup(running, "name: x\nstages:\n  - connector: m\n    calls: maker\n")
-    added = running.post(f"/api/worlds/{world}/connectors", json=poster).json()
+    running.post(f"/api/worlds/{world}/connectors", json=poster).raise_for_status()
     saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()
-    running.delete(f"/api/connectors/{added['id']}")
+    running.delete(f"/api/worlds/{world}/packages/poster")
     publishing = {**poster, "kind": "publish"}
     assert running.post(f"/api/worlds/{world}/connectors", json=publishing).status_code == 201
 
