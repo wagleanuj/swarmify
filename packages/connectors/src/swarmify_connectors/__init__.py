@@ -26,7 +26,7 @@ from typing import Any
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
-from swarmify_connectors import builtin_publish, publish, remotion, speech
+from swarmify_connectors import builtin_publish, publish, remotion, setup, speech
 from swarmify_connectors.credentials import NAME as CREDENTIAL_NAME
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
@@ -49,6 +49,7 @@ from swarmify_connectors.packages import (
     read_manifest,
 )
 from swarmify_connectors.ports import ConnectorTransport, Storage
+from swarmify_connectors.setup import SetupStore
 from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_kernel import AGENT_TOOLS, new_id
 
@@ -71,6 +72,7 @@ __all__ = [
     "McpTransport",
     "Package",
     "Packages",
+    "SetupStore",
     "SqliteStorage",
     "Storage",
     "Tool",
@@ -307,6 +309,7 @@ class Connectors:
         self.poll_seconds = poll_seconds
         self.data_dir = credentials.path.parent  # credentials live in `<data dir>/.env`
         self.packages = packages or Packages(self.data_dir / "packages", self.data_dir)
+        self.setups = SetupStore(self.data_dir / "setup.json")
 
     # Registry
 
@@ -327,7 +330,6 @@ class Connectors:
         except (InstallError, ManifestError) as exc:
             log.warning("%s enables %s %s, which is unusable: %s", world_id, name, version, exc)
             return None
-        # ponytail: no Credentials yet; the package's Setup values reach it with #209.
         return Connector(
             f"package_{name}",
             world_id,
@@ -335,6 +337,7 @@ class Connectors:
             m["kind"],
             m.get("command", []),
             m.get("url"),
+            [setup.env_name(f) for f in setup.fields(m) if f.get("secret")],
             stage_types=m["stage_types"],
             about=m["about"],
             types=m.get("types", {}),
@@ -367,6 +370,65 @@ class Connectors:
     def disable(self, world_id: str, name: str) -> bool:
         """Stop the world using the package; other worlds keep theirs. False if not enabled."""
         return self.storage.disable_package(world_id, name)
+
+    # Setup of a package a world enables (ADR 0024)
+
+    def setup_values(
+        self, world_id: str, name: str
+    ) -> tuple[Connector, setup.Values, setup.Values]:
+        """The enabled package's Connector, its shared Setup values and the world's own. Raises
+        ValueError when the world does not enable it."""
+        connector = self.find(world_id, name)
+        if connector is None or connector.version is None:
+            raise ValueError(f"this world does not enable {name}")
+        return connector, *self.setups.values(name, world_id)
+
+    def save_setup(
+        self, world_id: str, name: str, shared: dict[str, Any], world: dict[str, Any]
+    ) -> KeyCheck | None:
+        """Set the package's shared values and the world's own, for the fields its Manifest
+        declares. An empty value clears a Setting; an empty Credential keeps the saved one and
+        None clears it. Every required field must then resolve for this world. When the package
+        declares a `[setup] test` tool, it runs with the candidate values first: the values are
+        saved only when it answers `ok`, and its `message` is returned either way. Raises
+        ValueError naming the first bad field."""
+        connector, now_shared, now_world = self.setup_values(world_id, name)
+        declared = {f["key"]: f for f in setup.fields(connector.manifest)}
+        for values, new, where in ((now_shared, shared, "shared"), (now_world, world, "world")):
+            for f in declared.values():  # carry a renamed field's value to its key
+                old = f.get("renamed_from")
+                if old in values and f["key"] not in values:
+                    values[f["key"]] = values.pop(old)
+            for key, raw in new.items():
+                field = declared.get(key)
+                if field is None:
+                    raise ValueError(f"{name} has no Setup field {key}")
+                if where == "shared" and setup.scope(field) == "world":
+                    raise ValueError(f"{field['label']}: is set per world, not shared")
+                if field.get("secret") and raw == "":
+                    continue
+                value = setup.coerce(field, raw)
+                if value is None:
+                    values.pop(key, None)
+                else:
+                    values[key] = value
+        resolved = setup.resolve(connector.manifest, now_shared, now_world)
+        if gaps := setup.missing(connector.manifest, resolved):
+            raise ValueError(f"{declared[gaps[0]]['label']}: is required")
+        check = None
+        if test := connector.manifest.get("setup", {}).get("test"):
+            env = setup.environment(connector.manifest, resolved)
+            try:
+                answer = self.transport.call(connector, test, {}, env)
+                ok = answer.get("ok") is True
+                said = str(answer.get("message") or "")
+                check = KeyCheck(ok, said or ("The setup works." if ok else "The test failed."))
+            except ConnectorError as exc:
+                check = KeyCheck(False, str(exc))
+            if not check.ok:
+                return check
+        self.setups.put(name, world_id, now_shared, now_world)
+        return check
 
     def find(self, world_id: str, name: str) -> Connector | None:
         return next((c for c in self.list_all(world_id) if c.name == name), None)
@@ -513,7 +575,13 @@ class Connectors:
         return KeyCheck(True, _account(connector.name, answer))
 
     def missing(self, connector: Connector) -> list[str]:
-        """Credential names the file does not hold yet."""
+        """Credential names the file does not hold yet; for a package, the keys of required
+        Setup fields that resolve to nothing in its world."""
+        if connector.version is not None and connector.world_id is not None:
+            try:
+                return setup.missing(connector.manifest, self._resolved(connector))
+            except PermissionError:
+                return [f["key"] for f in setup.fields(connector.manifest) if f.get("required")]
         try:
             have = self.credentials.read()
         except PermissionError:
@@ -522,6 +590,7 @@ class Connectors:
 
     def delete_world(self, world_id: str) -> None:
         self.storage.delete_world(world_id)
+        self.setups.delete_world(world_id)
 
     def secret_names(self, world_id: str) -> list[str]:
         """Every key name a coding session must not see: those in the file and those any of
@@ -554,7 +623,20 @@ class Connectors:
             )
         return servers
 
+    def _resolved(self, connector: Connector) -> setup.Values:
+        assert connector.world_id is not None
+        shared, world = self.setups.values(connector.name, connector.world_id)
+        return setup.resolve(connector.manifest, shared, world)
+
     def _env(self, connector: Connector, extra: dict[str, str] | None = None) -> dict[str, str]:
+        if connector.version is not None:
+            # A package gets exactly its own Setup values for the world it runs for (ADR 0024).
+            resolved = self._resolved(connector)
+            if gaps := setup.missing(connector.manifest, resolved):
+                raise ConnectorError(
+                    f"{connector.name} needs its Setup on the Connectors page: {', '.join(gaps)}"
+                )
+            return setup.environment(connector.manifest, resolved)
         values = {**self.credentials.read(), **{k: v for k, v in (extra or {}).items() if v}}
         missing = [n for n in connector.credentials if not values.get(n)]
         if missing:

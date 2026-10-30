@@ -1,5 +1,7 @@
+import json
 import re
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -97,3 +99,53 @@ def test_a_world_enables_an_installed_package_and_disables_it(page: Page, base_u
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
         httpx.delete(f"{base_url}/api/worlds/{other['id']}")
+
+
+def test_a_packages_setup_form_tests_before_saving(
+    page: Page, base_url: str, data_dir: Path, tmp_path: Path
+) -> None:
+    probe = Path(__file__).parents[2] / "packages/connectors/tests/fixtures/packages/probe"
+    source = tmp_path / "probe"
+    shutil.copytree(probe, source)
+    toml = source / "swarmify-connector.toml"
+    toml.write_text(
+        toml.read_text()
+        .replace('name = "probe"', 'name = "probe_e2e"')
+        .replace('["python3", "server.py"]', json.dumps([sys.executable, "server.py"]))
+    )
+    installed = httpx.post(f"{base_url}/api/packages", json={"source": str(source)})
+    assert installed.status_code == 201, installed.text
+    world = httpx.post(f"{base_url}/api/worlds", json={"name": "Setup"}).json()
+    try:
+        httpx.put(
+            f"{base_url}/api/worlds/{world['id']}/packages/probe_e2e", json={"version": "1.0.0"}
+        )
+        page.goto(f"{base_url}/worlds/{world['id']}/connectors")
+        row = page.locator("[data-name=probe_e2e]")
+        expect(row).to_contain_text("Needs setup")
+        row.get_by_role("button", name="Set up probe_e2e").click()
+        form = page.get_by_role("form", name="Setup of Probe")
+        key = form.get_by_label(re.compile(r"^API key · every world"))
+        key.fill("bad")
+        form.get_by_label(re.compile(r"^Voice.*this world")).select_option("high")
+        form.get_by_role("button", name="Test and save").click()
+        expect(form.get_by_role("alert")).to_have_text(
+            "Not saved. The test said: The probe service refused that key.", timeout=15_000
+        )
+        assert (
+            not (data_dir / "setup.json").exists()
+            or "probe_e2e" not in (data_dir / "setup.json").read_text()
+        )
+
+        key.fill("good")
+        form.get_by_role("button", name="Test and save").click()
+        expect(row.get_by_role("status")).to_have_text(
+            "Setup saved. Signed in as probe.", timeout=15_000
+        )
+        expect(row).to_contain_text("Ready")
+        saved = json.loads((data_dir / "setup.json").read_text())["probe_e2e"]
+        assert saved == {"shared": {"api_key": "good"}, "worlds": {world["id"]: {"voice": "high"}}}
+        form_now = httpx.get(f"{base_url}/api/worlds/{world['id']}/packages/probe_e2e/setup")
+        assert '"good"' not in form_now.text
+    finally:
+        httpx.delete(f"{base_url}/api/worlds/{world['id']}")

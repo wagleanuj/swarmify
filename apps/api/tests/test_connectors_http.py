@@ -330,3 +330,54 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
     assert missing.status_code == 422 and missing.json()["detail"] == "echo 9.0.0 is not installed"
     nope = client.put("/api/worlds/world_nope/packages/echo", json={"version": "1.0.0"})
     assert nope.status_code == 404
+
+
+def test_a_packages_setup_form_tests_before_saving_and_never_returns_a_credential(
+    client: TestClient, transport: FakeTransport, tmp_path: Path
+) -> None:
+    source = "packages/connectors/tests/fixtures/packages/probe"
+    assert client.post("/api/packages", json={"source": source}).status_code == 201
+    one, two = world(client), world(client)
+    for w in (one, two):
+        client.put(f"/api/worlds/{w}/packages/probe", json={"version": "1.0.0"})
+    form = client.get(f"/api/worlds/{one}/packages/probe/setup").json()
+    assert [f["type"] for f in form["fields"]] == [
+        "string", "text", "number", "integer", "boolean", "choice", "url", "path"
+    ]  # fmt: skip
+    key = form["fields"][0]
+    assert (key["key"], key["secret"], key["required"], key["env"]) == (
+        "api_key", True, True, "PROBE_KEY"
+    )  # fmt: skip
+    assert form["missing"] == ["api_key"] and form["test"] == "check_setup"
+    probe = client.get(f"/api/worlds/{one}/connectors").json()[-1]
+    assert probe["missing"] == ["api_key"] and probe["credentials"] == ["PROBE_KEY"]
+
+    transport.outputs["check_setup"] = [
+        {"ok": False, "message": "That key was refused."},
+        {"ok": True, "message": "Signed in as probe."},
+    ]
+    url = f"/api/worlds/{one}/packages/probe/setup"
+    body = {"shared": {"api_key": "s3cret", "ratio": "0.5"}, "world": {"voice": "high"}}
+    refused = client.put(url, json=body)
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "Not saved. The test said: That key was refused."
+    assert not (tmp_path / "setup.json").exists()
+
+    saved = client.put(url, json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["check"] == {"ok": True, "message": "Signed in as probe."}
+    assert "s3cret" not in saved.text
+    assert stat.S_IMODE((tmp_path / "setup.json").stat().st_mode) == 0o600
+    for w, voice in ((one, "high"), (two, None)):
+        got = client.get(f"/api/worlds/{w}/packages/probe/setup")
+        assert "s3cret" not in got.text
+        by_key = {f["key"]: f for f in got.json()["fields"]}
+        assert (by_key["api_key"]["shared"], by_key["api_key"]["shared_set"]) == (None, True)
+        assert by_key["ratio"]["shared"] == 0.5 and by_key["voice"]["world"] == voice
+        assert got.json()["missing"] == []
+    assert "s3cret" not in client.get(f"/api/worlds/{one}/connectors").text
+
+    bad = client.put(url, json={"shared": {"ratio": "lots"}})
+    assert bad.status_code == 422 and bad.json()["detail"] == "Ratio: is a number"
+    gone = client.get(f"/api/worlds/{one}/packages/echo/setup")
+    assert gone.status_code == 404

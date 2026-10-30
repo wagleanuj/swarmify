@@ -20,6 +20,7 @@ from swarmify_connectors import (
     Packages,
     Tool,
 )
+from swarmify_connectors.setup import env_name, fields, scope
 from swarmify_worlds import Worlds
 
 
@@ -113,6 +114,58 @@ class EnabledPackage(BaseModel):
 class PinnedVersion(BaseModel):
     version: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     """An installed version of the package, as `1.0.0`."""
+
+
+SetupValue = bool | int | float | Annotated[str, StringConstraints(max_length=20000)] | None
+
+
+class SetupField(BaseModel):
+    """One `[[config]]` field of a package's Setup as its Manifest declares it, with what is
+    saved for it. A Credential's value is never returned, only whether it is set."""
+
+    key: str
+    label: str
+    type: Literal["string", "text", "number", "integer", "boolean", "choice", "url", "path"]
+    secret: bool
+    required: bool
+    scope: Literal["shared", "world"]
+    """`shared`: one value for every world, which a world may override; `world`: per world."""
+    env: str
+    help: str | None
+    options: list[str] | None
+    default: SetupValue
+    min: float | None
+    max: float | None
+    pattern: str | None
+    shared: SetupValue
+    """The shared value; null for a Credential, and for a field set per world."""
+    world: SetupValue
+    """This world's own value; null for a Credential."""
+    shared_set: bool
+    world_set: bool
+
+
+class SetupView(BaseModel):
+    package: str
+    version: str
+    help_url: str | None
+    test: str | None
+    """The tool Swarmify runs with the candidate values before saving; null for none."""
+    fields: list[SetupField]
+    missing: list[str]
+    """Keys of required fields with no value for this world."""
+
+
+class SavedSetup(SetupView):
+    check: KeyCheck | None
+    """What the package's test said when it passed; null when it declares no test."""
+
+
+class SetupValues(BaseModel):
+    shared: dict[str, SetupValue] = Field(default_factory=dict, max_length=100)
+    """Field key to its value for every world."""
+    world: dict[str, SetupValue] = Field(default_factory=dict, max_length=100)
+    """Field key to this world's own value, which wins over the shared one here."""
 
 
 def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRouter:
@@ -246,6 +299,65 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
         if not connectors.disable(world_id, name):
             raise HTTPException(404, f"this world does not enable {name}")
         return Response(status_code=204)
+
+    def setup_view(world_id: str, name: str) -> SetupView:
+        try:
+            connector, shared, world = connectors.setup_values(world_id, name)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        m = connector.manifest
+
+        def shown(f: dict[str, Any], values: dict[str, Any]) -> Any:
+            return None if f.get("secret") else values.get(f["key"])
+
+        return SetupView(
+            package=name,
+            version=connector.version or "",
+            help_url=m.get("setup", {}).get("help_url"),
+            test=m.get("setup", {}).get("test"),
+            fields=[
+                SetupField.model_validate(
+                    {
+                        **{k: f.get(k) for k in ("key", "label", "type", "help", "options")},
+                        **{k: f.get(k) for k in ("default", "min", "max", "pattern")},
+                        "secret": f.get("secret", False),
+                        "required": f.get("required", False),
+                        "scope": scope(f),
+                        "env": env_name(f),
+                        "shared": None if scope(f) == "world" else shown(f, shared),
+                        "world": shown(f, world),
+                        "shared_set": scope(f) == "shared" and shared.get(f["key"]) is not None,
+                        "world_set": world.get(f["key"]) is not None,
+                    }
+                )
+                for f in fields(m)
+            ],
+            missing=connectors.missing(connector),
+        )
+
+    @api.get("/worlds/{world_id}/packages/{name}/setup")
+    def get_setup(world_id: str, name: str) -> SetupView:
+        """The Setup form of a package this world enables, drawn from its Manifest's
+        `[[config]]` fields with what is saved for each (ADR 0024). Credentials are only set
+        or not. 404 when the world does not enable it."""
+        world_or_404(world_id)
+        return setup_view(world_id, name)
+
+    @api.put("/worlds/{world_id}/packages/{name}/setup")
+    def save_setup(world_id: str, name: str, body: SetupValues) -> SavedSetup:
+        """Save the package's shared values and this world's own. An empty value clears a
+        Setting; an empty Credential keeps the saved one, null clears it. The package's test
+        tool runs with the candidate values first; when it fails nothing is saved and the 422
+        carries its message. 422 also names a field that is invalid or required."""
+        world_or_404(world_id)
+        setup_view(world_id, name)  # 404 before anything else
+        try:
+            check = connectors.save_setup(world_id, name, body.shared, body.world)
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if check is not None and not check.ok:
+            raise HTTPException(422, f"Not saved. The test said: {check.message}")
+        return SavedSetup(**setup_view(world_id, name).model_dump(), check=check)
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

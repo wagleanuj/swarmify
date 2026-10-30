@@ -278,3 +278,75 @@ test("shows which packages this world enables at which version, and enables, swi
   expect(calls).toContain("DELETE /api/worlds/world_1/packages/echo");
   expect(screen.getByRole("list", { name: "Steps of their own" }).elements()).toHaveLength(0);
 });
+
+test("draws a package's Setup form from its fields, tests before saving and shows what the test said", async () => {
+  const field = { secret: false, required: false, scope: "shared", help: null, options: null, default: null, min: null, max: null, pattern: null, shared: null, world: null, shared_set: false, world_set: false };
+  const form = {
+    package: "probe",
+    version: "1.0.0",
+    help_url: "https://example.org/probe",
+    test: "check_setup",
+    missing: ["api_key"],
+    fields: [
+      { ...field, key: "api_key", label: "API key", type: "string", env: "PROBE_KEY", secret: true, required: true, help: "The check passes for good." },
+      { ...field, key: "notes", label: "Notes", type: "text", env: "NOTES" },
+      { ...field, key: "ratio", label: "Ratio", type: "number", env: "RATIO", min: 0, max: 1, shared: 0.5, shared_set: true },
+      { ...field, key: "retries", label: "Retries", type: "integer", env: "RETRIES", default: 3 },
+      { ...field, key: "loud", label: "Loud", type: "boolean", env: "LOUD", default: false },
+      { ...field, key: "voice", label: "Voice", type: "choice", env: "VOICE", scope: "world", options: ["low", "high"], default: "low" },
+      { ...field, key: "endpoint", label: "Service URL", type: "url", env: "ENDPOINT" },
+      { ...field, key: "cache", label: "Cache folder", type: "path", env: "CACHE" },
+    ],
+  };
+  const probe = { ...base, id: "package_probe", world_id: "world_1", name: "probe", kind: "stage", stage_types: ["connector"], builtin: false, about: "Answers with its environment.", command: ["python3", "server.py"], credentials: ["PROBE_KEY"], version: "1.0.0", label: "Probe", missing: ["api_key"] };
+  let listed = probe;
+  const bodies: unknown[] = [];
+  const answers = [
+    Response.json({ detail: "Not saved. The test said: That key was refused." }, { status: 422 }),
+    Response.json({ ...form, missing: [], check: { ok: true, message: "Signed in as probe." } }),
+  ];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, listed]),
+    "GET /api/worlds/world_1/packages/probe/setup": () => Response.json(form),
+    "PUT /api/worlds/world_1/packages/probe/setup": async (req) => {
+      bodies.push(await req.json());
+      const answer = answers.shift() as Response;
+      if (answer.ok) listed = { ...probe, missing: [] };
+      return answer;
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  const row = screen.getByRole("list", { name: "Steps of their own" }).getByRole("listitem");
+  await expect.element(row).toMatchTextContent(/Probe.*Needs setup\s*Set up/);
+  expect(row.getByRole("button", { name: "Set keys for probe" }).elements()).toHaveLength(0);
+  await row.getByRole("button", { name: "Set up probe" }).click();
+
+  const setup = screen.getByRole("form", { name: "Setup of Probe" });
+  const key = setup.getByLabelText(/^API key · every world/);
+  await expect.element(key).toHaveAttribute("type", "password");
+  await expect.element(key).toBeRequired();
+  await expect.element(setup.getByText("The check passes for good.")).toBeVisible();
+  await expect.element(setup.getByRole("textbox", { name: /^Notes.*every world/ })).toBeVisible();
+  await expect.element(setup.getByRole("spinbutton", { name: /^Ratio.*every world/ })).toHaveValue(0.5);
+  await expect.element(setup.getByRole("spinbutton", { name: /^Retries.*every world/ })).toHaveAttribute("step", "1");
+  await expect.element(setup.getByRole("combobox", { name: /^Loud.*every world/ })).toHaveTextContent("Default: NoYesNo");
+  await expect.element(setup.getByRole("combobox", { name: /^Voice.*this world/ })).toHaveTextContent("Default: lowlowhigh");
+  await expect.element(setup.getByLabelText(/^Service URL.*every world/)).toHaveAttribute("type", "url");
+  await expect.element(setup.getByRole("textbox", { name: /^Cache folder.*every world/ })).toBeVisible();
+  expect(setup.getByRole("combobox", { name: /^Voice here/ }).elements()).toHaveLength(0); // world-only: no override
+
+  await key.fill("bad");
+  await setup.getByRole("combobox", { name: /^Voice.*this world/ }).selectOptions("high");
+  await setup.getByRole("button", { name: "Test and save" }).click();
+  await expect.element(setup.getByRole("alert")).toHaveTextContent("Not saved. The test said: That key was refused.");
+  expect(bodies[0]).toEqual({
+    shared: { api_key: "bad", notes: "", ratio: "0.5", retries: "", loud: "", endpoint: "", cache: "" },
+    world: { api_key: "", notes: "", ratio: "", retries: "", loud: "", voice: "high", endpoint: "", cache: "" },
+  });
+
+  await key.fill("good");
+  await setup.getByRole("button", { name: "Test and save" }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Setup saved. Signed in as probe.");
+  await expect.element(row).toMatchTextContent(/Probe.*Ready\s*Change setup/);
+});

@@ -770,6 +770,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/packages/{name}/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Setup
+         * @description The Setup form of a package this world enables, drawn from its Manifest's
+         *     `[[config]]` fields with what is saved for each (ADR 0024). Credentials are only set
+         *     or not. 404 when the world does not enable it.
+         */
+        get: operations["get_setup_api_worlds__world_id__packages__name__setup_get"];
+        /**
+         * Save Setup
+         * @description Save the package's shared values and this world's own. An empty value clears a
+         *     Setting; an empty Credential keeps the saved one, null clears it. The package's test
+         *     tool runs with the candidate values first; when it fails nothing is saved and the 422
+         *     carries its message. 422 also names a field that is invalid or required.
+         */
+        put: operations["save_setup_api_worlds__world_id__packages__name__setup_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stage_id}/call": {
         parameters: {
             query?: never;
@@ -2889,6 +2918,22 @@ export interface components {
             version: string | null;
             check: components["schemas"]["KeyCheck"] | null;
         };
+        /** SavedSetup */
+        SavedSetup: {
+            /** Package */
+            package: string;
+            /** Version */
+            version: string;
+            /** Help Url */
+            help_url: string | null;
+            /** Test */
+            test: string | null;
+            /** Fields */
+            fields: components["schemas"]["SetupField"][];
+            /** Missing */
+            missing: string[];
+            check: components["schemas"]["KeyCheck"] | null;
+        };
         /**
          * Scorecard
          * @description Per-run measures of one workflow across its runs, oldest first. Cost is the runtime's
@@ -2919,6 +2964,79 @@ export interface components {
         SetBudget: {
             /** Budget Usd */
             budget_usd: number;
+        };
+        /**
+         * SetupField
+         * @description One `[[config]]` field of a package's Setup as its Manifest declares it, with what is
+         *     saved for it. A Credential's value is never returned, only whether it is set.
+         */
+        SetupField: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "string" | "text" | "number" | "integer" | "boolean" | "choice" | "url" | "path";
+            /** Secret */
+            secret: boolean;
+            /** Required */
+            required: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "shared" | "world";
+            /** Env */
+            env: string;
+            /** Help */
+            help: string | null;
+            /** Options */
+            options: string[] | null;
+            /** Default */
+            default: boolean | number | string | null;
+            /** Min */
+            min: number | null;
+            /** Max */
+            max: number | null;
+            /** Pattern */
+            pattern: string | null;
+            /** Shared */
+            shared: boolean | number | string | null;
+            /** World */
+            world: boolean | number | string | null;
+            /** Shared Set */
+            shared_set: boolean;
+            /** World Set */
+            world_set: boolean;
+        };
+        /** SetupValues */
+        SetupValues: {
+            /** Shared */
+            shared?: {
+                [key: string]: boolean | number | string | null;
+            };
+            /** World */
+            world?: {
+                [key: string]: boolean | number | string | null;
+            };
+        };
+        /** SetupView */
+        SetupView: {
+            /** Package */
+            package: string;
+            /** Version */
+            version: string;
+            /** Help Url */
+            help_url: string | null;
+            /** Test */
+            test: string | null;
+            /** Fields */
+            fields: components["schemas"]["SetupField"][];
+            /** Missing */
+            missing: string[];
         };
         /** Side */
         Side: {
@@ -5016,6 +5134,74 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_setup_api_worlds__world_id__packages__name__setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_setup_api_worlds__world_id__packages__name__setup_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupValues"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSetup"];
+                };
             };
             /** @description Validation Error */
             422: {
