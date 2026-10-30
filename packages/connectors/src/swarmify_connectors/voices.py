@@ -5,6 +5,9 @@ reference clip in the world's `assets/voices/`, and writes its catalog entry (RE
 Each entry carries the clip, which Chatterbox clones, and the preset itself, which Kokoro speaks
 directly, so a fallback from one engine to the other keeps the same voice. Part of the speech
 connector: only it gives `voices/` a meaning.
+
+The operator's edits to the catalog live here too (`listed`, `add`, `edit`, `remove`), so the
+Assets page writes voices.json exactly as `voices:seed` does and the connector reads it unchanged.
 """
 
 import json
@@ -12,13 +15,15 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 from swarmify_connectors import speech
-from swarmify_connectors.speech import VOICES, decode
+from swarmify_connectors.speech import _ID, VOICES, decode
 
 KOKORO = "http://localhost:8880"
 SENTENCE = (
@@ -85,6 +90,135 @@ def seed(http: httpx.Client, base: str, voices: Path, presets: list[str]) -> lis
         entries.append(entry)
     file.write_text(json.dumps(entries, indent=2) + "\n")
     return skipped
+
+
+CLIP_SECONDS = (5.0, 10.0)
+"""The length of a reference clip Chatterbox clones from (README, Voices)."""
+_lock = threading.Lock()
+# ponytail: one lock for every world's catalog in this process; per-world locks if it contends.
+
+
+def clip_seconds(wav: bytes) -> float:
+    """A clip's length. Raises ValueError for one the speech connector cannot send: not a
+    16-bit WAV, or outside CLIP_SECONDS."""
+    try:
+        samples, rate = decode(wav)
+    except ValueError as exc:
+        raise ValueError(f"the clip must be a 16-bit WAV file: {exc}") from exc
+    seconds = len(samples) / rate
+    low, high = CLIP_SECONDS
+    if not low <= seconds <= high:
+        raise ValueError(
+            f"the clip is {seconds:.1f} s; Chatterbox clones from {low:g} to {high:g} s of speech"
+        )
+    return seconds
+
+
+def listed(assets: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """The catalog as the speech connector reads it (`speech.catalog`), each voice with its
+    clip's file name and length in seconds (None without a clip or for one it cannot read)."""
+    found, warnings = speech.catalog(str(assets))
+    for voice in found:
+        clip = voice["clip"] and Path(voice["clip"])
+        voice["clip"], voice["seconds"] = (clip.name, _length(clip)) if clip else (None, None)
+    return found, warnings
+
+
+def _length(clip: Path) -> float | None:
+    try:
+        samples, rate = decode(clip.read_bytes())
+    except (OSError, ValueError):
+        return None
+    return round(len(samples) / rate, 1)
+
+
+def _entries(folder: Path) -> list[Any]:
+    file = folder / "voices.json"
+    if not file.is_file():
+        return []
+    entries = json.loads(file.read_text())  # a ValueError when broken: never overwrite it
+    if not isinstance(entries, list):
+        raise ValueError("voices.json is not a list of voices; fix it by hand first")
+    return entries
+
+
+def _write(folder: Path, entries: list[Any]) -> None:
+    """voices.json replaced in one step, so a reader never sees half of it."""
+    tmp = folder / ".voices.json.tmp"
+    tmp.write_text(json.dumps(entries, indent=2) + "\n")
+    os.replace(tmp, folder / "voices.json")
+
+
+def _index(entries: list[Any], name: str) -> int:
+    for i, e in enumerate(entries):
+        if isinstance(e, dict) and e.get("name") == name:
+            return i
+    raise LookupError(f"no voice named {name}")
+
+
+def _told(description: str, tags: list[str]) -> tuple[str, list[str]]:
+    description = description.strip()
+    if not description:
+        raise ValueError("a voice needs a description: what it sounds like and what it fits")
+    return description, list(dict.fromkeys(t.strip() for t in tags if t.strip()))
+
+
+def add(
+    folder: Path,
+    name: str,
+    description: str,
+    tags: list[str],
+    consent: str,
+    clip: bytes,
+    engine: str = "chatterbox",
+) -> dict[str, Any]:
+    """Save `clip` as `<name>.wav` in `folder` (a world's `assets/voices/`) and append its
+    entry to voices.json. Raises ValueError naming what is wrong."""
+    if not _ID.match(name):
+        raise ValueError(f"a voice name is letters, digits, _ or -, got {name!r}")
+    if not consent.strip():
+        raise ValueError("a voice needs consent: your own voice, or the speaker's permission")
+    description, tags = _told(description, tags)
+    clip_seconds(clip)
+    entry = {"name": name, "description": description, "tags": tags, "engine": engine,
+             "clip": f"{name}.wav", "consent": consent.strip()}  # fmt: skip
+    with _lock:
+        folder.mkdir(parents=True, exist_ok=True)
+        entries = _entries(folder)
+        try:
+            _index(entries, name)
+        except LookupError:
+            pass
+        else:
+            raise ValueError(f"a voice is already named {name}")
+        (folder / entry["clip"]).write_bytes(clip)
+        _write(folder, [*entries, entry])
+    return entry
+
+
+def edit(folder: Path, name: str, description: str, tags: list[str]) -> dict[str, Any]:
+    """Change a voice's description and tags, keeping the rest of its entry. Raises
+    LookupError when there is no such voice, ValueError for an empty description."""
+    description, tags = _told(description, tags)
+    with _lock:
+        entries = _entries(folder)
+        i = _index(entries, name)
+        entries[i] = {**entries[i], "description": description, "tags": tags}
+        _write(folder, entries)
+    return entries[i]
+
+
+def remove(folder: Path, name: str) -> None:
+    """Drop a voice's entry and its clip, unless another entry uses the same clip. Raises
+    LookupError when there is no such voice."""
+    with _lock:
+        entries = _entries(folder)
+        gone = entries.pop(_index(entries, name))
+        _write(folder, entries)
+        clip = gone.get("clip")
+        others = {e.get("clip") for e in entries if isinstance(e, dict)}
+        if isinstance(clip, str) and Path(clip).name == clip and clip not in others:
+            (folder / clip).unlink(missing_ok=True)
 
 
 def _up(http: httpx.Client, base: str) -> bool:

@@ -4,8 +4,10 @@ A page passes when it renders its content with no sideways scroll: nothing wider
 screen. Runs wait at a gate (one early in a long workflow), run and finish with a video, so the
 timeline, gates inbox, agent log and reader all have content (issue 182)."""
 
+import io
 import re
 import time
+import wave
 from collections.abc import Iterator
 
 import httpx
@@ -56,6 +58,7 @@ PAGES = [
     "/worlds/{world}/connectors",
     "/worlds/{world}/graph",
     "/worlds/{world}/library",
+    "/worlds/{world}/assets",
     "/worlds/{world}/cast",
     "/worlds/{world}/settings",
     "/evals",
@@ -227,3 +230,42 @@ def test_a_gate_is_answered_from_a_phone_as_the_stream_moves(phone: Page, ids: d
     card.get_by_role("button", name="Approve").click()
     expect(phone.get_by_test_id("answered")).to_contain_text("You approved it", timeout=15_000)
     expect(card).to_have_count(0)  # the next decision opens in its place
+
+
+def _clip(seconds: float, rate: int = 8000) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x10\x00" * int(seconds * rate))
+    return buf.getvalue()
+
+
+def test_assets_plays_a_voice_first_and_pins_add_a_voice_above_the_tab_bar(
+    phone: Page, ids: dict, locked_url: str
+) -> None:
+    """Issue 194: a voice added over the API is a playable card; Add a voice opens its sheet."""
+    api = httpx.Client(base_url=f"{locked_url}/api", auth=LOGIN)
+    form = {"name": "narrator", "description": "Warm and calm", "consent": "Mine."}
+    files = {"clip": ("n.wav", _clip(6), "audio/wav")}
+    added = api.post(f"/worlds/{ids['world']}/voices", data=form, files=files)
+    assert added.status_code in (201, 422), added.text  # 422: a rerun on the same world
+    api.put(f"/worlds/{ids['world']}/assets/logo.png", content=b"PNG")
+    phone.goto(f"/worlds/{ids['world']}/assets")
+    card = phone.get_by_role("listitem", name="narrator")
+    expect(card.get_by_role("button", name="Play narrator")).to_be_visible()
+    expect(card).to_contain_text("6.0 s clip")
+    expect(phone.get_by_role("listitem", name="logo.png")).to_contain_text("KB")
+    add = phone.get_by_role("button", name="Add a voice")
+    expect(add).to_be_in_viewport(ratio=1)
+    box, bar = add.bounding_box(), phone.locator(".tabbar").bounding_box()
+    assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
+    _fits(phone)
+    add.click()
+    sheet = phone.get_by_role("dialog", name="Add a voice")
+    expect(sheet.get_by_role("button", name="Record")).to_be_visible()
+    expect(
+        sheet.get_by_text("This is my voice, or I have the speaker's permission")
+    ).to_be_visible()
+    _fits(phone)

@@ -18,6 +18,7 @@ const ICON: Record<string, ReactNode> = {
   runs: <path d="M5 4l14 8-14 8z" />,
   workflows: <path d="M4 6h6v4H4zM14 14h6v4h-6zM7 10v4a2 2 0 0 0 2 2h5" />,
   library: <path d="M4 4h5v16H4zM10 4h4v16h-4zM15 5l4-1 2 15-4 1z" />,
+  assets: <path d="M9 17V5l11-2v12M4 17a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M15 15a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0" />,
   graph: <path d="M8 7l8 1M7 8l2 8M17 10l-6 7M4 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0" />,
   cast: <path d="M6 8a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 20c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M18 15c2 1 3 3 3 5" />,
   connectors: <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" />,
@@ -49,12 +50,13 @@ const TabIcon = ({ name }: { name: string }) => (
   </svg>
 );
 // Areas reached through More, so its tab is current on them.
-const MORE = new Set(["overview", "graph", "cast", "connectors", "settings", "worlds", "evals"]);
+const MORE = new Set(["overview", "assets", "graph", "cast", "connectors", "settings", "worlds", "evals"]);
 // Switching worlds keeps the area you are in; anywhere else lands on the world's overview.
 const SAME_AREA = {
   runs: "/worlds/$worldId/runs",
   workflows: "/worlds/$worldId/workflows",
   library: "/worlds/$worldId/library",
+  assets: "/worlds/$worldId/assets",
   graph: "/worlds/$worldId/graph",
   cast: "/worlds/$worldId/cast",
   connectors: "/worlds/$worldId/connectors",
@@ -121,6 +123,7 @@ export function Shell() {
       api
         .GET("/api/worlds/{world_id}/connectors", path)
         .then(({ data }) => (data ? { connectors: `${data.filter((c) => status(c).tone === "ok").length} of ${data.length} ready` } : {})),
+      api.GET("/api/worlds/{world_id}/voices", path).then(({ data }) => (data ? { assets: `${count(data.voices.length, "voice")} and files` } : {})),
     ].map((p) => p.catch(() => ({})))).then((parts) => setSummary(Object.assign({}, ...parts)));
   }, [sheet, worldId]);
 
@@ -198,6 +201,7 @@ export function Shell() {
               {item("runs", "Runs", { to: "/worlds/$worldId/runs", params })}
               {item("workflows", "Workflows", { to: "/worlds/$worldId/workflows", params })}
               {item("library", "Library", { to: "/worlds/$worldId/library", params })}
+              {item("assets", "Assets", { to: "/worlds/$worldId/assets", params })}
               {item("graph", "Memory", { to: "/worlds/$worldId/graph", params })}
             </>
           )}
@@ -266,6 +270,7 @@ export function Shell() {
           {worldId && (
             <>
               {row("Overview", { to: "/worlds/$worldId", params }, summary.overview)}
+              {row("Assets", { to: "/worlds/$worldId/assets", params }, summary.assets ?? "voices and files")}
               {row("Memory", { to: "/worlds/$worldId/graph", params }, "graph and notes")}
               {row("Cast", { to: "/worlds/$worldId/cast", params }, summary.cast)}
               {row("Connectors", { to: "/worlds/$worldId/connectors", params }, summary.connectors)}

@@ -655,6 +655,20 @@ world's catalog is `assets/voices/voices.json`, a list of entries, with the clip
   Chatterbox clones the clip and Kokoro speaks the preset itself and a fallback keeps the voice,
   with consent `synthetic: Kokoro preset <name>, Apache 2.0`. Entries of other names stay. It
   reads `SWARMIFY_DATA_DIR` like the app.
+- On the world's Assets page (sidebar, or More on a phone) every voice is a card you can play,
+  with its clip length, tags, engine and the saved workflows whose speech step names it (`params.voice`,
+  current versions). "Add a voice" uploads a clip (any audio the browser reads, saved as a 16-bit
+  mono WAV) or records one with the microphone (stopping at 10 s), and needs a name, a
+  description and the consent line; Edit changes the description and tags, Delete drops the
+  entry and its clip after naming the workflows that lose it. Over HTTP:
+  `GET /api/worlds/<id>/voices` (the catalog as the connector reads it, each with `clip`,
+  `seconds` and `used_by`, plus the warnings for ignored entries), `POST /api/worlds/<id>/voices`
+  (multipart: `name`, `description`, `tags` comma separated, `consent`, `clip`; refused with the
+  reason unless the clip is a 16-bit WAV of 5 to 10 s and the name is new),
+  `PATCH /api/worlds/<id>/voices/<name>` (`{"description", "tags"}`) and
+  `DELETE /api/worlds/<id>/voices/<name>`. Each change rewrites voices.json in one step
+  (`swarmify_connectors.voices`, as `voices:seed` writes it), keeping entries it does not touch
+  as they are.
 
 ## Publishing
 
@@ -985,11 +999,15 @@ filterable by type, workflow, stage, run and date, and it reloads on `artifact.c
 ### Assets
 
 Each world has `worlds/<id>/assets/`: the operator's reusable files, such as music beds, sound
-effects and logos. Nothing is seeded; a new world's folder is empty. Add files on the Library
-page ("Upload files"), with `PUT /api/worlds/<id>/assets/<name>` (the body is the file, `name` a
-plain file name; the same name replaces it) or by dropping them into the folder, subfolders
-included. `GET /api/worlds/<id>/assets` lists them by path (`assets/<name>`) with their size, and
-`GET /api/worlds/<id>/files/<path>` serves one, as it serves run files.
+effects and logos. Nothing is seeded; a new world's folder is empty. Add files on the world's
+Assets page (Files, "Upload files"), with `PUT /api/worlds/<id>/assets/<name>` (the body is the
+file, `name` a plain file name; the same name replaces it) or by dropping them into the folder,
+subfolders included. `GET /api/worlds/<id>/assets` lists them by path (`assets/<name>`) with their
+size, and `GET /api/worlds/<id>/files/<path>` serves one, as it serves run files. The page previews
+each (an image's thumbnail, an audio player, a video's first frame), and renames
+(`PATCH /api/worlds/<id>/assets/<path>` with `{"name"}`, in the same folder, never over another
+file) or deletes one (`DELETE /api/worlds/<id>/assets/<path>`). Both refuse paths outside
+`assets/` and anything in `assets/voices/`: voices change only through the voices endpoints.
 
 Agents never write there. Swarm agents list them (`list_assets`) to name one in a script; a
 connector stage gets the folder as `assets_path` (the speech connector alone gives `voices/` a

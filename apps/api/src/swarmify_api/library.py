@@ -9,11 +9,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from swarmify_memory import ArtifactFile, Memory
+from swarmify_connectors.speech import VOICES
+from swarmify_memory import ASSETS, ArtifactFile, Memory
 from swarmify_runs import Run
 from swarmify_worlds import Worlds
 
@@ -47,6 +48,15 @@ class Asset:
     """Relative to the world folder, as `/files/` serves it."""
     name: str
     bytes: int
+
+
+class RenameBody(BaseModel):
+    name: str
+    """The new plain file name; the asset stays in its folder."""
+
+
+VOICES_FOLDER = f"{ASSETS}/{VOICES}/"
+"""The speech connector's catalog: changed only through the voices endpoints."""
 
 
 class PinBody(BaseModel):
@@ -128,6 +138,32 @@ def router(memory: Memory, worlds: Worlds, list_runs: Callable[[str], list[Run]]
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         return asset(world_id, path)
+
+    def own_asset(world_id: str, path: str) -> None:
+        world_or_404(world_id)
+        if path.startswith(VOICES_FOLDER):
+            raise HTTPException(422, "voices are changed on their own: use the voices endpoints")
+        if path not in memory.assets(world_id):
+            raise HTTPException(404, "asset not found")
+
+    @api.delete(
+        "/worlds/{world_id}/assets/{path:path}", status_code=204, responses={404: {}, 422: {}}
+    )
+    def remove_asset(world_id: str, path: str) -> Response:
+        """Delete an asset by its path, as the list gives it. A voice's clip or voices.json is
+        refused: delete the voice instead."""
+        own_asset(world_id, path)
+        memory.remove_asset(world_id, path)
+        return Response(status_code=204)
+
+    @api.patch("/worlds/{world_id}/assets/{path:path}", responses={404: {}, 422: {}})
+    def rename_asset(world_id: str, path: str, body: RenameBody) -> Asset:
+        """Rename an asset in its folder. A name already there is refused, never replaced."""
+        own_asset(world_id, path)
+        try:
+            return asset(world_id, memory.rename_asset(world_id, path, body.name))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @api.post("/worlds/{world_id}/pins")
     def pin(world_id: str, body: PinBody) -> LibraryItem:

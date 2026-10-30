@@ -147,6 +147,7 @@ test("on a phone More lists every other page with a one-line summary, and the ba
     "GET /api/worlds/world_1/cast": () => Response.json([{}, {}, {}, {}]),
     "GET /api/worlds/world_1/connectors": () => Response.json([connector, connector, { ...connector, missing: ["KEY"] }]),
     "GET /api/worlds/world_1/library": () => Response.json([]),
+    "GET /api/worlds/world_1/voices": () => Response.json({ voices: [{}, {}], warnings: [] }),
   });
   const { router, screen } = await mountAt("/worlds/world_1/library");
   const more = screen.getByRole("navigation", { name: "Tabs" }).getByRole("button", { name: "More" });
@@ -156,6 +157,7 @@ test("on a phone More lists every other page with a one-line summary, and the ba
   const rows = sheet.getByRole("link").elements().map((a) => a.textContent);
   expect(rows).toEqual([
     "Overview1 run today · $8.61",
+    "Assets2 voices and files",
     "Memorygraph and notes",
     "Cast4 agents",
     "Connectors2 of 3 ready",
