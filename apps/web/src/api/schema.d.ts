@@ -1372,8 +1372,8 @@ export interface paths {
         /**
          * Save Eval
          * @description Summarize the trials and the judge's picks into a report (pass at k, pass to the k,
-         *     cost, duration, acceptance, wins, losses, ties and cost a win per arm) and store it as
-         *     `report.md` in the eval world's Library.
+         *     cost, duration, acceptance, wins, losses, ties and cost a win per arm, and whether the
+         *     kind is a swarm win) and store it as `report.md` in the eval world's Library.
          */
         post: operations["save_eval_api_evals_post"];
         delete?: never;
@@ -1929,6 +1929,10 @@ export interface components {
             trials: components["schemas"]["Trial"][];
             /** Judgements */
             judgements?: components["schemas"]["Judgement"][];
+            /** Kind */
+            kind?: string | null;
+            /** P Value */
+            p_value?: number | null;
         };
         /** Failure */
         Failure: {
@@ -2245,6 +2249,8 @@ export interface components {
         NewEval: {
             /** K */
             k: number;
+            /** Kind */
+            kind?: string | null;
             /** Trials */
             trials: components["schemas"]["Trial"][];
             /**

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from swarmify_kernel import new_id
 from swarmify_learning.evals import (
     JUDGE_SYSTEM,
+    KINDS,
     PICK_SCHEMA,
     TASKS,
     EvalReport,
@@ -38,6 +39,8 @@ log = logging.getLogger(__name__)
 
 class NewEval(BaseModel):
     k: int = Field(ge=1, le=20)
+    kind: str | None = None
+    """The task kind the trials ran, a key of KINDS."""
     trials: list[Trial] = Field(min_length=2, max_length=5_000)
     judgements: list[Judgement] = Field(default=[], max_length=2_500)
 
@@ -116,11 +119,13 @@ def router(worlds: Worlds, memory: Memory, runtime: AgentRuntime) -> APIRouter:
     @api.post("/evals", status_code=201, responses={422: {}})
     def save_eval(body: NewEval) -> EvalReport:
         """Summarize the trials and the judge's picks into a report (pass at k, pass to the k,
-        cost, duration, acceptance, wins, losses, ties and cost a win per arm) and store it as
-        `report.md` in the eval world's Library."""
+        cost, duration, acceptance, wins, losses, ties and cost a win per arm, and whether the
+        kind is a swarm win) and store it as `report.md` in the eval world's Library."""
         now = datetime.now(UTC).isoformat()
+        if body.kind is not None and body.kind not in KINDS:
+            raise HTTPException(422, f"no such task kind {body.kind}")
         try:
-            report = summarize(body.trials, body.k, new_id("eval"), now, body.judgements)
+            report = summarize(body.trials, body.k, new_id("eval"), now, body.judgements, body.kind)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         world = eval_world() or worlds.create(EVAL_WORLD, DESCRIPTION)
