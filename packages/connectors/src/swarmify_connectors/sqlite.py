@@ -145,6 +145,15 @@ class SqliteStorage:
                 > 0
             )
 
+    def package_pinned_by(self, package: str, version: str) -> list[str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT world_id FROM world_packages WHERE package = ? AND version = ?"
+                " ORDER BY world_id",
+                (package, version),
+            )
+            return [r["world_id"] for r in rows]
+
     def delete_world(self, world_id: str) -> None:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")

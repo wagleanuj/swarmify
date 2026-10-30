@@ -149,3 +149,37 @@ def test_a_packages_setup_form_tests_before_saving(
         assert '"good"' not in form_now.text
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
+
+
+def test_a_pin_switch_shows_the_manifest_diff_and_uninstall_names_the_users(
+    page: Page, base_url: str
+) -> None:
+    fixtures = "packages/connectors/tests/fixtures/packages"
+    for source in (f"{fixtures}/echo", f"{fixtures}/echo_2"):
+        installed = httpx.post(f"{base_url}/api/packages", json={"source": source})
+        assert installed.status_code == 201 or "already installed" in installed.text
+    world = httpx.post(f"{base_url}/api/worlds", json={"name": "Upgrades"}).json()
+    try:
+        httpx.put(f"{base_url}/api/worlds/{world['id']}/packages/echo", json={"version": "1.0.0"})
+        page.goto(f"{base_url}/worlds/{world['id']}/connectors")
+        newer = page.locator("[data-package=echo]", has_text="echo 2.0.0")
+        newer.get_by_role("button", name="Enable echo 2.0.0").click()
+        shown = page.get_by_role("region", name="Switch echo to 2.0.0")
+        expect(shown).to_contain_text("Switch Echo from 1.0.0 to 2.0.0")
+        expect(shown).to_contain_text("Added speed")
+        expect(shown).to_contain_text("Added region")
+        expect(shown).to_contain_text("Added network: eu.example.org")
+        expect(shown.get_by_role("status")).to_have_text(
+            "Fill in Region in Echo 2.0.0's Setup first; the switch waits for it."
+        )
+        expect(shown.get_by_role("button", name="Switch to 2.0.0")).to_be_disabled()
+
+        older = page.locator("[data-package=echo]", has_text="echo 1.0.0")
+        page.once("dialog", lambda d: d.accept())
+        older.get_by_role("button", name="Uninstall echo 1.0.0").click()
+        expect(page.get_by_role("alert")).to_contain_text(
+            "echo 1.0.0 is in use: world Upgrades pins it"
+        )
+    finally:
+        httpx.delete(f"{base_url}/api/worlds/{world['id']}")
+        httpx.delete(f"{base_url}/api/packages/echo/2.0.0")

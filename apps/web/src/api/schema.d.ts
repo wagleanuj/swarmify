@@ -725,6 +725,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/packages/{name}/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Uninstall Package
+         * @description Remove an installed version. 409 naming every world that pins it and every saved
+         *     workflow version that records it, while any does: those keep running it.
+         */
+        delete: operations["uninstall_package_api_packages__name___version__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/packages/{name}/switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Switch
+         * @description What moving this world's pin of the package to `version` changes in its Manifest
+         *     (params, Setup fields, permissions), and the new required fields it waits for.
+         */
+        get: operations["package_switch_api_worlds__world_id__packages__name__switch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/packages": {
         parameters: {
             query?: never;
@@ -756,7 +798,9 @@ export interface paths {
         /**
          * Enable Package
          * @description Enable an installed package in this world at a version, or move its pin there; its
-         *     Connector then exists in this world, called by the package's name. 422 saying why not.
+         *     Connector then exists in this world, called by the package's name. 422 saying why not,
+         *     as a switch to a version with a new required Setup field that has no value yet. Saved
+         *     workflow versions keep the version they recorded.
          */
         put: operations["enable_package_api_worlds__world_id__packages__name__put"];
         post?: never;
@@ -781,7 +825,9 @@ export interface paths {
          * Get Setup
          * @description The Setup form of a package this world enables, drawn from its Manifest's
          *     `[[config]]` fields with what is saved for each (ADR 0024). Credentials are only set
-         *     or not. 404 when the world does not enable it.
+         *     or not. `version`, an installed version other than the pinned one, draws that
+         *     version's form, so the fields a pin switch waits for are filled in before it. 404 when
+         *     the world does not enable it.
          */
         get: operations["get_setup_api_worlds__world_id__packages__name__setup_get"];
         /**
@@ -789,7 +835,8 @@ export interface paths {
          * @description Save the package's shared values and this world's own. An empty value clears a
          *     Setting; an empty Credential keeps the saved one, null clears it. The package's test
          *     tool runs with the candidate values first; when it fails nothing is saved and the 422
-         *     carries its message. 422 also names a field that is invalid or required.
+         *     carries its message. 422 also names a field that is invalid or required. `version` as
+         *     for the form.
          */
         put: operations["save_setup_api_worlds__world_id__packages__name__setup_put"];
         post?: never;
@@ -1839,6 +1886,15 @@ export interface components {
             /** Warnings */
             warnings: string[];
         };
+        /** Changes */
+        Changes: {
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
+            /** Changed */
+            changed?: string[];
+        };
         /** ChannelUpdate */
         ChannelUpdate: {
             /**
@@ -2520,6 +2576,23 @@ export interface components {
         PackageSource: {
             /** Source */
             source: string;
+        };
+        /**
+         * PackageSwitch
+         * @description What moving a world's pin to `to` changes in the package's Manifest (issue 223).
+         */
+        PackageSwitch: {
+            /** From */
+            from: string | null;
+            /** To */
+            to: string;
+            params: components["schemas"]["Changes"];
+            setup: components["schemas"]["Changes"];
+            /** Required */
+            required: string[];
+            permissions: components["schemas"]["Changes"];
+            /** Needs */
+            needs: string[];
         };
         /**
          * Pair
@@ -3462,6 +3535,10 @@ export interface components {
             /** Created At */
             created_at: string;
             model: components["schemas"]["WorkflowModel"];
+            /** Packages */
+            packages?: {
+                [key: string]: string;
+            };
         };
         /** World */
         World: {
@@ -5049,6 +5126,70 @@ export interface operations {
             };
         };
     };
+    uninstall_package_api_packages__name___version__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    package_switch_api_worlds__world_id__packages__name__switch_get: {
+        parameters: {
+            query: {
+                version: string;
+            };
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageSwitch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     enabled_packages_api_worlds__world_id__packages_get: {
         parameters: {
             query?: never;
@@ -5148,7 +5289,9 @@ export interface operations {
     };
     get_setup_api_worlds__world_id__packages__name__setup_get: {
         parameters: {
-            query?: never;
+            query?: {
+                version?: string | null;
+            };
             header?: never;
             path: {
                 world_id: string;
@@ -5180,7 +5323,9 @@ export interface operations {
     };
     save_setup_api_worlds__world_id__packages__name__setup_put: {
         parameters: {
-            query?: never;
+            query?: {
+                version?: string | null;
+            };
             header?: never;
             path: {
                 world_id: string;

@@ -18,6 +18,7 @@ import re
 import shlex
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,6 +47,7 @@ from swarmify_connectors.packages import (
     ManifestError,
     Package,
     Packages,
+    manifest_diff,
     read_manifest,
 )
 from swarmify_connectors.ports import ConnectorTransport, Storage
@@ -313,11 +315,13 @@ class Connectors:
 
     # Registry
 
-    def list_all(self, world_id: str) -> list[Connector]:
+    def list_all(self, world_id: str, pins: Mapping[str, str] | None = None) -> list[Connector]:
         """Built-ins first, then the packages the world enables by name, then the world's own in
-        the order they were added."""
-        enabled = self.storage.enabled_packages(world_id).items()
-        packaged = [self.package_connector(world_id, n, v) for n, v in enabled]
+        the order they were added. A run passes `pins`, the package versions its workflow
+        version recorded (issue 223), which win over the world's current pins."""
+        enabled = self.storage.enabled_packages(world_id)
+        chosen = {n: (pins or {}).get(n, v) for n, v in enabled.items()}
+        packaged = [self.package_connector(world_id, n, v) for n, v in chosen.items()]
         return [*BUILTINS, *(c for c in packaged if c), *self.storage.list_connectors(world_id)]
 
     # Connector Packages a world enables (ADR 0023)
@@ -365,7 +369,33 @@ class Connectors:
             self.packages.manifest(name, version)
         except (InstallError, ManifestError) as exc:
             raise ValueError(str(exc)) from exc
+        needs = self.switch(world_id, name, version)["needs"]
+        if needs:
+            raise ValueError(f"{name} {version} needs a value for {', '.join(needs)} first")
         self.storage.enable_package(world_id, name, version, _now())
+
+    def switch(self, world_id: str, name: str, version: str) -> dict[str, Any]:
+        """What moving the world's pin of `name` to `version` changes in its Manifest (params,
+        Setup fields, permissions), from the pinned version (none when not enabled), and
+        `needs`: the labels of newly required Setup fields with no value in this world, which
+        hold a switch back (a first enable sets them up after). Raises ValueError when a
+        version is not installed or valid."""
+        pinned = self.storage.enabled_packages(world_id).get(name)
+        try:
+            new = self.packages.manifest(name, version)
+            old = self.packages.manifest(name, pinned) if pinned else {}
+        except (InstallError, ManifestError) as exc:
+            raise ValueError(str(exc)) from exc
+        diff = manifest_diff(old, new)
+        labels = {f["key"]: f["label"] for f in setup.fields(new)}
+        unset = setup.missing(new, setup.resolve(new, *self.setups.values(name, world_id)))
+        # a first enable never waits: its Setup form is filled in once it is enabled
+        needs = [labels[k] for k in diff["required"] if pinned and k in unset]
+        return {"from": pinned, "to": version, **diff, "needs": needs}
+
+    def pinned_by(self, name: str, version: str) -> list[str]:
+        """The worlds that pin `name` at `version`."""
+        return self.storage.package_pinned_by(name, version)
 
     def disable(self, world_id: str, name: str) -> bool:
         """Stop the world using the package; other worlds keep theirs. False if not enabled."""
@@ -374,17 +404,23 @@ class Connectors:
     # Setup of a package a world enables (ADR 0024)
 
     def setup_values(
-        self, world_id: str, name: str
+        self, world_id: str, name: str, version: str | None = None
     ) -> tuple[Connector, setup.Values, setup.Values]:
-        """The enabled package's Connector, its shared Setup values and the world's own. Raises
-        ValueError when the world does not enable it."""
-        connector = self.find(world_id, name)
+        """The enabled package's Connector, at the pinned version or the installed `version` a
+        switch moves to (whose new fields are filled in before it), its shared Setup values and
+        the world's own. Raises ValueError when the world does not enable it."""
+        connector = self.find(world_id, name, {name: version} if version else None)
         if connector is None or connector.version is None:
             raise ValueError(f"this world does not enable {name}")
         return connector, *self.setups.values(name, world_id)
 
     def save_setup(
-        self, world_id: str, name: str, shared: dict[str, Any], world: dict[str, Any]
+        self,
+        world_id: str,
+        name: str,
+        shared: dict[str, Any],
+        world: dict[str, Any],
+        version: str | None = None,
     ) -> KeyCheck | None:
         """Set the package's shared values and the world's own, for the fields its Manifest
         declares. An empty value clears a Setting; an empty Credential keeps the saved one and
@@ -392,7 +428,7 @@ class Connectors:
         declares a `[setup] test` tool, it runs with the candidate values first: the values are
         saved only when it answers `ok`, and its `message` is returned either way. Raises
         ValueError naming the first bad field."""
-        connector, now_shared, now_world = self.setup_values(world_id, name)
+        connector, now_shared, now_world = self.setup_values(world_id, name, version)
         declared = {f["key"]: f for f in setup.fields(connector.manifest)}
         for values, new, where in ((now_shared, shared, "shared"), (now_world, world, "world")):
             for f in declared.values():  # carry a renamed field's value to its key
@@ -430,14 +466,20 @@ class Connectors:
         self.setups.put(name, world_id, now_shared, now_world)
         return check
 
-    def find(self, world_id: str, name: str) -> Connector | None:
-        return next((c for c in self.list_all(world_id) if c.name == name), None)
+    def find(
+        self, world_id: str, name: str, pins: Mapping[str, str] | None = None
+    ) -> Connector | None:
+        return next((c for c in self.list_all(world_id, pins) if c.name == name), None)
 
-    def type_schema(self, world_id: str, name: str) -> dict[str, Any] | None:
+    def type_schema(
+        self, world_id: str, name: str, pins: Mapping[str, str] | None = None
+    ) -> dict[str, Any] | None:
         """The JSON Schema of type `name` as the world's connectors declare it for this world;
         None when none does, or two declare it differently (the workflow check reports that)."""
         found = [
-            self.for_world(world_id, c)[0][name] for c in self.list_all(world_id) if name in c.types
+            self.for_world(world_id, c)[0][name]
+            for c in self.list_all(world_id, pins)
+            if name in c.types
         ]
         return found[0] if found and all(f == found[0] for f in found) else None
 
@@ -601,13 +643,15 @@ class Connectors:
             saved = set()
         return sorted(saved | {n for c in self.list_all(world_id) for n in c.credentials})
 
-    def agent_servers(self, world_id: str, names: list[str]) -> dict[str, dict[str, Any]]:
+    def agent_servers(
+        self, world_id: str, names: list[str], pins: Mapping[str, str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         """The standard MCP server config of each named connector that has a server, with its
         credentials: what a swarm stage's agents connect to. Raises ConnectorError when one is
         missing a credential."""
         servers: dict[str, dict[str, Any]] = {}
         for name in names:
-            connector = self.find(world_id, name)
+            connector = self.find(world_id, name, pins)
             if connector is None or not connector.has_server:
                 continue
             env = self._env(connector)
@@ -668,8 +712,10 @@ class Connectors:
 
     # Publish stages (ADR 0007)
 
-    def is_publish(self, world_id: str, config: dict[str, Any]) -> bool:
-        connector = self.find(world_id, str(config.get("calls", "")))
+    def is_publish(
+        self, world_id: str, config: dict[str, Any], pins: Mapping[str, str] | None = None
+    ) -> bool:
+        connector = self.find(world_id, str(config.get("calls", "")), pins)
         return connector is not None and connector.kind == "publish"
 
     def publish_preview(
@@ -678,10 +724,11 @@ class Connectors:
         config: dict[str, Any],
         metadata: dict[str, Any] | None = None,
         edits: dict[str, Any] | None = None,
+        pins: Mapping[str, str] | None = None,
     ) -> dict[str, Any] | None:
         """What a connector stage will post, as its connector's `preview` answers it, when it
         calls a publish connector; else None. A preview that cannot be had is a problem."""
-        connector = self.find(world_id, str(config.get("calls", "")))
+        connector = self.find(world_id, str(config.get("calls", "")), pins)
         if connector is None or connector.kind != "publish":
             return None
         args = {
@@ -766,19 +813,25 @@ class Connectors:
         return self.storage.get_call(stage_id)
 
     def run_stage(
-        self, world_id: str, run_id: str, stage_id: str, config: dict[str, Any], visit: int = 0
+        self,
+        world_id: str,
+        run_id: str,
+        stage_id: str,
+        config: dict[str, Any],
+        visit: int = 0,
+        pins: Mapping[str, str] | None = None,
     ) -> Call:
-        """Call the stage's connector once per visit to the stage, `visit` being the run's
-        send-back count. A finished call is returned as recorded; a long job interrupted by a
-        crash resumes polling instead of calling again. A call from an earlier visit is
-        replaced: the stage reruns after a send-back."""
+        """Call the stage's connector once per visit to the stage, `visit` being the run's send-back
+        count, at the package version `pins` (the workflow version's) names. A finished call is
+        returned as recorded; a long job interrupted by a crash resumes polling instead of calling
+        again. A call from an earlier visit is replaced: the stage reruns after a send-back."""
         done = self.storage.get_call(stage_id)
         if done is not None and done.visit != visit:
             done = None
         if done is not None and done.status == "done":
             return done
         name = str(config.get("calls", ""))
-        connector = self.find(world_id, name)
+        connector = self.find(world_id, name, pins)
         if connector is None:
             raise ConnectorError(f"no connector named '{name}' in this world")
         if "connector" not in connector.stage_types:

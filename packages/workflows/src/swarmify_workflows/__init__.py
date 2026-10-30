@@ -22,6 +22,7 @@ from swarmify_workflows.model import (
     WorkflowModel,
     WorkflowStage,
     WorkflowVersion,
+    calls,
 )
 from swarmify_workflows.parse import parse_workflow
 from swarmify_workflows.ports import Storage
@@ -99,12 +100,16 @@ class Workflows:
         draft = self.check(world_id, yaml, workflow_id)
         if draft.violations or draft.model is None:
             raise Invalid(draft.violations)
+        refs = self.connectors_for(world_id)
+        packages = {
+            n: v for n in sorted(calls(draft.model)) if n in refs and (v := refs[n].version)
+        }
         if workflow_id is None:
             workflow = Workflow(
                 new_id("wf"), world_id, draft.model.name, 1, datetime.now(UTC).isoformat()
             )
             version = self.storage.add_workflow(
-                workflow, yaml, _saved(workflow.id, world_id, draft.model.name, 1)
+                workflow, yaml, _saved(workflow.id, world_id, draft.model.name, 1), packages
             )
         else:
             existing = self.storage.get_workflow(workflow_id)
@@ -112,7 +117,7 @@ class Workflows:
                 raise KeyError(workflow_id)
             number = existing.current_version + 1
             event = _saved(workflow_id, world_id, draft.model.name, number)
-            added = self.storage.add_version(workflow_id, yaml, draft.model.name, event)
+            added = self.storage.add_version(workflow_id, yaml, draft.model.name, event, packages)
             if added is None:
                 raise KeyError(workflow_id)
             version = added
@@ -148,6 +153,31 @@ class Workflows:
 
     def version(self, workflow_id: str, number: int) -> WorkflowVersion | None:
         return self.storage.get_version(workflow_id, number)
+
+    def stamp(self, versions_for: Callable[[str], Mapping[str, str]]) -> int:
+        """Record, in every saved version, the package version `versions_for(world id)` gives
+        for each package it calls but has not recorded, as a version saved before versions
+        were recorded, or one calling a connector that has since become a package. Recorded
+        versions never change. Returns how many versions it stamped."""
+        stamped = 0
+        for world_id, version in self.storage.all_versions():
+            pins = versions_for(world_id)
+            missing = {
+                n: pins[n] for n in calls(version.model) - set(version.packages) if n in pins
+            }
+            if missing:
+                self.storage.set_packages(version.id, {**version.packages, **missing})
+                stamped += 1
+        return stamped
+
+    def using(self, package: str, version: str) -> list[tuple[Workflow, int]]:
+        """Each saved workflow version, as its workflow and number, that records `package` at
+        `version`."""
+        return [
+            (workflow, v.number)
+            for _, v in self.storage.all_versions()
+            if v.packages.get(package) == version and (workflow := self.get(v.workflow_id))
+        ]
 
     def delete_world(self, world_id: str) -> None:
         """Drop a deleted world's workflows so they stop shaping cycle and depth checks."""

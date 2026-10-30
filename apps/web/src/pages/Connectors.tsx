@@ -12,6 +12,7 @@ type SetupField = components["schemas"]["SetupField"];
 type SetupView = components["schemas"]["SetupView"];
 type NewConnector = components["schemas"]["NewConnector"];
 type Package = components["schemas"]["Package"];
+type PackageSwitch = components["schemas"]["PackageSwitch"];
 type Tool = components["schemas"]["Tool"];
 type World = components["schemas"]["World"];
 type Kind = NewConnector["kind"];
@@ -91,6 +92,7 @@ export function Connectors() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [enabled, setEnabled] = useState<Record<string, string>>({});
+  const [switching, setSwitching] = useState<{ p: Package; diff: PackageSwitch } | null>(null);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Kind>("stage");
   const [server, setServer] = useState("");
@@ -112,6 +114,10 @@ export function Connectors() {
       .then(({ data }) => data && setConnectors(data));
   }
 
+  function loadPackages() {
+    return api.GET("/api/packages").then(({ data }) => data && setPackages(data));
+  }
+
   function loadEnabled() {
     return api
       .GET("/api/worlds/{world_id}/packages", { params: { path: { world_id: worldId } } })
@@ -125,10 +131,7 @@ export function Connectors() {
       .catch(() => setError("Could not load this world. Is the API running?"));
     void load().catch(() => undefined);
     void loadEnabled().catch(() => undefined);
-    api
-      .GET("/api/packages")
-      .then(({ data }) => data && setPackages(data))
-      .catch(() => undefined);
+    void loadPackages().catch(() => undefined);
   }, [worldId]);
 
   async function test(e: FormEvent<HTMLFormElement>) {
@@ -179,8 +182,35 @@ export function Connectors() {
     await load();
   }
 
+  /** A switch of the pinned version first shows what changes in the Manifest. */
+  async function askSwitch(p: Package) {
+    setError(null);
+    const { data, error } = await api.GET("/api/worlds/{world_id}/packages/{name}/switch", {
+      params: { path: { world_id: worldId, name: p.name }, query: { version: p.version } },
+    });
+    if (error || !data) {
+      setError(detail(error) ?? `Could not read what ${p.label} ${p.version} changes. Try again.`);
+      return;
+    }
+    setSwitching({ p, diff: data });
+  }
+
+  async function uninstall(p: Package) {
+    if (!window.confirm(`Uninstall ${p.name} ${p.version}? Its folder is removed for every world.`)) return;
+    setError(null);
+    const { error } = await api.DELETE("/api/packages/{name}/{version}", {
+      params: { path: { name: p.name, version: p.version } },
+    });
+    if (error) {
+      setError(detail(error) ?? `Could not uninstall ${p.name} ${p.version}. Try again.`);
+      return;
+    }
+    await loadPackages();
+  }
+
   async function enable(p: Package) {
     setError(null);
+    setSwitching(null);
     const { error } = await api.PUT("/api/worlds/{world_id}/packages/{name}", {
       params: { path: { world_id: worldId, name: p.name } },
       body: { version: p.version },
@@ -410,10 +440,27 @@ export function Connectors() {
                     </>
                   ) : (
                     p.state === "installed" && (
-                      <button type="button" onClick={() => enable(p)} aria-label={`Enable ${p.name} ${p.version}`}>
+                      <button
+                        type="button"
+                        onClick={() => (enabled[p.name] ? askSwitch(p) : enable(p))}
+                        aria-label={`Enable ${p.name} ${p.version}`}
+                      >
                         {enabled[p.name] ? `Switch from ${enabled[p.name]}` : "Enable"}
                       </button>
                     )
+                  )}
+                  <button type="button" onClick={() => uninstall(p)} aria-label={`Uninstall ${p.name} ${p.version}`}>
+                    Uninstall
+                  </button>
+                  {switching?.p === p && (
+                    <SwitchDiff
+                      p={p}
+                      diff={switching.diff}
+                      worldId={worldId}
+                      onSwitch={() => enable(p)}
+                      onCancel={() => setSwitching(null)}
+                      onSetUp={() => askSwitch(p)}
+                    />
                   )}
                 </li>
               ))}
@@ -422,6 +469,87 @@ export function Connectors() {
         )}
       </div>
     </main>
+  );
+}
+
+/** What moving the world's pin changes in the package's Manifest, held back while a newly
+ * required Setup field has no value; the new version's Setup form fills it in. */
+function SwitchDiff({
+  p,
+  diff,
+  worldId,
+  onSwitch,
+  onCancel,
+  onSetUp,
+}: {
+  p: Package;
+  diff: PackageSwitch;
+  worldId: string;
+  onSwitch: () => void;
+  onCancel: () => void;
+  onSetUp: () => Promise<unknown>;
+}) {
+  const groups = [
+    { label: "Params", c: diff.params },
+    { label: "Setup fields", c: diff.setup },
+    { label: "Permissions", c: diff.permissions },
+  ].filter(({ c }) => c.added.length + c.removed.length + (c.changed?.length ?? 0) > 0);
+  return (
+    <section className="con-switch" aria-label={`Switch ${p.name} to ${p.version}`}>
+      <h3>
+        Switch {p.label} from {diff.from} to {diff.to}
+      </h3>
+      <p className="faint">
+        Workflow versions saved on {diff.from} keep running it; versions you save after the switch use {diff.to}.
+      </p>
+      {groups.length === 0 ? (
+        <p>Its params, Setup fields and permissions are unchanged.</p>
+      ) : (
+        <dl>
+          {groups.map(({ label, c }) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd className="mono">
+                {(
+                  [
+                    ["Added", c.added],
+                    ["Removed", c.removed],
+                    ["Changed", c.changed ?? []],
+                  ] as const
+                )
+                  .filter(([, names]) => names.length > 0)
+                  .map(([what, names]) => `${what} ${names.join(", ")}`)
+                  .join(". ")}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {diff.needs.length > 0 && (
+        <>
+          <p role="status" className="warning">
+            Fill in {diff.needs.join(", ")} in {p.label} {diff.to}'s Setup first; the switch waits for{" "}
+            {diff.needs.length === 1 ? "it" : "them"}.
+          </p>
+          <div className="row">
+            <Setup
+              connector={{ name: p.name, label: `${p.label} ${diff.to}`, missing: diff.needs }}
+              worldId={worldId}
+              version={diff.to}
+              onSaved={onSetUp}
+            />
+          </div>
+        </>
+      )}
+      <div className="actions">
+        <button type="button" className="primary" disabled={diff.needs.length > 0} onClick={onSwitch}>
+          Switch to {diff.to}
+        </button>
+        <button type="button" onClick={onCancel}>
+          Keep {diff.from}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -574,11 +702,22 @@ function FieldInput({ f, scope, required }: { f: SetupField; scope: "shared" | "
 
 /** A package's Setup form, drawn from its Manifest's fields (ADR 0024). Its test runs with the
  * candidate values before anything is saved, and what it said is shown either way. */
-function Setup({ connector, worldId, onSaved }: { connector: Connector; worldId: string; onSaved: () => Promise<unknown> }) {
+function Setup({
+  connector,
+  worldId,
+  onSaved,
+  version,
+}: {
+  connector: Pick<Connector, "name" | "label" | "missing">;
+  worldId: string;
+  onSaved: () => Promise<unknown>;
+  /** An installed version other than the pinned one: its form, filled in before a switch. */
+  version?: string;
+}) {
   const [form, setForm] = useState<SetupView | null>(null);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<KeyCheck | null>(null);
-  const path = { params: { path: { world_id: worldId, name: connector.name } } };
+  const path = { params: { path: { world_id: worldId, name: connector.name }, query: version ? { version } : {} } };
 
   async function open() {
     setSaid(null);
