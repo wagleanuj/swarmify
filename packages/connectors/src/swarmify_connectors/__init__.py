@@ -409,6 +409,8 @@ class Connectors:
         env = {n: values[n] for n in connector.credentials}
         if connector.builtin and connector.name == "remotion_render":
             env["SWARMIFY_DATA_DIR"] = str(self.data_dir)  # where its templates live
+            if os.environ.get(remotion.CONCURRENCY):
+                env[remotion.CONCURRENCY] = os.environ[remotion.CONCURRENCY]
         manifest = MANIFESTS.get(connector.name) if connector.builtin else None
         for setting in (manifest or {}).get("settings", []):  # non-secret, from the app's env
             if os.environ.get(setting):

@@ -286,3 +286,16 @@ def test_the_starter_builds_with_the_voice_first_example(tmp_path: Path) -> None
     for argv in (["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], ["npx", "tsc"]):
         done = subprocess.run(argv, cwd=folder, capture_output=True, text=True)
         assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_the_builder_knows_3d_is_available_and_how_to_keep_it_deterministic() -> None:
+    """A 3D scene renders locally and in Docker (spike 2026-10-30), if every frame is a function
+    of the frame number and every asset is in the project."""
+    for must in (
+        "@remotion/three",
+        "<ThreeCanvas>",
+        "useCurrentFrame()",
+        "never React Three",
+        "world's assets",
+    ):
+        assert must in build.SYSTEM, must

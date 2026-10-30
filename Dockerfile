@@ -42,6 +42,9 @@ COPY --from=chrome /chrome-headless-shell /opt/chrome-headless-shell
 RUN ln -s "$(find /opt/chrome-headless-shell -type f \( -name chrome-headless-shell -o -name headless_shell \))" \
     /usr/local/bin/chrome-headless-shell \
   && chrome-headless-shell --version
+# With no GPU Chrome draws WebGL in software: a 3D scene at the default concurrency (half the
+# CPUs) runs out of memory, 2 tabs render it (spike 2026-10-30). Override in .env if needed.
+ENV SWARMIFY_RENDER_CONCURRENCY=2
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages

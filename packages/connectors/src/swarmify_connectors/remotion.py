@@ -33,6 +33,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 POLL = "remotion_render_status"
+CONCURRENCY = "SWARMIFY_RENDER_CONCURRENCY"
 TAIL = 40
 _STEP = re.compile(r"^(Rendered|Encoded) (\d+)/(\d+)", re.M)
 
@@ -183,6 +184,10 @@ def remotion_render(
     argv += [f"--props={_hidden(output, 'props.json')}", f"--codec={_flag('codec', codec)}"]
     if frames:
         argv.append(f"--frames={_flag('frames', str(frames))}")
+    # Tabs rendering at once. Unset, Remotion uses half the CPUs; with no GPU (Docker) a 3D
+    # scene renders in software and that many tabs run out of memory (spike 2026-10-30).
+    if tabs := os.environ.get(CONCURRENCY):
+        argv.append(f"--concurrency={_flag('concurrency', tabs)}")
     # The Docker image ships Chrome Headless Shell on PATH; elsewhere Remotion finds its own.
     if browser := shutil.which("chrome-headless-shell"):
         argv.append(f"--browser-executable={browser}")

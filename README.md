@@ -1142,6 +1142,10 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `project: shorts` finds it, as natively. The first render installs its dependencies. When
   `chrome-headless-shell` is on `PATH`, as in the image, the connector passes it to Remotion as
   `--browser-executable`; on the Mac Remotion uses its own.
+- The image sets `SWARMIFY_RENDER_CONCURRENCY=2`, passed to Remotion as `--concurrency`: with no
+  GPU a 3D scene (`@remotion/three`) renders in software, and the default of half the CPUs runs
+  out of memory. Unset, as natively, Remotion picks. No `--gl` flag is passed: the default
+  renders 3D on the Mac and in the image, and `--gl=angle` crashes in the image.
 - Basic auth works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same prompt.
   Unset, there is no auth, which is right only on `127.0.0.1`. For access from outside the house

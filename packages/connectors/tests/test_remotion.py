@@ -103,6 +103,24 @@ def test_a_headless_shell_on_path_is_the_browser_remotion_uses(
     assert json.loads(Path(config["params"]["output_path"]).read_text())["browser"] == str(shell)
 
 
+def test_the_render_concurrency_setting_caps_the_tabs_rendering_at_once(
+    tmp_path: Path, real: Connectors, fake_npx: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unset, Remotion picks; the Docker image sets 2, since a 3D scene in software runs out of
+    memory with more (spike 2026-10-30). A value that is not a plain one is refused."""
+    config = stage(tmp_path, fake_npx)
+    real.run_stage(W, "run_1", "stage_2", config)
+    assert json.loads(Path(config["params"]["output_path"]).read_text())["concurrency"] == ""
+
+    monkeypatch.setenv(remotion.CONCURRENCY, "2")
+    real.run_stage(W, "run_1", "stage_3", config)
+    assert json.loads(Path(config["params"]["output_path"]).read_text())["concurrency"] == "2"
+
+    monkeypatch.setenv(remotion.CONCURRENCY, "--gl=angle")
+    with pytest.raises(ConnectorError, match="concurrency must be a plain value"):
+        real.run_stage(W, "run_1", "stage_4", config)
+
+
 def test_a_relative_project_is_a_template_under_the_data_directory(
     tmp_path: Path, real: Connectors, fake_npx: Path
 ) -> None:
