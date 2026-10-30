@@ -1103,10 +1103,13 @@ suite checks the whole loop with no model.
 ## Deployment
 
 The same `compose.yaml` runs on the Mac (Docker Desktop) and on a Debian VM (Docker Engine with the
-compose plugin, `apt install docker.io docker-compose-plugin` or Docker's own apt repo). Two
-services share one volume, `data`, mounted at `/data`: `api` (API, runner, the built web skin at
-`/`) and `graph-writer` (the GraphWriter, ADR 0003). A third, `kokoro`, is a speech engine (see
-Speech engines). One image serves both. It holds Node and `npx`
+compose plugin, `apt install docker.io docker-compose-plugin` or Docker's own apt repo). `web`
+(Caddy, `docker/Caddyfile`) serves the built skin and proxies `/api`, event streams unbuffered,
+to `api`; it is the only service with a published port. `api` (API and runner) and `graph-writer`
+(the GraphWriter, ADR 0003) share one volume, `data`, mounted at `/data`. `kokoro` is a speech
+engine (see Speech engines). The skin has its own image, so a UI-only change rebuilds and
+restarts only `web`: runs in the api (an agent session, a Remotion build) carry on. One image
+serves `api` and `graph-writer`. It holds Node and `npx`
 for the Remotion render connector, Chrome Headless Shell downloaded by Remotion's own
 `remotion browser ensure` with the shared libraries Remotion's Docker guide lists, and the Claude
 Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
@@ -1123,13 +1126,27 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    SWARMIFY_BASE_URL=http://192.168.1.20:8000 # optional: where Slack deep links point
    SWARMIFY_BIND=0.0.0.0                      # optional: 127.0.0.1 keeps it off the LAN
    SWARMIFY_PORT=8000                         # optional: the host port
+   BUILDX_NO_DEFAULT_ATTESTATIONS=1           # keeps an unchanged api image the same image
    ```
+
+   With the containerd image store (Docker Desktop, Docker Engine 29 and later) every build
+   otherwise attaches a fresh provenance attestation, which gives the api image a new id and
+   makes `up -d --build` restart the api even when nothing in it changed.
 
    The api and graph-writer containers refuse to start without the token or the password, naming
    the missing one (`docker/needs.sh`); `docker compose up -d kokoro` alone needs neither.
 3. `docker compose up -d --build`, then open `http://<host>:8000` from any device on the LAN,
-   phone included, and sign in. `docker compose logs -f` shows both services; the api container
+   phone included, and sign in. `docker compose logs -f` shows every service; the api container
    is healthy once `/api/health` answers (the only path open without the password).
+
+- Updating: `git pull`, then the same `docker compose up -d --build` (with `--profile ...` if
+  you use one). Only images whose inputs changed are rebuilt, and only their containers restart:
+  a change under `apps/web` alone restarts `web` and leaves the api and its runs alone. For a
+  UI-only update `docker compose up -d --build web` builds and restarts nothing else.
+- Basic auth is enforced in one place, the api (`auth.py`). `web` passes `/api` straight
+  through, and before serving any page or asset asks the api whether the request's credentials
+  pass (Caddy's `forward_auth` against `/api/models`), so nothing on the port answers without
+  the password but `/api/health`. While the api is down the skin answers 502.
 
 - Moving to Proxmox is a copy: the repo and `.env` onto the VM, `docker compose up -d --build`.
   To carry data across, stop both services and copy the volume, for example
@@ -1183,7 +1200,8 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   Workflows learns which connectors a world allows through a function the composition root passes
   in, backed by the connector registry. `packages/connectors` also declares ConnectorTransport, with
   the MCP adapter and `FakeTransport` for tests.
-- `apps/api` FastAPI composition root; serves `apps/web/dist` at `/` when it exists. Also home of
+- `apps/api` FastAPI composition root; serves `apps/web/dist` at `/` when it exists (natively
+  and in the e2e suite; in Docker the `web` container serves it). Also home of
   the `swarmify-mcp` server, which exposes the same actions as MCP tools. Both delete a world
   through one `world_deleter`: its folder, schedules, live runs (cancelled through DBOS) and every
   context's rows.

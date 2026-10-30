@@ -1,0 +1,25 @@
+# The web container: the built skin at /, everything under /api proxied to the api container.
+# Nothing but /api/health is served without the password: the api checks /api itself, and the
+# skin is checked by asking the api (forward_auth), so basic auth lives in one place, auth.py.
+{
+	admin off
+}
+
+:8000 {
+	handle /api/* {
+		# Event streams go out as they are written, never buffered.
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		# Any cheap path behind the api's basic auth; a 401 comes back with its sign-in prompt.
+		forward_auth api:8000 {
+			uri /api/models
+		}
+		root * /srv
+		# Client routes like /gates get index.html, as the api's SpaFiles does natively.
+		try_files {path} /index.html
+		file_server
+	}
+}
