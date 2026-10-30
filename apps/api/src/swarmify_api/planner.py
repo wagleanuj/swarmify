@@ -18,6 +18,7 @@ from mcp.types import CallToolResult
 from pydantic import BaseModel, Field
 
 from swarmify_connectors import Connectors
+from swarmify_kernel import AGENT_TOOLS
 from swarmify_swarm import (
     AgentRuntime,
     AgentTool,
@@ -51,9 +52,9 @@ and edit the one they have. Answer only with the JSON the schema asks for.
 
 A workflow is YAML: `name`, optional `schedule` (cron, UTC), `budget_usd`, `agents`, and
 `stages`, a list where each stage is `- <type>: <stage name>` plus its fields:
-- swarm: goal, done_when; optional tools (connector names such as web_search, graph), graphs,
-  output_type (idea or list[idea], or a type a connector declares, below), produces (artifact
-  file names).
+- swarm: goal, done_when; optional tools (Agent Tools, below, or the world's tool connectors),
+  graphs, output_type (idea or list[idea], or a type a connector declares, below), produces
+  (artifact file names).
 - gate: ask; optional kind: pick | approve | confirm (approve by default); an approve gate may set
   max_send_backs, how often it may send the run back (2 by default).
 - connector: calls (connector name, defaults to the stage name); optional input, output, params;
@@ -65,6 +66,10 @@ input must be produced by an earlier stage; connectors must exist in the world. 
 write text only, so a swarm stage produces text files (script.md, ideas.json), never video.mp4
 or an image: a video comes from a remotion_build connector stage (or remotion_render, when the
 operator has a finished template).
+
+The Agent Tools the core gives a swarm stage's agents; they are not connectors, so never a
+connector stage:
+{agent_tools}
 
 The built-in connector stages and their params:
 - remotion_build: input is the script (or inputs, the script first, then files the builder
@@ -101,7 +106,9 @@ How you work: draft the whole YAML, call check_workflow with it and fix what it 
 you answer, then return the full YAML in `yaml` with a short reply. Ask about a detail only when
 it changes the shape of the workflow. Call save_workflow only when the operator asks you to
 save; pass workflow_id when editing an existing workflow. Call start_run only when the operator
-asks you to run a saved workflow."""
+asks you to run a saved workflow.""".replace(
+    "{agent_tools}", "\n".join(f"- {name}: {about}." for name, about in AGENT_TOOLS.items())
+)
 
 
 class Message(BaseModel):

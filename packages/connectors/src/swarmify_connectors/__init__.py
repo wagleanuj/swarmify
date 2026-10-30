@@ -43,7 +43,7 @@ from swarmify_connectors.model import (
 )
 from swarmify_connectors.ports import ConnectorTransport, Storage
 from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
-from swarmify_kernel import new_id
+from swarmify_kernel import AGENT_TOOLS, new_id
 
 __all__ = [
     "BUILTINS",
@@ -97,8 +97,6 @@ def _builtin(
 MANIFESTS: dict[str, dict[str, Any]] = {m["name"]: m for m in (speech.MANIFEST,)}
 
 BUILTINS = [
-    _builtin("web_search", "tool", "swarm", "Built into Claude. No key."),
-    _builtin("graph", "tool", "swarm", "This world's graph, read only."),
     _builtin(
         "remotion_render",
         "stage",
@@ -276,6 +274,8 @@ class Connectors:
             raise ValueError("a name is lower_snake_case, as workflows call it: fal_video")
         if any(c.name == name for c in BUILTINS):
             raise ValueError(f"'{name}' is a built-in connector")
+        if name in AGENT_TOOLS:
+            raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
         if kind not in KINDS:
             raise ValueError(f"kind is one of {', '.join(KINDS)}")
         if not server:

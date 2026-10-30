@@ -16,8 +16,6 @@ const base = {
   missing: [],
 };
 const builtins = [
-  { ...base, id: "builtin_web_search", name: "web_search", kind: "tool", stage_types: ["swarm"], about: "Built into Claude. No key." },
-  { ...base, id: "builtin_graph", name: "graph", kind: "tool", stage_types: ["swarm"], about: "This world's graph, read only." },
   { ...base, id: "builtin_youtube", name: "youtube", kind: "publish", stage_types: ["connector"], about: "Publishes to YouTube." },
 ];
 const fal = {
@@ -46,10 +44,9 @@ test("lists connectors by kind with their steps and health, and flags a missing 
     "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, fal]),
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
-  await expect.element(screen.getByText(/4 connectors, 1 waiting on a key\./)).toBeVisible();
-  const tools = screen.getByRole("list", { name: "Tools agents use inside a swarm step" });
-  await expect.element(tools).toMatchTextContent(/Web search\s*Built into Claude\. No key\.\s*swarm steps\s*Ready/);
-  await expect.element(tools).toMatchTextContent(/Middle-out/);
+  await expect.element(screen.getByText(/2 connectors, 1 waiting on a key\./)).toBeVisible();
+  await expect.element(screen.getByText(/they are Agent Tools Swarmify gives swarm steps/)).toBeVisible();
+  expect(screen.getByRole("list", { name: "Tools agents use inside a swarm step" }).elements()).toHaveLength(0);
   await expect
     .element(screen.getByRole("region", { name: "Publishing" }))
     .toMatchTextContent(/Always after a gate\..*YouTube.*connector steps\s*Not installed/);
@@ -57,7 +54,7 @@ test("lists connectors by kind with their steps and health, and flags a missing 
   await expect.element(added).toMatchTextContent(/fal_video\s*uvx fal-mcp · FAL_KEY not set\s*connector steps\s*Needs a key\s*Set keys/);
   await expect.element(added.getByRole("button", { name: "Set keys for fal_video" })).toHaveTextContent("Set keys");
   await expect.element(screen.getByRole("button", { name: "Remove fal_video" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Remove web_search" }).elements()).toHaveLength(0);
+  expect(screen.getByRole("button", { name: "Remove youtube" }).elements()).toHaveLength(0);
 });
 
 test("tests a draft, shows its tools, and saves it only after a passing test", async () => {
@@ -153,11 +150,11 @@ test("parseKeys reads NAME=value lines and bare names", () => {
 
 test("a built-in publish connector takes its keys in place, and the list shows them saved", async () => {
   const keys = ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"];
-  let youtube = { ...builtins[2], command: ["python", "-m", "swarmify_connectors.youtube"], credentials: keys, missing: keys };
+  let youtube = { ...builtins[0], command: ["python", "-m", "swarmify_connectors.youtube"], credentials: keys, missing: keys };
   let sent: unknown = null;
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
-    "GET /api/worlds/world_1/connectors": () => Response.json([builtins[0], youtube]),
+    "GET /api/worlds/world_1/connectors": () => Response.json([youtube]),
     "PUT /api/connectors/builtin_youtube/credentials": async (req) => {
       sent = await req.json();
       youtube = { ...youtube, missing: [] };
@@ -165,7 +162,7 @@ test("a built-in publish connector takes its keys in place, and the list shows t
     },
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
-  const row = screen.getByTestId("connector-list").getByRole("listitem").nth(1);
+  const row = screen.getByTestId("connector-list").getByRole("listitem").nth(0);
   await expect.element(row).toMatchTextContent(/YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN not set.*Needs a key/);
   await row.getByRole("button", { name: "Set keys for youtube" }).click();
   const form = row.getByRole("form", { name: "Keys for youtube" });
@@ -182,7 +179,7 @@ test("a built-in publish connector takes its keys in place, and the list shows t
 
 test("the page says keys are shared by every world, and a failing key check warns but saves", async () => {
   const keys = ["UPLOAD_POST_API_KEY"];
-  const post = { ...builtins[2], id: "builtin_upload_post", name: "upload_post", command: ["npx"], credentials: keys, missing: keys };
+  const post = { ...builtins[0], id: "builtin_upload_post", name: "upload_post", command: ["npx"], credentials: keys, missing: keys };
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json([post]),

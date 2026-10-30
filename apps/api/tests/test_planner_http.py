@@ -148,6 +148,7 @@ def test_the_planner_hears_what_a_connector_says_of_its_types_in_this_world(
 def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
     from swarmify_api.planner import SYSTEM
     from swarmify_connectors import BUILTINS
+    from swarmify_kernel import AGENT_TOOLS
 
     params = {
         "remotion_render": ["project", "composition", "entry", "codec", "frames", "props"],
@@ -163,6 +164,8 @@ def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
         for param in names:
             assert param in entry, (name, param)
     assert "remotion_build connector stage" in SYSTEM and "agents\nwrite text only" in SYSTEM
+    agent_tools = SYSTEM.split("The Agent Tools")[1].split("The built-in connector")[0]
+    assert all(f"- {name}: " in agent_tools for name in AGENT_TOOLS)
 
 
 def test_the_planner_starts_a_run_when_the_operator_asks(

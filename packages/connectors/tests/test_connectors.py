@@ -38,13 +38,10 @@ def events(db: Path) -> list[dict[str, Any]]:
         return [e.payload for e in read_after(conn, W, 0) if e.type == "connector_call.updated"]
 
 
-def test_web_search_and_the_graph_are_built_in_and_need_no_setup(connectors: Connectors) -> None:
-    found = {c.name: c for c in connectors.list_all(W)}
-    for name in ("web_search", "graph"):
-        assert found[name].builtin and found[name].kind == "tool"
-        assert found[name].stage_types == ["swarm"]
-        assert connectors.missing(found[name]) == []
-    assert connectors.get("builtin_graph") == found["graph"]
+def test_web_search_and_the_graph_are_agent_tools_not_connectors(connectors: Connectors) -> None:
+    names = {c.name for c in connectors.list_all(W)}
+    assert names.isdisjoint({"web_search", "graph"})
+    assert connectors.get("builtin_graph") is None
 
 
 def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
@@ -58,7 +55,8 @@ def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
     ("over", "problem"),
     [
         ({"name": "Fal Video"}, "lower_snake_case"),
-        ({"name": "graph"}, "built-in"),
+        ({"name": "youtube"}, "built-in"),
+        ({"name": "graph"}, "Agent Tool"),
         ({"kind": "plugin"}, "kind is one of"),
         ({"server": "  "}, "MCP command or a URL"),
         ({"server": "uvx 'unclosed"}, "cannot read the command"),
@@ -374,7 +372,7 @@ def test_a_poll_that_errors_fails_the_stage(
     ("calls", "problem"),
     [
         ("nope", "no connector named 'nope'"),
-        ("web_search", "not allowed in connector stages"),
+        ("web_search", "no connector named 'web_search'"),
         ("fal_video", "needs FAL_KEY"),
     ],
 )
