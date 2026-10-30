@@ -9,8 +9,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from api_fakes import YOUTUBE_ENV, sign_in_youtube
 from fastapi.testclient import TestClient
-from test_publish_http import KEYS, at_gate, setup, until, weekly
+from test_publish_http import at_gate, setup, until, weekly
 
 from fake_graph import fake_extract
 from swarmify_api.main import create_app
@@ -46,11 +47,11 @@ def _types(root: Path, world: str) -> list[str]:
 def test_view_counts_are_written_into_the_publish_artifact_body(
     running: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
-    running.put("/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS})
+    sign_in_youtube(tmp_path)
     world, workflow = setup(running, weekly())
     run = at_gate(running, tmp_path, world, workflow)
-    transport.outputs["youtube"] = [
-        {"video_id": "vid1", "url": "https://youtu.be/vid1", "publish_at": "2099-01-01T09:00:00Z"}
+    transport.outputs["publish"] = [
+        {"id": "vid1", "url": "https://youtu.be/vid1", "status": "scheduled"}
     ]
     transport.outputs["views"] = [{"views": {"vid1": 9000}}]
     assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
@@ -62,7 +63,7 @@ def test_view_counts_are_written_into_the_publish_artifact_body(
     assert (
         "\nviews: 9000\n" in text and "9,000 views as of " in text and "- vid1: 9,000 views" in text
     )
-    assert ("youtube", "views", {"video_ids": ["vid1"]}, KEYS) in transport.calls
+    assert ("youtube", "views", {"video_ids": ["vid1"]}, YOUTUBE_ENV) in transport.calls
     stage = next(
         s for s in running.get(f"/api/runs/{run['id']}").json()["stages"] if s["name"] == "publish"
     )

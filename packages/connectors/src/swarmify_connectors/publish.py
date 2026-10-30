@@ -10,14 +10,12 @@ and `input_path`/`input_paths`, posts exactly those values, and answers `url` or
 error; a post with failures and no links fails the stage). It may answer a long job instead
 (`job_id` and `poll`), whose last answer carries the same. The core shows the
 fields at the gate, lets the person edit the editable ones, refuses to go on while there are
-problems, and records the values confirmed. A world's own publish connector answers both as MCP
-tools; the built-in youtube answers in process (`builtin_publish`) until it moves into its package.
+problems, and records the values confirmed. Every publish connector is a Connector Package
+answering both as MCP tools, as `connectors/youtube` and `connectors/upload_post` do.
 """
 
 import re
 from typing import Any
-
-from swarmify_connectors import builtin_publish
 
 
 def checked_preview(raw: Any) -> dict[str, Any]:
@@ -44,8 +42,6 @@ def checked_preview(raw: Any) -> dict[str, Any]:
 def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
     """What came back, normalized: `status` (published or scheduled), `links` (platform
     to URL), `id` (the post or scheduler job) and `failed` (platform to error)."""
-    if connector in builtin_publish.NAMES:
-        return builtin_publish.result(connector, response)
     links = response.get("links")
     links = {str(k): str(v) for k, v in links.items()} if isinstance(links, dict) else {}
     if response.get("url"):

@@ -21,7 +21,7 @@ UPKEEP_SECONDS = 6 * 3600.0
 
 def record_outcomes(worlds: Worlds, memory: Memory, registry: Connectors, now: datetime) -> int:
     """Write fresh view counts into publish artifacts; returns how many changed. A world whose
-    youtube connector cannot answer (no keys yet) is logged and skipped."""
+    youtube connector cannot answer (not signed in yet) is logged and skipped."""
     changed = 0
     for world in worlds.list_all():
         records = [

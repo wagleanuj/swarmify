@@ -33,7 +33,7 @@ import httpx
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
-from swarmify_connectors import builtin_publish, oauth, publish, remotion, setup
+from swarmify_connectors import oauth, publish, remotion, setup
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
 from swarmify_connectors.mcp_transport import McpTransport
@@ -117,27 +117,6 @@ def from_manifest(m: dict[str, Any]) -> Connector:
 
 
 _SCRIPT_IN = {"description": "the script", "media_type": "text/markdown"}
-_VIDEO_IN = {"description": "the video", "media_type": "video/mp4"}
-_PUBLISH_PARAMS: dict[str, Any] = {
-    "title": {
-        "type": "string",
-        "description": "required unless metadata names a file an earlier stage produced whose"
-        " frontmatter has title and description",
-    },
-    "metadata": {
-        "type": "string",
-        "description": "a file an earlier stage produced; its frontmatter's title, description,"
-        " hashtags and tags win over these params",
-    },
-    "description": {"type": "string"},
-    "visibility": {"enum": ["public", "unlisted", "private"], "default": "private"},
-    "schedule": {
-        "type": "string",
-        "description": "ISO 8601 with a timezone, or 09:00, or +1d 09:00; needs public",
-    },
-    "made_for_kids": {"type": "boolean", "default": False},
-}
-
 # Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019): the core
 # and the planner read only these fields, so moving one into a package moves its module and
 # this entry.
@@ -212,26 +191,11 @@ MANIFESTS: dict[str, dict[str, Any]] = {
             ],
             "capabilities": ["build_session"],
         },
-        {
-            "name": "youtube",
-            "label": "YouTube",
-            "kind": "publish",
-            "stage_types": ["connector"],
-            "about": "Uploads to YouTube through the Data API; a schedule keeps it private until"
-            " then.",
-            "command": [sys.executable, "-m", "swarmify_connectors.youtube"],
-            "credentials": ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
-            "params": {"type": "object", "properties": _PUBLISH_PARAMS},
-            "inputs": [_VIDEO_IN],
-        },
     )
 }
 
 BUILTINS = [from_manifest(m) for m in MANIFESTS.values()]
 
-
-# The cheap read-only tool each built-in publish connector proves its keys with.
-KEY_CHECKS = {"youtube": "channel"}
 
 KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
 """A key name the add form takes; lower-cased, it is its Setup field's key."""
@@ -272,10 +236,18 @@ def _local_manifest(c: Connector) -> dict[str, Any]:
     return m
 
 
-def _account(connector: str, answer: dict[str, Any]) -> str:
-    if connector == "youtube" and answer.get("channel"):
-        return f"Posts to the YouTube channel {answer['channel']}."
-    return "The keys work."
+def _preview_args(
+    config: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    edits: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A publish connector's `preview` arguments for a stage (`swarmify_connectors.publish`)."""
+    return {
+        "inputs": [config["input"]] if config.get("input") else list(config.get("inputs") or []),
+        "params": dict(config.get("params") or {}),
+        "metadata": metadata or {},
+        "edits": edits or {},
+    }
 
 
 def _is_schema(schema: dict[str, Any]) -> bool:
@@ -440,8 +412,8 @@ class Connectors:
         Manifest says `enable_by_default = false`, which a world enables when it wants them.
         The first install of a package carries what V1 kept for it into its shared Setup: a
         Setting from the app's env and a Credential from the credentials file, each found by its
-        field's `env` name. One that does not install is logged and left out; the others still
-        are."""
+        field's `env` name, and an oauth field's V1 refresh token (`_carry`). One that does not
+        install is logged and left out; the others still are."""
         for manifest in sorted((self.packages.repo / DEFAULTS).glob(f"*/{MANIFEST}")):
             source = f"{DEFAULTS}/{manifest.parent.name}"
             try:
@@ -469,10 +441,18 @@ class Connectors:
             return
         carried = dict(shared)
         for f in setup.fields(m):
+            if f["key"] in carried or setup.scope(f) == "world":
+                continue
+            if f["type"] == "oauth":
+                # V1 kept a sign-in as <KEY>_REFRESH_TOKEN beside its app's <KEY>_CLIENT_ID and
+                # <KEY>_CLIENT_SECRET (carried as the client fields): a token set refreshed on
+                # first use, so no new sign-in is needed.
+                if refresh := saved.get(f"{f['key'].upper()}_REFRESH_TOKEN"):
+                    carried[f["key"]] = {"refresh_token": refresh, "expires_at": 0}
+                continue
             env = setup.env_name(f)
             raw = saved.get(env) if f.get("secret") else os.environ.get(env)
-            # an OAuth sign-in holds a token set, not a value from V1: its package moves it
-            if not raw or f["key"] in carried or setup.scope(f) == "world" or f["type"] == "oauth":
+            if not raw:
                 continue
             try:
                 carried[f["key"]] = setup.coerce(f, raw)
@@ -873,24 +853,15 @@ class Connectors:
         kept |= {n for c in self.storage.world_connectors() for n in c.credentials}
         self.credentials.remove(moved - kept)
 
-    def set_credentials(self, connector: Connector, values: dict[str, str]) -> KeyCheck | None:
-        """Merge values for the connector's own credential names; others are refused. Then, for
-        a built-in with a key check and all its keys saved, check them live: a failing check
-        keeps the keys and says why, so a bad token shows now rather than at publish."""
+    def set_credentials(self, connector: Connector, values: dict[str, str]) -> None:
+        """Merge values for the connector's own credential names; others are refused. A
+        package's keys are its Setup, checked by its `[setup] test`."""
         foreign = sorted(set(values) - set(connector.credentials))
         if foreign:
             raise ValueError(f"{connector.name} does not use {', '.join(foreign)}")
         filled = {k: v for k, v in values.items() if v}
         if filled:
             self.credentials.set(filled)
-        tool = KEY_CHECKS.get(connector.name) if connector.builtin else None
-        if tool is None or self.missing(connector):
-            return None
-        try:
-            answer = self._tool(connector, tool, {}, self._env(connector))
-        except ConnectorError as exc:
-            return KeyCheck(False, str(exc))
-        return KeyCheck(True, _account(connector.name, answer))
 
     def missing(self, connector: Connector) -> list[str]:
         """Credential names the file does not hold yet; for a package, the keys of required
@@ -948,7 +919,11 @@ class Connectors:
         shared, world = self.setups.values(connector.name, connector.world_id)
         return setup.resolve(connector.manifest, shared, world)
 
-    def _env(self, connector: Connector, extra: dict[str, str] | None = None) -> dict[str, str]:
+    def _env(
+        self, connector: Connector, extra: dict[str, str] | None = None, complete: bool = True
+    ) -> dict[str, str]:
+        """The process environment. A package's must hold every required Setup value unless
+        `complete` is False, as for a publish `preview`, which needs no account."""
         if connector.version is not None:
             # A package gets exactly its own Setup values for the world it runs for (ADR 0024).
             assert connector.world_id is not None
@@ -957,7 +932,7 @@ class Connectors:
             resolved = self._signed_in(
                 connector, *self.setups.values(connector.name, connector.world_id)
             )
-            if gaps := setup.missing(connector.manifest, resolved):
+            if complete and (gaps := setup.missing(connector.manifest, resolved)):
                 raise ConnectorError(
                     f"{connector.name} needs its Setup on the Connectors page: {', '.join(gaps)}"
                 )
@@ -1066,22 +1041,12 @@ class Connectors:
         connector = self.find(world_id, str(config.get("calls", "")), pins)
         if connector is None or connector.kind != "publish":
             return None
-        args = {
-            "inputs": [config["input"]]
-            if config.get("input")
-            else list(config.get("inputs") or []),
-            "params": dict(config.get("params") or {}),
-            "metadata": metadata or {},
-            "edits": edits or {},
-        }
-        if connector.builtin:
-            shown = builtin_publish.preview(connector.name, args)
-        else:
-            try:
-                raw = self._tool(connector, "preview", args, self._env(connector))
-            except ConnectorError as exc:
-                raw = {"fields": [], "problems": [f"{connector.name} preview failed: {exc}"]}
-            shown = publish.checked_preview(raw)
+        args = _preview_args(config, metadata, edits)
+        try:
+            raw = self._tool(connector, "preview", args, self._env(connector, complete=False))
+        except ConnectorError as exc:
+            raw = {"fields": [], "problems": [f"{connector.name} preview failed: {exc}"]}
+        shown = publish.checked_preview(raw)
         # The gate's edits stand even when a connector forgets to apply them.
         for f in shown["fields"]:
             if f["editable"] and f["key"] in (edits or {}):
@@ -1096,10 +1061,16 @@ class Connectors:
             return []
         params = dict(config.get("params") or {})
         if connector.kind == "publish":
-            if connector.builtin:
-                shown = self.publish_preview(world_id, config)
-                return shown["problems"] if shown else []
-            # A package previews at the gate, when its inputs exist; its Manifest is checked now.
+            # Its own preview says what would stop it, as the gate's will. One that cannot answer
+            # (its process not starting) is left to the gate, which previews again and says why;
+            # its Manifest is checked meanwhile.
+            try:
+                args, env = _preview_args(config), self._env(connector, complete=False)
+                raw = self._tool(connector, "preview", args, env)
+            except ConnectorError:
+                raw = None
+            if isinstance(raw, dict) and isinstance(raw.get("fields"), list):
+                return publish.checked_preview(raw)["problems"]
         if connector.builtin and connector.name == "remotion_render":
             out = []
             project = str(params.get("project") or "").strip()
@@ -1210,14 +1181,9 @@ class Connectors:
             if config.get(key):
                 request[key] = config[key]
         if connector.kind == "publish":
-            values = config["confirmed"]
-            if connector.builtin:
-                tool, request = builtin_publish.request(
-                    connector.name, values, params, idempotency_key
-                )
-            else:
-                tool, request = "publish", {"fields": values, "idempotency_key": idempotency_key}
-                request.update({k: params[k] for k in ("input_path", "input_paths") if k in params})
+            tool = "publish"
+            request = {"fields": config["confirmed"], "idempotency_key": idempotency_key}
+            request.update({k: params[k] for k in ("input_path", "input_paths") if k in params})
         now = _now()
         call = self.storage.save_call(
             Call(

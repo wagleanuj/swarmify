@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 from playwright.sync_api import Page, expect
 
-KEYS = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
+from swarmify_connectors.setup import SetupStore
 
 
 def test_draft_with_the_planner_run_every_gate_and_publish(
@@ -32,9 +32,12 @@ def test_draft_with_the_planner_run_every_gate_and_publish(
 
 
 def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[..., None]) -> None:
-    httpx.put(
-        f"{base_url}/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS}
-    ).raise_for_status()
+    # YouTube's account, as signing in on the Connectors page leaves it (Google is not reachable)
+    store = SetupStore(data_dir / "setup.json")
+    store.put_value("youtube", None, "youtube_client_id", "id")
+    store.put_value("youtube", None, "youtube_client_secret", "s")
+    tokens = {"access_token": "at", "refresh_token": "rt", "expires_at": time.time() + 3600}
+    store.put_value("youtube", None, "youtube", tokens)
 
     # The planner drafts it from plain words; the stage rail and the check follow the draft.
     page.get_by_role("link", name="New workflow").click()

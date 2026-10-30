@@ -122,10 +122,14 @@ export function RunTimeline() {
   // The open gate, so the status line can say what it asks and answer it here.
   useEffect(() => {
     if (!waitingAt) return setGate(null);
+    let stale = false; // a slow answer (a publish preview takes a connector call) after it moved on
     api
       .GET("/api/gates")
-      .then(({ data }) => setGate((data ?? []).find((g) => g.run_id === runId) ?? null))
+      .then(({ data }) => !stale && setGate((data ?? []).find((g) => g.run_id === runId) ?? null))
       .catch(() => undefined);
+    return () => {
+      stale = true;
+    };
   }, [runId, waitingAt]);
 
   useEffect(() => {

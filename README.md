@@ -300,11 +300,10 @@ the world's event stream and handed to the notifier; the adapter logs a line unt
 A connector is an MCP server (a command line or an http(s) URL), the credential names it needs,
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
-Every world starts with the built-ins: the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
-build below) and the publish
-connector `youtube` (see Publishing below), and with the default packages
-(see Connector Packages), today `speech` (see Speech) and the publish connector `upload_post`
-(see Publishing).
+Every world starts with the built-ins, the stage connectors `remotion_render` and
+`remotion_build` (see Remotion render and Remotion build below), and with the default packages
+(see Connector Packages), today `speech` (see Speech) and the publish connectors `youtube` and
+`upload_post` (see Publishing).
 
 `web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
 with no package, version or credentials. A swarm stage lists them in `tools` like a tool
@@ -319,17 +318,13 @@ environment, merged over the MCP SDK's safe defaults (HOME, PATH, USER, SHELL, T
 URL connector gets them as request headers of the same name.
 
 The file is shared by every world: keys saved on one world's connectors page are the keys every
-world uses, so two worlds cannot post to different YouTube channels yet, and the page says so.
+world uses.
 
 - `GET /api/worlds/<id>/connectors` lists built-ins first, each with the credential names still
   `missing` from the file. `PUT /api/connectors/<id>/credentials` (`{"credentials": {NAME:
   value}}`) stores keys for a connector's own names, which is how built-ins get theirs; the
-  connectors page has an "Add keys" form per connector. Once all of `youtube`'s keys are
-  saved, the same request checks them live and answers `check`
-  (`{"ok": ..., "message": ...}`): `youtube` refreshes its token and reads `channels.list`
-  (mine, 1 quota unit) through its `channel` tool, naming the channel. A failing check still saves the keys and
-  the page warns, so a bad refresh token shows then rather than at publish. `check` is null for
-  any other connector.
+  connectors page has an "Add keys" form per connector. Its `check` is null: a package's keys
+  are its Setup, checked by its `[setup] test`.
 - `GET /api/connectors/<id>/health` calls the connector's health tool, the one its `health`
   field names, and answers `[{"name", "ok", "message"}]`, one per thing it depends on. It is `[]`
   for a connector without one, and 502 when the tool cannot be called. A package's is
@@ -708,7 +703,7 @@ A publish connector posts to the outside world, so a publish stage runs only rig
 (ADR 0007, no override). The editor refuses to save a workflow that breaks this, and the runner
 refuses to execute such a stage too (it fails the stage), which catches a connector that became
 publish after the workflow was saved. The gate holds the rule; the connector says what goes out.
-The built-in `youtube` and the `upload_post` package take these params:
+The `youtube` and `upload_post` packages take these params:
 
 ```yaml
   - gate: post it
@@ -731,8 +726,8 @@ The built-in `youtube` and the `upload_post` package take these params:
 ```
 
 `metadata` names a file an earlier stage of the run left (the newest of that name, like `input`);
-the core hands its YAML frontmatter to the connector, and for the built-ins the `title` and
-`description` there (and `hashtags` and `tags`) win over the params for both, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
+the core hands its YAML frontmatter to the connector, and for both packages the `title` and
+`description` there (and `hashtags` and `tags`) win over the params, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
 problem the gate shows. `schedule` is ISO 8601 with a timezone, or relative: `09:00` (the next
 09:00), `+1d 09:00` (tomorrow at 09:00), either with an IANA timezone after it
 (`+1d 09:00 Europe/London`, UTC by default). A relative schedule is resolved when the gate is
@@ -763,35 +758,29 @@ interrupted by a crash is never repeated, it fails the stage asking you to check
 After the call, `publish.md` (type `publish`, with the fields `sent`, `links`, `status` and the
 post or job `id` in its frontmatter, and the fields and links again in its body) lands in the stage's `artifacts/` folder.
 
-A world's own publish connector (kind `publish` on the Connectors page) answers two MCP tools:
+Every publish connector is a Connector Package (its own, or one a world added with kind
+`publish` on the Connectors page) answering two MCP tools:
 
 - `preview` gets `inputs` (the stage's input file names), `params` (the stage's, less
   `metadata`), `metadata` (the frontmatter of the file `params.metadata` names, else `{}`) and
   `edits` (by field key; apply only those to fields you mark editable), and answers
   `{"fields": [{"key", "label", "value", "editable", "hint"}], "problems": [...]}`. It is called
-  when the gate opens, when it is answered, and before the post; a call that fails is a problem
-  the gate shows. It is not called when the workflow is saved.
+  when the workflow is saved or checked (its problems refuse the save; a preview that cannot be
+  had then is left to the gate, and the Manifest's declared params are checked instead), when
+  the gate opens, when it is answered, and before the post; a call that fails at the gate is a
+  problem the gate shows. It needs no account: its process starts with whatever Setup there is.
 - `publish` gets `fields` (every value as confirmed, by key), `idempotency_key` and
   `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links` (platform
   to URL), and optionally `id`, `status: scheduled` and `failed` (platform to error: listed in
   the artifact, and when nothing was posted the stage fails). It may answer a long job
   (`job_id` and `poll`, as any long job) whose last answer carries the same.
 
-The built-in `youtube` answers the same two calls in process (`swarmify_connectors.builtin_publish`)
-until it moves into its own package.
-
-- `youtube` is our wrapper over the YouTube Data API (`swarmify_connectors.youtube`, stdio MCP).
-  It uploads with `videos.insert`; with a schedule the video goes up private with `publishAt` and
-  YouTube makes it public at that time. Each upload is tagged `swarmify-<idempotency key>`, and before
-  uploading the wrapper looks for that tag among the channel's latest 50 uploads (3 quota units),
-  so retrying a failed publish stage answers the video an earlier attempt already put up instead
-  of posting it twice. Setup, once: create a Google Cloud project, enable the
-  YouTube Data API v3, create an OAuth client of type Desktop app, then run
-  `YOUTUBE_CLIENT_ID=... YOUTUBE_CLIENT_SECRET=... uv run python -m swarmify_connectors.youtube authorize`,
-  allow the upload and read-only scopes in the browser, and store the three keys (`YOUTUBE_CLIENT_ID`,
-  `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`) with "Add keys" on the connectors page. By
-  default uploads have their own quota of 100 a day; the retry check and the other reads share
-  10,000 units a day ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)).
+- `youtube` is a default Connector Package, `connectors/youtube`: our own small MCP server over
+  the YouTube Data API (ADR 0015), whose account is a Google sign-in on the Connectors page.
+  Each upload is tagged `swarmify-<idempotency key>`, so a retried publish stage answers the
+  video an earlier attempt already put up instead of posting it twice. Its README says how to
+  register the Google app, what it sends, and how V1's refresh token carries over with no new
+  sign-in.
 - `upload_post` is a default Connector Package, `connectors/upload_post`: our own small MCP
   server over Upload-Post's HTTP API (ADR 0015), set up with its API key on the Connectors page.
   Its README says what it sends, how a background upload becomes a long job, and how a V1 key
@@ -805,9 +794,9 @@ statistics, 50 ids per call) for the view count of every video a publish artifac
 is written into that `publish.md`, as `views` and `views_at` in the frontmatter and as an
 `## Outcome` section in the body (replaced each time), because graphify reads bodies only; each
 write appends `outcome.recorded`. The run timeline shows the count on the publish card. A world
-whose `youtube` keys are missing is skipped. The read needs the `youtube.readonly` scope, so a
-refresh token made before view counts existed must be authorized again (the `authorize` step
-above now asks for both scopes).
+whose `youtube` account is not signed in is skipped. The read needs the `youtube.readonly` scope,
+which the sign-in asks for beside `youtube.upload`; a V1 refresh token made before view counts
+existed needs a new sign-in.
 
 ## Retention
 
@@ -820,7 +809,7 @@ body, so the graph and the run timeline keep the record, and each deletion appen
 `artifact.pruned`. `create_app(upkeep_seconds=...)` sets the interval.
 
 Tests never reach either service: the fake ConnectorTransport stands in for both MCP servers,
-and the YouTube wrapper's own tests answer its HTTP requests with httpx's MockTransport.
+and the youtube package's own tests answer its HTTP requests with httpx's MockTransport.
 
 ## Whiteboard
 

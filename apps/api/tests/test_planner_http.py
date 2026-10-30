@@ -160,13 +160,15 @@ def test_the_planner_describes_each_connector_from_its_manifest(
     params = {
         "remotion_render": ["project", "composition", "entry", "codec", "frames", "props"],
         "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
-        "youtube": ["title", "metadata", "description", "visibility", "schedule", "made_for_kids"],
     }
     assert {c.name for c in BUILTINS} == set(params)
     speech = system.split("\n- speech (")[1].split("\n- ")[0]  # a default package
     assert all(f"params.{p}" in speech for p in ("voice", "engines", "seed"))
     posts = system.split("\n- upload_post (")[1].split("\n- ")[0]
     assert all(f"params.{p}" in posts for p in ("title", "schedule", "user", "platforms"))
+    youtube = system.split("\n- youtube (")[1].split("\n- ")[0]
+    published = ("title", "metadata", "description", "visibility", "schedule", "made_for_kids")
+    assert all(f"params.{p}" in youtube for p in published)
     for c in BUILTINS:
         entry = system.split(f"\n- {c.name} (")[1].split("\n- ")[0]
         assert c.manifest["about"] in entry and c.manifest.get("planner_notes", "") in entry

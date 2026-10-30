@@ -11,7 +11,6 @@ from swarmify_connectors import (
     ConnectorError,
     Connectors,
     FakeTransport,
-    KeyCheck,
     Tool,
 )
 from swarmify_kernel.events import read_after
@@ -54,7 +53,7 @@ def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
     ("over", "problem"),
     [
         ({"name": "Fal Video"}, "lower_snake_case"),
-        ({"name": "youtube"}, "built-in"),
+        ({"name": "remotion_build"}, "built-in"),
         ({"name": "graph"}, "Agent Tool"),
         ({"kind": "plugin"}, "kind is one of"),
         ({"server": "  "}, "MCP command or a URL"),
@@ -230,39 +229,14 @@ def test_missing_lists_the_keys_its_setup_lacks(connectors: Connectors) -> None:
     assert connectors.find(W, "other") is None
 
 
-YOUTUBE = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
-
-
-def test_saving_a_builtins_keys_checks_them_live_and_names_the_account(
+def test_saved_keys_are_only_the_connectors_own_and_saving_calls_nothing(
     connectors: Connectors, transport: FakeTransport
 ) -> None:
-    youtube = connectors.get("builtin_youtube")
-    assert youtube
-    transport.outputs["channel"] = [{"channel": "Hooks Daily"}]
-    check = connectors.set_credentials(youtube, YOUTUBE)
-    assert check == KeyCheck(True, "Posts to the YouTube channel Hooks Daily.")
-    assert transport.calls[-1] == ("youtube", "channel", {}, YOUTUBE)
-
-
-def test_a_failing_key_check_still_saves_and_says_why(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    youtube = connectors.get("builtin_youtube")
-    assert youtube
-    transport.outputs["channel"] = [ConnectorError("refreshing the YouTube token failed (400)")]
-    check = connectors.set_credentials(youtube, YOUTUBE)
-    assert check == KeyCheck(False, "refreshing the YouTube token failed (400)")
-    assert connectors.missing(youtube) == []
-
-
-def test_no_key_check_while_keys_are_missing_or_for_added_connectors(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    youtube = connectors.get("builtin_youtube")
-    assert youtube
-    assert connectors.set_credentials(youtube, {"YOUTUBE_CLIENT_ID": "id"}) is None
     added = connectors.add(fal(connectors), {})
-    assert connectors.set_credentials(added, {"FAL_KEY": "k"}) is None
+    with pytest.raises(ValueError, match="does not use YOUTUBE_CLIENT_ID"):
+        connectors.set_credentials(added, {"YOUTUBE_CLIENT_ID": "id"})
+    connectors.set_credentials(added, {"FAL_KEY": "k"})
+    assert connectors.credentials.read() == {"FAL_KEY": "k"}
     assert transport.calls == []
 
 

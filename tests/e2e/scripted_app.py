@@ -10,7 +10,8 @@ builder session installs packages and writes src/Main.tsx.
 The planner chat, told apart by its system prompt too, drafts GOLDEN. The built-in Remotion
 render, speech and YouTube connectors answer from a fake ConnectorTransport (render writes the
 video and its sidecar, as the real wrapper does; speech writes timings.json and a silent take per
-scene; YouTube counts 1,234 views); a connector a test adds goes through the real MCP transport.
+scene; YouTube posts and counts 1,234 views, while its preview is the youtube package's own, over
+MCP); a connector a test adds goes through the real MCP transport.
 Upkeep runs every second.
 
 The GraphWriter's extract writes a fixed graph instead of calling graphify's model, a second
@@ -187,13 +188,13 @@ def voice(out: Path) -> dict[str, Any]:
 
 
 class Transport(McpTransport):
-    """The real MCP transport, but the built-in render and YouTube connectors are fakes."""
+    """The real MCP transport, but the render connector and YouTube's posting are fakes."""
 
     def __init__(self) -> None:
         super().__init__()
         self.fake = FakeTransport(
             outputs={
-                "youtube": [{"video_id": VIDEO, "url": f"https://youtu.be/{VIDEO}"}],
+                "publish": [{"id": VIDEO, "url": f"https://youtu.be/{VIDEO}"}],
                 "views": [{"views": {VIDEO: 1234}}],
             }
         )
@@ -208,7 +209,7 @@ class Transport(McpTransport):
             front = "\n".join(f"{k}: {json.dumps(v)}" for k, v in head.items())
             out.with_name(f"{out.name}.md").write_text(f"---\n{front}\n---\n\n# {out.name}\n")
             return self.fake.call(connector, tool, arguments, env) | {"output": out.name}
-        if connector.name == "youtube":
+        if connector.name == "youtube" and tool != "preview":
             return self.fake.call(connector, tool, arguments, env)
         if connector.name == "speech" and tool == "speech":  # its types answer for real
             return voice(Path(arguments["output_path"]))

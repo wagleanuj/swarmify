@@ -122,11 +122,13 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         ("slack", "1.0.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
+        ("youtube", "1.0.0", "connectors/youtube"),
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
     ]
     form = client.get(f"/api/worlds/{w}/packages/fal_video/setup")
     (field,) = form.json()["fields"]
@@ -161,7 +163,7 @@ def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
     assert shown == {
         "remotion_render": ("Remotion render", [], ["video/mp4"]),
         "remotion_build": ("Remotion build", ["build_session"], ["video/mp4"]),
-        "youtube": ("YouTube", [], []),
+        "youtube": ("YouTube", ["publish"], []),
         "upload_post": ("Upload-Post", ["publish"], []),
         "speech": ("Speech", [], ["application/json", "audio/wav"]),
         "fal_video": ("fal_video", [], []),
@@ -303,7 +305,7 @@ def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient
     assert check["name"] == down and check["ok"] is False and check["message"]
     assert client.get(f"/api/worlds/{w}/packages/echo/health").status_code == 404
     assert client.get("/api/worlds/nope/packages/speech/health").status_code == 404
-    assert client.get("/api/connectors/builtin_youtube/health").json() == []
+    assert client.get("/api/connectors/builtin_remotion_build/health").json() == []
     assert client.get("/api/connectors/nope/health").status_code == 404
 
 
@@ -313,13 +315,14 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
         "slack",
         "speech",
         "upload_post",
+        "youtube",
     ]
     source = "packages/connectors/tests/fixtures/packages/echo"
     installed = client.post("/api/packages", json={"source": source})
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed[0] == installed.json() and len(listed) == 4
+    assert listed[0] == installed.json() and len(listed) == 5
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -351,6 +354,7 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
         "slack",
         "speech",
         "upload_post",
+        "youtube",
     ]
 
 
@@ -383,6 +387,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "echo", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},  # the default packages
         {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
     ]
     echo = next(
         c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "echo"
@@ -396,11 +401,13 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
     ]
     assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 422
     assert client.post(f"/api/worlds/{two}/workflows", json={"yaml": ECHO}).status_code == 201
