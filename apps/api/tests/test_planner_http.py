@@ -158,7 +158,6 @@ def test_the_planner_describes_each_connector_from_its_manifest(
     assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
     system = str(script.sessions[0].system_prompt)
     params = {
-        "remotion_render": ["project", "composition", "entry", "codec", "frames", "props"],
         "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
     }
     assert {c.name for c in BUILTINS} == set(params)
@@ -169,6 +168,10 @@ def test_the_planner_describes_each_connector_from_its_manifest(
     youtube = system.split("\n- youtube (")[1].split("\n- ")[0]
     published = ("title", "metadata", "description", "visibility", "schedule", "made_for_kids")
     assert all(f"params.{p}" in youtube for p in published)
+    render = system.split("\n- remotion_render (")[1].split("\n- ")[0]
+    assert "only when the operator has a finished template" in render
+    for param in ("project", "composition", "entry", "codec", "frames", "props"):
+        assert f"params.{param}" in render, param
     for c in BUILTINS:
         entry = system.split(f"\n- {c.name} (")[1].split("\n- ")[0]
         assert c.manifest["about"] in entry and c.manifest.get("planner_notes", "") in entry

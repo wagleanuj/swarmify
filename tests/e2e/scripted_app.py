@@ -7,18 +7,20 @@ judge passes with two ranked ideas. Every run's retro session proposes nothing, 
 `SWARMIFY_E2E_RETRO=propose` in the app's environment, one new skill. A `remotion_build` stage's
 builder session installs packages and writes src/Main.tsx.
 
-The planner chat, told apart by its system prompt too, drafts GOLDEN. The built-in Remotion
-render, speech and YouTube connectors answer from a fake ConnectorTransport (render writes the
-video and its sidecar, as the real wrapper does; speech writes timings.json and a silent take per
-scene; YouTube posts and counts 1,234 views, while its preview is the youtube package's own, over
-MCP); a connector a test adds goes through the real MCP transport.
-Upkeep runs every second.
+The planner chat, told apart by its system prompt too, drafts GOLDEN. The Remotion render,
+speech and YouTube connectors answer from a fake ConnectorTransport (render writes the video and
+its sidecar, as the real wrapper does; speech writes timings.json and a silent take per scene;
+YouTube posts and counts 1,234 views, while its preview is the youtube package's own, over MCP);
+a connector a test adds, and the render package's workflow check, go through the real MCP
+transport. remotion_render installs with an `npm` and `npx` that do nothing, so each app does not
+fetch the Remotion CLI and Chrome (800 MB) its fake renders never use. Upkeep runs every second.
 
 The GraphWriter's extract writes a fixed graph instead of calling graphify's model, a second
 after the last change; the real graphify MCP process answers queries over it."""
 
 import json
 import os
+import tempfile
 import wave
 from pathlib import Path
 from typing import Any
@@ -28,7 +30,7 @@ from fastapi import FastAPI
 
 from swarmify_api.main import create_app as real_app
 from swarmify_api.planner import SYSTEM as PLANNER_SYSTEM
-from swarmify_connectors import Connector, FakeTransport, McpTransport
+from swarmify_connectors import Connector, FakeTransport, McpTransport, packages
 from swarmify_learning import SYSTEM as RETRO_SYSTEM
 from swarmify_memory import GRAPH_OUT
 from swarmify_swarm import SdkRuntime, tool_id
@@ -202,7 +204,7 @@ class Transport(McpTransport):
     def call(
         self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
     ) -> dict[str, Any]:
-        if connector.name == "remotion_render":
+        if connector.name == "remotion_render" and tool == "remotion_render":
             out = Path(arguments["output_path"])
             out.write_bytes(b"not really an mp4")
             head = {**arguments["frontmatter"], "type": "video", "file": out.name}
@@ -233,7 +235,22 @@ def extract(folder: Path, allow_shrink: bool = False) -> None:
     (folder / GRAPH_OUT / "graph.json").write_text(json.dumps(GRAPH))
 
 
+def _no_node_installs() -> None:
+    bin_dir = Path(tempfile.mkdtemp())
+    for tool in ("npm", "npx"):
+        (bin_dir / tool).write_text("#!/bin/sh\n")
+        (bin_dir / tool).chmod(0o755)
+    real = packages._install_env
+
+    def install_env() -> dict[str, str]:
+        env = real()
+        return {**env, "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"}
+
+    packages._install_env = install_env
+
+
 def create_app() -> FastAPI:
+    _no_node_installs()
     retro = PROPOSE if os.environ.get("SWARMIFY_E2E_RETRO") == "propose" else RETRO
     scripts = {  # the first whose marker is in the system prompt plays the session
         PLANNER_SYSTEM: Script(PLANNER_CHAT, cost=0.0042),

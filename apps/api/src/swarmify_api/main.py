@@ -471,8 +471,8 @@ def create_app(
         """`remotion_build` (ADR 0018): seed `<stage>/build/` from the template `base` or the
         starter (or, on a send-back, from the last build to revise), run one sandboxed coding
         session in it (swarmify_swarm.build), then render its composition through
-        `remotion_render` like any render stage, sandboxed because the project lies under a
-        world (remotion.built). A call already rendering or done for this
+        the remotion_render package like any render stage, sandboxed because the project lies
+        under a world (its `built`). A call already rendering or done for this
         visit skips the session, so a restart resumes the render. The folder stays, without
         its node_modules once the video is out, for a person to open."""
         folder = world_svc.folder(run.world_id)

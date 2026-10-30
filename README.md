@@ -300,10 +300,10 @@ the world's event stream and handed to the notifier; the adapter logs a line unt
 A connector is an MCP server (a command line or an http(s) URL), the credential names it needs,
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
-Every world starts with the built-ins, the stage connectors `remotion_render` and
-`remotion_build` (see Remotion render and Remotion build below), and with the default packages
-(see Connector Packages), today `speech` (see Speech) and the publish connectors `youtube` and
-`upload_post` (see Publishing).
+Every world starts with the built-in stage connector `remotion_build` (see Remotion build
+below), and with the default packages (see Connector Packages), today `remotion_render` (see
+Remotion render), `speech` (see Speech) and the publish connectors `youtube` and `upload_post`
+(see Publishing).
 
 `web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
 with no package, version or credentials. A swarm stage lists them in `tools` like a tool
@@ -412,7 +412,11 @@ install of a default carries what V1 kept for it into its shared Setup: a Settin
 the app's environment and a Credential's from the credentials file, each by its field's `env`
 name. A default that does not install is logged and left out; the app still starts. The
 workflow check holds a package's stages to its Manifest: an input and an output when it
-declares them, and no params outside a closed `params` schema.
+declares them, and no params outside a closed `params` schema. A package declaring the `check`
+capability adds rules a schema cannot say: its `check` tool is called with `{"config": <the
+stage as written: calls, input, inputs, output, params>}` and answers `{"problems": [...]}`, each
+reported as is; a check that fails is a problem itself, and one whose Setup is not done yet is
+skipped.
 
 Versions (issue 223): each saved workflow version records `packages`, the version of every
 package it calls as its world pinned it then, and its runs use those versions, never the
@@ -513,7 +517,9 @@ value saved under a field's `renamed_from` key carries over. Before saving, the 
 tool is called with no arguments in a process holding the candidate values, and answers
 `{"ok": true|false, "message": "..."}`; anything but `ok: true` saves nothing and shows the
 message. Every connector process gets exactly its own resolved values as environment variables
-named by each field's `env`, and nothing else of the app's or another package's.
+named by each field's `env`, and nothing else of the app's or another package's. A `path` value
+that is relative reaches it taken from the data directory, so `default = "."` is the data
+directory itself.
 
 #### OAuth sign-in
 
@@ -554,38 +560,11 @@ stored on the host either way, and refreshing needs no browser.
 
 ## Remotion render
 
-`remotion_render` is our stdio MCP wrapper over `npx remotion render`
-(`python -m swarmify_connectors.remotion`). It needs Node on `PATH` and a Remotion project; no
-credentials. A relative `project` is a template by name under the data directory's `remotion/`
-folder (`~/.swarmify/remotion/shorts` natively, `/data/remotion/shorts` in Docker), so a workflow
-moves between hosts unchanged; an absolute or `~` path works too. A symlink there is followed, so
-a template can stay in its own folder: `ln -s ~/videos/shorts ~/.swarmify/remotion/shorts`. The
-workflow check reports a template that is not there. When the project has no `node_modules`, the
-first render runs `npm ci` (`npm install` without a lockfile) in it, its output in the render log.
-
-```yaml
-  - connector: render
-    calls: remotion_render
-    input: script.md          # the script artifact an earlier stage produced
-    output: short.mp4
-    params:
-      project: shorts           # a template in <data dir>/remotion/, or a folder path
-      composition: Short        # the composition ID
-      # optional: entry (src/index.ts), codec (h264), frames (0-29), props
-```
-
-The composition gets the script as input props, `{"script": <text>, "scriptPath": <path>, ...props}`
-(read them with `getInputProps()`). The render runs detached from the MCP session, so a restart of
-swarmify resumes polling it; progress comes from the CLI's `Rendered n/N` and `Encoded n/N` lines
-and shows on the timeline. On success the video gets a sidecar, `short.mp4.md`, with frontmatter
-(type video, author remotion_render, world, run, stage, created, source script, composition,
-bytes, and the template's git commit when the project is a git checkout). On failure the stage
-fails with the last 40 lines of CLI output, shown under the timeline. Every render, a build's
-included, serves its bundle on a port the OS just handed out (`--port`), never Remotion's default
-3000, where another server (an open-webui container, say) would answer and fail the render with
-`window.getStaticCompositions is not defined`.
-Tests use a fake `npx`; one real render runs when you opt in:
-`SWARMIFY_REMOTION_PROJECT=<project> SWARMIFY_REMOTION_COMPOSITION=<id> uv run pytest -k real_render`.
+`remotion_render` is a default Connector Package, `connectors/remotion_render`: our stdio MCP
+wrapper over `npx remotion render`, installed on startup with the Remotion CLI and its Chrome
+Headless Shell beside it, and enabled for every world. Its README covers its Setup (the data
+folder its templates are under, the render concurrency), the stage's params, the render and its
+sidecar, and the sandbox a project an agent wrote renders in.
 
 ## Remotion build
 
@@ -660,9 +639,8 @@ under the data directory's `worlds/` renders in an OS sandbox of its own: `sandb
 `bwrap` on Linux, and no render where neither exists. It has no network beyond loopback (fonts and
 images must be files in `public/`, which the builder is told), reads nothing of the data directory
 but the project, the output folder and the shared browser, and writes only those and temp. It
-never installs: a build that left no `node_modules` fails. Chrome Headless Shell comes from `PATH`
-(the Docker image) or is downloaded once by Remotion into `<data dir>/chrome` from the starter's
-pinned packages. On macOS that profile starts from allow-all and denies network, the data
+never installs: a build that left no `node_modules` fails. Chrome Headless Shell is the one the
+remotion_render package's install step downloaded beside it (else one on `PATH`). On macOS that profile starts from allow-all and denies network, the data
 directory, writes, other processes, Apple Events and Launch Services, since Chrome needs Mach
 services a deny-all profile refuses; Linux unshares every namespace.
 
@@ -1301,13 +1279,15 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   unsandboxed.
 - A Remotion template for the render connector must be inside the container: copy it to
   `/data/remotion` (`docker compose cp ./shorts api:/data/remotion/shorts`) and the stage's
-  `project: shorts` finds it, as natively. The first render installs its dependencies. When
-  `chrome-headless-shell` is on `PATH`, as in the image, the connector passes it to Remotion as
-  `--browser-executable`; on the Mac Remotion uses its own.
-- The image sets `SWARMIFY_RENDER_CONCURRENCY=2`, passed to Remotion as `--concurrency`: with no
-  GPU a 3D scene (`@remotion/three`) renders in software, and the default of half the CPUs runs
-  out of memory. Unset, as natively, Remotion picks. No `--gl` flag is passed: the default
-  renders 3D on the Mac and in the image, and `--gl=angle` crashes in the image.
+  `project: shorts` finds it, as natively. The first render installs its dependencies. The
+  remotion_render package renders with the Chrome Headless Shell its install step put beside it in
+  `/data/packages`, using the shared libraries the image installs; the image's own copy of Chrome
+  stays until `remotion_build` is a package too (issue 222).
+- The image sets `SWARMIFY_RENDER_CONCURRENCY=2`, which the first start carries into the
+  remotion_render package's Render concurrency Setting, passed to Remotion as `--concurrency`:
+  with no GPU a 3D scene (`@remotion/three`) renders in software, and the default of half the
+  CPUs runs out of memory. Unset, as natively, Remotion picks. No `--gl` flag is passed: the
+  default renders 3D on the Mac and in the image, and `--gl=angle` crashes in the image.
 - Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same sign-in
   page. With no password set or stored there is no sign-in, which is right only on `127.0.0.1`.

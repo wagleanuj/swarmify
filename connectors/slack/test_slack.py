@@ -26,8 +26,7 @@ CHANNEL = "C0123ABCDEF"
 DRAFT = """name: Draft
 stages:
   - connector: draft
-    calls: remotion_render
-    params: {project: /tmp, composition: Short}
+    calls: studio
   - gate: review
     ask: Approve or send back.
     kind: approve
@@ -172,6 +171,9 @@ def test_slack_and_the_web_ui_answer_gates_alike_and_both_update_the_message(
         http.post("/api/session", json={"password": PASSWORD}).raise_for_status()
         world = http.post("/api/worlds", json={"name": "Posts"}).json()["id"]
         http.put(f"/api/worlds/{world}/notifications", json={"slack_webhook": webhook.url})
+        studio: dict[str, Any] = {"name": "studio", "kind": "stage", "server": "uvx studio"}
+        studio["stage_types"] = ["connector"]  # a stand-in, never started
+        http.post(f"/api/worlds/{world}/connectors", json=studio).raise_for_status()
         wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": DRAFT}).json()
         start = f"/api/workflows/{wf['workflow_id']}/runs"
 

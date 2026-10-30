@@ -55,14 +55,17 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
             expect(yaml).to_contain_text(line)
         expect(yaml).to_contain_text("kind: approve")
         expect(yaml).to_contain_text("connector: new step")
-        # A render stage names its Remotion project and composition before it can be saved.
+        # A render stage names its script, Remotion project and composition before it can be
+        # saved; the project rules are the render package's own check.
         expect(page.get_by_test_id("problems")).to_contain_text("needs params.project")
+        expect(page.get_by_test_id("problems")).to_contain_text("needs an input, the script")
+        fixed = re.sub(
+            r"( *)calls: remotion_render\n",
+            r"\g<0>\1input: ideas.md\n\1params: {project: /tmp, composition: Short}\n",
+            yaml.input_value(),
+        )
         yaml.fill(
-            re.sub(
-                r"( *)calls: remotion_render\n",
-                r"\g<0>\1params: {project: /tmp, composition: Short}\n",
-                yaml.input_value(),
-            )
+            re.sub(r"( *)output_type: list\[idea\]\n", r"\g<0>\1produces: [ideas.md]\n", fixed)
         )
         expect(page.get_by_test_id("problems")).to_contain_text("Checks pass")
         page.get_by_role("button", name="Save as version 1").click()

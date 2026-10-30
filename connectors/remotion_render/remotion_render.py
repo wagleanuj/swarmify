@@ -1,0 +1,396 @@
+"""The Remotion render connector: a stdio MCP server wrapping `npx remotion render` (ADR 0015).
+
+`remotion_render` starts one render per idempotency key and answers with a long job;
+`remotion_render_status` reports its progress, parsed from the CLI's `Rendered n/N` and
+`Encoded n/N` lines. The render runs in a detached process (`--job <file>`) so it outlives the
+MCP session; its state, CLI log and input props live beside the output as hidden files.
+
+The composition receives the script as input props: `{"script": <text>, "scriptPath": <path>,
+...props}`, read with `getInputProps()`. On success the video gets a markdown sidecar,
+`<output>.md`, with frontmatter (type video, world, run, stage, created) and a body that names
+the source script, so the graph sees it, and the template's git commit when it has one.
+
+A relative `project` names a template under `<data folder>/remotion/`, the data folder being its
+Setting (`REMOTION_DATA_DIR`, Swarmify's data directory unless changed); a template without
+`node_modules` gets `npm ci` (`npm install` without a lockfile) once, in the render's log, before
+it renders. `check` answers the workflow check's rules for a stage (the Check capability).
+
+It is a Connector Package (ADR 0019): `swarmify-connector.toml` beside it is everything Swarmify
+knows of it. Its install step puts the Remotion CLI and the Chrome Headless Shell it downloads in
+`node_modules/` here (ADR 0026), and every render uses that browser.
+"""
+
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+
+POLL = "remotion_render_status"
+CONCURRENCY = "SWARMIFY_RENDER_CONCURRENCY"
+TAIL = 40
+_STEP = re.compile(r"^(Rendered|Encoded) (\d+)/(\d+)", re.M)
+BROWSERS = Path(__file__).parent / "node_modules" / ".remotion"
+"""Where the install step's `remotion browser ensure` put Chrome Headless Shell."""
+
+mcp = MCPServer("remotion_render")
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def project_folder(project: str, data_dir: Path) -> Path:
+    """A relative project is a template by name under `<data folder>/remotion/`."""
+    path = Path(project).expanduser()
+    return path if path.is_absolute() else data_dir / "remotion" / path
+
+
+def _data_dir() -> Path:
+    return Path(os.environ.get("REMOTION_DATA_DIR", Path.home() / ".swarmify")).expanduser()
+
+
+def _commit(folder: Path) -> str | None:
+    try:
+        git = subprocess.run(
+            ["git", "-C", str(folder), "rev-parse", "HEAD"], capture_output=True, text=True
+        )
+    except OSError:  # no git, as in a slim image
+        return None
+    return git.stdout.strip() if git.returncode == 0 else None
+
+
+def _hidden(output: Path, suffix: str) -> Path:
+    return output.with_name(f".{output.name}.{suffix}")
+
+
+def _read(job: Path) -> dict[str, Any]:
+    return json.loads(job.read_text())
+
+
+def _write(job: Path, state: dict[str, Any]) -> None:
+    tmp = job.with_name(job.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    os.replace(tmp, job)
+
+
+def alive(pid: int) -> bool:
+    if pid <= 0:  # os.kill(0, 0) signals our own group, which always answers
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def progress(log: str) -> tuple[float, str]:
+    """Progress from the CLI log: rendering frames is the first 90 percent, encoding the rest."""
+    steps = _STEP.findall(log)
+    if not steps:
+        return 0.0, "starting the render"
+    word, done, total = steps[-1]
+    share = min(int(done) / max(int(total), 1), 1.0)
+    value = 0.9 * share if word == "Rendered" else 0.9 + 0.1 * share
+    return round(value, 3), f"{word.lower()} {done}/{total} frames"
+
+
+def _tail(log: Path) -> str:
+    text = log.read_text(errors="replace") if log.exists() else ""
+    return "\n".join(text.strip().splitlines()[-TAIL:])
+
+
+def _flag(name: str, value: str) -> str:
+    if not value or value.startswith("-"):
+        raise ToolError(f"{name} must be a plain value, got {value!r}")
+    return value
+
+
+@mcp.tool(description="Render a script artifact to a video with the Remotion CLI. Long job.")
+def remotion_render(
+    idempotency_key: str,
+    output_path: str,
+    project: str,
+    composition: str,
+    entry: str = "src/index.ts",
+    codec: str = "h264",
+    frames: str | int = "",
+    input_path: str = "",
+    props: dict[str, Any] | None = None,
+    frontmatter: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """`project` is the Remotion project folder, or a template's name under the data directory's
+    `remotion/` folder; `entry` its entry point relative to it, and `frames` an optional range
+    like `0-29`. A second call with the same key returns the same
+    job unless it failed or its process died, which starts it again."""
+    if not input_path:
+        raise ToolError("the render stage needs an `input`: the script artifact to render")
+    output, script = Path(output_path), Path(input_path)
+    folder = project_folder(project, _data_dir())
+    if not script.is_file():
+        raise ToolError(f"the script {script} does not exist")
+    if not folder.is_dir():
+        raise ToolError(f"the Remotion project {folder} does not exist")
+    job = _hidden(output, "job.json")
+    answer = {"job_id": str(job), "poll": POLL, "progress": 0}
+    if job.exists():
+        state = _read(job)
+        running = state["status"] == "running" and alive(state["pid"])
+        if state["key"] == idempotency_key and (state["status"] == "done" or running):
+            return {**answer, "message": "render already started"}
+    argv = ["npx", "--no", "remotion", "render", _flag("entry", entry)]
+    argv += [_flag("composition", composition), str(output)]
+    argv += [f"--props={_hidden(output, 'props.json')}", f"--codec={_flag('codec', codec)}"]
+    if frames:
+        argv.append(f"--frames={_flag('frames', str(frames))}")
+    # Tabs rendering at once. Unset, Remotion uses half the CPUs; with no GPU (Docker) a 3D
+    # scene renders in software and that many tabs run out of memory (spike 2026-10-30).
+    if tabs := os.environ.get(CONCURRENCY):
+        argv.append(f"--concurrency={_flag('concurrency', tabs)}")
+    if browser := _shell():
+        argv.append(f"--browser-executable={browser}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.unlink(missing_ok=True)
+    _hidden(output, "props.json").write_text(
+        json.dumps({**(props or {}), "script": script.read_text(), "scriptPath": str(script)})
+    )
+    state = {
+        "key": idempotency_key,
+        "status": "running",
+        "argv": argv,
+        "project": str(folder),
+        "input": str(script),
+        "output": str(output),
+        "log": str(_hidden(output, "log")),
+        "composition": composition,
+        "frontmatter": frontmatter or {},
+        "started": _now(),
+        "pid": 0,
+    }
+    _write(job, state)
+    # start_new_session takes the render out of the MCP server's process group, which the
+    # client kills when the session ends.
+    pid = subprocess.Popen(
+        [sys.executable, __file__, "--job", str(job)],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).pid
+    # ponytail: read-then-write, so a job that finishes in the microseconds between could still
+    # be overwritten; a lock file closes it if a real render ever ends that fast.
+    if _read(job)["status"] == "running":  # a near-instant render may already be done
+        _write(job, {**state, "pid": pid})
+    return {**answer, "message": "render started"}
+
+
+@mcp.tool(description="Poll a Remotion render started by remotion_render.")
+def remotion_render_status(job_id: str) -> dict[str, Any]:
+    job = Path(job_id)
+    if not job.name.endswith(".job.json") or not job.is_file():
+        raise ToolError(f"no render job at {job_id}")
+    state = _read(job)
+    if state["status"] == "done":
+        return {
+            "status": "done",
+            "progress": 1,
+            "output": state["output"],
+            "sidecar": state["sidecar"],
+            "bytes": state["bytes"],
+        }
+    if state["status"] == "running" and not alive(state["pid"]):
+        state = _read(job)  # it may have finished between the two reads
+        if state["status"] == "running":
+            state = {**state, "status": "failed", "error": "the render process died"}
+            _write(job, state)
+    if state["status"] == "failed":
+        return {"status": "failed", "error": f"{state['error']}\n{_tail(Path(state['log']))}"}
+    value, message = progress(Path(state["log"]).read_text() if Path(state["log"]).exists() else "")
+    return {"status": "running", "progress": value, "message": message}
+
+
+@mcp.tool(description="The workflow check's rule for a render stage: its project exists.")
+def check(config: dict[str, Any]) -> dict[str, Any]:
+    """`config` is the stage as its workflow writes it (calls, input, output, params). A
+    missing project or composition the core reports from the params schema."""
+    project = str((config.get("params") or {}).get("project") or "").strip()
+    if not project or (folder := project_folder(project, _data_dir())).is_dir():
+        return {"problems": []}
+    where = "" if Path(project).expanduser().is_absolute() else f" in {folder.parent}"
+    return {"problems": [f"the Remotion project {project} does not exist{where}"]}
+
+
+def _sidecar(state: dict[str, Any], size: int) -> Path:
+    output, script = Path(state["output"]), Path(state["input"])
+    fields: dict[str, Any] = {
+        "type": "video",
+        **state["frontmatter"],
+        "created": _now(),
+        "author": "remotion_render",
+        "file": output.name,
+        "source": script.name,
+        "composition": state["composition"],
+        "bytes": size,
+    }
+    if commit := _commit(Path(state["project"])):
+        fields["commit"] = commit
+    head = "\n".join(f"{k}: {json.dumps(v)}" for k, v in fields.items())
+    body = (
+        f"# {output.name}\n\nVideo rendered by Remotion from the script `{script.name}` with"
+        f" composition `{state['composition']}`, {size} bytes.\n"
+    )
+    path = output.with_name(output.name + ".md")
+    path.write_text(f"---\n{head}\n---\n\n{body}")
+    return path
+
+
+def built(project: Path, data_dir: Path) -> bool:
+    """A project under the data directory's `worlds/` folder was written by an agent (a
+    `remotion_build` stage), so its code is untrusted."""
+    return project.resolve().is_relative_to((data_dir / "worlds").resolve())
+
+
+def _free_port() -> int:
+    """Remotion's own port probe misses a server listening on IPv6 only and then renders that
+    server's page; a port the OS just handed out is free on both."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _shell() -> str | None:
+    """Chrome Headless Shell: the one the install step downloaded beside it, else one on PATH
+    (as in Swarmify's image), else None and Remotion finds its own. The binary is
+    chrome-headless-shell, or headless_shell on Linux arm64."""
+    names = ("chrome-headless-shell", "headless_shell")
+    found = [p for p in BROWSERS.rglob("*") if p.name in names and p.is_file()]
+    return str(found[0]) if found else shutil.which("chrome-headless-shell")
+
+
+def _seatbelt(data_dir: Path, readable: list[Path], writable: list[Path]) -> str:
+    def paths(kind: str, folders: list[Path]) -> str:
+        return " ".join(f"({kind} {json.dumps(str(f.resolve()))})" for f in folders)
+
+    # ponytail: allow-default with the escapes we know denied (network, the data directory,
+    # writes, other processes, Apple Events, Launch Services); a deny-default profile like the
+    # Agent SDK's breaks Chrome, which must register Mach services.
+    return "\n".join(
+        [
+            "(version 1)",
+            "(allow default)",
+            "(deny network*)",
+            '(allow network-bind network-inbound (local ip "localhost:*"))',
+            '(allow network-outbound (remote ip "localhost:*"))',
+            f"(deny file-read-data (subpath {json.dumps(str(data_dir.resolve()))}))",
+            f"(allow file-read-data {paths('subpath', readable)})",
+            '(deny file-write* (subpath "/"))',
+            '(allow file-write* (subpath "/private/tmp") (subpath "/private/var/folders")'
+            ' (literal "/dev/null") (subpath "/dev/fd") (literal "/dev/tty")'
+            ' (literal "/dev/dtracehelper"))',
+            f"(deny file-write* (subpath {json.dumps(str(data_dir.resolve()))}))",
+            f"(allow file-write* {paths('subpath', writable)})",
+            "(deny process-info*)",  # other processes' arguments and environment
+            "(allow process-info* (target same-sandbox))",
+            "(deny appleevent-send)",
+            "(deny lsopen)",
+            '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd")'
+            ' (global-name "com.apple.coreservices.appleevents"))',
+        ]
+    )
+
+
+def sandboxed(argv: list[str], project: Path, output: Path, data_dir: Path) -> list[str]:
+    """`argv` inside the OS sandbox an agent-written project renders in: no network beyond
+    loopback, nothing of the data directory readable but the project, the output's folder and
+    this package's browser, nothing writable but the project, the output's folder and temp.
+    Raises OSError where neither sandbox-exec (macOS) nor bwrap (Linux) is available."""
+    readable = [project, output.parent, BROWSERS]
+    writable = [project, output.parent]
+    if sys.platform == "darwin" and shutil.which("sandbox-exec"):
+        return ["sandbox-exec", "-p", _seatbelt(data_dir, readable, writable), *argv]
+    if shutil.which("bwrap"):
+        binds = [a for f in writable for a in ("--bind", str(f.resolve()), str(f.resolve()))]
+        browser = BROWSERS.resolve()
+        if browser.is_dir():
+            binds += ["--ro-bind", str(browser), str(browser)]
+        return [
+            "bwrap", "--die-with-parent", "--unshare-all", "--ro-bind", "/", "/",
+            "--dev", "/dev", "--proc", "/proc", "--bind", "/tmp", "/tmp",
+            "--tmpfs", str(data_dir.resolve()), *binds, "--remount-ro", str(data_dir.resolve()),
+            "--chdir", str(project.resolve()),
+            "--", *argv,
+        ]  # fmt: skip
+    raise OSError("no sandbox to render an agent's project in: install bubblewrap (bwrap)")
+
+
+def run_job(job: Path) -> None:
+    """The detached render: run the CLI, then record done (with a sidecar) or failed. A built
+    project (`built`) never installs and renders inside `sandboxed`."""
+    state = _read(job)
+    output = Path(state["output"])
+    project = Path(state["project"])
+    data_dir = _data_dir()
+    render = [*state["argv"], f"--port={_free_port()}"]
+    steps: list[tuple[list[str], Path]] = []
+    code = 0
+    with open(state["log"], "w") as log:
+        if built(project, data_dir):
+            # No network in the sandbox for Remotion to fetch a browser: it must be here already.
+            if not (project / "node_modules").is_dir():
+                code, state["error"] = -1, "the build left no node_modules: run npm install in it"
+            elif not any(a.startswith("--browser-executable=") for a in render):
+                code, state["error"] = -1, "no Chrome Headless Shell: reinstall remotion_render"
+            else:
+                try:
+                    render = sandboxed(render, project, output, data_dir)
+                except OSError as exc:
+                    code, state["error"] = -1, str(exc)
+        else:
+            # ponytail: two first renders of one template at once both install; a lock if that
+            # bites.
+            lock = (project / "package-lock.json").is_file()
+            if not (project / "node_modules").is_dir():
+                steps = [(["npm", "ci" if lock else "install"], project)]
+            code = _steps(steps, log, state)
+        if code == 0:
+            code = _steps([(render, project)], log, state, "remotion render")
+    if code == 0 and output.is_file() and output.stat().st_size > 0:
+        size = output.stat().st_size
+        state = {**state, "status": "done", "bytes": size, "sidecar": str(_sidecar(state, size))}
+    else:
+        state = {"error": "remotion render wrote no video", **state, "status": "failed"}
+    _write(job, {**state, "ended": _now()})
+
+
+def _steps(
+    steps: list[tuple[list[str], Path]], log: Any, state: dict[str, Any], name: str = ""
+) -> int:
+    """Run each command in its folder, its output in the log, until one fails; that one's
+    error lands in `state`."""
+    for argv, cwd in steps:
+        what = name or " ".join(argv[:2])
+        try:
+            code = subprocess.run(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT).returncode
+        except OSError as exc:
+            code, state["error"] = -1, f"could not start {what}: {exc}"
+        if code != 0:
+            state.setdefault("error", f"{what} exited with {code}")
+            return code
+    return 0
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--job"]:
+        run_job(Path(sys.argv[2]))
+    else:
+        mcp.run("stdio")

@@ -1,0 +1,68 @@
+# The Remotion render connector (README.md beside this file). A default package: Swarmify installs
+# it from this folder and enables it for every world that has not decided otherwise.
+name = "remotion_render"
+version = "1.0.0"
+label = "Remotion render"
+about = "Renders a script with the Remotion CLI. Needs Node and a Remotion project."
+kind = "stage"
+stage_types = ["connector"]
+
+planner_notes = "Use it only when the operator has a finished template; else remotion_build makes the video. params.project is a template's name under the data directory's remotion folder, or a folder path."
+
+runtime = "uv"
+# Its Python beside it (uv), then the Remotion CLI and the Chrome Headless Shell it downloads
+# (ADR 0026), so a render needs nothing of the core image but Node.
+install = ["sh", "-c", "uv sync --frozen --no-dev && npm ci --ignore-scripts --no-audit --no-fund && npx --no remotion browser ensure"]
+command = [".venv/bin/python", "remotion_render.py"]
+
+# The rule its params schema cannot say, run by the workflow check: the project exists.
+capabilities = ["check"]
+
+[params]
+type = "object"
+required = ["project", "composition"]
+[params.properties.project]
+type = "string"
+description = "the Remotion project folder"
+[params.properties.composition]
+type = "string"
+description = "the composition ID"
+[params.properties.entry]
+type = "string"
+default = "src/index.ts"
+[params.properties.codec]
+type = "string"
+default = "h264"
+[params.properties.frames]
+type = "string"
+description = "a range, as 0-29"
+[params.properties.props]
+type = "object"
+description = "the composition's input props"
+
+[[inputs]]
+description = "the script"
+media_type = "text/markdown"
+
+[[outputs]]
+description = "the video"
+media_type = "video/mp4"
+
+[setup]
+help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/remotion_render#setup"
+
+[[config]]
+key = "data_folder"
+label = "Data folder"
+type = "path"
+default = "."
+env = "REMOTION_DATA_DIR"
+help = "Swarmify's data folder, which a relative path is taken from, so . is that folder itself. Its remotion/ folder holds the templates a project names; a project under its worlds/ folder was written by an agent and renders in a sandbox that cannot read the rest of it."
+
+[[config]]
+key = "concurrency"
+label = "Render concurrency"
+type = "string"
+pattern = "[1-9][0-9]*%?"
+env = "SWARMIFY_RENDER_CONCURRENCY"
+help = "Browser tabs rendering at once, as 2 or 50%. Empty lets Remotion pick half the CPUs; with no GPU (Docker) a 3D scene renders in software and that many run out of memory, so set 2 there."

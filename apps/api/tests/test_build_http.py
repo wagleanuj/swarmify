@@ -22,7 +22,7 @@ from swarmify_swarm import AgentRuntime, SdkRuntime
 from swarmify_swarm.fake import Answer, Call, Say, Script
 
 HERE = Path(__file__).parent
-FAKE_NPX = HERE.parents[2] / "packages/connectors/tests/fake_npx.py"
+FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
 SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")
 
 

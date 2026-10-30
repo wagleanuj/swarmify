@@ -42,6 +42,18 @@ def until(check: Callable[[], bool]) -> None:
         time.sleep(0.05)
 
 
+def studio(client: Any, world_id: str) -> None:
+    """Add `studio` to the world: a stage connector that requires nothing, standing in for any
+    in tests that replace the connector stage call, so it is never started."""
+    body = {
+        "name": "studio",
+        "kind": "stage",
+        "server": "uvx studio-mcp",
+        "stage_types": ["connector"],
+    }
+    assert client.post(f"/api/worlds/{world_id}/connectors", json=body).status_code == 201
+
+
 class FakeNotifier:
     def __init__(self) -> None:
         self.events: list[Event] = []

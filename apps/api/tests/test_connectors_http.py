@@ -119,6 +119,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
         ("fal_video", "0.0.1", "local"),
+        ("remotion_render", "1.0.0", "connectors/remotion_render"),
         ("slack", "1.0.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
@@ -126,6 +127,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
+        {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.0.0"},
@@ -161,7 +163,7 @@ def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
         for c in client.get(f"/api/worlds/{w}/connectors").json()
     }
     assert shown == {
-        "remotion_render": ("Remotion render", [], ["video/mp4"]),
+        "remotion_render": ("Remotion render", ["check"], ["video/mp4"]),
         "remotion_build": ("Remotion build", ["build_session"], ["video/mp4"]),
         "youtube": ("YouTube", ["publish"], []),
         "upload_post": ("Upload-Post", ["publish"], []),
@@ -312,6 +314,7 @@ def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient
 def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
     # the defaults: slack is installed too, but no world is given it
     assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "remotion_render",
         "slack",
         "speech",
         "upload_post",
@@ -322,7 +325,7 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed[0] == installed.json() and len(listed) == 5
+    assert listed[0] == installed.json() and len(listed) == 6
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -351,6 +354,7 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
     assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "remotion_render",
         "slack",
         "speech",
         "upload_post",
@@ -385,7 +389,8 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
-        {"name": "speech", "version": "1.0.0"},  # the default packages
+        {"name": "remotion_render", "version": "1.0.0"},  # the default packages
+        {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.0.0"},
     ]
@@ -399,12 +404,14 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
 
     assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
     assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.0.0"},
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
+        {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.0.0"},
