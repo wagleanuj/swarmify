@@ -54,8 +54,8 @@ function routes(verdicts: Verdict[], artifacts: () => ArtifactFile[]) {
 test("before the judge runs, the panels say what will appear", async () => {
   routes([], () => []);
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("verdict")).toMatchTextContent(/No verdict yet\. Erlich judges once every task/);
-  await expect.element(screen.getByTestId("artifacts")).toMatchTextContent(/Nothing yet\. On a pass, Erlich turns/);
+  await expect.element(screen.getByTestId("verdict")).toMatchTextContent(/No verdict yet\. The judge judges once every task/);
+  await expect.element(screen.getByTestId("artifacts")).toMatchTextContent(/Nothing yet\. On a pass, the judge turns/);
 });
 
 test("a fail shows its gaps, then a streamed pass and its idea cards replace it live", async () => {

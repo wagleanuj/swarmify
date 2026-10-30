@@ -192,6 +192,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Starters
+         * @description The starter workflows a new workflow can begin from, each passing the check.
+         */
+        get: operations["list_starters_api_workflows_starters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/workflows": {
         parameters: {
             query?: never;
@@ -1325,7 +1345,7 @@ export interface paths {
         put?: never;
         /**
          * Judge
-         * @description One blind judge session over the pair's `ideas.md` and `script.md`: the arm labels
+         * @description One blind judge session over what the task's workflow left on each side: the arm labels
          *     removed, the order shuffled per task. 502 when the session fails or answers in another
          *     shape; post again to retry.
          */
@@ -2840,6 +2860,15 @@ export interface components {
              */
             baseline: boolean;
         };
+        /** Starter */
+        Starter: {
+            /** Name */
+            name: string;
+            /** About */
+            about: string;
+            /** Yaml */
+            yaml: string;
+        };
         /**
          * Surprise
          * @description A connection graphify finds non-obvious: across files or across communities.
@@ -3553,6 +3582,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_starters_api_workflows_starters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Starter"][];
                 };
             };
         };

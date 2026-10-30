@@ -392,7 +392,7 @@ test("a pick gate offers the earlier stage's cards and an approve gate plays the
   const pick = screen.getByTestId("gate-run_1");
   const cards = pick.getByTestId("pick-card");
   // A ranked list: rank, title and hook, the judge's reasoning folded into a disclosure.
-  await expect.element(cards.first()).toMatchTextContent(/Erlich's #1 of 2.*Hook first.*Wait for it.*Why it ranked here/);
+  await expect.element(cards.first()).toMatchTextContent(/The judge's #1 of 2.*Hook first.*Wait for it.*Why it ranked here/);
   await expect.element(cards.first().getByText("Why: Hooks win.")).not.toBeVisible();
   await cards.first().getByText("Why it ranked here").click();
   await expect.element(cards.first().getByText("Why: Hooks win.")).toBeVisible();

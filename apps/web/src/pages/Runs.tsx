@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { clock, duration, money, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
+import { baseline } from "../skin";
 import { stageSeconds } from "./StagePanel";
 import { TimeStrip } from "./TimeStrip";
 
@@ -180,7 +181,7 @@ export function Runs() {
                             <span className="mono" title={r.id}>{shortId(r.id)}</span>
                             {r.parent && <RunRef label=" · child of" run={r.parent} testId="child-of" />}
                             {r.forked_from && <RunRef label=" · fork of" run={r.forked_from} testId="fork-of" />}
-                            {r.baseline && " · Hooli baseline"}
+                            {r.baseline && ` · ${baseline()}`}
                           </span>
                         </td>
                         <td>

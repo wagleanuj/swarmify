@@ -1,20 +1,25 @@
-"""The Eval: the weekly short, as Baseline and as Swarm, over a fixed task set. Built on
+"""The Eval: starter workflows run as Baseline and as Swarm over a fixed task set. Built on
 Anthropic's agent evaluation guidance ("Demystifying evals for AI agents"): twenty or more
 tasks, each trial in a fresh world, outputs graded and not the path taken, and per arm pass at
 k (any of k trials passed) and pass to the k (all k passed). The report compares acceptance,
 cost and duration of the two arms and says whether the swarm wins, which is the V1 acceptance.
 
+The tasks span research briefs, drafts, typed lists and the weekly short (#128), and each names
+the starter workflow it exercises; each workflow brings its own run, grader and brief for the
+judge.
+
 Every check passing on both arms says nothing about which is better, so a blind pairwise judge
 compares each task's two outputs with the arm labels removed and the order shuffled per task:
 the swarm wins when it wins more than half of the decided pairs (ties left out).
 
-This module is the pure part: the tasks, the grader, the judge's prompt and the report.
+This module is the pure part: the tasks, the graders, the judge's prompt and the report.
 `swarmify-eval` (the api app) runs the trials over HTTP and stores the report as an artifact in
 the eval world.
 """
 
 import random
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from math import comb
 from statistics import mean
@@ -24,65 +29,70 @@ IDEAS, SCRIPT = "ideas.md", "script.md"
 MIN_IDEAS = 5
 WORDS = (60, 200)
 """A 45 to 60 second short read aloud at 130 to 160 words a minute, with slack either way."""
+BRIEF, BRIEF_WORDS, MIN_LINKS = "brief.md", (250, 1000), 3
+"""A brief asked for in 300 to 800 words, with slack either way."""
+OUTLINE, DRAFT, DRAFT_WORDS = "outline.md", "draft.md", (500, 1200)
+"""A draft asked for in 600 to 1000 words, with slack either way."""
+FINDING, FINDINGS = "finding-", (3, 10)
+"""A `list[finding]` projects one `finding-<title>.md` artifact an item."""
+_LINK = re.compile(r"https?://[^\s)>\]]+")
 
 
 @dataclass(frozen=True)
 class EvalTask:
-    """One niche the weekly short is made for. The script must name one of `keywords` (its
-    topic words and synonyms), matched by word stem so "biking" names "bike"."""
+    """One topic `workflow` (a starter workflow's name) is run on. Its output must name one of
+    `keywords` (its topic words and synonyms), matched by word stem so "biking" names "bike"."""
 
     id: str
     topic: str
     keywords: tuple[str, ...]
+    workflow: str
 
 
-def _task(topic: str, *keywords: str) -> EvalTask:
-    return EvalTask(re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-"), topic, keywords)
+def _tasks(workflow: str, *topics: tuple[str, ...]) -> list[EvalTask]:
+    """One task a topic, each `(topic, *keywords)`."""
+    slug = lambda topic: re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")  # noqa: E731
+    return [EvalTask(slug(t[0]), t[0], t[1:], workflow) for t in topics]
 
 
 TASKS = [
-    _task("home espresso", "espresso", "coffee"),
-    _task("houseplant care", "plant", "houseplant"),
-    _task("budget travel in Japan", "japan", "tokyo", "kyoto"),
-    _task("beginner strength training", "strength", "lift", "squat"),
-    _task("sourdough baking", "sourdough", "starter", "bread"),
-    _task("personal finance for students", "budget", "student", "money"),
-    _task("indie game development", "game", "indie"),
-    _task("urban cycling", "bike", "cycling", "cyclist", "ride", "commute"),
-    _task("home cooking on a budget", "cook", "meal", "recipe", "dinner", "kitchen", "food"),
-    _task("learning Spanish", "spanish", "español", "spain", "language", "fluent"),
-    _task("smartphone photography", "photo", "photograph", "camera", "phone", "smartphone"),
-    _task("dog training", "dog", "puppy"),
-    _task("minimalist living", "minimal", "declutter"),
-    _task("chess openings", "chess", "opening"),
-    _task("running a first marathon", "marathon", "run"),
-    _task("woodworking for beginners", "wood", "woodwork", "saw"),
-    _task("productivity for remote workers", "remote", "focus", "work"),
-    _task("astronomy from the backyard", "astronomy", "star", "telescope", "planet"),
-    _task("vegan meal prep", "vegan", "plant-based"),
-    _task("retro video game collecting", "retro", "cartridge", "console"),
-    _task("small space gardening", "garden", "balcony", "grow"),
-    _task("sleep hygiene", "sleep", "bedtime"),
+    *_tasks(
+        "Weekly short",
+        ("home espresso", "espresso", "coffee"),
+        ("urban cycling", "bike", "cycling", "cyclist", "ride", "commute"),
+        ("home cooking on a budget", "cook", "meal", "recipe", "dinner", "kitchen", "food"),
+        ("learning Spanish", "spanish", "español", "spain", "language", "fluent"),
+        ("running a first marathon", "marathon", "run"),
+        ("astronomy from the backyard", "astronomy", "star", "telescope", "planet"),
+    ),
+    *_tasks(
+        "Research brief",
+        ("heat pumps in cold climates", "heat pump", "cold", "winter"),
+        ("four-day work weeks", "four-day", "week", "workweek"),
+        ("open source licensing", "license", "licence", "licensing", "open source"),
+        ("e-bike battery safety", "battery", "bike", "lithium"),
+        ("microplastics in drinking water", "microplastic", "plastic", "water"),
+        ("phishing at small businesses", "phishing", "security", "small business"),
+    ),
+    *_tasks(
+        "Draft with approval",
+        ("a beginner's guide to composting", "compost"),
+        ("why cities should plant more trees", "tree", "canopy"),
+        ("how to run a shorter meeting", "meeting", "agenda"),
+        ("the case for public libraries", "library", "librarian"),
+        ("starting a household budget", "budget", "money", "spend"),
+        ("writing clear documentation", "documentation", "docs", "readme"),
+    ),
+    *_tasks(
+        "Scheduled monitor",
+        ("electric vehicle charging", "charging", "charger", "electric", "ev"),
+        ("AI regulation", "regulation", "law", "act", "ai"),
+        ("renewable energy prices", "solar", "wind", "energy", "renewable"),
+        ("space launches", "launch", "rocket", "orbit"),
+        ("remote work policies", "remote", "office", "hybrid"),
+        ("open source security advisories", "vulnerability", "security", "cve", "advisory"),
+    ),
 ]
-
-
-def workflow_yaml(task: EvalTask, budget_usd: float) -> str:
-    """The weekly short as the eval runs it: research and script, no gate, no render and no
-    publish, since a trial must never post anything and nobody answers a pick at night."""
-    return f"""name: Weekly short eval, {task.topic}
-budget_usd: {budget_usd}
-stages:
-  - swarm: research
-    goal: Find {MIN_IDEAS} short video ideas about {task.topic} that would work this week.
-    done_when: {IDEAS} ranks {MIN_IDEAS} ideas as a numbered list, best first, each with a hook
-    tools: [web_search, graph]
-    produces: [{IDEAS}]
-  - swarm: script
-    goal: Write the script of a 45 to 60 second short about {task.topic} from the top idea.
-    done_when: {SCRIPT} is the spoken script, {WORDS[0]} to {WORDS[1]} words, opening on a hook
-    tools: [graph]
-    produces: [{SCRIPT}]
-"""
 
 
 _NUMBERED = re.compile(r"^\s*\d+[.)]\s+\S", re.MULTILINE)
@@ -110,8 +120,19 @@ def _stems(text: str) -> str:
     return " ".join(_stem(w) for w in re.findall(r"[^\W\d_]+", text.lower()))
 
 
-def grade(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
-    """The checks the trial's outputs failed, by artifact name to body; none means accepted."""
+def _names(task: EvalTask, text: str) -> bool:
+    stems = f" {_stems(text)} "
+    return any(f" {_stems(k)} " in stems for k in task.keywords)
+
+
+def _length(name: str, body: str, words: tuple[int, int]) -> list[str]:
+    n = len(body.split())
+    if words[0] <= n <= words[1]:
+        return []
+    return [f"{name} is {n} words, not {words[0]} to {words[1]}"]
+
+
+def _grade_short(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
     failed = []
     ideas = artifacts.get(IDEAS)
     if ideas is None:
@@ -121,13 +142,168 @@ def grade(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
     script = artifacts.get(SCRIPT)
     if script is None:
         return [*failed, f"{SCRIPT} is missing"]
-    words = len(script.split())
-    if not WORDS[0] <= words <= WORDS[1]:
-        failed.append(f"{SCRIPT} is {words} words, not {WORDS[0]} to {WORDS[1]}")
-    stems = f" {_stems(script)} "
-    if not any(f" {_stems(k)} " in stems for k in task.keywords):
+    failed += _length(SCRIPT, script, WORDS)
+    if not _names(task, script):
         failed.append(f"{SCRIPT} never names {task.topic}")
     return failed
+
+
+def _grade_brief(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
+    brief = artifacts.get(BRIEF)
+    if brief is None:
+        return [f"{BRIEF} is missing"]
+    failed = _length(BRIEF, brief, BRIEF_WORDS)
+    if (n := len(set(_LINK.findall(brief)))) < MIN_LINKS:
+        failed.append(f"{BRIEF} cites {n} links, not {MIN_LINKS}")
+    if not _names(task, brief):
+        failed.append(f"{BRIEF} never names {task.topic}")
+    return failed
+
+
+def _grade_draft(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
+    failed = [] if OUTLINE in artifacts else [f"{OUTLINE} is missing"]
+    draft = artifacts.get(DRAFT)
+    if draft is None:
+        return [*failed, f"{DRAFT} is missing"]
+    failed += _length(DRAFT, draft, DRAFT_WORDS)
+    if not _names(task, draft):
+        failed.append(f"{DRAFT} never names {task.topic}")
+    return failed
+
+
+def _grade_findings(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
+    found = [body for name, body in artifacts.items() if name.startswith(FINDING)]
+    if not FINDINGS[0] <= len(found) <= FINDINGS[1]:
+        return [f"{len(found)} findings, not {FINDINGS[0]} to {FINDINGS[1]}"]
+    failed = []
+    if unlinked := sum(not _LINK.search(body) for body in found):
+        failed.append(f"{unlinked} of {len(found)} findings have no source link")
+    if not _names(task, "\n".join(found)):
+        failed.append(f"no finding names {task.topic}")
+    return failed
+
+
+@dataclass(frozen=True)
+class EvalWorkflow:
+    """A starter workflow as the eval runs it: no gate, no schedule, no render and no publish,
+    since a trial must never post anything and nobody answers a gate at night. `yaml` takes the
+    topic and the budget; `files` are what it leaves, a name ending in `-` the prefix of a typed
+    list's items; `made` and `weigh` tell the judge what each team made and what to weigh."""
+
+    name: str
+    yaml: str
+    files: tuple[str, ...]
+    grade: Callable[[EvalTask, dict[str, str]], list[str]]
+    made: str
+    weigh: str
+
+
+WORKFLOWS = {
+    w.name: w
+    for w in [
+        EvalWorkflow(
+            "Weekly short",
+            f"""name: Weekly short eval, {{topic}}
+budget_usd: {{budget}}
+stages:
+  - swarm: research
+    goal: Find {MIN_IDEAS} short video ideas about {{topic}} that would work this week.
+    done_when: {IDEAS} ranks {MIN_IDEAS} ideas as a numbered list, best first, each with a hook
+    tools: [web_search, graph]
+    produces: [{IDEAS}]
+  - swarm: script
+    goal: Write the script of a 45 to 60 second short about {{topic}} from the top idea.
+    done_when: {SCRIPT} is the spoken script, {WORDS[0]} to {WORDS[1]} words, opening on a hook
+    tools: [graph]
+    produces: [{SCRIPT}]
+""",
+            (IDEAS, SCRIPT),
+            _grade_short,
+            f"{IDEAS} ({MIN_IDEAS} short video ideas about {{topic}}, ranked best first, each"
+            f" with a hook) and {SCRIPT} (the spoken script of a 45 to 60 second short from the"
+            " top idea).",
+            "Which pair would you rather publish this week? Weigh how fresh and specific the"
+            " ideas are, how strong the hook is and how well the script holds attention.",
+        ),
+        EvalWorkflow(
+            "Research brief",
+            f"""name: Research brief eval, {{topic}}
+budget_usd: {{budget}}
+stages:
+  - swarm: research
+    goal: Research {{topic}}. Check the graph for what this world already knows,
+      then the web for the rest.
+    done_when: {BRIEF} answers the question in 300 to 800 words and cites at least
+      {MIN_LINKS} sources by link
+    tools: [web_search, graph]
+    produces: [{BRIEF}]
+""",
+            (BRIEF,),
+            _grade_brief,
+            f"{BRIEF} (a cited brief on {{topic}} in 300 to 800 words).",
+            "Which brief would you rather rely on? Weigh how accurate, specific and current it"
+            " is, and how well its sources back it.",
+        ),
+        EvalWorkflow(
+            "Draft with approval",
+            f"""name: Draft with approval eval, {{topic}}
+budget_usd: {{budget}}
+stages:
+  - swarm: outline
+    goal: Gather the points and sources a piece on {{topic}} needs. Check the graph first.
+    done_when: {OUTLINE} lists the sections in order, each with its key points and sources
+    tools: [web_search, graph]
+    produces: [{OUTLINE}]
+  - swarm: draft
+    goal: Write the piece on {{topic}} from {OUTLINE}.
+    done_when: {DRAFT} is a complete draft of 600 to 1000 words under a title
+    tools: [graph]
+    produces: [{DRAFT}]
+""",
+            (OUTLINE, DRAFT),
+            _grade_draft,
+            f"{OUTLINE} and {DRAFT} (a piece on {{topic}} in 600 to 1000 words).",
+            "Which draft would you rather approve as it stands? Weigh how clear, correct and"
+            " well structured it is, and how little it would need editing.",
+        ),
+        EvalWorkflow(
+            "Scheduled monitor",
+            f"""name: Scheduled monitor eval, {{topic}}
+budget_usd: {{budget}}
+stages:
+  - swarm: scan
+    goal: Find what changed this week in {{topic}}.
+    done_when: {FINDINGS[0]} to {FINDINGS[1]} findings, each with what changed, why it
+      matters and a source link
+    tools: [web_search, graph]
+    output_type: list[finding]
+""",
+            (FINDING,),
+            _grade_findings,
+            f"a typed list of {FINDINGS[0]} to {FINDINGS[1]} findings on what changed this week"
+            " in {topic}, one item each.",
+            "Which list would you rather get in your inbox? Weigh how new, relevant and well"
+            " sourced the findings are, and whether anything important is missing.",
+        ),
+    ]
+}
+
+
+def workflow_yaml(task: EvalTask, budget_usd: float) -> str:
+    """The task's workflow as the eval runs it, on the task's topic."""
+    return WORKFLOWS[task.workflow].yaml.format(topic=task.topic, budget=budget_usd)
+
+
+def made_by(task: EvalTask, name: str) -> bool:
+    """Whether artifact `name` is one the task's workflow leaves, so the judge reads it."""
+    return any(
+        name.startswith(f) if f.endswith("-") else name == f for f in WORKFLOWS[task.workflow].files
+    )
+
+
+def grade(task: EvalTask, artifacts: dict[str, str]) -> list[str]:
+    """The checks the trial's outputs failed, by artifact name to body; none means accepted."""
+    return WORKFLOWS[task.workflow].grade(task, artifacts)
 
 
 def blind_order(task_id: str) -> tuple[str, str]:
@@ -144,24 +320,24 @@ PICK_SCHEMA: dict = {
     "required": ["better", "reason"],
 }
 JUDGE_SYSTEM = (
-    "You judge two drafts of a short video for a creator. Answer only with the JSON the schema"
-    " asks for."
+    "You judge two teams' work on the same task. Answer only with the JSON the schema asks for."
 )
 
 
 def judge_prompt(task: EvalTask, outputs: dict[str, dict[str, str]]) -> str:
     """Both arms' outputs (arm to artifact name to body) as A and B in the task's blind order."""
+    flow = WORKFLOWS[task.workflow]
     parts = [
-        f"Two teams each made {IDEAS} ({MIN_IDEAS} short video ideas about {task.topic}, ranked"
-        f" best first, each with a hook) and {SCRIPT} (the spoken script of a 45 to 60 second"
-        " short from the top idea). Which pair would you rather publish this week? Weigh how"
-        " fresh and specific the ideas are, how strong the hook is and how well the script"
-        " holds attention. Say tie only when neither is better."
+        f"Two teams each made {flow.made.format(topic=task.topic)} {flow.weigh} Say tie only"
+        " when neither is better."
     ]
     for label, arm in zip("AB", blind_order(task.id), strict=True):
-        for name in (IDEAS, SCRIPT):
-            body = outputs.get(arm, {}).get(name)
-            parts.append(f"## {label}: {name}\n\n{body.strip() if body else '(missing)'}")
+        made = outputs.get(arm, {})
+        for f in flow.files:
+            names = sorted(n for n in made if n.startswith(f)) if f.endswith("-") else [f]
+            for name in names or [f"{f}*"]:
+                body = made.get(name)
+                parts.append(f"## {label}: {name}\n\n{body.strip() if body else '(missing)'}")
     return "\n\n".join(parts)
 
 

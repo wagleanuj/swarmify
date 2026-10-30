@@ -1,4 +1,4 @@
-/* Workflow editor: Stages first, then Richard, YAML and the scorecard, over one text; and the workflows list */
+/* Workflow editor: starters, then Stages, the planner, YAML and the scorecard, over one text; and the workflows list */
 main.editor-page { max-width: 80rem; }
 .editor-page .tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
 .editor-page .tab { position: relative; min-height: 0; padding: 0 0 10px; border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 13px; }
@@ -35,6 +35,10 @@ main.editor-page { max-width: 80rem; }
 .kv dt { color: var(--faint); }
 .kv dd { margin: 0; }
 .add-stage { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.starters { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 8px; margin-bottom: 24px; }
+.starters button { display: grid; justify-items: start; align-content: start; gap: 2px; min-height: 0; padding: 10px 12px; text-align: left; font-weight: 400; }
+.starters button[aria-pressed="true"] { border-color: var(--accent); }
+.starters small { color: var(--faint); font-size: 12px; }
 .chat { display: grid; gap: 12px; }
 .chat-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; max-height: 28rem; overflow: auto; }
 .chat-log li { padding: 8px 12px; max-width: 44rem; white-space: pre-wrap; }

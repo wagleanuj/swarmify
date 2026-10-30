@@ -128,7 +128,7 @@ export function Worlds() {
             <input
               name="purpose"
               maxLength={500}
-              placeholder="Weekly shorts for the attraction channel."
+              placeholder="Research briefs and a weekly monitor for the product team."
               autoComplete="off"
             />
           </label>

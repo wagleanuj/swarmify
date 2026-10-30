@@ -61,19 +61,19 @@ def test_approve_an_edited_skill_proposal_and_see_skills_records_and_scores(
         expect(page.get_by_test_id("skill-hooks")).to_contain_text("this world")
         expect(page.get_by_test_id("skill-hooks")).to_contain_text("v1 · from run")
         expect(page.get_by_test_id("skill-taste")).to_contain_text("shared")
-        gilfoyle = page.get_by_test_id("cast-worker-1")
+        worker = page.get_by_test_id("cast-worker-1")
         # Tasks, judged, first try, send backs, cost
-        expect(gilfoyle.locator("tr").first.locator("td.num")).to_have_text(
+        expect(worker.locator("tr").first.locator("td.num")).to_have_text(
             ["1", "1", "1 of 1", "0", re.compile(r"^\$")]
         )
         expect(page.get_by_test_id("cast").locator("tbody.cast-member")).to_have_count(6)
-        gilfoyle.get_by_role("button", name="Edit Gilfoyle").click()
-        gilfoyle.get_by_label("Standing instructions").fill("Write hooks first.")
+        worker.get_by_role("button", name="Edit Worker 1").click()
+        worker.get_by_label("Standing instructions").fill("Write hooks first.")
         page.once("dialog", lambda dialog: dialog.accept())
-        gilfoyle.get_by_role("button", name="Save as version 2").click()
-        expect(page.get_by_text("Saved version 2 of Gilfoyle.")).to_be_visible()
-        gilfoyle.get_by_role("button", name="History of Gilfoyle").click()
-        expect(gilfoyle.get_by_test_id("history")).to_contain_text("Write hooks first.")
+        worker.get_by_role("button", name="Save as version 2").click()
+        expect(page.get_by_text("Saved version 2 of Worker 1.")).to_be_visible()
+        worker.get_by_role("button", name="History of Worker 1").click()
+        expect(worker.get_by_test_id("history")).to_contain_text("Write hooks first.")
 
         # A library idea becomes a skill draft the operator saves.
         page.goto(f"{base_url}/worlds/{world}/library")

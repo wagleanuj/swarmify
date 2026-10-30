@@ -55,7 +55,7 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
   const screen = await render(<ArtifactCards cards={[hooks, chase]} worldId="world_1" />);
   const cards = screen.getByTestId("pick-card");
   await expect.element(cards.first()).toMatchTextContent(
-    /Erlich's #1 of 2.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
+    /The judge's #1 of 2.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
   );
   // The reason and sources are folded away until asked for.
   await expect.element(cards.first().getByRole("link")).not.toBeInTheDocument();

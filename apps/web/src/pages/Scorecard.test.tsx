@@ -61,7 +61,7 @@ test("the old scorecard address opens the editor on its Scorecard tab: one row p
   const rows = screen.getByTestId("score");
   expect(rows.elements()).toHaveLength(6);
   await expect.element(rows.first()).toMatchTextContent(/v1.*done.*0 of 2.*2.*\$0\.80.*5 min.*1,200 views/);
-  await expect.element(rows.nth(1)).toMatchTextContent(/Hooli baseline.*none judged.*not measured/);
+  await expect.element(rows.nth(1)).toMatchTextContent(/baseline.*none judged.*not measured/);
   await expect.element(rows.nth(4)).toMatchTextContent(/running.*running/);
   await expect.element(rows.nth(5)).toMatchTextContent(/ad hoc/);
   await expect.element(rows.first().getByRole("link")).toHaveAttribute("href", "/worlds/world_1/runs/run_1");

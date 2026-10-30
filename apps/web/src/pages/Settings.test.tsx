@@ -8,6 +8,7 @@ const shown = "https://hooks.slack.com/...abcd";
 
 beforeEach(() => FakeEventSource.install());
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -165,4 +166,22 @@ test("delete sits last, says what goes and asks by the world's name before delet
   await expect.element(screen.getByRole("heading", { name: "Your worlds" })).toBeVisible();
   expect(calls).toContain("DELETE /api/worlds/world_1");
   expect(router.state.location.pathname).toBe("/");
+});
+
+test("role names are neutral until the Pied Piper skin is turned on, in this browser only", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  const names = screen.getByRole("checkbox", { name: "Pied Piper names" });
+  await expect.element(names).not.toBeChecked();
+  await expect.element(screen.getByText(/The planner and the judge always come along/)).toBeVisible();
+
+  await names.click();
+  await expect.element(screen.getByText(/Richard and Erlich always come along/)).toBeVisible();
+  expect(localStorage.getItem("swarmify.skin")).toBe("pied-piper");
+  await names.click();
+  await expect.element(screen.getByText(/The planner and the judge always come along/)).toBeVisible();
+  expect(localStorage.getItem("swarmify.skin")).toBeNull();
 });

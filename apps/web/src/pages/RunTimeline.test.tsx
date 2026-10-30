@@ -294,7 +294,7 @@ test("done with a video: the run's time, where it was posted, and the video in p
   await expect.element(panel).toMatchTextContent(/^video\s*build · step 3 of 5 · 4m 14s/);
   await expect.element(panel.getByTestId("result")).toMatchTextContent(/What\s*video\.mp4\s*Made by\s*video, step 3 of 5/);
   await expect.element(screen.getByTestId("budget")).toHaveTextContent("$5.06 of $40.00");
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$34.94 left before Russ pauses the run.");
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$34.94 left before the budget pauses the run.");
   // The step that made the result does not repeat its player below it.
   await expect.element(panel).toMatchTextContent(/It made video\.mp4, the result shown above\./);
   expect(screen.getByTestId("player").elements()).toHaveLength(1);

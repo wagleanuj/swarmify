@@ -1,5 +1,5 @@
 """Acting on runs from their pages: pause and resume, the per-world cap that queues a run, abort
-reaching a child run, a Hooli baseline measured beside the swarm, and an ad hoc run from a typed
+reaching a child run, a baseline measured beside the swarm, and an ad hoc run from a typed
 goal saved as a workflow. Every change reaches the open page over the world's event stream."""
 
 import re
@@ -88,7 +88,7 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
     try:
         api.post(f"/worlds/{world}/workflows", json={"yaml": RESEARCH}).raise_for_status()
         page.goto(f"{base_url}/worlds/{world}")
-        page.get_by_role("button", name="Start a Hooli baseline of Research").click()
+        page.get_by_role("button", name="Start a baseline of Research").click()
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_test_id("baseline")).to_contain_text("This is a one-agent baseline")
@@ -99,7 +99,7 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
         page.get_by_text("Compare with one agent").click()
         expect(page.get_by_test_id("baseline")).to_contain_text("One agent with no graph did this")
         page.get_by_role("navigation", name="Main").get_by_role("link", name="Runs").click()
-        expect(page.get_by_test_id("run-list")).to_contain_text("Hooli baseline")
+        expect(page.get_by_test_id("run-list")).to_contain_text("baseline")
 
         # An ad hoc run from a typed goal (story 20), then saved as a workflow (story 21).
         page.goto(f"{base_url}/worlds/{world}")

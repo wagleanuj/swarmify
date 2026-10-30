@@ -45,7 +45,7 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
   });
   const { screen } = await mountAt("/worlds/world_1/graph");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Memory");
-  await expect.element(screen.getByTestId("graph-empty")).toMatchTextContent(/Anton folds them in/);
+  await expect.element(screen.getByTestId("graph-empty")).toMatchTextContent(/The graph writer folds them in/);
   await expect.element(screen.getByTestId("rebuilt")).toHaveTextContent("Not built yet");
 
   // Beside the shell's one all-worlds stream.
@@ -57,7 +57,7 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
     .toMatchTextContent(/Nodes\s*1,284\s*Edges\s*3,901\s*Rebuilds\s*18\s*Spent on memory\s*\$12\.30/);
   await expect
     .element(screen.getByTestId("rebuilt"))
-    .toHaveTextContent("Anton rebuilt it just now: +31 nodes, +58 edges in 12s, est. $0.42");
+    .toHaveTextContent("The graph writer rebuilt it just now: +31 nodes, +58 edges in 12s, est. $0.42");
   await expect.element(screen.getByTestId("spent")).toHaveAttribute("title", "45m of extraction");
   // The most connected notes, ranked by their links.
   await expect.element(screen.getByTestId("god-nodes")).toMatchTextContent(/^Hook pattern\s*71\s*Retention cliff\s*64$/);
@@ -99,7 +99,7 @@ test("a failed rebuild is shown with its reason", async () => {
   const { screen } = await mountAt("/worlds/world_1/graph");
   await expect
     .element(screen.getByTestId("failed"))
-    .toMatchTextContent(/Anton's last rebuild failed just now: claude is not logged in\./);
+    .toMatchTextContent(/The graph writer's last rebuild failed just now: claude is not logged in\./);
 });
 
 test("a shrink the guard refused is shown with one click to accept it", async () => {

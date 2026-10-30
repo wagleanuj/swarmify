@@ -1,6 +1,7 @@
 """The Eval's pure parts: the task set, the output grader, pass at k and pass to the k, the blind
 judge's prompt and pick, and the report that says whether the swarm wins."""
 
+from collections import Counter
 from math import comb
 
 import pytest
@@ -9,11 +10,14 @@ from hypothesis import strategies as st
 
 from swarmify_learning.evals import (
     TASKS,
+    WORKFLOWS,
+    EvalTask,
     Judgement,
     Trial,
     blind_order,
     grade,
     judge_prompt,
+    made_by,
     markdown,
     parse_pick,
     pass_at_k,
@@ -32,12 +36,29 @@ def trial(task: str, arm: str, index: int, ok: bool, cost: float, took: float | 
     return Trial(task, arm, index, "world_1", "run_1", "done", cost, took, failed)
 
 
-def test_twenty_or_more_tasks_each_with_a_unique_id_and_a_valid_workflow() -> None:
+def test_twenty_or_more_tasks_spanning_four_workflows_each_with_a_unique_id() -> None:
     assert len(TASKS) >= 20
     assert len({t.id for t in TASKS}) == len(TASKS)
     assert all(t.keywords for t in TASKS)
-    yaml = workflow_yaml(TASK, 2.5)
-    assert TASK.topic in yaml and "budget_usd: 2.5" in yaml and "produces: [script.md]" in yaml
+    by_workflow = Counter(t.workflow for t in TASKS)
+    assert (
+        set(by_workflow)
+        == set(WORKFLOWS)
+        == {
+            "Research brief",
+            "Draft with approval",
+            "Scheduled monitor",
+            "Weekly short",
+        }
+    )
+    assert by_workflow["Weekly short"] * 2 < len(TASKS), "the weekly short is not most of it"
+    for task in TASKS:
+        yaml = workflow_yaml(task, 2.5)
+        assert task.topic in yaml and "budget_usd: 2.5" in yaml and "{" not in yaml
+        assert "gate:" not in yaml and "schedule:" not in yaml and "connector:" not in yaml
+    assert "produces: [script.md]" in workflow_yaml(TASK, 2.5)
+    monitor = next(t for t in TASKS if t.workflow == "Scheduled monitor")
+    assert "output_type: list[finding]" in workflow_yaml(monitor, 1)
 
 
 def test_the_grader_reads_the_outputs_only() -> None:
@@ -73,6 +94,65 @@ def test_the_grader_checks_topic_by_meaning_not_one_exact_keyword() -> None:
     assert _on("astronomy from the backyard", "Start your morning with a stretch.") == [
         "script.md never names astronomy from the backyard"
     ]
+
+
+def _first(workflow: str) -> EvalTask:
+    return next(t for t in TASKS if t.workflow == workflow)
+
+
+LINKS = " ".join(f"https://example.org/{n}" for n in range(3))
+
+
+def test_a_research_brief_is_graded_on_length_links_and_topic() -> None:
+    task = _first("Research brief")
+    brief = f"{task.keywords[0]} " + "word " * 300 + LINKS
+    assert grade(task, {"brief.md": brief}) == []
+    assert grade(task, {}) == ["brief.md is missing"]
+    assert grade(task, {"brief.md": "Too short. https://a.org https://a.org"}) == [
+        "brief.md is 4 words, not 250 to 1000",
+        "brief.md cites 1 links, not 3",
+        f"brief.md never names {task.topic}",
+    ]
+
+
+def test_a_draft_needs_its_outline_and_a_draft_of_the_right_length_on_topic() -> None:
+    task = _first("Draft with approval")
+    draft = f"# Title\n\n{task.keywords[0]} " + "word " * 600
+    assert grade(task, {"outline.md": "1. Intro", "draft.md": draft}) == []
+    assert grade(task, {}) == ["outline.md is missing", "draft.md is missing"]
+    assert grade(task, {"outline.md": "x", "draft.md": "word " * 1300}) == [
+        "draft.md is 1300 words, not 500 to 1200",
+        f"draft.md never names {task.topic}",
+    ]
+
+
+def test_a_monitor_is_graded_on_its_typed_list_of_findings() -> None:
+    task = _first("Scheduled monitor")
+    finding = f"# New rule\n\nWhat changed in {task.keywords[0]}. https://example.org/a"
+    found = {f"finding-{n}.md": finding for n in range(3)}
+    assert grade(task, {**found, "verdict-1.md": "passed"}) == []
+    assert grade(task, {"finding-a.md": finding}) == ["1 findings, not 3 to 10"]
+    many = {f"finding-{n}.md": finding for n in range(11)}
+    assert grade(task, many) == ["11 findings, not 3 to 10"]
+    bare = {f"finding-{n}.md": "Something else." for n in range(3)}
+    assert grade(task, bare) == [
+        "3 of 3 findings have no source link",
+        f"no finding names {task.topic}",
+    ]
+    assert made_by(task, "finding-new-rule.md") and not made_by(task, "verdict-1.md")
+    assert made_by(TASK, "ideas.md") and not made_by(TASK, "finding-a.md")
+
+
+def test_the_judge_reads_every_item_of_a_typed_list_and_a_missing_list_says_so() -> None:
+    task = _first("Scheduled monitor")
+    outputs = {"swarm": {"finding-b.md": "B-ITEM", "finding-a.md": "A-ITEM"}}
+    prompt = judge_prompt(task, outputs)
+    assert task.topic in prompt and "typed list" in prompt
+    swarm_label = "AB"[blind_order(task.id).index("swarm")]
+    other = "B" if swarm_label == "A" else "A"
+    assert prompt.index(f"## {swarm_label}: finding-a.md") < prompt.index("A-ITEM")
+    assert prompt.index("A-ITEM") < prompt.index("B-ITEM")
+    assert f"## {other}: finding-*\n\n(missing)" in prompt
 
 
 def test_pass_at_k_and_pass_to_the_k() -> None:

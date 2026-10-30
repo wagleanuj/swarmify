@@ -10,6 +10,7 @@ import type { components } from "../api/schema";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { the } from "../skin";
 import { LABEL } from "./Connectors";
 import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
@@ -570,7 +571,7 @@ function Spend({ run, baseline }: { run: Run; baseline: Run | null }) {
   const spent = run.spent_usd ?? 0;
   let note = "";
   if (budget != null && run.over_budget) note = `Every agent stopped at ${money(budget)}. Add money to go on, or abort.`;
-  else if (budget != null) note = `${money(Math.max(0, budget - spent))} left before Russ pauses the run.`;
+  else if (budget != null) note = `${money(Math.max(0, budget - spent))} left before ${the("budget")} pauses the run.`;
   const seconds = duration(run);
   let compare: string;
   if (baseline) {

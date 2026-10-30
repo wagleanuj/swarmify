@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { money, took } from "../api/runs";
 import type { components } from "../api/schema";
+import { baseline, cap } from "../skin";
 
 type Report = components["schemas"]["EvalReport"];
 type Trial = components["schemas"]["Trial"];
 
-const ARM_LABEL: Record<string, string> = { baseline: "Hooli baseline", swarm: "Swarm" };
+const armLabel = (arm: string) => (arm === "baseline" ? cap(baseline()) : arm === "swarm" ? "Swarm" : arm);
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const passed = (t: Trial) => t.status === "done" && (t.failed ?? []).length === 0;
@@ -35,7 +36,7 @@ export function Evals() {
         <div>
           <h1>Evals</h1>
           <p className="sub" data-testid="verdict">
-            {latest ? latest.verdict : "Hooli baseline against the swarm on the same tasks."}
+            {latest ? latest.verdict : `${cap(baseline())} against the swarm on the same tasks.`}
           </p>
         </div>
       </header>
@@ -52,7 +53,7 @@ export function Evals() {
       {reports && reports.length > 0 && (
         <>
           <p className="faint">
-            Each task runs as the weekly short in a fresh world, k times one agent alone and k times the swarm. Only
+            Each task runs the starter workflow it names in a fresh world, k times one agent alone and k times the swarm. Only
             what the run produced is graded, then a blind judge picks the better of each pair without knowing which
             arm made it. Cost is the runtime's estimate, not billing.
           </p>
@@ -94,7 +95,7 @@ function Eval({ report }: { report: Report }) {
           <tbody>
             {report.arms.map((a) => (
               <tr key={a.arm} data-testid="arm">
-                <td>{ARM_LABEL[a.arm] ?? a.arm}</td>
+                <td>{armLabel(a.arm)}</td>
                 <td className="num">{a.trials}</td>
                 <td className="num">
                   {pct(a.acceptance)} ({a.accepted})
@@ -128,7 +129,7 @@ function Eval({ report }: { report: Report }) {
               <tr key={`${j.task_id}-${j.index}`} data-testid="judgement">
                 <td>{j.task_id}</td>
                 <td>{j.index + 1}</td>
-                <td>{j.winner ? (ARM_LABEL[j.winner] ?? j.winner) : "tie"}</td>
+                <td>{j.winner ? armLabel(j.winner) : "tie"}</td>
                 <td>{j.reason}</td>
               </tr>
             ))}
@@ -152,7 +153,7 @@ function Eval({ report }: { report: Report }) {
             {report.trials.map((t) => (
               <tr key={`${t.task_id}-${t.arm}-${t.index}`} data-testid="trial">
                 <td>{t.task_id}</td>
-                <td>{ARM_LABEL[t.arm] ?? t.arm}</td>
+                <td>{armLabel(t.arm)}</td>
                 <td>
                   {t.run_id ? (
                     <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: t.world_id, runId: t.run_id }}>
