@@ -1,0 +1,128 @@
+[
+ {
+  "id": "V12MX0",
+  "title": "Confirm published-video list from the graph",
+  "notes": [
+   {
+    "author": "worker-4",
+    "body": "Graph is empty (query_graph x2, graph_stats). No published videos exist; no linked graphs or assets. Dedupe only against known Zack D. Films viral topics.",
+    "ts": "2026-10-30T06:26:11.407442+00:00"
+   }
+  ]
+ },
+ {
+  "id": "84RX0A",
+  "title": "Analyze what's working for Zack D. Films right now",
+  "notes": [
+   {
+    "author": "worker-1",
+    "body": "Note written: channel scale, 14-row top-video table with categories and hooks, and 6 patterns. Top short is \"How Stitches Work\" (about 253M). 2026 is trending toward absurd experiments. Per-short recent views couldn't be fetched (fandom/TikTok returned 402/403).",
+    "ts": "2026-10-30T06:27:56.197157+00:00"
+   }
+  ]
+ },
+ {
+  "id": "3DX68Y",
+  "title": "Survey similar 3D-animated explainer shorts channels",
+  "notes": [
+   {
+    "author": "worker-2",
+    "body": "Wrote a note listing 6 channels and channel groups (His Story/Her Story, SimpliHow, IFOLOGY/Sambucha/In Their Shoes, Medical awareness 3d/Body Visuals, Dr. Health Nut, the AI copycat wave), saturation signals, a list of saturated topics to avoid, and gap opportunities. Sources are cited. Third-party analytics on these channels are thin.",
+    "ts": "2026-10-30T06:27:24.191066+00:00"
+   }
+  ]
+ },
+ {
+  "id": "KS6SV8",
+  "title": "Compile retention and hook best practices for 3D explainer shorts",
+  "notes": [
+   {
+    "author": "worker-3",
+    "body": "Wrote 8 retention rules as a scoring rubric: 1-2 s hook, visual promise at frame 1, second-person stakes, stepwise escalation to 15 s, back-loaded payoff, loop ending, 30-45 s length, comment-bait. Cited 8 links. Caveat: the numbers come from creator-tool blogs, not platform docs.",
+    "ts": "2026-10-30T06:26:48.409695+00:00"
+   }
+  ]
+ },
+ {
+  "id": "C6P2W7",
+  "title": "Generate a candidate pool of 12 fresh ideas",
+  "notes": [
+   {
+    "author": "worker-1",
+    "body": "12 premises across all 6 categories, each with an echo and a 3D visual. Avoids known ZDF hits and saturated copycat topics. I couldn't read worker-2/3 note files directly and worked from their task summaries plus known saturation.",
+    "ts": "2026-10-30T06:28:56.464401+00:00"
+   }
+  ]
+ },
+ {
+  "id": "9JP47Q",
+  "title": "Fact-check candidates and attach sources",
+  "notes": [
+   {
+    "author": "worker-1",
+    "body": "11 of 12 verified with 1-2 sources each. Avalanche spit dropped as disputed (myth-bust only). Bugorski and Molasses Flood flagged as saturation risks.",
+    "ts": "2026-10-30T06:29:42.237769+00:00"
+   }
+  ]
+ },
+ {
+  "id": "DGTJA6",
+  "title": "Rank top 5 ideas and write hooks and payoffs",
+  "notes": [
+   {
+    "author": "worker-1",
+    "body": "ideas.md written: 5 ranked ideas, each with a hook, visual_payoff, why and sources, plus 5 bench ideas. Caveat: couldn't fully search ZDF's catalog for exact-topic overlap.",
+    "ts": "2026-10-30T06:30:22.116622+00:00"
+   }
+  ]
+ },
+ {
+  "id": "QFP758",
+  "title": "Replace saturated idea #2 (swallowing magnets) with a verified bench idea or a new non-saturated premise, with a hook, visual payoff, why and 1-2 sources, and re-rank the top 5",
+  "notes": [
+   {
+    "author": "worker-1",
+    "body": "Magnets replaced with the verified Swiss-cheese-hay idea (how-things-are-made). Re-ranked: tooth-in-eye, leeches, baby cage, cadaver synod, Swiss cheese. ideas.md rewritten and a revised note written.",
+    "ts": "2026-10-30T06:31:29.236810+00:00"
+   }
+  ]
+ },
+ {
+  "id": "PEPQD7",
+  "title": "Search the Zack D. Films YouTube and TikTok catalog for each top-5 topic (tooth in eye, leech finger, baby cage, cadaver synod, the replacement idea) and swap any that already exist",
+  "notes": [
+   {
+    "author": "worker-3",
+    "body": "Baby cage exists on ZDF TikTok (\"The Bizarre Baby Cage Trend\", tiktok.com/@zackdfilms92/video/7481727243618749738), so it must be swapped. Leeches: only \"Leeches Inside Your Body?\" (parasites, a different angle). No hits yet for tooth-in-eye or cadaver synod. Now checking the bench ideas as replacements.",
+    "ts": "2026-10-30T06:31:33.135388+00:00"
+   },
+   {
+    "author": "worker-3",
+    "body": "Catalog check: ZDF has already made Tooth-in-Eye (fan wiki \"Tooth In Eye Surgery 😨 (explained)\") and Baby Cage (TikTok 7481727243618749738), so both were dropped. They were replaced by bench ideas with no ZDF match: pruney fingers are nerve-controlled (#3) and the 1925 Isolator helmet (#4). Leech finger, Cadaver Synod and Swiss cheese had no ZDF match. Re-ranked and rewrote ideas.md. The leech sources are now LAist/NPR and Britannica; worker-2 can add the FDA 2004 link to #1.",
+    "ts": "2026-10-30T06:33:00.203901+00:00"
+   }
+  ]
+ },
+ {
+  "id": "CMJTMN",
+  "title": "Swap one leech-therapy source for an FDA or mainstream news link on the 2004 leech clearance",
+  "notes": [
+   {
+    "author": "worker-2",
+    "body": "Found a mainstream source: HealthDay, June 2004, on the FDA clearing Ricarimpex leeches as medical devices. Backups are WIS-TV and News-Medical. Wrote a note with the exact replacement sources line. Editing is blocked here and worker-1 is rewriting ideas.md, so I added a dependent task to apply the swap after the re-rank and avoid a write race.",
+    "ts": "2026-10-30T06:31:56.946335+00:00"
+   }
+  ]
+ },
+ {
+  "id": "RSKYV0",
+  "title": "Apply leech source swap to ideas.md after the #2 replacement and re-rank",
+  "notes": [
+   {
+    "author": "worker-2",
+    "body": "Rewrote ideas.md: the leech #2 second source is now the HealthDay 2004 FDA-clearance article. I also corrected the Swiss cheese hook and payoff: bacteria still make the CO2, and hay particles only seed the bubbles, so the old line \"aren't made by bacteria\" was false. Kept worker-1's re-rank otherwise. worker-3: if your catalog-dedupe swap edits ideas.md, start from this version.",
+    "ts": "2026-10-30T06:32:25.098443+00:00"
+   }
+  ]
+ }
+]

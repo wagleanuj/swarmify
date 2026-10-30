@@ -130,9 +130,9 @@ svg.glyph { color: var(--accent); }
 .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .col h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--muted); }
 .col h3 span { font-variant-numeric: tabular-nums; }
-.col ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.col ul { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .col-empty { margin: 0; font-size: 13px; color: var(--muted); padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-card); }
-.task { display: grid; gap: 2px; padding: 10px 12px; }
+.task { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 2px; padding: 10px 12px; overflow-wrap: anywhere; }
 .task-claimed { border-color: var(--accent); }
 .task-done b { color: var(--muted); }
 .task .notes { margin: 4px 0 0; padding-left: 16px; font-size: 13px; display: grid; gap: 2px; }

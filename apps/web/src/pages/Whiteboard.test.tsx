@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch, run, stage, task } from "../test/fakes";
 import { mountAt } from "../test/mount";
+import longNotes from "./fixtures/long-notes.json";
 
 const later = "2026-10-26T10:01:00+00:00";
 const researching = run("running", [
@@ -119,4 +123,16 @@ test("a run without swarm stages has no whiteboard", async () => {
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/Queued/);
   expect(screen.getByTestId("whiteboard").query()).toBeNull();
+});
+
+test("done cards with long notes never push the page sideways on a desktop", async () => {
+  // The research step's real whiteboard from a box run, links and all: it laid out 1224 px wide
+  // in a 1000 px window, cutting the sidebar off.
+  await page.viewport(1000, 700);
+  const done = longNotes.map((t) => task(t.id, "done", { title: t.title, notes: t.notes }));
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(researching), [TASKS]: () => Response.json(done) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("col-done")).toMatchTextContent(new RegExp(`Done ${done.length}`));
+  await expect.element(screen.getByTestId("col-done").getByText(done[0]!.title)).toBeVisible();
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1000);
 });
