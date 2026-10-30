@@ -27,7 +27,9 @@ profile at app.upload-post.com first.
 
 - `preview` shows Title, Description, Hashtags, Tags, Platforms, Profile, Visibility, Made for
   kids, When and Video, with the same params, limits and problems as the `youtube` connector
-  (README, Publishing) plus `user` (required) and `platforms` (default `[youtube]`). A schedule
+  (its README, The stage) plus `user` (required, the Upload-Post profile) and `platforms`
+  (default `[youtube]`, as `[youtube, tiktok]`). `made_for_kids` goes as Upload-Post's
+  `selfDeclaredMadeForKids` field and `tags` as its `tags[]`. A schedule
   means nothing posts before then.
 - `publish` sends the confirmed fields to `POST /api/upload` as a multipart form: `video`, `user`,
   `title`, `platform[]` per platform, `description` with the hashtags as its last line,

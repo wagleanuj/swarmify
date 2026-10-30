@@ -32,7 +32,7 @@ def test_a_package_exists_only_in_the_worlds_that_enable_it(
     connectors.enable("w2", "echo", "1.0.0")
     echo = connectors.find("w1", "echo")
     assert echo is not None
-    assert (echo.world_id, echo.kind, echo.version, echo.builtin) == ("w1", "stage", "1.0.0", False)
+    assert (echo.world_id, echo.kind, echo.version) == ("w1", "stage", "1.0.0")
     assert echo.command == ["uv", "run", "server.py"]
     assert echo.folder == str(packages.root / "echo/1.0.0")
     assert echo.input_types == ["line"] and "line" in echo.types

@@ -26,7 +26,7 @@ stages:
 def test_a_save_records_the_pinned_version_of_each_package_it_calls(tmp_path: Path) -> None:
     pins = {"echo": "1.0.0", "lookup": "0.2.0", "unused": "3.0.0"}
 
-    def refs(_world_id: str) -> dict[str, ConnectorRef]:
+    def refs(_world_id: str, _pins: object) -> dict[str, ConnectorRef]:
         stage = frozenset({"swarm", "connector"})
         packaged = {n: ConnectorRef(n, "stage", stage, version=v) for n, v in pins.items()}
         return {**CONNECTORS, **packaged}
@@ -45,10 +45,10 @@ def test_a_save_records_the_pinned_version_of_each_package_it_calls(tmp_path: Pa
 
 def test_the_stamp_fills_in_only_what_a_version_calls_and_lacks(tmp_path: Path) -> None:
     storage = SqliteStorage(migrated_db(tmp_path))
-    old = Workflows(storage, lambda _: CONNECTORS).save("w1", WEEKLY)  # saved before versions
+    old = Workflows(storage, lambda *_: CONNECTORS).save("w1", WEEKLY)  # saved before versions
     assert old.packages == {}
 
-    workflows = Workflows(storage, lambda _: CONNECTORS)
+    workflows = Workflows(storage, lambda *_: CONNECTORS)
     defaults = {"youtube": "1.0.0", "remotion_render": "1.0.0", "speech": "1.0.0"}
     assert workflows.stamp(lambda world_id: defaults if world_id == "w1" else {}) == 1
     stamped = workflows.version(old.workflow_id, 1)

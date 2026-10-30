@@ -61,7 +61,7 @@ class Decision:
     the stage posts."""
     by: str | None = None
     """Who answered from outside the web UI (a Remote Approval), as its connector names them,
-    such as "anuj in Slack"; None for an answer given in Swarmify."""
+    such as "anuj in chat"; None for an answer given in Swarmify."""
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@ with the run and stage that made it so the page can filter by type, workflow, st
 date; Pins, the flag that makes an artifact required reading for later swarm stages; and the
 world's Assets, the operator's reusable files (music beds, sound effects, logos) that agents read
 and never write, with the Owned Folders of the packages it enables (ADR 0025): folders of its
-assets a package gives meaning, as speech its voices, that the Assets page shows as groups."""
+assets a package gives meaning, as a folder of voices, that the Assets page shows as groups."""
 
 import mimetypes
 import re

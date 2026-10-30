@@ -1,7 +1,8 @@
-"""Credentials: one env file in the home data dir (`~/.swarmify/.env`), mode 600.
+"""Credentials: V1's env file in the home data dir (`~/.swarmify/.env`), mode 600.
 
-Values never enter the database, a run, a workflow or an API response; the service reads them
-only to hand a connector's own names to its transport.
+Every key now lives in a package's Setup (ADR 0024). The file is read by the V1 migrations into
+Setup (`Connectors.install_defaults` and `adopt_world_connectors`), by the add form for a key
+it still holds, and to hide its names from a coding session; `set` seeds it in tests.
 """
 
 import os

@@ -93,7 +93,7 @@ export function Made({ a, worldId }: { a: ArtifactFile; worldId: string }) {
   }
   if (AUDIO.test(a.name)) return <audio controls preload="metadata" src={url} data-testid="audio" />;
   if (IMAGE.test(a.name)) return <img className="player" src={url} alt={a.title} />;
-  if (a.name === "timings.json") return <SpeechTakes timings={a} worldId={worldId} />;
+  if (a.name === "timings.json") return <Takes timings={a} worldId={worldId} />;
   if (/\.(md|txt)$/i.test(a.name)) {
     return (
       <div className="document" data-testid="document">
@@ -192,7 +192,7 @@ type Timings = {
   warnings: string[];
 };
 
-/** The speech connector's timings.json: one take per scene, voiced by one engine in one voice. */
+/** A timings.json of takes: one per scene, voiced by one engine in one voice. */
 function takes(a: ArtifactFile): Timings | null {
   try {
     const t = JSON.parse(a.body) as Partial<Timings>;
@@ -213,13 +213,13 @@ const engineName = (engine: string) => engine.replace(/^https?:\/\//, "");
 
 /** One row per scene: its take, its length, the engine, and a warning where a join has no
  * silence to cut at. */
-export function SpeechTakes({ timings, worldId }: { timings: ArtifactFile; worldId: string }) {
+export function Takes({ timings, worldId }: { timings: ArtifactFile; worldId: string }) {
   const t = takes(timings);
   if (!t) return <p className="faint">timings.json could not be read.</p>;
   const total = t.takes.reduce((sum, k) => sum + k.duration, 0);
   const folder = timings.path.split("/").slice(0, -1).join("/");
   return (
-    <div className="takes" data-testid="speech">
+    <div className="takes" data-testid="takes">
       <p>
         <b>
           {t.takes.length} {t.takes.length === 1 ? "scene" : "scenes"} · {total.toFixed(1)} s of narration
@@ -600,7 +600,7 @@ export function StagePanel(p: PanelProps) {
   } else if (stage.type === "retro") {
     inside = <RetroPanel run={run} stage={stage} />;
   } else if (timings) {
-    inside = p.resultShown ? <p className="faint">Its takes are the result shown above.</p> : <SpeechTakes timings={timings} worldId={worldId} />;
+    inside = p.resultShown ? <p className="faint">Its takes are the result shown above.</p> : <Takes timings={timings} worldId={worldId} />;
   } else if (kind === "build") {
     inside = <BuildPanel call={call} log={p.log} agents={p.agents} made={made} worldId={worldId} shown={p.resultShown} />;
   } else if (kind === "video") {

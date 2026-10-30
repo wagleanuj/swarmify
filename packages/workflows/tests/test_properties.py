@@ -174,7 +174,7 @@ class SavesKeepTheStoreSound(RuleBasedStateMachine):
     def open_store(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.service = Workflows(
-            SqliteStorage(migrated_db(Path(self.tmp.name))), lambda _: CONNECTORS
+            SqliteStorage(migrated_db(Path(self.tmp.name))), lambda *_: CONNECTORS
         )
         self.ids: list[str] = []
 

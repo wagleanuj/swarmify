@@ -257,7 +257,7 @@ def approvals_server(control: RunControl) -> MCPServer:
     @mcp.tool(
         description="Answer the gate a posted message is for: `run_id`, `stage_index` and `visit`"
         ' as the gate carried them, and `by`, who answered, as a person reads it ("anuj in'
-        ' Slack"). Then the `decide` of the answer chosen: a pick names `artifact`, an approve'
+        ' chat"). Then the `decide` of the answer chosen: a pick names `artifact`, an approve'
         " may name `send_back_to`. Refused once the gate was answered anywhere, or has moved on."
     )
     def decide_gate(

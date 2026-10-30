@@ -1,4 +1,4 @@
-/* Assets (#194, #220): each Owned Folder of a package, as the speech package's voices, as cards
+/* Assets (#194, #220): each Owned Folder of a package, as a folder of voices, as cards
    you can play first, then the files its builds read, as rows with a preview. On a phone the
    sections stack and a folder's Add button sits in a bar pinned above the tab bar. */
 .assets-page { display: grid; gap: var(--gap); max-width: 64rem; }

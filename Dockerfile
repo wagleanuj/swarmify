@@ -13,13 +13,6 @@ FROM caddy:2.10.2-alpine AS web
 COPY docker/Caddyfile /etc/caddy/Caddyfile
 COPY --from=web-build /src/apps/web/dist /srv
 
-# Remotion's Chrome Headless Shell, downloaded once by the Remotion CLI itself
-FROM node:22-bookworm-slim AS chrome
-WORKDIR /remotion
-RUN npm init -y >/dev/null && npm install --no-fund --no-audit @remotion/cli@4.0.538 \
-  && npx remotion browser ensure \
-  && mv node_modules/.remotion/chrome-headless-shell /chrome-headless-shell
-
 # The api (and graph-writer): the default target, so it stays last. No web skin in it.
 # uv's managed Python, not Debian's: DBOS needs SQLite 3.42 or later (`unixepoch('subsec')`) and
 # bookworm ships 3.40. uv and Python are mise.toml's versions.
@@ -27,29 +20,21 @@ FROM debian:bookworm-slim
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=3.12.15 UV_PYTHON_PREFERENCE=only-managed \
     UV_PYTHON_INSTALL_DIR=/opt/python PATH="/app/.venv/bin:$PATH"
-# Chrome's shared libraries, as Remotion's Docker guide lists them for Debian; bubblewrap and
-# socat for the sandbox of the remotion_build stage (the Agent SDK's for its Bash, ours for the
-# render)
+# The shared libraries and fonts a package's headless browser needs (a package installs the
+# browser itself, ADR 0026); bubblewrap and socat for the sandbox of a Build Session (the Agent
+# SDK's for its Bash, ours for the tool run on its result)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev \
     libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
     fonts-noto-core fonts-noto-color-emoji \
     bubblewrap socat \
   && rm -rf /var/lib/apt/lists/*
-# Node and npx for the Remotion render connector (`npx remotion render`)
-COPY --from=chrome /usr/local/bin/node /usr/local/bin/node
-COPY --from=chrome /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+# Node and npm, for the packages that install with them (ADR 0026)
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
-# On PATH, the render connector hands it to Remotion as --browser-executable. The binary is
-# chrome-headless-shell on amd64 and headless_shell on arm64.
-COPY --from=chrome /chrome-headless-shell /opt/chrome-headless-shell
-RUN ln -s "$(find /opt/chrome-headless-shell -type f \( -name chrome-headless-shell -o -name headless_shell \))" \
-    /usr/local/bin/chrome-headless-shell \
-  && chrome-headless-shell --version
-# With no GPU Chrome draws WebGL in software: a 3D scene at the default concurrency (half the
-# CPUs) runs out of memory, 2 tabs render it (spike 2026-10-30). Override in .env if needed.
-ENV SWARMIFY_RENDER_CONCURRENCY=2
+  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+  && node --version && npm --version
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages

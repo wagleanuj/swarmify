@@ -58,10 +58,10 @@ stages:
     ask: Pick the finding worth a brief.
     kind: pick
   - connector: render      # calls (defaults to the stage name); optional input (or inputs: [a, b]), output, params
-    calls: remotion_render # any connector the world has; this one renders a video
+    calls: slides          # any connector the world has; params are its own (its Manifest says)
     input: findings.md
-    output: short.mp4
-    params: {project: ~/videos/shorts, composition: Short}
+    output: brief.pdf
+    params: {theme: plain}
   - workflow: trends       # runs: a workflow id; optional take: artifacts to copy from the child
     runs: wf_01HX...
     take: [brief.md]
@@ -72,16 +72,15 @@ rule name: a publish connector must come right after a gate (ADR 0007); workflow
 form a cycle and may nest at most two deep (ADR 0013); every connector must exist in the world and
 allow the stage type; a connector's `input`, and each of its `inputs`, must be produced by an earlier stage (a stage names
 `input` or `inputs`, not both); a swarm stage may `produce` only text files (`video.mp4` comes from
-a connector stage, `remotion_build` from a script, since swarm agents write text); and a connector stage
-must pass its connector's own check (`connector_params`): a publish stage needs `title` or
-`metadata`, an `input` and valid params (the problems its gate would show), a `remotion_render`
-stage needs a `project` folder that exists and a `composition`, a `remotion_build` stage an
-`input` (or `inputs`) and, when it names one, a `base` template that exists. A typed input (see
+a connector stage, or a Build Session from a script, since swarm agents write text); and a connector stage
+must pass its connector's own check (`connector_params`): the input, output and params its
+Manifest declares, a publish stage's preview problems (the ones its gate would show), and the
+rules of a package's `check` tool (a template folder that must exist, say). A typed input (see
 Typed contracts) read from a swarm stage's `produces` needs that stage to declare the same
 `output_type` (`output_type`, naming both stages and the type), and two connectors declaring one
 type name with different schemas fail the stage that names it (`type_conflict`). So a broken stage is caught when
 the workflow is saved, not after the stages before it spent the budget. The editor's planner is
-told each built-in connector's params and every typed input of the world's connectors, so it
+told each connector's params and every typed input of the world's connectors, so it
 drafts the `output_type` they need.
 `POST /api/worlds/<id>/workflows` creates, `POST /api/workflows/<id>/versions` appends,
 `POST /api/worlds/<id>/workflows/check` only reports (violations, the parsed model and, with a
@@ -165,7 +164,7 @@ Agents below), a gate waits for a person (see Gates below), and a workflow stage
 (see Child runs below).
 `GET /api/worlds/<id>/runs` lists runs newest first; `GET /api/runs/<id>` returns one with its
 stages and decisions. Each stage names the connector it `calls` (connector stages) and what it
-`ask`s (gates), so a page can tell a speech stage from a publish stage and show a gate's question
+`ask`s (gates), so a page can tell an audio stage from a publish stage and show a gate's question
 after it was answered. The runs page filters by workflow (or ad hoc) and status, and shows each
 run's duration.
 
@@ -186,9 +185,9 @@ The run page reads the run, its events and its artifacts only (ADR 0002), top to
   keeps it in the URL as `?stage=<id>`; by default the current stage, else the one that made the
   result, else the last.
 - **Stage panel** for the selected step: a swarm's agents (what each does now, in words), whiteboard,
-  verdict and artifacts; a gate's ask and your decision; a speech stage's takes per scene with their
-  length, engine and any join with no silence; a build's session log in words, its render progress
-  (`Rendered 412 of 870 frames`), the video and its project folder; a render's progress and video; a
+  verdict and artifacts; a gate's ask and your decision; a `timings.json` of takes, one per scene
+  with its length, engine and any join with no silence; a Build Session's log in words, its tool's
+  progress (`Rendered 412 of 870 frames`), what it made and its project folder; a video's progress and player; a
   publish stage's title, place, visibility, time, link and Outcome; the retro's proposal and how it
   went. Every connector stage keeps the raw call under `Technical details`.
 - **Live log** of the selected stage in words; a JSON answer collapses to one line (`Planned 5
@@ -268,7 +267,7 @@ it may send the run back to. The web skin shows it at `/gates` and renders each 
   back `max_send_backs` times (2 when the workflow leaves it out), and the next is refused (409).
   The inbox shows how many revisions the gate has left. A stage that runs again with work
   already done revises it: a swarm stage gets one rework task saying so, with the note and its
-  own previous artifacts as required reading (a `remotion_build` stage, below, its last build).
+  own previous artifacts as required reading (a Build Session, below, its last build).
   Only the note of the send-back that caused this visit reaches a stage: a later stage that
   reruns because the send-back named an earlier one gets no note, not an older one of its own.
 - `confirm` takes a plain yes before anything goes out.
@@ -300,41 +299,32 @@ the world's event stream and handed to the notifier; the adapter logs a line unt
 A connector is an MCP server (a command line or an http(s) URL), the credential names it needs,
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
-Every world starts with the default packages (see Connector Packages), today `remotion_build`
-(see Remotion build), `remotion_render` (see Remotion render), `speech` (see Speech) and the
-publish connectors `youtube` and `upload_post` (see Publishing).
+Every world starts with the default packages, the folders of `connectors/` (see Default
+packages), and a world adds its own (any MCP server) on the Connectors page.
 
 `web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
 with no package, version or credentials. A swarm stage lists them in `tools` like a tool
 connector (`tools: [web_search, graph]`); the Connectors page does not show them and no connector
 may take their names.
 
-The built-ins' credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with
-mode 600 (a package's live in its Setup, below); the
-app refuses to read it when group or others can. Values never enter the database, a run, a
-workflow or an API response. A command connector gets exactly its own credentials as its process
-environment, merged over the MCP SDK's safe defaults (HOME, PATH, USER, SHELL, TERM, LOGNAME); a
-URL connector gets them as request headers of the same name.
+A connector's keys are Credentials of its package's Setup (see Connector Packages), stored in
+`<data dir>/setup.json` with mode 600; the app refuses to read it when group or others can.
+Values never enter the database, a run, a workflow or an API response. A command connector gets
+exactly its own values as its process environment, merged over the MCP SDK's safe defaults (HOME,
+PATH, USER, SHELL, TERM, LOGNAME); a URL connector gets them as request headers of the same name.
 
-The file is shared by every world: keys saved on one world's connectors page are the keys every
-world uses.
-
-- `GET /api/worlds/<id>/connectors` lists built-ins first, each with the credential names still
-  `missing` from the file. `PUT /api/connectors/<id>/credentials` (`{"credentials": {NAME:
-  value}}`) stores keys for a connector's own names, which is how built-ins get theirs; the
-  connectors page has an "Add keys" form per connector. Its `check` is null: a package's keys
-  are its Setup, checked by its `[setup] test`.
-- `GET /api/connectors/<id>/health` calls the connector's health tool, the one its `health`
-  field names, and answers `[{"name", "ok", "message"}]`, one per thing it depends on. It is `[]`
-  for a connector without one, and 502 when the tool cannot be called. A package's is
-  `GET /api/worlds/<id>/packages/<name>/health`: first a GET of each Service it declares
-  (`[[services]]`, at each URL its Setting holds, a comma-separated list being several, plus the
-  service's `health` path), then its health tool's checks. The connectors page shows them as up
-  or down when it opens.
+- `GET /api/worlds/<id>/connectors` lists the packages the world enables, each with the keys of
+  its required Setup fields still `missing` for the world.
+- `GET /api/worlds/<id>/packages/<name>/health` answers `[{"name", "ok", "message"}]`: first a
+  GET of each Service the package declares (`[[services]]`, at each URL its Setting holds, a
+  comma-separated list being several, plus the service's `health` path), then the checks of its
+  health tool, the one its `health` field names, one per thing it depends on. It is `[]` for a
+  package with neither, and 502 when the tool cannot be called. The connectors page shows them
+  as up or down when it opens.
 - Typed contracts (issue 133): a connector may declare named input types, each a JSON Schema
   (`types`, as `{"recipe": {...}}`), and which of a stage's inputs takes which (`input_types`, by
-  position over `input` or `inputs`, null for an untyped one). Built-ins and packages declare
-  them in their Manifest, as `speech` declares `script`; an added connector gives them in its
+  position over `input` or `inputs`, null for an untyped one). A package declares them in its
+  Manifest (`[types.<name>]`); an added connector gives them in its
   `POST /api/worlds/<id>/connectors` body, checked to be lower_snake_case names of valid
   schemas. A swarm stage promises a type with `output_type: <name>`: its judge then answers each
   item's `fields` in the type's schema (structured output), an answer that does not fit fails
@@ -353,18 +343,18 @@ world uses.
   `{"types": {name: schema}, "note": "..."}`. Only a type the connector declares may change, and
   only to a valid JSON Schema; a type it does not answer, or every type when the call fails,
   keeps the declared schema. `note`, when there is one, goes to the planner. The core passes the
-  schema on unread: `speech` uses it for the world's voices (its README, Voices), a publish connector could
-  list the channels a world has keys for.
+  schema on unread: a voice package could list the world's voices in it, a publish connector the
+  channels a world has keys for.
 - `POST /api/worlds/<id>/connectors/test` starts the draft's server once and returns its tools,
   saving nothing. `POST /api/worlds/<id>/connectors`, the connectors page's add form (issue
   211), writes a minimal Manifest for it and installs it as a local Connector Package (see
   below; its `source` is `local` and its version `0.0.N`, reusing a local version with the same
   Manifest), enables it in the world and saves the given key values as its shared Setup values:
   each key name becomes a required, shared Credential reaching the server as that name (an
-  empty value takes the one the package or `.env` holds already). It leaves a world as any
-  package does, `DELETE /api/worlds/<id>/packages/<name>`. On upgrade, every connector a world
-  added before packages becomes such a local package enabled for its world, its keys moved from
-  `.env` to its Setup (a key a built-in also uses stays), so workflows calling it run unchanged.
+  empty value takes the one the package or V1's `.env` holds already). It leaves a world as any
+  package does, `DELETE /api/worlds/<id>/packages/<name>`. On upgrade from V1, every connector a
+  world added becomes such a local package enabled for its world, its keys moved from `.env` to
+  its Setup, so workflows calling it run unchanged.
 - A connector stage calls the tool named like its connector (or `params.tool`) with `params`, its
   `input` (or `inputs`) and `output` artifact names and `idempotency_key` set to the stage id (`<stage id>.<n>`
   on the run's nth send-back), through the ConnectorTransport port. The call is recorded once per
@@ -525,8 +515,7 @@ directory itself.
 A field of `type = "oauth"` is an account Swarmify signs in to for the connector. Its
 `[config.oauth]` table gives `authorize_url`, `token_url`, `scopes`, `pkce` (true unless set
 false), `client = "operator"` and optionally `authorize_params`, extra query parameters for the
-provider's sign-in page (Google needs `{ access_type = "offline", prompt = "consent" }` to issue a
-refresh token). You register your own app with the provider; its client ID and secret are two
+provider's sign-in page (some providers issue a refresh token only when asked this way). You register your own app with the provider; its client ID and secret are two
 shared Credentials the form adds before the field, `<key>_client_id` and `<key>_client_secret`,
 which only Swarmify uses. Register the redirect URI the form shows,
 `<the address you open Swarmify at>/api/setup/oauth/callback`: Swarmify takes it from the
@@ -544,34 +533,21 @@ field **Needs sign-in**, and so does a connector reporting an auth failure: a to
 message holds the word `auth_failed`, as `raise ToolError("auth_failed: token revoked")` does in
 the Python MCP SDK. Signing in again clears it. Tokens are never logged.
 
-Google and a `*.ts.net` address: Google accepts a redirect URI for a "Web application" client
-when it uses https, its host is not a raw IP, and its top-level domain is on the public suffix
-list ([Google's redirect URI rules](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation)).
-`https://<host>.<tailnet>.ts.net/api/setup/oauth/callback` meets all three: `.net` is a public
-suffix, and `ts.net` itself is on the [list](https://publicsuffix.org/list/public_suffix_list.dat)
-(private section, submitted by Tailscale). The provider never calls the redirect URI itself, the
-browser follows it, so Tailscale Serve is enough; Funnel is not needed. While the app's consent
-screen is in Testing, add yourself as a test user. If a provider refuses the address, use the
-loopback fallback: register `http://localhost:8000/api/setup/oauth/callback` (http is allowed for
-localhost), forward the port from the device you sign in on with
+A provider may refuse a `*.ts.net` or other private address as a redirect URI; a package's README
+says what its provider accepts. Then use the loopback fallback: register
+`http://localhost:8000/api/setup/oauth/callback` (http is allowed for localhost at most
+providers), forward the port from the device you sign in on with
 `ssh -L 8000:localhost:8000 <host>`, open `http://localhost:8000` and sign in there. The token is
-stored on the host either way, and refreshing needs no browser.
-
-## Remotion render
-
-`remotion_render` is a default Connector Package, `connectors/remotion_render`: our stdio MCP
-wrapper over `npx remotion render`, installed on startup with the Remotion CLI and its Chrome
-Headless Shell beside it, and enabled for every world. Its README covers its Setup (the data
-folder its templates are under, the render concurrency), the stage's params, the render and its
-sidecar, and the sandbox a project an agent wrote renders in.
+stored on the host either way, and refreshing needs no browser. The provider never calls the
+redirect URI itself, the browser follows it, so Tailscale Serve is enough; Funnel is not needed.
 
 ## Build Sessions
 
 Swarm agents have no shell (ADR 0018), so code is written and run in one place only: a Build
 Session, a Capability any package may request (`capabilities = ["build_session"]`). Its Manifest
 supplies the session and the tool to run on its result; the core runs the session and knows
-nothing of what it builds. `remotion_build` (below) is the first; the fixture package
-`packages/connectors/tests/fixtures/packages/sketch` proves it is generic.
+nothing of what it builds. The fixture package
+`packages/connectors/tests/fixtures/packages/sketch` shows one end to end.
 
 ```toml
 capabilities = ["build_session"]
@@ -633,28 +609,29 @@ The session's sandbox:
 - `npm install` reuses one cache, `<data dir>/npm-cache`, so a run does not download everything.
 
 Tests drive the builder with the scripted CLI (`apps/api/tests/test_build_session_http.py` with
-the fixture package, `test_build_http.py` with `remotion_build`).
+the fixture package, `test_build_http.py` with a default package).
 
-## Remotion build
+## Default packages
 
-`remotion_build` is a default Connector Package, `connectors/remotion_build`: a Build Session
-that writes a Remotion project for the run's script, then renders it through the
-remotion_render package's own render tool. Its README covers the stage, the starter, the
-voice-first brief and the sandbox the render runs in.
+This repository's `connectors/` folder holds the first-party Connector Packages, each a separate
+work with its Manifest, code, tests and README. Swarmify installs them on startup and enables
+them for every world (but for one whose Manifest says `enable_by_default = false`), so workflows
+call them by name with no setup beyond each one's Setup form. Each README covers its Setup, the
+stage and its params, what it answers, the Services it calls and how its V1 settings carry over:
 
-## Speech
-
-`speech` is a default Connector Package, `connectors/speech`: Swarmify installs it on startup and
-enables it for every world, so a workflow's `calls: speech` works with no setup. Its README covers
-its Setup (the speech engines, a Setting on the Connectors page, carried over from V1's
-`SPEECH_ENDPOINTS`), how to run the engines (Kokoro and Chatterbox, its own compose file), the
-script format and the voice catalog.
+- [`speech`](connectors/speech/README.md): voices a script, one take per scene.
+- [`remotion_render`](connectors/remotion_render/README.md): renders a script through a video
+  template.
+- [`remotion_build`](connectors/remotion_build/README.md): a Build Session that writes a video
+  project for the script, then renders it.
+- [`youtube`](connectors/youtube/README.md) and [`upload_post`](connectors/upload_post/README.md):
+  publish connectors, with Outcomes.
+- [`slack`](connectors/slack/README.md): Remote Approvals, a gate answered from chat.
 
 ### Owned Folders on the Assets page
 
-A package may own folders of each world's assets (`[[owned_folders]]` in its Manifest, ADR 0025):
-the speech package owns `voices/`, its clips and the voices.json describing them (its README,
-Voices). Swarmify knows nothing of what they mean; it lists, plays, uploads, renames and deletes
+A package may own folders of each world's assets (`[[owned_folders]]` in its Manifest, ADR 0025),
+as a voice package owns `voices/`, its clips and a file describing them. Swarmify knows nothing of what they mean; it lists, plays, uploads, renames and deletes
 their files, and the package reads the folder through `assets_path` as before.
 - The world's Assets page (sidebar, or More on a phone) shows each Owned Folder of the packages
   the world enables as a group of cards above Files: an audio file plays from its card, any other
@@ -674,48 +651,27 @@ A publish connector posts to the outside world, so a publish stage runs only rig
 (ADR 0007, no override). The editor refuses to save a workflow that breaks this, and the runner
 refuses to execute such a stage too (it fails the stage), which catches a connector that became
 publish after the workflow was saved. The gate holds the rule; the connector says what goes out.
-The `youtube` and `upload_post` packages take these params:
 
 ```yaml
   - gate: post it
     kind: confirm
-    ask: Post this short?
+    ask: Post this?
   - connector: publish
-    calls: youtube          # or upload_post
+    calls: poster           # a publish connector; its README lists its params
     input: short.mp4        # the newest file of this name any earlier stage left in the run
     params:
-      title: Five hooks that work      # required, at most 100 characters
-      description: optional
-      metadata: script.md              # optional: take title, description, hashtags and tags from its frontmatter
-      hashtags: [owls, nature]         # optional, at most 5, one word each, `#` optional
-      tags: [owls, owl facts]          # optional, YouTube's keywords, 450 characters in all
-      visibility: public               # public, unlisted or private (default private)
-      schedule: "+1d 09:00"            # optional, see below; needs public
-      made_for_kids: false             # YouTube's COPPA declaration (default false)
-      user: my-profile                 # upload_post only: the Upload-Post profile
-      platforms: [youtube, tiktok]     # upload_post only, default [youtube]
+      metadata: script.md   # optional: a file whose frontmatter the connector reads
 ```
 
 `metadata` names a file an earlier stage of the run left (the newest of that name, like `input`);
-the core hands its YAML frontmatter to the connector, and for both packages the `title` and
-`description` there (and `hashtags` and `tags`) win over the params, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
-problem the gate shows. `schedule` is ISO 8601 with a timezone, or relative: `09:00` (the next
-09:00), `+1d 09:00` (tomorrow at 09:00), either with an IANA timezone after it
-(`+1d 09:00 Europe/London`, UTC by default). A relative schedule is resolved when the gate is
-shown, so a scheduled workflow posts every run. `made_for_kids` goes to YouTube as
-`selfDeclaredMadeForKids` (to Upload-Post as its `selfDeclaredMadeForKids` field); content made for
-children must set it.
-`hashtags` go out as the description's last line (`#owls #nature`), where YouTube shows up to
-three above the title; a hashtag with a space or punctuation, more than five, or a description
-over YouTube's 5,000 bytes with them is a problem the gate shows. `tags` go to YouTube's tags
-(`snippet.tags`, Upload-Post's `tags[]`) beside the retry tag, which is why they stop at 450
-of YouTube's 500 characters. Both are editable at the gate. Writing them is the workflow's job,
-for example the script stage's frontmatter; Swarmify never makes them up.
+the core hands its YAML frontmatter to the connector, which decides what to take from it (the
+default publish packages take the title and description there over their params, so a daily
+workflow posts each video under its own script's title). A missing file is a problem the gate
+shows.
 
 The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
 and the `gate.opened` event): the connector, its `fields` (each a `key`, `label`, `value`,
-`editable` flag and optional `hint`, as the connector describes them; for `youtube` and `upload_post` Title,
-Description, Hashtags, Tags, Platforms and Profile for Upload-Post, Visibility, Made for kids, When and Video) and any
+`editable` flag and optional `hint`, as the connector describes them) and any
 `problems` that would stop the post. The gates inbox shows them under the ask, with the editable
 ones as fields of the form, and disables "Confirm and post" and "Approve" while there are
 problems; the server refuses those answers too (409 naming the problems), so a broken publish
@@ -723,7 +679,7 @@ stage is sent back or aborted, never reached. Answering the gate (`POST /api/run
 optionally with `edits`, new values for editable fields by key, and `seen`, the values it showed)
 records every field's value in the decision (its `publish` field and `decision.md`), refusing an
 edit to a field that is not editable or that would stop the post, and a field that changed since
-it was shown (a relative schedule shown at 08:58 as `09:00` today resolves to tomorrow at 09:01),
+it was shown (a relative time that resolves differently now),
 which the inbox then shows again; the publish stage sends exactly those values. A publish call is attempted at most once per visit to the stage: a call
 interrupted by a crash is never repeated, it fails the stage asking you to check the platform.
 After the call, `publish.md` (type `publish`, with the fields `sent`, `links`, `status` and the
@@ -746,33 +702,21 @@ Every publish connector is a Connector Package (its own, or one a world added wi
   the artifact, and when nothing was posted the stage fails). It may answer a long job
   (`job_id` and `poll`, as any long job) whose last answer carries the same.
 
-- `youtube` is a default Connector Package, `connectors/youtube`: our own small MCP server over
-  the YouTube Data API (ADR 0015), whose account is a Google sign-in on the Connectors page.
-  Each upload is tagged `swarmify-<idempotency key>`, so a retried publish stage answers the
-  video an earlier attempt already put up instead of posting it twice. Its README says how to
-  register the Google app, what it sends, and how V1's refresh token carries over with no new
-  sign-in.
-- `upload_post` is a default Connector Package, `connectors/upload_post`: our own small MCP
-  server over Upload-Post's HTTP API (ADR 0015), set up with its API key on the Connectors page.
-  Its README says what it sends, how a background upload becomes a long job, and how a V1 key
-  carries over.
-
 ### Outcomes
 
 Every six hours the API asks each publish connector a world enables that offers the `outcomes`
 Capability for the Outcomes of all of the world's posts: `outcomes(posts)`, each post
 `{connector, id, links}` (`id` the post's as its connector answered it, else the record's path),
 answered `{post_id: {metric: number}}` for the posts it can read. A connector may claim posts
-another made by their links: the `youtube` package counts the views of every post with a YouTube
-link, so a video Upload-Post put on YouTube is counted too. Metrics a post gets from several
+another made by their links, as a video site's package counting every post linking there.
+Metrics a post gets from several
 connectors add up. A changed Outcome is written into that `publish.md`, as `outcomes`,
 `outcomes_at` and `primary_metric` in the frontmatter (a record from before keeps its `views`
 readable until then) and as an `## Outcome` section in the body (replaced each time), because
 graphify reads bodies only; each write appends `outcome.recorded`. The publish card shows it, and
 the Scorecard ranks each run by each post's Primary Metric: the one the Manifest's
 `primary_metric` names, the post's own connector's when it answered. A connector whose Setup is
-not done is skipped. YouTube's read needs the `youtube.readonly` scope, which the sign-in asks for
-beside `youtube.upload`; a V1 refresh token made before view counts existed needs a new sign-in.
+not done is skipped.
 
 ## Retention
 
@@ -784,8 +728,8 @@ file's sidecar (written if it had none) gains `deleted` in its frontmatter and a
 body, so the graph and the run timeline keep the record, and each deletion appends
 `artifact.pruned`. `create_app(upkeep_seconds=...)` sets the interval.
 
-Tests never reach either service: the fake ConnectorTransport stands in for both MCP servers,
-and the youtube package's own tests answer its HTTP requests with httpx's MockTransport.
+Tests never reach a real service: the fake ConnectorTransport stands in for every MCP server,
+and each package's own tests fake the HTTP API it calls.
 
 ## Whiteboard
 
@@ -1036,8 +980,8 @@ file) or deletes one (`DELETE /api/worlds/<id>/assets/<path>`). Both refuse path
 the Assets page).
 
 Agents never write there. Swarm agents list them (`list_assets`) to name one in a script; a
-connector stage gets the folder as `assets_path` (the speech package alone gives `voices/` a
-meaning, see Owned Folders on the Assets page); the `remotion_build` session reads them (its
+connector stage gets the folder as `assets_path` (a package gives its Owned Folders a meaning,
+see Owned Folders on the Assets page); a Build Session reads them (its
 sandbox and hooks allow reads in the world's folder and writes only in the build folder) and is
 given their paths to copy into `public/`. Nothing about them is video-specific, and they are
 kept out of the graph.
@@ -1211,12 +1155,14 @@ compose plugin, `apt install docker.io docker-compose-plugin` or Docker's own ap
 (Caddy, `docker/Caddyfile`) serves the built skin and proxies `/api`, event streams unbuffered,
 to `api`; it is the only service with a published port. `api` (API and runner) and `graph-writer`
 (the GraphWriter, ADR 0003) share one volume, `data`, mounted at `/data`. The compose project's network is named `swarmify`,
-which a package's own compose file joins for the Services it runs (see Speech). The skin has its own image, so a UI-only change rebuilds and
-restarts only `web`: runs in the api (an agent session, a Remotion build) carry on. One image
-serves `api` and `graph-writer`. It holds Node and `npx`
-for the Remotion render connector, Chrome Headless Shell downloaded by Remotion's own
-`remotion browser ensure` with the shared libraries Remotion's Docker guide lists, and the Claude
-Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
+which a package's own compose file joins for the Services it runs (its README says how). The skin has its own image, so a UI-only change rebuilds and
+restarts only `web`: runs in the api (an agent session, a Build Session) carry on. One image
+serves `api` and `graph-writer`. It holds the runtimes packages install with, uv's Python and
+Node with `npm` and `npx`, and nothing a single package needs (ADR 0026): a package's install
+step fetches its own dependencies, a headless browser included, into `/data/packages`. Beside
+them are the shared libraries and fonts such a browser needs, bubblewrap and socat for Build
+Sessions, and the Claude Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for
+graphify.
 
 1. On any machine where you can open a browser and are logged in to Claude Code, run
    `claude setup-token`. It prints a one-year OAuth token for your Pro, Max, Team or Enterprise
@@ -1243,14 +1189,11 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    is healthy once `/api/health` answers (open without signing in, like the skin's files). The
    first start installs the default packages into the volume (`/data/packages`), fetching their
    dependencies, so it needs the network once.
-4. For narration, start the speech engines from the speech package's compose file beside it,
-   with its GPU profile on an NVIDIA host:
-   `docker compose -f connectors/speech/compose.yaml --profile chatterbox-gpu up -d --build`, and
-   set the Speech engines Setting on the Connectors page to what that README says
-   (`connectors/speech/README.md`, Running the engines beside Swarmify).
+4. Start the Services a package calls (a model server, say) from the compose file in its folder,
+   as its README says, and set its Setup on the Connectors page.
 
-- Updating: `git pull`, then the same `docker compose up -d --build`, and the speech package's
-  command with its profile. Only images whose inputs changed are rebuilt, and only their containers restart:
+- Updating: `git pull`, then the same `docker compose up -d --build`, and each package's
+  compose command. Only images whose inputs changed are rebuilt, and only their containers restart:
   a change under `apps/web` alone restarts `web` and leaves the api and its runs alone. For a
   UI-only update `docker compose up -d --build web` builds and restarts nothing else.
 - Sign-in is enforced in one place, the api (`auth.py`). `web` passes `/api` and `/mcp`
@@ -1258,34 +1201,24 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   data comes back without a session or, on `/mcp`, an API token. While the api is down the
   skin loads and every call answers 502.
 
-- Upgrading from V1, where `kokoro` and the `chatterbox` profiles were in this file: run
-  `docker compose up -d --build --remove-orphans` once, which stops V1's engines (their ports
-  would clash), then start them from the speech package's compose file as in step 4. A
-  `SPEECH_ENDPOINTS` in `.env` (as `http://chatterbox-gpu:8881,http://kokoro:8880`) is carried
-  into the package's Setting on that first start and keeps working, since the engines keep their
-  service names on the shared network; the models volume is reused.
+- Upgrading from V1, where some Services ran from this file: run
+  `docker compose up -d --build --remove-orphans` once, which stops them, then start them from
+  their package's compose file (its README, Upgrading from V1).
 - Moving to Proxmox is a copy: the repo and `.env` onto the VM, `docker compose up -d --build`.
   To carry data across, stop both services and copy the volume, for example
   `docker run --rm -v swarmify_data:/data -v "$PWD":/out debian tar czf /out/data.tgz -C /data .`
   and the reverse `tar xzf` on the VM.
-- Connector keys live in the volume's `/data/.env`, set from the connectors page as natively.
-- A Build Session (as a `remotion_build` stage) sandboxes with bubblewrap (in the image, with
+- A package's Setup lives in the volume's `/data/setup.json`, set from the connectors page as
+  natively.
+- A Build Session sandboxes with bubblewrap (in the image, with
   `socat` for the Agent SDK's network filter). bubblewrap needs user namespaces and a fresh `/proc`, which Docker's
   default seccomp, AppArmor and masked paths refuse, so `compose.yaml` runs `api` with
   `security_opt: seccomp=unconfined, apparmor=unconfined, systempaths=unconfined`. That loosens the
   container to tighten the build inside it; without it a build stage fails rather than run
   unsandboxed.
-- A Remotion template for the render connector must be inside the container: copy it to
-  `/data/remotion` (`docker compose cp ./shorts api:/data/remotion/shorts`) and the stage's
-  `project: shorts` finds it, as natively. The first render installs its dependencies. The
-  remotion_render package renders with the Chrome Headless Shell its install step put beside it in
-  `/data/packages`, using the shared libraries the image installs; the image's own copy of Chrome
-  goes with issue 222.
-- The image sets `SWARMIFY_RENDER_CONCURRENCY=2`, which the first start carries into the
-  remotion_render package's Render concurrency Setting, passed to Remotion as `--concurrency`:
-  with no GPU a 3D scene (`@remotion/three`) renders in software, and the default of half the
-  CPUs runs out of memory. Unset, as natively, Remotion picks. No `--gl` flag is passed: the
-  default renders 3D on the Mac and in the image, and `--gl=angle` crashes in the image.
+- A file a package reads from the data directory (a template, say) must be inside the container:
+  copy it into the volume (`docker compose cp ./shorts api:/data/<folder>/shorts`), as its README
+  says.
 - Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same sign-in
   page. With no password set or stored there is no sign-in, which is right only on `127.0.0.1`.
@@ -1326,7 +1259,7 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 - `apps/web` React skin with a typed client generated by openapi-typescript.
 - `connectors/` the first-party Connector Packages, each with its Manifest, code, tests, README
   and any compose file for the Services it calls, outside the uv workspace; Swarmify installs
-  them as default packages. `connectors/speech` (see Speech).
+  them as default packages (see Default packages).
 - `tests/e2e` Playwright for Python against the real API. `test_phone.py` opens every page at
   390 by 844 signed in and fails if any scrolls sideways.
 

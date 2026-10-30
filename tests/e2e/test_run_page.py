@@ -59,7 +59,7 @@ def test_a_voiced_build_shows_its_takes_its_build_and_its_video_then_the_gate_is
 
         rail.get_by_role("button", name=re.compile("^Step 2, voice")).click()
         expect(page).to_have_url(re.compile(r"\?stage=stage_"))
-        speech = page.get_by_test_id("speech")
+        speech = page.get_by_test_id("takes")
         expect(speech).to_contain_text("2 scenes · 3.5 s of narration")
         expect(speech.get_by_test_id("take").first).to_contain_text("hook")
         expect(speech).to_contain_text("Line 1 runs into line 2 with no silence to cut at.")

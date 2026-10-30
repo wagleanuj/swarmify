@@ -1,8 +1,8 @@
 """Connectors context: the only way the swarm touches anything outside the box.
 
-A Connector is an MCP server plus its credentials plus the stage types allowed to use it. The
-built-ins live in code; every other is an installed Connector Package, giving a world a Connector
-named as the package only once the world enables it at a pinned version (ADR 0023). The "add an
+A Connector is an MCP server plus its credentials plus the stage types allowed to use it. Every
+one is an installed Connector Package, giving a world a Connector named as the package only once
+the world enables it at a pinned version (ADR 0023). The "add an
 MCP server" form writes a minimal Manifest and installs it as a local package (issue 211). This
 repository's own packages are the defaults every world is given once (`install_defaults`).
 A connector stage calls one Tool through the ConnectorTransport port with the stage id as its
@@ -61,7 +61,6 @@ from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_kernel import AGENT_TOOLS, new_id
 
 __all__ = [
-    "BUILTINS",
     "KINDS",
     "MIGRATIONS",
     "STAGE_TYPES",
@@ -83,7 +82,6 @@ __all__ = [
     "SqliteStorage",
     "Storage",
     "Tool",
-    "from_manifest",
     "read_manifest",
 ]
 
@@ -93,33 +91,6 @@ DEFAULTS = "connectors"
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,59}$")
 TYPE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 """A declared type's name, as a swarm stage's `output_type` names it."""
-
-
-def from_manifest(m: dict[str, Any]) -> Connector:
-    """The built-in Connector a Manifest declares; it keeps the Manifest for the planner."""
-    return Connector(
-        f"builtin_{m['name']}",
-        None,
-        m["name"],
-        m["kind"],
-        m.get("command", []),
-        credentials=m.get("credentials", []),
-        stage_types=m["stage_types"],
-        builtin=True,
-        about=m["about"],
-        health=m.get("health"),
-        types=m.get("types", {}),
-        input_types=m.get("input_types", []),
-        world_types=m.get("world_types"),
-        manifest=m,
-    )
-
-
-# Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019). None is
-# left: every connector is a package now, and issue 222 removes this path.
-MANIFESTS: dict[str, dict[str, Any]] = {}
-
-BUILTINS = [from_manifest(m) for m in MANIFESTS.values()]
 
 
 KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
@@ -248,13 +219,13 @@ class Connectors:
     # Registry
 
     def list_all(self, world_id: str, pins: Mapping[str, str] | None = None) -> list[Connector]:
-        """Built-ins first, then the packages the world enables, by name. A run passes `pins`,
+        """The packages the world enables, by name. A run passes `pins`,
         the package versions its workflow version recorded (issue 223), which win over the
         world's current pins."""
         enabled = self.storage.enabled_packages(world_id)
         chosen = {n: (pins or {}).get(n, v) for n, v in enabled.items()}
         packaged = [self.package_connector(world_id, n, v) for n, v in chosen.items()]
-        return [*BUILTINS, *(c for c in packaged if c)]
+        return [c for c in packaged if c]
 
     # Connector Packages a world enables (ADR 0023)
 
@@ -296,8 +267,6 @@ class Connectors:
     def enable(self, world_id: str, name: str, version: str) -> None:
         """Enable an installed package in the world at `version`, or move its pin there.
         Raises ValueError when that version is not installed or valid, or the name is taken."""
-        if any(c.name == name for c in BUILTINS):
-            raise ValueError(f"'{name}' is a built-in connector")
         if name in AGENT_TOOLS:
             raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
         try:
@@ -658,10 +627,6 @@ class Connectors:
         note = answer.get("note")
         return types, note.strip() if isinstance(note, str) else ""
 
-    def get(self, connector_id: str) -> Connector | None:
-        """A built-in; a package's connector has no id outside its world."""
-        return next((c for c in BUILTINS if c.id == connector_id), None)
-
     def draft(
         self,
         world_id: str,
@@ -679,8 +644,6 @@ class Connectors:
         name, server = name.strip(), server.strip()
         if not NAME.match(name):
             raise ValueError("a name is lower_snake_case, as workflows call it: fal_video")
-        if any(c.name == name for c in BUILTINS):
-            raise ValueError(f"'{name}' is a built-in connector")
         if name in AGENT_TOOLS:
             raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
         if name in self.storage.enabled_packages(world_id):
@@ -772,8 +735,9 @@ class Connectors:
         """The one-time move of every connector a world added before Connector Packages (issue
         211): each becomes a local package enabled for its world, its keys copied from the
         credentials file into its Setup, and its row goes, so workflows calling it by name run
-        unchanged. The keys then leave the file unless a built-in uses them. A row that cannot
-        move is logged and kept."""
+        unchanged. The keys then leave the file unless a row still there uses them. A row that
+        cannot move is logged and kept. The rows are read from the `connectors` table of
+        migration 0005 (`Storage.world_connectors`), left only for this move."""
         moved: set[str] = set()
         for c in self.storage.world_connectors():
             try:
@@ -783,33 +747,16 @@ class Connectors:
                 continue
             self.storage.delete_connector(c.id)
             moved.update(c.credentials)
-        kept = {n for c in BUILTINS for n in c.credentials}
-        kept |= {n for c in self.storage.world_connectors() for n in c.credentials}
+        kept = {n for c in self.storage.world_connectors() for n in c.credentials}
         self.credentials.remove(moved - kept)
 
-    def set_credentials(self, connector: Connector, values: dict[str, str]) -> None:
-        """Merge values for the connector's own credential names; others are refused. A
-        package's keys are its Setup, checked by its `[setup] test`."""
-        foreign = sorted(set(values) - set(connector.credentials))
-        if foreign:
-            raise ValueError(f"{connector.name} does not use {', '.join(foreign)}")
-        filled = {k: v for k, v in values.items() if v}
-        if filled:
-            self.credentials.set(filled)
-
     def missing(self, connector: Connector) -> list[str]:
-        """Credential names the file does not hold yet; for a package, the keys of required
-        Setup fields that resolve to nothing in its world."""
-        if connector.version is not None and connector.world_id is not None:
-            try:
-                return setup.missing(connector.manifest, self._resolved(connector))
-            except PermissionError:
-                return [f["key"] for f in setup.fields(connector.manifest) if f.get("required")]
+        """The keys of the package's required Setup fields that resolve to nothing in its
+        world."""
         try:
-            have = self.credentials.read()
+            return setup.missing(connector.manifest, self._resolved(connector))
         except PermissionError:
-            have = {}
-        return [n for n in connector.credentials if not have.get(n)]
+            return [f["key"] for f in setup.fields(connector.manifest) if f.get("required")]
 
     def delete_world(self, world_id: str) -> None:
         self.storage.delete_world(world_id)
@@ -857,7 +804,8 @@ class Connectors:
         self, connector: Connector, extra: dict[str, str] | None = None, complete: bool = True
     ) -> dict[str, str]:
         """The process environment. A package's must hold every required Setup value unless
-        `complete` is False, as for a publish `preview`, which needs no account."""
+        `complete` is False, as for a publish `preview`, which needs no account. A connector the
+        add form drafted, not yet a package, gets the keys in `extra`."""
         if connector.version is not None:
             # A package gets exactly its own Setup values for the world it runs for (ADR 0024).
             assert connector.world_id is not None
@@ -871,19 +819,17 @@ class Connectors:
                     f"{connector.name} needs its Setup on the Connectors page: {', '.join(gaps)}"
                 )
             return setup.environment(connector.manifest, resolved, self.data_dir)
-        values = {**self.credentials.read(), **{k: v for k, v in (extra or {}).items() if v}}
+        values = extra or {}
         missing = [n for n in connector.credentials if not values.get(n)]
         if missing:
-            raise ConnectorError(
-                f"{connector.name} needs {', '.join(missing)} in {self.credentials.path}"
-            )
+            raise ConnectorError(f"{connector.name} needs {', '.join(missing)}")
         return {n: values[n] for n in connector.credentials}
 
     def health(self, connector: Connector) -> list[HealthCheck]:
         """Whether each Service a package declares answers, then what the connector's `health`
         tool finds. Empty for one with neither. Raises ConnectorError when the tool cannot be
         called."""
-        checks = self.services(connector) if connector.version is not None else []
+        checks = self.services(connector)
         if not connector.health:
             return checks
         answer = self._tool(connector, connector.health, {}, self._env(connector))
@@ -895,7 +841,7 @@ class Connectors:
 
     def services(self, connector: Connector) -> list[HealthCheck]:
         """A GET of each declared Service's `health` path, one check per URL its Setting holds
-        (a comma-separated list is several, as speech's engines). Swarmify never starts or
+        (a comma-separated list is several, as one per engine). Swarmify never starts or
         stops a Service (ADR 0026); the operator runs them."""
         try:
             resolved = self._resolved(connector)
@@ -982,10 +928,13 @@ class Connectors:
                 f["value"] = (edits or {})[f["key"]]
         return {"connector": connector.name, **shown}
 
-    def stage_problems(self, world_id: str, config: dict[str, Any]) -> list[str]:
+    def stage_problems(
+        self, world_id: str, config: dict[str, Any], pins: Mapping[str, str] | None = None
+    ) -> list[str]:
         """What would stop a connector stage, found when its workflow is checked rather than
-        after the stages before it have spent the run's budget."""
-        connector = self.find(world_id, str(config.get("calls", "")))
+        after the stages before it have spent the run's budget, at the package versions `pins`
+        names (a run's workflow version's) over the world's."""
+        connector = self.find(world_id, str(config.get("calls", "")), pins)
         if connector is None:
             return []
         params = dict(config.get("params") or {})
@@ -1000,7 +949,7 @@ class Connectors:
                 raw = None
             if isinstance(raw, dict) and isinstance(raw.get("fields"), list):
                 return publish.checked_preview(raw)["problems"]
-        manifest = connector.manifest  # a built-in's or an installed package's
+        manifest = connector.manifest
         session = manifest.get("build_session")
         if session and not config.get("output"):
             config = {**config, "output": session.get("output")}  # its default output, if any
