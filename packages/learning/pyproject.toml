@@ -3,6 +3,7 @@ name = "swarmify-learning"
 version = "0.1.0"
 description = "Learning context: skills, the retro that proposes them, and the scorecard"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = ["swarmify-kernel"]
 
 [build-system]

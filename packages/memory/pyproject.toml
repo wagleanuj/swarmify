@@ -3,6 +3,7 @@ name = "swarmify-memory"
 version = "0.1.0"
 description = "Memory context: notes and artifacts as markdown files, the world graph and its single writer"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = ["graphifyy[mcp]==0.9.95", "mcp>=2.3", "swarmify-kernel"]
 
 [project.scripts]

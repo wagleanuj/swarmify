@@ -3,6 +3,7 @@ name = "swarmify-workflows"
 version = "0.1.0"
 description = "Workflows context: a workflow is a saved, versioned recipe of stages"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = ["croniter>=6.0", "pyyaml>=6.0", "swarmify-kernel"]
 
 [build-system]

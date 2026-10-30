@@ -3,6 +3,7 @@ name = "swarmify-connectors"
 version = "0.1.0"
 description = "Connectors context: MCP servers, their tools and credentials, and connector stage calls"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = ["httpx>=0.28", "jsonschema>=4.26", "mcp>=2.3", "swarmify-kernel"]
 
 [build-system]

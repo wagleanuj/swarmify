@@ -3,6 +3,7 @@ name = "swarmify"
 version = "0.1.0"
 description = "A swarm of Claude Code agents sharing one graphify memory per world"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = []
 
 [dependency-groups]
