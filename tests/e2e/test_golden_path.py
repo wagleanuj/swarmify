@@ -78,14 +78,12 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     expect(out.get_by_label("Title")).to_have_value("Five hooks that work")
     expect(out).to_contain_text("unlisted")
     expect(out).to_contain_text("short.mp4")
-    expect(out).to_contain_text("Now, as soon as you confirm")
+    expect(out).to_contain_text("Right after confirming")
     card.get_by_role("button", name="Confirm and post").click()
     expect(page.get_by_test_id("no-gates")).to_be_visible(timeout=20_000)
 
     page.goto(f"{base_url}/worlds/{world}/runs/{run}")
-    expect(status).to_have_text(
-        re.compile(r"^Done in .*\. Posted unlisted to YouTube\.$"), timeout=20_000
-    )
+    expect(status).to_have_text(re.compile(r"^Done in .*\. Posted to YouTube\.$"), timeout=20_000)
     expect(page.get_by_role("link", name="Open the post").first).to_have_attribute(
         "href", "https://youtu.be/e2e-video"
     )

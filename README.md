@@ -675,7 +675,8 @@ world's catalog is `assets/voices/voices.json`, a list of entries, with the clip
 A publish connector posts to the outside world, so a publish stage runs only right after a gate
 (ADR 0007, no override). The editor refuses to save a workflow that breaks this, and the runner
 refuses to execute such a stage too (it fails the stage), which catches a connector that became
-publish after the workflow was saved. Every publish stage declares the same params:
+publish after the workflow was saved. The gate holds the rule; the connector says what goes out.
+The built-in `youtube` and `upload_post` take these params:
 
 ```yaml
   - gate: post it
@@ -696,8 +697,8 @@ publish after the workflow was saved. Every publish stage declares the same para
 ```
 
 `metadata` names a file an earlier stage of the run left (the newest of that name, like `input`);
-the `title` and `description` in its YAML frontmatter win over the params, which stay the
-fallback, so a daily workflow posts each video under its own script's title. A missing file is a
+the core hands its YAML frontmatter to the connector, and for the built-ins the `title` and
+`description` there win over the params, which stay the fallback, so a daily workflow posts each video under its own script's title. A missing file is a
 problem the gate shows. `schedule` is ISO 8601 with a timezone, or relative: `09:00` (the next
 09:00), `+1d 09:00` (tomorrow at 09:00), either with an IANA timezone after it
 (`+1d 09:00 Europe/London`, UTC by default). A relative schedule is resolved when the gate is
@@ -706,19 +707,36 @@ shown, so a scheduled workflow posts every run. `made_for_kids` goes to YouTube 
 children must set it.
 
 The gate before a publish stage carries `publish` in `GET /api/gates` (and MCP `list_gates`,
-and the `gate.opened` event): connector, title, description, visibility, schedule, video,
-platforms, made_for_kids and any `problems` that would stop the post. The gates inbox shows it
-under the ask, with the title and description editable, and disables "Confirm and post" and
-"Approve" while there are problems; the server refuses those answers too (409 naming the
-problems), so a broken publish stage is sent back or aborted, never reached. Answering the gate (`POST /api/runs/{id}/decision`, optionally with `title`,
-`description` and the `schedule` it showed) records the title, description and resolved schedule
-in the decision (its `publish` field and `decision.md`), refusing an edit that would stop the post
-and a relative schedule that resolves to another time by now (shown at 08:58, `09:00` is today;
-confirmed at 09:01 it would be tomorrow), which the inbox then shows again; the publish stage
-sends exactly those values. A publish call is attempted at most once per visit to the stage: a call
+and the `gate.opened` event): the connector, its `fields` (each a `key`, `label`, `value`,
+`editable` flag and optional `hint`, as the connector describes them; for the built-ins Title,
+Description, Platforms for Upload-Post, Visibility, Made for kids, When and Video) and any
+`problems` that would stop the post. The gates inbox shows them under the ask, with the editable
+ones as fields of the form, and disables "Confirm and post" and "Approve" while there are
+problems; the server refuses those answers too (409 naming the problems), so a broken publish
+stage is sent back or aborted, never reached. Answering the gate (`POST /api/runs/{id}/decision`,
+optionally with `edits`, new values for editable fields by key, and `seen`, the values it showed)
+records every field's value in the decision (its `publish` field and `decision.md`), refusing an
+edit to a field that is not editable or that would stop the post, and a field that changed since
+it was shown (a relative schedule shown at 08:58 as `09:00` today resolves to tomorrow at 09:01),
+which the inbox then shows again; the publish stage sends exactly those values. A publish call is attempted at most once per visit to the stage: a call
 interrupted by a crash is never repeated, it fails the stage asking you to check the platform.
-After the call, `publish.md` (type `publish`, with `links`, `status` and the video or job `id` in
-its frontmatter and the links again in its body) lands in the stage's `artifacts/` folder.
+After the call, `publish.md` (type `publish`, with the fields `sent`, `links`, `status` and the
+post or job `id` in its frontmatter, and the fields and links again in its body) lands in the stage's `artifacts/` folder.
+
+A world's own publish connector (kind `publish` on the Connectors page) answers two MCP tools:
+
+- `preview` gets `inputs` (the stage's input file names), `params` (the stage's, less
+  `metadata`), `metadata` (the frontmatter of the file `params.metadata` names, else `{}`) and
+  `edits` (by field key; apply only those to fields you mark editable), and answers
+  `{"fields": [{"key", "label", "value", "editable", "hint"}], "problems": [...]}`. It is called
+  when the gate opens, when it is answered, and before the post; a call that fails is a problem
+  the gate shows. It is not called when the workflow is saved.
+- `publish` gets `fields` (every value as confirmed, by key), `idempotency_key` and
+  `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links` (platform
+  to URL), and optionally `id` and `status: scheduled`.
+
+The built-ins answer the same two calls in process (`swarmify_connectors.builtin_publish`)
+until they move into their own packages.
 
 - `youtube` is our wrapper over the YouTube Data API (`swarmify_connectors.youtube`, stdio MCP).
   It uploads with `videos.insert`; with a schedule the video goes up private with `publishAt` and

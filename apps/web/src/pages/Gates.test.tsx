@@ -153,17 +153,20 @@ test("the inbox refetches when a run moves, and says what it is for when empty",
 });
 
 test("a gate before a publish stage shows exactly what goes out, and refuses when it cannot", async () => {
+  const field = (key: string, label: string, value: unknown, editable = false, hint = "") => ({ key, label, value, editable, hint });
   const preview = {
     connector: "youtube",
-    title: "Five hooks that work",
-    description: "Hooks, ranked.",
-    visibility: "public",
-    schedule: "2099-01-01T09:00:00Z",
-    video: "short.mp4",
-    platforms: [],
-    made_for_kids: true,
+    fields: [
+      field("title", "Title", "Five hooks that work", true),
+      field("description", "Description", "Hooks, ranked.", true),
+      field("visibility", "Visibility", "public"),
+      field("made_for_kids", "Made for kids", true),
+      field("schedule", "When", "2099-01-01T09:00:00Z", false, "Private until then, then public."),
+      field("video", "Video", "short.mp4"),
+    ],
     problems: [],
   };
+  const later = preview.fields.slice(2).map((f) => (f.key === "schedule" ? { ...f, value: null, hint: "Right after confirming." } : f));
   const bodies: unknown[] = [];
   const calls = fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
@@ -173,7 +176,7 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
         gate("confirm", {
           run_id: "run_2",
           stage_id: "s2",
-          publish: { ...preview, connector: "upload_post", schedule: null, platforms: ["tiktok"], problems: ["upload_post needs params.user, the Upload-Post profile to post as"] },
+          publish: { connector: "upload_post", fields: [...preview.fields.slice(0, 2), field("platforms", "Platforms", ["tiktok"]), ...later], problems: ["upload_post needs params.user, the Upload-Post profile to post as"] },
         }),
         gate("approve", {
           run_id: "run_3",
@@ -194,7 +197,7 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   await expect.element(out).toMatchTextContent(/Made for kids\s*Yes/);
   await expect.element(out).toMatchTextContent(/Where\s*YouTube/);
   await expect.element(out).toMatchTextContent(/Visibility\s*public/);
-  await expect.element(out).toMatchTextContent(/2099-01-01 09:00 UTC\)\. Private until then, then public\./);
+  await expect.element(out).toMatchTextContent(/2099-01-01 09:00 UTC\)\.\s*Private until then, then public\./);
   await expect.element(out).toMatchTextContent(/Video\s*short\.mp4/);
   await expect.element(out.getByRole("time")).toHaveAttribute("datetime", "2099-01-01T09:00:00Z");
   await expect.element(card).toMatchTextContent(/Posts exactly what is above\./);
@@ -203,15 +206,19 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   await card.getByRole("button", { name: "Confirm and post" }).click();
   await vi.waitFor(() =>
     expect(bodies).toEqual([
-      { note: "", title: "Five better hooks", description: "Edited.", schedule: "2099-01-01T09:00:00Z" },
+      {
+        note: "",
+        edits: { title: "Five better hooks", description: "Edited." },
+        seen: { visibility: "public", made_for_kids: true, schedule: "2099-01-01T09:00:00Z", video: "short.mp4" },
+      },
     ]),
   );
 
   const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
   await queue.getByRole("link", { name: /Weekly short/ }).first().click();
   const broken = screen.getByTestId("gate-run_2");
-  await expect.element(broken).toMatchTextContent(/Upload-Post to tiktok/);
-  await expect.element(broken).toMatchTextContent(/Now, as soon as you confirm/);
+  await expect.element(broken).toMatchTextContent(/Where\s*Upload-Post\s*Title.*Platforms\s*tiktok/);
+  await expect.element(broken).toMatchTextContent(/Right after confirming/);
   await expect.element(broken.getByRole("alert")).toMatchTextContent(/This will not post:.*needs params\.user/);
   await expect.element(broken.getByRole("button", { name: "Confirm and post" })).toBeDisabled();
   await queue.getByRole("link", { name: /Review and approve/ }).click();

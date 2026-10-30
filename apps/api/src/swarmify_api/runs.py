@@ -84,13 +84,13 @@ class Decide(BaseModel):
     artifact: str | None = Field(default=None, max_length=2_000)
     """The chosen artifact's path in the world folder, as `GET /runs/{run_id}/artifacts` lists
     it: the card picked, or what was approved. A pick with no `choice` takes its title."""
-    title: str | None = Field(default=None, max_length=1_000)
-    description: str | None = Field(default=None, max_length=5_000)
-    """At a gate before a publish stage: the title and description to post instead of what the
-    gate showed. The values posted are recorded with the decision."""
-    schedule: str | None = Field(default=None, max_length=100)
-    """At a gate before a publish stage: the schedule the gate showed (null for now). When sent,
-    a relative schedule that resolves to another time by now is refused with 422."""
+    edits: dict[str, Any] | None = None
+    """At a gate before a publish stage: new values for fields its connector marks editable, by
+    key. Every field's value as posted is recorded with the decision."""
+    seen: dict[str, Any] | None = None
+    """At a gate before a publish stage: the values the gate showed, by key. A field that is not
+    editable and has changed since (a relative schedule now resolving to tomorrow) is refused
+    with 422, so the inbox can show it again."""
 
 
 class Fork(BaseModel):
@@ -423,10 +423,8 @@ def router(
                 body.note,
                 body.send_back_to,
                 artifact=body.artifact,
-                title=body.title,
-                description=body.description,
-                # Absent means unchecked; null is the "post now" the gate showed.
-                schedule=body.schedule if "schedule" in body.model_fields_set else ...,
+                edits=body.edits,
+                seen=body.seen,
             )
         )
 

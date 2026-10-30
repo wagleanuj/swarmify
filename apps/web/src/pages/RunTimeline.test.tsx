@@ -84,7 +84,18 @@ const mp4 = made("stage_2", "video.mp4", { path: "runs/run_1/stage_2/artifacts/v
 const posted = made("stage_4", "publish.md", {
   type: "publish",
   title: "Kids short",
-  fields: { connector: "youtube", title: "Kids short", visibility: "private", links: { youtube: "https://youtu.be/abc" }, views: 1234, views_at: "2026-10-27T00:00:00" },
+  fields: {
+    connector: "youtube",
+    title: "Kids short",
+    sent: [
+      { key: "title", label: "Title", value: "Kids short" },
+      { key: "visibility", label: "Visibility", value: "private" },
+      { key: "schedule", label: "When", value: null, hint: "Right after confirming." },
+    ],
+    links: { youtube: "https://youtu.be/abc" },
+    views: 1234,
+    views_at: "2026-10-27T00:00:00",
+  },
 });
 
 /** The run menu, opened. */
@@ -274,7 +285,7 @@ test("done with a video: the run's time, where it was posted, and the video in p
     "GET /api/stages/stage_4/call": () => Response.json(call("stage_4", { connector: "youtube", tool: "youtube", status: "done" })),
   });
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Done in 10 min. Posted private to YouTube.");
+  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Done in 10 min. Posted to YouTube.");
   // A done run opens on the step that made its result, not the last one to finish.
   await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_2" }));
   await expect.element(screen.getByTestId("follow")).not.toBeInTheDocument();
@@ -294,7 +305,7 @@ test("done with a video: the run's time, where it was posted, and the video in p
   await screen.getByRole("button", { name: /^Step 5, publish/ }).click();
   expect(screen.getByTestId("result").query()).toBeNull();
   const out = screen.getByTestId("publish");
-  await expect.element(out).toMatchTextContent(/Title\s*Kids short\s*Where\s*YouTube\s*Visibility\s*private\s*When.*Views\s*1,234 as of 2026-10-27/);
+  await expect.element(out).toMatchTextContent(/Where\s*YouTube\s*Title\s*Kids short\s*Visibility\s*private\s*When\s*Right after confirming\.\s*Views\s*1,234 as of 2026-10-27/);
   await expect.element(out.getByRole("link", { name: "Open the post" })).toHaveAttribute("href", "https://youtu.be/abc");
   await expect.element(screen.getByText("Technical details")).toBeVisible();
   await expect.element(screen.getByTestId("call-request")).not.toBeVisible();

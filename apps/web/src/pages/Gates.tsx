@@ -9,11 +9,12 @@ import type { components } from "../api/schema";
 import { gatesRoute } from "../router";
 import { ArtifactCards, ArtifactView, choosable, underReview } from "./Artifacts";
 import { RunRef } from "./Runs";
-import { LABEL } from "./Connectors";
+import { LABEL, PublishValue } from "./Connectors";
 import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
+type PublishField = components["schemas"]["PublishField"];
 type Proposal = components["schemas"]["Proposal"];
 
 /** What `GateCard` hands back with an answer: `said` is the decision in plain words, for the
@@ -294,10 +295,10 @@ export function GateCard({
     if (target) body.send_back_to = target;
     // What goes out is what the form holds, edited or not; the decision records it.
     if (gate.publish && !target) {
-      body.title = String(fields.get("title") ?? "");
-      body.description = String(fields.get("description") ?? "");
-      // The schedule shown; a relative one that moved since is refused and shown again.
-      body.schedule = gate.publish.schedule ?? null;
+      const shown = gate.publish.fields ?? [];
+      body.edits = Object.fromEntries(shown.filter(editable).map((f) => [f.key, String(fields.get(`edit:${f.key}`) ?? "")]));
+      // The rest as shown; one that moved since (a relative schedule) is refused and shown again.
+      body.seen = Object.fromEntries(shown.filter((f) => !editable(f)).map((f) => [f.key, f.value ?? null]));
     }
     const said = body.send_back_to
       ? `You sent it back to ${body.send_back_to}`
@@ -589,61 +590,39 @@ function RejectButton({ busy, onReject }: { busy: boolean; onReject: (e: FormEve
   );
 }
 
-/** What the publish stage after this gate sends out: exactly these values (ADR 0007). Title and
- * description are fields of the gate's form, so the person can edit them before confirming. */
+/** A field the gate lets the person change: the connector marks it editable and it is text. */
+const editable = (f: PublishField) => f.editable && (typeof f.value === "string" || f.value == null);
+
+/** What the publish stage after this gate sends out: exactly these values, as its connector
+ * describes them (ADR 0007). Fields it marks editable are fields of the gate's form. */
 function WhatGoesOut({ preview }: { preview: PublishPreview }) {
   const id = useId();
-  const where = LABEL[preview.connector] ?? preview.connector;
-  const platforms = preview.platforms?.length ? ` to ${preview.platforms.join(", ")}` : "";
   const problems = preview.problems ?? [];
   return (
     <section className="publish-preview" aria-label="What goes out">
       <dl>
-        <dt>
-          <label htmlFor={`${id}-title`}>Title</label>
-        </dt>
-        <dd>
-          <input id={`${id}-title`} name="title" required maxLength={100} defaultValue={preview.title} />
-        </dd>
-        <dt>
-          <label htmlFor={`${id}-description`}>Description</label>
-        </dt>
-        <dd>
-          <textarea id={`${id}-description`} name="description" rows={3} maxLength={5000} defaultValue={preview.description ?? ""} />
-        </dd>
         <dt>Where</dt>
-        <dd>
-          {where}
-          {platforms}
-        </dd>
-        <dt>Visibility</dt>
-        <dd>{preview.visibility}</dd>
-        <dt>Made for kids</dt>
-        <dd>{preview.made_for_kids ? "Yes" : "No"}</dd>
-        <dt>When</dt>
-        <dd>
-          {preview.schedule ? (
-            <>
-              <time dateTime={preview.schedule}>
-                {new Date(preview.schedule).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
-              </time>{" "}
-              <span className="faint">
-                ({preview.schedule.slice(0, 16).replace("T", " ")} UTC).{" "}
-                {preview.connector === "youtube"
-                  ? `Private until then, then ${preview.visibility}.`
-                  : "Nothing posts before then."}
-              </span>
-            </>
-          ) : (
-            "Now, as soon as you confirm"
-          )}
-        </dd>
-        {preview.video && (
-          <>
-            <dt>Video</dt>
-            <dd className="mono">{preview.video}</dd>
-          </>
-        )}
+        <dd>{LABEL[preview.connector] ?? preview.connector}</dd>
+        {(preview.fields ?? []).map((f) => (
+          <div key={f.key} className="publish-field">
+            <dt>{editable(f) ? <label htmlFor={`${id}-${f.key}`}>{f.label}</label> : f.label}</dt>
+            <dd>
+              {editable(f) ? (
+                <>
+                  <textarea
+                    id={`${id}-${f.key}`}
+                    name={`edit:${f.key}`}
+                    rows={String(f.value ?? "").length > 60 || String(f.value ?? "").includes("\n") ? 3 : 1}
+                    defaultValue={String(f.value ?? "")}
+                  />
+                  {f.hint && <span className="faint">{f.hint}</span>}
+                </>
+              ) : (
+                <PublishValue value={f.value} hint={f.hint} />
+              )}
+            </dd>
+          </div>
+        ))}
       </dl>
       {problems.length > 0 && (
         <div className="publish-problems" role="alert">

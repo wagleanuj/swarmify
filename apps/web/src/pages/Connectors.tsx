@@ -25,6 +25,32 @@ export const LABEL: Record<string, string> = {
   speech: "Speech",
 };
 
+const UTC_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?Z$/;
+
+/** A value a publish connector sends, as plain copy: a UTC time in local time with the UTC
+ * beside it, yes or no, a list joined, and the connector's hint after it (or instead, when
+ * there is no value). */
+export function PublishValue({ value, hint }: { value?: unknown; hint?: string }) {
+  const note = hint ? <span className="faint"> {hint}</span> : null;
+  if (value === null || value === undefined || value === "") return <>{hint || "None"}</>;
+  if (typeof value === "string" && UTC_TIME.test(value)) {
+    return (
+      <>
+        <time dateTime={value}>{new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time>{" "}
+        <span className="faint">({value.slice(0, 16).replace("T", " ")} UTC).</span>
+        {note}
+      </>
+    );
+  }
+  const text = typeof value === "boolean" ? (value ? "Yes" : "No") : Array.isArray(value) ? value.join(", ") : typeof value === "object" ? JSON.stringify(value) : String(value);
+  return (
+    <>
+      {text}
+      {note}
+    </>
+  );
+}
+
 const KINDS: { kind: Kind; label: string; hint: string }[] = [
   { kind: "stage", label: "Stage", hint: "A connector stage calls it once per run." },
   { kind: "tool", label: "Tool", hint: "Agents may use its tools during swarm stages." },

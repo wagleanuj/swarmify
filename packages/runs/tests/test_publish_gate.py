@@ -8,7 +8,15 @@ from typing import Any
 import pytest
 
 from runs_fakes import FakeConnector, FakeNotifier, wait_for
-from swarmify_runs import Illegal, PublishPreview, Run, Runner, SqliteStorage, StageDef
+from swarmify_runs import (
+    Illegal,
+    PublishField,
+    PublishPreview,
+    Run,
+    Runner,
+    SqliteStorage,
+    StageDef,
+)
 
 CONFIRM = StageDef("confirm", "gate", {"ask": "Post it?", "kind": "confirm"})
 PUBLISH = StageDef("publish", "connector", {"calls": "youtube", "params": {"title": "Hooks"}})
@@ -25,7 +33,13 @@ def previews(_run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPrevie
     title, description = params["title"], params.get("description", "")
     problems = [] if title else ["a publish stage needs params.title"]
     return PublishPreview(
-        "youtube", title, "public", RESOLVED["schedule"], description, problems=problems
+        "youtube",
+        [
+            PublishField("title", "Title", title, editable=True),
+            PublishField("description", "Description", description, editable=True),
+            PublishField("schedule", "When", RESOLVED["schedule"]),
+        ],
+        problems,
     )
 
 
@@ -59,11 +73,21 @@ def test_the_gate_before_a_publish_stage_shows_what_goes_out(
     run = runner.start("world_1", "wf_1", 1, "Weekly short", [CONFIRM, PUBLISH])
     wait_for(lambda: status(runner, run.id) == "waiting_gate")
     (gate,) = runner.gates()
-    assert gate.publish == PublishPreview("youtube", "Hooks", "public", "2099-01-01T09:00:00Z")
+    assert gate.publish is not None
+    assert gate.publish.values() == {
+        "title": "Hooks",
+        "description": "",
+        "schedule": "2099-01-01T09:00:00Z",
+    }
     wait_for(lambda: any(e.type == "gate.opened" for e in notifier.events))  # notify follows save
     opened = next(e for e in notifier.events if e.type == "gate.opened")
-    assert opened.payload["publish"]["title"] == "Hooks"
-    assert opened.payload["publish"]["schedule"] == "2099-01-01T09:00:00Z"
+    assert opened.payload["publish"]["fields"][0] == {
+        "key": "title",
+        "label": "Title",
+        "value": "Hooks",
+        "editable": True,
+        "hint": "",
+    }
     assert connector.calls == []
 
     runner.decide(run.id)
@@ -71,15 +95,17 @@ def test_the_gate_before_a_publish_stage_shows_what_goes_out(
     assert [name for _, name in connector.calls] == ["publish"]
 
 
-def test_the_confirmed_title_and_description_are_recorded_with_the_decision(
+def test_the_confirmed_fields_are_recorded_with_the_decision(
     runner: Runner, connector: FakeConnector
 ) -> None:
     run = runner.start("world_1", "wf_1", 1, "Weekly short", [CONFIRM, PUBLISH])
     wait_for(lambda: status(runner, run.id) == "waiting_gate")
     with pytest.raises(ValueError, match="needs params.title"):
-        runner.decide(run.id, title="")
+        runner.decide(run.id, edits={"title": ""})
+    with pytest.raises(ValueError, match="schedule cannot be edited"):
+        runner.decide(run.id, edits={"schedule": "2099-02-01T09:00:00Z"})
 
-    decided = runner.decide(run.id, title="Edited", description="Tonight")
+    decided = runner.decide(run.id, edits={"title": "Edited", "description": "Tonight"})
     (decision,) = decided.decisions
     shown = {"title": "Edited", "description": "Tonight", "schedule": "2099-01-01T09:00:00Z"}
     assert decision.publish == shown
@@ -88,32 +114,33 @@ def test_the_confirmed_title_and_description_are_recorded_with_the_decision(
     assert runner.get(run.id).decisions[0].publish == shown  # type: ignore[union-attr]
 
 
-def test_a_schedule_that_moved_since_the_gate_was_shown_is_refused(
+def test_a_field_that_changed_since_the_gate_was_shown_is_refused(
     runner: Runner, connector: FakeConnector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run = runner.start("world_1", "wf_1", 1, "Weekly short", [CONFIRM, PUBLISH])
     wait_for(lambda: status(runner, run.id) == "waiting_gate")
     (gate,) = runner.gates()
     assert gate.publish is not None
-    shown = gate.publish.schedule
+    seen = gate.publish.values()
     # "09:00" shown at 08:58 as today; confirmed at 09:01 it resolves to tomorrow.
     monkeypatch.setitem(RESOLVED, "schedule", "2099-01-02T09:00:00Z")
-    with pytest.raises(ValueError, match="schedule changed"):
-        runner.decide(run.id, title="Hooks", schedule=shown)
+    with pytest.raises(ValueError, match="When changed since the gate was shown"):
+        runner.decide(run.id, edits={"title": "Hooks"}, seen=seen)
     assert status(runner, run.id) == "waiting_gate"
     assert runner.get(run.id).decisions == []  # type: ignore[union-attr]
 
-    decided = runner.decide(run.id, title="Hooks", schedule="2099-01-02T09:00:00Z")
+    seen["schedule"] = "2099-01-02T09:00:00Z"
+    decided = runner.decide(run.id, edits={"title": "Hooks"}, seen=seen)
     assert decided.decisions[0].publish["schedule"] == "2099-01-02T09:00:00Z"  # type: ignore[index]
     wait_for(lambda: status(runner, run.id) == "done")
     assert [name for _, name in connector.calls] == ["publish"]
 
 
-def test_only_a_gate_before_a_publish_stage_takes_a_title(runner: Runner) -> None:
+def test_only_a_gate_before_a_publish_stage_takes_edits(runner: Runner) -> None:
     run = runner.start("world_1", "wf_1", 1, "Render", [CONFIRM, RENDER])
     wait_for(lambda: status(runner, run.id) == "waiting_gate")
     with pytest.raises(ValueError, match="only a gate before a publish stage"):
-        runner.decide(run.id, title="t")
+        runner.decide(run.id, edits={"title": "t"})
 
 
 def test_a_gate_before_a_stage_that_does_not_publish_has_no_preview(runner: Runner) -> None:
