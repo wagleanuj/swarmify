@@ -292,6 +292,50 @@ def read_manifest(folder: Path) -> dict[str, Any]:
     return check_manifest(manifest)
 
 
+def _changes(old: dict[str, Any], new: dict[str, Any]) -> dict[str, list[str]]:
+    return {
+        "added": sorted(new.keys() - old.keys()),
+        "removed": sorted(old.keys() - new.keys()),
+        "changed": sorted(k for k in old.keys() & new.keys() if old[k] != new[k]),
+    }
+
+
+def manifest_diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """What changes in a switch from one version's Manifest to another's (issue 223): its
+    params by property, its Setup fields by key, the fields newly required with no default
+    (added, or optional before), which need a value before the switch, and its permissions
+    as `network: api.example.com`."""
+
+    def props(m: dict[str, Any]) -> dict[str, Any]:
+        return (m.get("params") or {}).get("properties") or {}
+
+    def fields(m: dict[str, Any]) -> dict[str, Any]:
+        return {f["key"]: f for f in m.get("config", [])}
+
+    def grants(m: dict[str, Any]) -> set[str]:
+        return {f"{k}: {v}" for k, vs in m.get("permissions", {}).items() for v in vs}
+
+    before, after = fields(old), fields(new)
+
+    def was_required(f: dict[str, Any]) -> bool:
+        was = before.get(f["key"]) or before.get(f.get("renamed_from", ""), {})
+        return bool(was.get("required"))
+
+    return {
+        "params": _changes(props(old), props(new)),
+        "setup": _changes(before, after),
+        "required": [
+            k
+            for k, f in after.items()
+            if f.get("required") and "default" not in f and not was_required(f)
+        ],
+        "permissions": {
+            "added": sorted(grants(new) - grants(old)),
+            "removed": sorted(grants(old) - grants(new)),
+        },
+    }
+
+
 def _install_env() -> dict[str, str]:
     """What the install step sees: enough to find uv, npm and their caches, and none of the
     app's own variables (no keys, no VIRTUAL_ENV pointing at Swarmify's venv)."""
@@ -384,3 +428,15 @@ class Packages:
                 f"{manifest['name']}'s install step `{' '.join(step)}` failed"
                 f" ({done.returncode}): {tail}"
             )
+
+    def uninstall(self, name: str, version: str) -> None:
+        """Remove an installed version's folder. Raises InstallError when it is not installed.
+        Whether anything still uses it is the caller's to check first."""
+        installed = re.fullmatch(_SNAKE, name) and re.fullmatch(_VERSION, version)
+        folder = self.root / name / version
+        if not installed or not (folder / RECORD).is_file():
+            raise InstallError(f"{name} {version} is not installed")
+        (folder / RECORD).unlink()  # first, so a half-removed folder never counts as installed
+        shutil.rmtree(folder)
+        if not any(folder.parent.iterdir()):
+            folder.parent.rmdir()

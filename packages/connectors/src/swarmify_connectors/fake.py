@@ -19,6 +19,8 @@ class FakeTransport:
         self.outputs = outputs or {}
         self.starts: list[tuple[str, dict[str, str]]] = []
         self.calls: list[tuple[str, str, dict[str, Any], dict[str, str]]] = []
+        self.versions: list[str | None] = []
+        """The package version of each call's connector, beside `calls`."""
 
     def list_tools(self, connector: Connector, env: dict[str, str]) -> list[Tool]:
         self.starts.append((connector.name, env))
@@ -30,6 +32,7 @@ class FakeTransport:
         self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
     ) -> dict[str, Any]:
         self.calls.append((connector.name, tool, arguments, env))
+        self.versions.append(connector.version)
         answers = self.outputs.get(tool)
         if not answers:
             return {"ok": True}

@@ -400,6 +400,16 @@ the `problem` when its Manifest no longer passes), and the connectors page lists
 Installed packages. This is the first step: worlds do not enable packages yet, and today's
 built-ins keep working as above.
 
+Versions (issue 223): each saved workflow version records `packages`, the version of every
+package it calls as its world pinned it then, and its runs use those versions, never the
+world's current pin. Moving a world's pin (`PUT /api/worlds/{id}/packages/{name}`) first shows
+the Manifest diff on the connectors page (`GET .../packages/{name}/switch?version=`: params,
+Setup fields and permissions) and is refused while a newly required Setup field has no value; that version's Setup form
+(`.../setup?version=`) fills it in before the switch.
+`DELETE /api/packages/{name}/{version}` removes an installed version, refused with a 409 naming
+every world that pins it and every workflow version saved with it. On startup, versions saved
+before versions were recorded are stamped with their world's pins.
+
 The Manifest, every section checked at install even where Swarmify does not act on it yet:
 
 ```toml

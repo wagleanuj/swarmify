@@ -17,10 +17,10 @@ from swarmify_connectors import (
     KeyCheck,
     ManifestError,
     Package,
-    Packages,
     Tool,
 )
 from swarmify_connectors.setup import env_name, fields, scope
+from swarmify_workflows import Workflows
 from swarmify_worlds import Worlds
 
 
@@ -168,8 +168,34 @@ class SetupValues(BaseModel):
     """Field key to this world's own value, which wins over the shared one here."""
 
 
-def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRouter:
+class Changes(BaseModel):
+    added: list[str]
+    removed: list[str]
+    changed: list[str] = Field(default_factory=list)
+
+
+class PackageSwitch(BaseModel):
+    """What moving a world's pin to `to` changes in the package's Manifest (issue 223)."""
+
+    from_: str | None = Field(alias="from")
+    """The version the world pins now; null when it does not enable the package yet."""
+    to: str
+    params: Changes
+    """Its params, by property."""
+    setup: Changes
+    """Its Setup fields, by key."""
+    required: list[str]
+    """The keys of Setup fields newly required with no default."""
+    permissions: Changes
+    """Its permissions, as `network: api.example.org`."""
+    needs: list[str]
+    """The labels of newly required Setup fields with no value in this world: the switch waits
+    until each has one."""
+
+
+def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["connectors"])
+    packages = connectors.packages
 
     def view(connector: Connector) -> ConnectorView:
         m = connector.manifest
@@ -275,6 +301,34 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
         except InstallError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @api.delete("/packages/{name}/{version}", status_code=204)
+    def uninstall_package(name: str, version: str) -> Response:
+        """Remove an installed version. 409 naming every world that pins it and every saved
+        workflow version that records it, while any does: those keep running it."""
+        names = {w.id: w.name for w in worlds.list_all()}
+        users = [f"world {names.get(w, w)} pins it" for w in connectors.pinned_by(name, version)]
+        users += [
+            f"{wf.name} v{n} in world {names.get(wf.world_id, wf.world_id)} was saved with it"
+            for wf, n in workflows.using(name, version)
+        ]
+        if users:
+            raise HTTPException(409, f"{name} {version} is in use: {'; '.join(users)}")
+        try:
+            packages.uninstall(name, version)
+        except InstallError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Response(status_code=204)
+
+    @api.get("/worlds/{world_id}/packages/{name}/switch")
+    def package_switch(world_id: str, name: str, version: str) -> PackageSwitch:
+        """What moving this world's pin of the package to `version` changes in its Manifest
+        (params, Setup fields, permissions), and the new required fields it waits for."""
+        world_or_404(world_id)
+        try:
+            return PackageSwitch(**connectors.switch(world_id, name, version))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @api.get("/worlds/{world_id}/packages")
     def enabled_packages(world_id: str) -> list[EnabledPackage]:
         """The Connector Packages this world enables, each at the version it pins (ADR 0023)."""
@@ -284,7 +338,9 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
     @api.put("/worlds/{world_id}/packages/{name}")
     def enable_package(world_id: str, name: str, body: PinnedVersion) -> EnabledPackage:
         """Enable an installed package in this world at a version, or move its pin there; its
-        Connector then exists in this world, called by the package's name. 422 saying why not."""
+        Connector then exists in this world, called by the package's name. 422 saying why not,
+        as a switch to a version with a new required Setup field that has no value yet. Saved
+        workflow versions keep the version they recorded."""
         world_or_404(world_id)
         try:
             connectors.enable(world_id, name, body.version)
@@ -300,9 +356,9 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
             raise HTTPException(404, f"this world does not enable {name}")
         return Response(status_code=204)
 
-    def setup_view(world_id: str, name: str) -> SetupView:
+    def setup_view(world_id: str, name: str, version: str | None) -> SetupView:
         try:
-            connector, shared, world = connectors.setup_values(world_id, name)
+            connector, shared, world = connectors.setup_values(world_id, name, version)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
         m = connector.manifest
@@ -336,28 +392,33 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
         )
 
     @api.get("/worlds/{world_id}/packages/{name}/setup")
-    def get_setup(world_id: str, name: str) -> SetupView:
+    def get_setup(world_id: str, name: str, version: str | None = None) -> SetupView:
         """The Setup form of a package this world enables, drawn from its Manifest's
         `[[config]]` fields with what is saved for each (ADR 0024). Credentials are only set
-        or not. 404 when the world does not enable it."""
+        or not. `version`, an installed version other than the pinned one, draws that
+        version's form, so the fields a pin switch waits for are filled in before it. 404 when
+        the world does not enable it."""
         world_or_404(world_id)
-        return setup_view(world_id, name)
+        return setup_view(world_id, name, version)
 
     @api.put("/worlds/{world_id}/packages/{name}/setup")
-    def save_setup(world_id: str, name: str, body: SetupValues) -> SavedSetup:
+    def save_setup(
+        world_id: str, name: str, body: SetupValues, version: str | None = None
+    ) -> SavedSetup:
         """Save the package's shared values and this world's own. An empty value clears a
         Setting; an empty Credential keeps the saved one, null clears it. The package's test
         tool runs with the candidate values first; when it fails nothing is saved and the 422
-        carries its message. 422 also names a field that is invalid or required."""
+        carries its message. 422 also names a field that is invalid or required. `version` as
+        for the form."""
         world_or_404(world_id)
-        setup_view(world_id, name)  # 404 before anything else
+        setup_view(world_id, name, version)  # 404 before anything else
         try:
-            check = connectors.save_setup(world_id, name, body.shared, body.world)
+            check = connectors.save_setup(world_id, name, body.shared, body.world, version)
         except (ValueError, PermissionError) as exc:
             raise HTTPException(422, str(exc)) from exc
         if check is not None and not check.ok:
             raise HTTPException(422, f"Not saved. The test said: {check.message}")
-        return SavedSetup(**setup_view(world_id, name).model_dump(), check=check)
+        return SavedSetup(**setup_view(world_id, name, version).model_dump(), check=check)
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

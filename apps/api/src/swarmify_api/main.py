@@ -194,6 +194,7 @@ def workflow_service(
                 problems,
                 WorldTypes(registry, world_id, c),
                 tuple(c.input_types),
+                c.version,
             )
             for c in registry.list_all(world_id)
         }
@@ -305,14 +306,27 @@ def publish_config(
     return {**stage.config, "params": params}, metadata, problem
 
 
-def previews(registry: Connectors, worlds: Worlds) -> Previews:
-    """Runs learns what a stage will publish from the registry, which knows connector kinds."""
+def recorded_pins(workflows: Workflows, run: Run) -> dict[str, str]:
+    """The package versions the run's workflow version recorded (issue 223): the run resolves
+    those packages at them, never at the world's current pin."""
+    if not (run.workflow_id and run.workflow_version):
+        return {}
+    version = workflows.version(run.workflow_id, run.workflow_version)
+    return version.packages if version else {}
+
+
+def previews(
+    registry: Connectors, worlds: Worlds, pins: Callable[[Run], dict[str, str]]
+) -> Previews:
+    """Runs learns what a stage will publish from the registry, which knows connector kinds,
+    at the package versions `pins` gives for the run."""
 
     def preview(run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPreview | None:
-        if not registry.is_publish(run.world_id, stage.config):
+        recorded = pins(run)
+        if not registry.is_publish(run.world_id, stage.config, recorded):
             return None
         config, metadata, problem = publish_config(worlds.folder(run.world_id), run, stage)
-        shown = registry.publish_preview(run.world_id, config, metadata, edits)
+        shown = registry.publish_preview(run.world_id, config, metadata, edits, recorded)
         assert shown is not None  # is_publish above
         if problem:
             shown["problems"].append(problem)
@@ -325,6 +339,7 @@ def previews(registry: Connectors, worlds: Worlds) -> Previews:
 def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
     """Act on runs from a process that does not host DBOS, such as the MCP server."""
     worlds = world_service(root)
+    workflows = workflow_service(root)
 
     def monthly(world_id: str) -> float | None:
         world = worlds.get(world_id)
@@ -335,7 +350,7 @@ def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
         root / "dbos.sqlite",
         root,
         notifier or notification_service(root),
-        previews(connector_service(root), worlds),
+        previews(connector_service(root), worlds, lambda run: recorded_pins(workflows, run)),
         monthly=monthly,
     )
 
@@ -519,13 +534,17 @@ def create_app(
         memory.record(run.world_id, run.id, stage_id, "remotion_build", Path(params["output_path"]))
         shutil.rmtree(project / "node_modules", ignore_errors=True)
 
+    def pins(run: Run) -> dict[str, str]:
+        return recorded_pins(workflow_svc, run)
+
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
         if stage.config.get("calls") == "remotion_build":
             return build_stage(run, stage_id, stage)
-        if not registry.is_publish(run.world_id, stage.config):
+        recorded = pins(run)
+        if not registry.is_publish(run.world_id, stage.config, recorded):
             folder = world_svc.folder(run.world_id)
             config = with_files(folder, run, stage_id, stage.config)
-            registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
+            registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs, recorded)
             output = Path(config["params"].get("output_path") or "")
             if output.is_file():  # announce what the connector left as an artifact
                 memory.record(run.world_id, run.id, stage_id, str(stage.config["calls"]), output)
@@ -540,7 +559,7 @@ def create_app(
         config, metadata, problem = publish_config(folder, run, stage)
         if problem:
             raise ConnectorError(problem)
-        shown = registry.publish_preview(run.world_id, config, metadata, confirmed)
+        shown = registry.publish_preview(run.world_id, config, metadata, confirmed, recorded)
         assert shown is not None  # is_publish above
         if shown["problems"]:
             raise ConnectorError("; ".join(shown["problems"]))
@@ -556,7 +575,7 @@ def create_app(
             config["params"]["input_paths"] = [
                 str(run_file(folder, run, str(n))) for n in config["inputs"]
             ]
-        call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
+        call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs, recorded)
         out = registry.publish_result(call)
         memory.write_artifact(
             run.world_id,
@@ -605,10 +624,10 @@ def create_app(
             return staged or (world.model_for(role) if world else None)
 
         cast = [CastEntry(m.name, m.role, m.prompt, m.tools, model(m.role)) for m in members]  # type: ignore[arg-type]
-        config = dict(stage.config)
+        config = {**stage.config, "packages": pins(run)}  # the agents' connector versions
         promised = "".join(str(config.get("output_type") or "").split())
         schema = registry.type_schema(
-            run.world_id, promised.removeprefix("list[").removesuffix("]")
+            run.world_id, promised.removeprefix("list[").removesuffix("]"), config["packages"]
         )
         if schema is not None:  # a type a connector declares: the judge projects its schema
             config["output_schema"] = schema
@@ -678,7 +697,7 @@ def create_app(
         notifier or channels,
         swarm=run_swarm,
         take=take,
-        previews=previews(registry, world_svc),
+        previews=previews(registry, world_svc, pins),
         spend=spend,
         monthly=lambda w: setting(w, "monthly_budget_usd"),
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
@@ -686,6 +705,8 @@ def create_app(
     )
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
+    # On upgrade: versions saved before they recorded package versions take the world's pins.
+    workflow_svc.stamp(registry.enabled)
 
     def swarm_tools(world_id: str) -> list[str]:
         """The Agent Tools and the world's connectors a swarm stage may use: an Ad Hoc Run's
@@ -769,7 +790,7 @@ def create_app(
     app.include_router(
         runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)
     )
-    app.include_router(connectors.router(registry, world_svc, registry.packages))
+    app.include_router(connectors.router(registry, world_svc, workflow_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))

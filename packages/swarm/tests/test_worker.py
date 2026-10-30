@@ -390,7 +390,9 @@ def test_tools_outside_the_stage_allowlist_are_denied(board: SqliteStorage, tmp_
     )
     servers: list[list[str]] = []
 
-    def connectors(world_id: str, names: list[str]) -> dict[str, dict[str, object]]:
+    def connectors(
+        world_id: str, names: list[str], packages: dict[str, str]
+    ) -> dict[str, dict[str, object]]:
         servers.append(names)
         return {n: {"type": "stdio", "command": n} for n in names}
 

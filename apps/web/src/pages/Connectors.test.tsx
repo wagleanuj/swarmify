@@ -237,6 +237,66 @@ test("lists installed packages beside the built-ins with version, kind, about an
   await expect.element(screen.getByText(/Web search and the world's graph are not connectors/)).toBeVisible();
 });
 
+const unchanged = {
+  from: "1.0.0",
+  to: "1.1.0",
+  params: { added: [], removed: [], changed: [] },
+  setup: { added: [], removed: [], changed: [] },
+  required: [],
+  permissions: { added: [], removed: [], changed: [] },
+  needs: [],
+};
+
+test("a switch shows the Manifest diff and waits for a new required Setup field; an uninstall in use says who uses it", async () => {
+  const asked: string[] = [];
+  const region = { key: "region", label: "Region", type: "string", secret: false, required: true, scope: "world", env: "REGION", help: null, options: null, default: null, min: null, max: null, pattern: null, shared: null, world: null, shared_set: false, world_set: false };
+  const pkg = { name: "echo", label: "Echo", kind: "stage", about: "Says it back.", source: "connectors/echo", installed_at: "2026-10-30T10:00:00+00:00", state: "installed", problem: null };
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  const calls = fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json(builtins),
+    "GET /api/packages": () => Response.json([{ ...pkg, version: "1.0.0" }, { ...pkg, version: "2.0.0" }]),
+    "GET /api/worlds/world_1/packages": () => Response.json([{ name: "echo", version: "1.0.0" }]),
+    "GET /api/worlds/world_1/packages/echo/switch": () =>
+      Response.json({
+        ...unchanged,
+        to: "2.0.0",
+        params: { added: ["speed"], removed: [], changed: ["loud"] },
+        setup: { added: ["region"], removed: [], changed: [] },
+        required: ["region"],
+        permissions: { added: ["network: eu.example.org"], removed: [], changed: [] },
+        needs: ["Region"],
+      }),
+    "GET /api/worlds/world_1/packages/echo/setup": (req) => {
+      asked.push(new URL(req.url).search);
+      return Response.json({ package: "echo", version: "2.0.0", help_url: null, test: null, fields: [region], missing: ["region"] });
+    },
+    "DELETE /api/packages/echo/1.0.0": () =>
+      Response.json({ detail: "echo 1.0.0 is in use: world Video pins it; Say it v1 in world Video was saved with it" }, { status: 409 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Enable echo 2.0.0" }).click();
+  const shown = screen.getByRole("region", { name: "Switch echo to 2.0.0" });
+  await expect.element(shown).toMatchTextContent(/Switch Echo from 1\.0\.0 to 2\.0\.0/);
+  await expect.element(shown).toMatchTextContent(/Workflow versions saved on 1\.0\.0 keep running it/);
+  await expect.element(shown).toMatchTextContent(/Params\s*Added speed\. Changed loud/);
+  await expect.element(shown).toMatchTextContent(/Setup fields\s*Added region/);
+  await expect.element(shown).toMatchTextContent(/Permissions\s*Added network: eu\.example\.org/);
+  await expect.element(shown.getByRole("status")).toHaveTextContent("Fill in Region in Echo 2.0.0's Setup first; the switch waits for it.");
+  await expect.element(shown.getByRole("button", { name: "Switch to 2.0.0" })).toBeDisabled();
+  await shown.getByRole("button", { name: "Set up echo" }).click();
+  await expect.element(shown.getByRole("form", { name: "Setup of Echo 2.0.0" })).toMatchTextContent(/Region · this world/);
+  expect(asked).toEqual(["?version=2.0.0"]);
+  await shown.getByRole("button", { name: "Keep 1.0.0" }).click();
+  expect(screen.getByRole("region", { name: "Switch echo to 2.0.0" }).elements()).toHaveLength(0);
+  expect(calls).not.toContain("PUT /api/worlds/world_1/packages/echo");
+
+  await screen.getByRole("button", { name: "Uninstall echo 1.0.0" }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(
+    "echo 1.0.0 is in use: world Video pins it; Say it v1 in world Video was saved with it",
+  );
+});
+
 test("shows which packages this world enables at which version, and enables, switches and disables them", async () => {
   const pkg = { name: "echo", label: "Echo", kind: "stage", about: "Says it back.", source: "connectors/echo", installed_at: "2026-10-30T10:00:00+00:00", state: "installed", problem: null };
   let enabled = [{ name: "echo", version: "1.0.0" }];
@@ -258,6 +318,7 @@ test("shows which packages this world enables at which version, and enables, swi
       enabled = [];
       return new Response(null, { status: 204 });
     },
+    "GET /api/worlds/world_1/packages/echo/switch": () => Response.json(unchanged),
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
   const rows = screen.getByRole("list", { name: "Installed packages" }).getByRole("listitem");
@@ -268,13 +329,17 @@ test("shows which packages this world enables at which version, and enables, swi
   expect(screen.getByRole("button", { name: "Remove echo" }).elements()).toHaveLength(0);
 
   await screen.getByRole("button", { name: "Enable echo 1.1.0" }).click();
+  const shown = screen.getByRole("region", { name: "Switch echo to 1.1.0" });
+  await expect.element(shown).toMatchTextContent(/params, Setup fields and permissions are unchanged/);
+  expect(bodies).toEqual([]);
+  await shown.getByRole("button", { name: "Switch to 1.1.0" }).click();
   await expect.element(rows.last()).toMatchTextContent(/Enabled here/);
   await expect.element(rows.first()).toMatchTextContent(/Switch from 1\.1\.0/);
   expect(bodies).toEqual([{ version: "1.1.0" }]);
 
   await screen.getByRole("button", { name: "Disable echo 1.1.0" }).click();
-  await expect.element(rows.first()).toMatchTextContent(/Installed\s*Enable$/);
-  await expect.element(rows.last()).toMatchTextContent(/Installed\s*Enable$/);
+  await expect.element(rows.first()).toMatchTextContent(/Installed\s*Enable\s*Uninstall$/);
+  await expect.element(rows.last()).toMatchTextContent(/Installed\s*Enable\s*Uninstall$/);
   expect(calls).toContain("DELETE /api/worlds/world_1/packages/echo");
   expect(screen.getByRole("list", { name: "Steps of their own" }).elements()).toHaveLength(0);
 });
