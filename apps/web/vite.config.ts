@@ -10,6 +10,8 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
+      // A desktop window by default; phone tests set 390 x 844 themselves.
+      viewport: { width: 1280, height: 800 },
       provider: playwright(),
       instances: [{ browser: "chromium" }],
     },

@@ -56,3 +56,27 @@ p.ask { margin: 0; font-size: 18px; line-height: 1.35; max-width: 44rem; }
 @media (max-width: 860px) { .inbox { grid-template-columns: minmax(0, 1fr); } }
 .proposal { display: grid; gap: 12px; }
 .proposal ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+
+/* The phone (#178): the open decisions as a row of chips, and the answer in a bar pinned above
+   the tab bar, Send back first and the primary last, so the work never scrolls past the answer. */
+@media (max-width: 48rem) {
+  .queue { display: flex; gap: 6px; overflow-x: auto; margin: 0 -16px; padding: 0 16px; background: none; border: 0; border-radius: 0; scrollbar-width: none; }
+  .q-item { flex: none; padding: 5px 11px; border: 1px solid var(--control); border-radius: 999px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .q-item .meta, .q-item .muted, .q-item.done, .q-item[aria-current]::before { display: none; }
+  .q-item[aria-current] { background: var(--text); border-color: var(--text); color: #000; }
+  .q-item[aria-current] b { font-weight: 600; }
+  main:has(.gate-actions) { padding-bottom: calc(48px + 65px); }
+  .gate .gate-form .gate-actions { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 14; flex-wrap: nowrap; gap: 10px; margin: 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--rule); box-shadow: 0 -8px 20px #0b0b0d; }
+  .gate-actions > .faint { display: none; }
+  .gate-actions > button, .gate-actions > .menu-wrap, .gate-actions .menu-wrap > button { flex: 1; min-height: 44px; border-radius: 999px; font-weight: 650; font-size: 14px; }
+  .gate-actions > .primary { order: 1; }
+  .gate-actions .menu { top: auto; bottom: calc(100% + 6px); }
+  .needs-you header.page { flex-wrap: nowrap; align-items: center; margin-bottom: 12px; }
+  .needs-you header.page .sub { display: none; } /* the chips carry the count */
+  .needs-you header.page label { display: flex; align-items: center; gap: 8px; margin: 0; }
+  .pick-card { grid-template-columns: minmax(0, 1fr); }
+  .pick-card .rank { grid-row: auto; }
+  .pick-card > b, .pick-card > .hook, .pick-card > details { grid-column: 1; }
+  .gate-actions .menu button { justify-content: stretch; }
+  .gate-list .gate .artifact-view video { width: auto; max-width: 100%; max-height: 300px; }
+}

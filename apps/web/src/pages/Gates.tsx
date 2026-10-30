@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { api } from "../api/client";
 import { dropGate, reloadGates, useOpenGates } from "../api/gates";
@@ -29,6 +29,15 @@ const KIND: Record<Gate["kind"], string> = {
   skill: "Review a skill change",
 };
 
+/** Below the web skin's 48rem breakpoint, where a gate's answer sits in a bar above the tab bar. */
+const PHONE = "(max-width: 48rem)";
+const onPhoneChange = (on: () => void) => {
+  const m = window.matchMedia(PHONE);
+  m.addEventListener("change", on);
+  return () => m.removeEventListener("change", on);
+};
+const usePhone = () => useSyncExternalStore(onPhoneChange, () => window.matchMedia(PHONE).matches);
+
 const ago = (at: number) => `${took(Math.max(0, (Date.now() - at) / 1000))} ago`;
 
 type Answered = { gate: Gate; said: string; at: string };
@@ -36,6 +45,7 @@ type Answered = { gate: Gate; said: string; at: string };
 export function Gates() {
   const search = gatesRoute.useSearch();
   const navigate = useNavigate();
+  const phone = usePhone();
   const open = useOpenGates();
   const [worlds, setWorlds] = useState<World[]>([]);
   const [refused, setRefused] = useState<string | null>(null);
@@ -94,7 +104,7 @@ export function Gates() {
     : "Every open gate from every world lands here.";
 
   return (
-    <main>
+    <main className="needs-you">
       <header className="page">
         <div>
           <h1>Needs you</h1>
@@ -119,8 +129,10 @@ export function Gates() {
       {open.gates === null && !error && <p role="status">Loading...</p>}
       {open.gates !== null && (
         <div className="inbox">
+          {/* On a phone the queue is a row of chips, and only when there is a choice to make. */}
+          {!(phone && waiting.length < 2) && (
           <nav className="queue" aria-label="Waiting decisions" data-testid="queue">
-            {waiting.map((g) => (
+            {waiting.map((g, i) => (
               <Link
                 key={g.stage_id}
                 className="q-item"
@@ -132,7 +144,10 @@ export function Gates() {
                   <span>{worldName(g.world_id)}</span>
                   <span>{ago(Date.parse(g.opened_at))}</span>
                 </span>
-                <b>{KIND[g.kind]}</b>
+                <b>
+                  {phone && g === selected && `${i + 1} of ${waiting.length} · `}
+                  {KIND[g.kind]}
+                </b>
                 <span className="muted">{g.run_name}</span>
               </Link>
             ))}
@@ -153,6 +168,7 @@ export function Gates() {
             ))}
             {waiting.length === 0 && done.length === 0 && <p className="faint">No decisions here.</p>}
           </nav>
+          )}
           <div className="inbox-main">
             {last && (
               <p className="notice" role="status" data-testid="answered">
@@ -221,6 +237,9 @@ export function GateCard({
   onAnswer: Answer;
 }) {
   const [busy, setBusy] = useState(false);
+  const phone = usePhone();
+  // The pick so far (a card's path, or the typed name), so a phone's primary can name it.
+  const [chosen, setChosen] = useState("");
   // The earlier step a Send back menu item chose; the form then submits with it.
   const sendBack = useRef<string | null>(null);
   const form = useRef<HTMLFormElement>(null);
@@ -241,6 +260,14 @@ export function GateCard({
 
   const cards = gate.kind === "pick" && artifacts ? choosable(artifacts) : [];
   const reviewed = gate.kind === "approve" && artifacts ? underReview(artifacts) : [];
+  const card = cards.findIndex((c) => c.path === chosen);
+  const pickLabel = !phone
+    ? "Continue with this pick"
+    : card >= 0
+      ? `Continue with #${String(cards[card]!.fields.rank ?? card + 1)}`
+      : chosen
+        ? "Continue with this pick"
+        : "Continue";
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -318,7 +345,16 @@ export function GateCard({
       {gate.kind === "skill" ? (
         <SkillGate gate={gate} onAnswer={onAnswer} />
       ) : (
-      <form ref={form} onSubmit={submit} className="gate-form" aria-label={`Answer ${gate.stage_name}`}>
+      <form
+        ref={form}
+        onSubmit={submit}
+        onChange={(e) => {
+          const f = e.target as unknown as HTMLInputElement;
+          if (f.name === "artifact" || f.name === "choice") setChosen(f.value.trim());
+        }}
+        className="gate-form"
+        aria-label={`Answer ${gate.stage_name}`}
+      >
         {gate.publish && <WhatGoesOut preview={gate.publish} />}
         {gate.kind === "budget" && (
           <>
@@ -369,8 +405,8 @@ export function GateCard({
         <div className="row gate-actions">
           {gate.kind === "pick" && (
             <>
-              <button type="submit" className="primary" disabled={busy || artifacts === null}>
-                Continue with this pick
+              <button type="submit" className="primary" disabled={busy || artifacts === null || (phone && !chosen)}>
+                {pickLabel}
               </button>
               {cards.length > 0 && (
                 <span className="faint">The ones you pass on stay in the library.</span>
@@ -398,7 +434,7 @@ export function GateCard({
                 <>
                   <Menu
                     label="Send back to..."
-                    button="Send back to..."
+                    button={phone ? "Send back…" : "Send back to..."}
                     items={[...gate.earlier_stages].reverse().map((name) => ({
                       label: name,
                       note: `Redo ${name} with your notes`,
