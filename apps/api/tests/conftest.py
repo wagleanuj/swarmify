@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
+from api_fakes import youtube_preview
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -18,7 +19,9 @@ from swarmify_swarm.fake import Script
 
 @pytest.fixture
 def transport() -> FakeTransport:
-    return FakeTransport()
+    """Every package's `preview` answers as the youtube package's own does; a test of another
+    publish connector sets its own."""
+    return FakeTransport(outputs={"preview": [youtube_preview]})
 
 
 @pytest.fixture

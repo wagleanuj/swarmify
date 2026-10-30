@@ -281,15 +281,15 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
     @api.put("/connectors/{connector_id}/credentials")
     def set_credentials(connector_id: str, body: CredentialValues) -> SavedKeys:
         """Store a connector's keys in the credentials file, shared by every world; how
-        built-ins get theirs. A built-in publish connector's keys are then checked live."""
+        built-ins get theirs."""
         found = connectors.get(connector_id)
         if found is None:
             raise HTTPException(404, "connector not found")
         try:
-            check = connectors.set_credentials(found, body.credentials)
+            connectors.set_credentials(found, body.credentials)
         except (ValueError, PermissionError) as exc:
             raise HTTPException(422, str(exc)) from exc
-        return SavedKeys(**view(found).model_dump(), check=check)
+        return SavedKeys(**view(found).model_dump(), check=None)
 
     @api.get("/connectors/{connector_id}/health")
     def connector_health(connector_id: str) -> list[HealthCheck]:

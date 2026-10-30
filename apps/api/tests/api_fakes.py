@@ -1,9 +1,38 @@
-"""Shared helpers for the API tests: a polling wait and the recording Notifier fake."""
+"""Shared helpers for the API tests: a polling wait, the recording Notifier fake, and the youtube
+package's own preview with its account signed in, for tests that publish through it over the
+fake ConnectorTransport."""
 
+import importlib.util
 import time
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
+from swarmify_connectors.setup import SetupStore
 from swarmify_kernel import Event
+
+_spec = importlib.util.spec_from_file_location(
+    "youtube_package", Path(__file__).parents[3] / "connectors/youtube/youtube.py"
+)
+assert _spec and _spec.loader
+youtube = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(youtube)
+YOUTUBE_ENV = {"YOUTUBE_ACCESS_TOKEN": "at"}
+"""What the youtube package's process gets once `sign_in_youtube` has run."""
+
+
+def youtube_preview(args: dict[str, Any]) -> dict[str, Any]:
+    """The youtube package's `preview`, answering as its MCP tool does."""
+    return youtube.preview_of(args)
+
+
+def sign_in_youtube(data_dir: Path) -> None:
+    """The youtube package's account signed in, as a sign-in on the Connectors page leaves it."""
+    store = SetupStore(data_dir / "setup.json")
+    store.put_value("youtube", None, "youtube_client_id", "id")
+    store.put_value("youtube", None, "youtube_client_secret", "s")
+    tokens = {"access_token": "at", "refresh_token": "rt", "expires_at": time.time() + 3600}
+    store.put_value("youtube", None, "youtube", tokens)
 
 
 def until(check: Callable[[], bool]) -> None:

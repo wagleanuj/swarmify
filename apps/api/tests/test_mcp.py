@@ -95,11 +95,10 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
 
         refused = await client.call_tool(
             "save_workflow",
-            {"world_id": world.id, "yaml": "name: x\nstages:\n  - connector: youtube\n"},
+            {"world_id": world.id, "yaml": "name: x\nstages:\n  - connector: remotion_render\n"},
         )
         assert not refused.is_error and refused.structured_content
         assert [v["rule"] for v in refused.structured_content["violations"]] == [
-            "publish_without_gate",
             "connector_params",
             "connector_params",
         ]
