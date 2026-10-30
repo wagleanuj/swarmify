@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_api.main import run_storage
+from swarmify_learning.evals import TASKS, workflow_yaml
 from swarmify_runs import RunControl
 
 WEEKLY = """name: Weekly short
@@ -349,3 +350,30 @@ stages:
         ("connector_params", "publish", "a publish stage needs params.title"),
     ]
     assert client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": kids}).status_code == 422
+
+
+def test_every_starter_workflow_passes_the_check_in_a_new_world(client: TestClient) -> None:
+    world_id = _world(client)
+    starters = client.get("/api/workflows/starters").json()
+    names = [s["name"] for s in starters]
+    assert names == ["Research brief", "Draft with approval", "Scheduled monitor", "Weekly short"]
+    for starter in starters:
+        check = {"yaml": starter["yaml"]}
+        report = client.post(f"/api/worlds/{world_id}/workflows/check", json=check).json()
+        assert report["violations"] == [], starter["name"]
+        assert report["model"]["name"] == starter["name"] and starter["about"]
+        assert (report["next_run_at"] is not None) == (starter["name"] == "Scheduled monitor")
+    gated = [s["name"] for s in starters if "  - gate:" in s["yaml"]]
+    assert gated == ["Draft with approval", "Weekly short"]
+
+
+def test_every_eval_task_names_a_starter_and_runs_a_workflow_that_passes_the_check(
+    client: TestClient,
+) -> None:
+    world_id = _world(client)
+    starters = {s["name"] for s in client.get("/api/workflows/starters").json()}
+    assert {t.workflow for t in TASKS} == starters
+    for task in TASKS:
+        check = {"yaml": workflow_yaml(task, 5.0)}
+        report = client.post(f"/api/worlds/{world_id}/workflows/check", json=check).json()
+        assert report["violations"] == [], task.id

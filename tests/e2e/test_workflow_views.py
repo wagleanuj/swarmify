@@ -19,6 +19,7 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
     other = api.post("/worlds", json={"name": "Research"}).json()["id"]
     try:
         page.goto(f"{base_url}/worlds/{world}/workflows/new")
+        page.get_by_role("button", name=re.compile("^Weekly short")).click()
         cards = page.get_by_test_id("stage-rows")
         expect(cards.locator("li")).to_have_count(2)
         # Every swarm stage declares a goal, a done condition, tools and an output type (14).

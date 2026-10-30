@@ -70,6 +70,5 @@ def test_an_installed_package_shows_on_the_connectors_page(page: Page, base_url:
         expect(row).to_contain_text("Echo")
         expect(row).to_contain_text("echo 1.0.0")
         expect(row).to_contain_text("Installed")
-        expect(page.get_by_test_id("connector-list")).to_contain_text("Web search")
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")

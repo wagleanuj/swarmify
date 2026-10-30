@@ -1,11 +1,11 @@
-"""`swarmify-eval`: run the weekly short as baseline and as swarm over the eval task set, against
-a running swarmify API (with the real model behind it), and store the report in the eval world.
+"""`swarmify-eval`: run each eval task's starter workflow as baseline and as swarm, against a
+running swarmify API (with the real model behind it), and store the report in the eval world.
 
 Each trial gets a fresh world, its own copy of the workflow and one run; the outputs it left
-(`ideas.md`, `script.md`) are graded, never the path it took, and each pair of trials (one an
-arm, same task and number) goes to the API's blind judge, which picks the better pair. A retro
-proposal is rejected so the run can end, a budget gate or the timeout aborts the trial, which
-then fails.
+(a brief, a draft, a typed list, ideas and a script) are graded, never the path it took, and
+each pair of trials (one an arm, same task and number) goes to the API's blind judge, which
+picks the better pair. A retro proposal is rejected so the run can end, a budget gate or the
+timeout aborts the trial, which then fails.
 
     uv run swarmify-eval --k 3                  # every task, 3 trials an arm
     uv run swarmify-eval --tasks 2 --k 1        # a smoke run
@@ -156,7 +156,8 @@ def run_eval(
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        prog="swarmify-eval", description="Run the eval: the weekly short as baseline and as swarm."
+        prog="swarmify-eval",
+        description="Run the eval: starter workflows as baseline and as swarm.",
     )
     p.add_argument("--api", default=os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000"))
     p.add_argument("--k", type=int, default=3, help="trials an arm per task (default 3)")

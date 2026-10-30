@@ -25,18 +25,18 @@ def test_a_worker_runs_the_stage_and_the_page_shows_its_live_log(
 
         expect(page.get_by_test_id("status-line")).to_have_text(re.compile(r"^Done in "))
         log = page.get_by_test_id("log")
-        expect(log).to_contain_text("Gilfoyle: Searching the world's memory")
-        expect(log).to_contain_text("Gilfoyle: Claimed: the next task")
-        expect(log).to_contain_text("Gilfoyle: Refused Bash: Bash is not allowed in this stage.")
-        expect(log).to_contain_text("Gilfoyle: Writing notes/findings.md")
-        expect(log).to_contain_text("Richard: Session ended")
-        expect(log).to_contain_text("Erlich: Session ended")
+        expect(log).to_contain_text("Worker 1: Searching the world's memory")
+        expect(log).to_contain_text("Worker 1: Claimed: the next task")
+        expect(log).to_contain_text("Worker 1: Refused Bash: Bash is not allowed in this stage.")
+        expect(log).to_contain_text("Worker 1: Writing notes/findings.md")
+        expect(log).to_contain_text("Planner: Session ended")
+        expect(log).to_contain_text("Judge: Session ended")
         expect(page.get_by_test_id("agent").nth(1)).to_contain_text("worker · $0.0042")
         expect(page.get_by_test_id("agent").nth(1)).to_contain_text("Finished")
         # Planner, worker, judge and retro at $0.0042 each, about two cents.
         expect(page.get_by_test_id("budget")).to_contain_text("$0.02")
         expect(page.get_by_test_id("col-done")).to_contain_text(
-            "Pull this week's top shortsdone by Gilfoyle"
+            "Pull this week's top shortsdone by Worker 1"
         )
         expect(page.get_by_test_id("verdict")).to_contain_text("pass on loop 1 of 4.")
         expect(page.get_by_test_id("verdict")).to_contain_text("Two ideas, ranked.")

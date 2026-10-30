@@ -50,11 +50,11 @@ test("a swarm stage shows its agents as cards saying what each does now, and a l
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   const card = screen.getByTestId("agent");
-  await expect.element(card).toMatchTextContent(/Gilfoyle\s*working\s*worker · \$0\.0123 · claude-haiku-4-5/);
+  await expect.element(card).toMatchTextContent(/Worker 1\s*working\s*worker · \$0\.0123 · claude-haiku-4-5/);
   await expect.element(card.getByTestId("doing")).toHaveTextContent("Claimed: Fact-check the candidates");
   await expect.element(card.getByText("2 skills")).toBeVisible();
   await expect.element(card.getByText("world_1:hooks, deep-research")).not.toBeVisible();
-  await expect.element(screen.getByTestId("log")).toMatchTextContent(/10:00:01 Gilfoyle: Searching the world's memory/);
+  await expect.element(screen.getByTestId("log")).toMatchTextContent(/10:00:01 Worker 1: Searching the world's memory/);
   expect(screen.getByTestId("run-cost").query()).toBeNull(); // one spend line, under the result
 
   FakeEventSource.emit("agent.logged", {
@@ -67,7 +67,7 @@ test("a swarm stage shows its agents as cards saying what each does now, and a l
     payload: entry(5, { kind: "denied", tool: "Bash", detail: "Bash is not allowed in this stage." }),
   });
   FakeEventSource.emit("agent.updated", { payload: agent({ status: "done", cost_usd: 0.05 }) });
-  await expect.element(screen.getByTestId("log")).toMatchTextContent(/kookaburra call"\s*10:00:01 Gilfoyle: Refused Bash: Bash is not allowed in this stage\.$/);
+  await expect.element(screen.getByTestId("log")).toMatchTextContent(/kookaburra call"\s*10:00:01 Worker 1: Refused Bash: Bash is not allowed in this stage\.$/);
   await expect.element(card).toMatchTextContent(/done\s*worker · \$0\.0500.*Finished/);
 });
 
@@ -84,7 +84,7 @@ test("a JSON answer in the log collapses to one line that opens", async () => {
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   const log = screen.getByTestId("log");
-  await expect.element(log).toMatchTextContent(/Richard: Session ended at an estimated \$0\.2105\.\s*Planned 2 tasks\{/);
+  await expect.element(log).toMatchTextContent(/Planner: Session ended at an estimated \$0\.2105\.\s*Planned 2 tasks\{/);
   await expect.element(log.getByText('"title": "a"', { exact: false })).not.toBeVisible();
   await log.getByText("Planned 2 tasks").click();
   await expect.element(log.getByText('"title": "a"', { exact: false })).toBeVisible();

@@ -23,6 +23,17 @@ def _run(page: Page, base_url: str) -> None:
     expect(page.get_by_test_id("no-workflows")).to_be_visible()
 
     page.get_by_role("link", name="New workflow").click()
+    # A new workflow opens on the first starter, with the others a click away.
+    starters = page.get_by_role("region", name="Starter workflows").get_by_role("button")
+    expect(starters).to_have_count(4)
+    for name in ("Research brief", "Draft with approval", "Scheduled monitor", "Weekly short"):
+        expect(starters.filter(has_text=name)).to_have_count(1)
+    expect(page.get_by_role("heading", name="Research brief", level=1)).to_be_visible()
+    expect(page.get_by_test_id("problems")).to_contain_text("Checks pass")
+    starters.filter(has_text="Scheduled monitor").click()
+    expect(page.get_by_test_id("schedule")).to_contain_text("0 8 * * 1")
+    expect(page.get_by_test_id("problems")).to_contain_text("Checks pass")
+    starters.filter(has_text="Weekly short").click()
     expect(page.get_by_role("heading", name="Weekly short", level=1)).to_be_visible()
     expect(page.get_by_test_id("problems")).to_contain_text("Checks pass")
     expect(page.get_by_test_id("stage-rows")).to_contain_text("research")

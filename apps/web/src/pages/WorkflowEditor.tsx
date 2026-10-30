@@ -4,30 +4,19 @@ import YAML from "yaml";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { role } from "../skin";
 import { usePhone } from "../usePhone";
 import { Scorecard } from "./Scorecard";
 
 type Violation = components["schemas"]["Violation"];
 type WorkflowModel = components["schemas"]["WorkflowModel"];
 type WorkflowVersion = components["schemas"]["WorkflowVersion"];
+type Starter = components["schemas"]["Starter"];
 type World = components["schemas"]["World"];
-export const EDITOR_TABS = ["stages", "richard", "yaml", "scorecard"] as const;
+export const EDITOR_TABS = ["stages", "planner", "yaml", "scorecard"] as const;
 export type EditorTab = (typeof EDITOR_TABS)[number];
 type Doc = Record<string, unknown>;
 type RawStage = Record<string, unknown>;
-
-export const STARTER = `name: Weekly short
-budget_usd: 5
-stages:
-  - swarm: research
-    goal: Find 5 short-form video ideas trending this week. Check the graph for what we already published.
-    done_when: 5 ideas ranked, each with a hook line and a why
-    tools: [web_search, graph]
-    output_type: list[idea]
-  - gate: pick
-    ask: Pick one idea. Optional note for the script.
-    kind: pick
-`;
 
 const CHECK_DELAY_MS = 300;
 const STAGE_TYPES = ["swarm", "gate", "connector", "workflow"] as const;
@@ -139,7 +128,8 @@ export function WorkflowEditor() {
   const router = useRouter();
   const [worlds, setWorlds] = useState<World[]>([]);
   const [versions, setVersions] = useState<WorkflowVersion[]>([]);
-  const [text, setText] = useState<string | null>(workflowId ? null : STARTER);
+  const [starters, setStarters] = useState<Starter[]>([]);
+  const [text, setText] = useState<string | null>(null);
   const [savedText, setSavedText] = useState<string | null>(null);
   const [violations, setViolations] = useState<Violation[] | null>(null);
   const [model, setModel] = useState<WorkflowModel | null>(null);
@@ -163,6 +153,22 @@ export function WorkflowEditor() {
       .then(({ data }) => setWorlds(data ?? []))
       .catch(() => undefined);
   }, [worldId]);
+
+  // A new workflow opens on the first starter; the others sit above the tabs.
+  useEffect(() => {
+    if (workflowId) return;
+    api
+      .GET("/api/workflows/starters")
+      .then(({ data }) => {
+        if (!data) throw new Error("load failed");
+        setStarters(data);
+        setText((t) => t ?? data[0]?.yaml ?? "");
+      })
+      .catch(() => {
+        setText((t) => t ?? "");
+        setError("Could not load the starter workflows. Write one in YAML, or reload.");
+      });
+  }, [workflowId]);
 
   useEffect(() => {
     if (!workflowId) return;
@@ -290,7 +296,13 @@ export function WorkflowEditor() {
     saved(result.data, text);
   }
 
-  /** A version is saved: by the save button, or by Richard when asked to. */
+  /** Swap the draft for a starter; asks first when the draft is more than an untouched starter. */
+  function begin(starter: Starter) {
+    const untouched = !text?.trim() || starters.some((s) => s.yaml === text);
+    if (untouched || window.confirm(`Start over from ${starter.name}? Your changes to this draft are lost.`)) edit(starter.yaml);
+  }
+
+  /** A version is saved: by the save button, or by the planner when asked to. */
   function saved(version: WorkflowVersion, yaml: string) {
     setSavedText(yaml);
     setNotice(`Saved as version ${version.number}; runs already started keep their version.`);
@@ -332,7 +344,7 @@ export function WorkflowEditor() {
   const current = Math.min(selected, Math.max(steps.length - 1, 0));
   const tabs: [EditorTab, string][] = [
     ["stages", "Stages"],
-    ["richard", "Richard"],
+    ["planner", role("planner")],
     ["yaml", "YAML"],
     ...(workflowId ? ([["scorecard", "Scorecard"]] as [EditorTab, string][]) : []),
   ];
@@ -393,6 +405,16 @@ export function WorkflowEditor() {
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
+      {!workflowId && starters.length > 0 && (
+        <section className="starters" aria-label="Starter workflows">
+          {starters.map((s) => (
+            <button key={s.name} type="button" aria-pressed={text === s.yaml} onClick={() => begin(s)}>
+              <b>{s.name}</b>
+              <small>{s.about}</small>
+            </button>
+          ))}
+        </section>
+      )}
       <div className="tabs" role="tablist" aria-label="Views">
         {tabs.map(([id, label]) => (
           <button key={id} type="button" role="tab" className="tab" aria-selected={view === id} onClick={() => setView(id)}>
@@ -403,14 +425,14 @@ export function WorkflowEditor() {
       <div className="editor">
         <section aria-label="Editor">
           {/* Kept mounted while another view is open, so the conversation and its session stay. */}
-          <div hidden={view !== "richard"}>
+          <div hidden={view !== "planner"}>
             <PlannerChat
               worldId={worldId}
               workflowId={workflowId}
               text={text}
               onDraft={(yaml) => {
                 setText(yaml);
-                setNotice("Richard updated the draft. Review it in Stages or YAML, then save.");
+                setNotice(`${role("planner")} updated the draft. Review it in Stages or YAML, then save.`);
               }}
               onSaved={saved}
             />
@@ -768,9 +790,9 @@ function StagePanel({
   );
 }
 
-type ChatLine = { who: "you" | "richard"; text: string };
+type ChatLine = { who: "you" | "planner"; text: string };
 
-/** Richard is the planner (ADR 0004): one message in, a reply and often a whole new draft out. */
+/** The planner: one message in, a reply and often a whole new draft out. */
 function PlannerChat({
   worldId,
   workflowId,
@@ -805,12 +827,12 @@ function PlannerChat({
     setThinking(false);
     if (error || !data) {
       const detail = (error as { detail?: unknown } | undefined)?.detail;
-      setFailed(typeof detail === "string" ? `${detail} Send it again.` : `Richard did not answer (${response.status}). Send it again.`);
+      setFailed(typeof detail === "string" ? `${detail} Send it again.` : `${role("planner")} did not answer (${response.status}). Send it again.`);
       setMessage(said);
       return;
     }
     setSessionId(data.session_id);
-    setLines((prev) => [...prev, { who: "richard", text: data.reply }]);
+    setLines((prev) => [...prev, { who: "planner", text: data.reply }]);
     if (data.saved) onSaved(data.saved, data.saved.yaml);
     else if (data.yaml) onDraft(data.yaml);
   }
@@ -819,31 +841,31 @@ function PlannerChat({
     <div className="chat" data-testid="planner-chat">
       {lines.length === 0 && (
         <p className="faint">
-          Tell Richard what the workflow should do, in plain words. He drafts the stage list,
-          asks only about what changes its shape, and puts the result in the editor for you to
-          save. Ask him to save when you are happy with it.
+          Tell {role("planner")} what the workflow should do, in plain words. You get back a stage
+          list in the editor, with questions only about what changes its shape. Ask for a save
+          when you are happy with it.
         </p>
       )}
       <ul className="chat-log" data-testid="chat-log">
         {lines.map((l, i) => (
           <li key={i} className={l.who}>
-            <b>{l.who === "you" ? "You" : "Richard"}</b>
+            <b>{l.who === "you" ? "You" : role("planner")}</b>
             {l.text}
           </li>
         ))}
         {thinking && (
-          <li className="richard" role="status">
-            <b>Richard</b>Thinking...
+          <li className="planner" role="status">
+            <b>{role("planner")}</b>Thinking...
           </li>
         )}
       </ul>
       {failed && <p role="alert">{failed}</p>}
       <form onSubmit={send}>
         <textarea
-          aria-label="Message to Richard"
+          aria-label={`Message to ${role("planner")}`}
           rows={2}
           value={message}
-          placeholder="A weekly short: research five ideas, I pick one, write and render it."
+          placeholder="Every Monday: what changed in my field, five findings with sources, and I approve the summary."
           onChange={(e) => setMessage(e.target.value)}
         />
         <button type="submit" className="primary" disabled={thinking || !message.trim()}>

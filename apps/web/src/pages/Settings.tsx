@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
+import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { ModelSelect, useModels } from "./ModelSelect";
 
 type World = components["schemas"]["World"];
@@ -42,6 +43,7 @@ export function Settings() {
   const [busy, setBusy] = useState<Panel | null>(null);
   const [said, setSaid] = useState<Said | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [skin, setSkin] = useState(piedPiper);
 
   useEffect(() => {
     api
@@ -248,7 +250,7 @@ export function Settings() {
                 <input type="number" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
               </label>
               <span className="faint">
-                Richard and Erlich always come along; this is how many workers the cast has. A swarm stage runs one unless the workflow sets its agents.{" "}
+                {cap(the("planner"))} and {the("judge")} always come along; this is how many workers the cast has. A swarm stage runs one unless the workflow sets its agents.{" "}
                 <Link to="/worlds/$worldId/cast" params={{ worldId }}>
                   Meet the cast
                 </Link>
@@ -310,6 +312,25 @@ export function Settings() {
             </button>
           </div>
         </form>
+      </Row>
+      <Row title="Names" about="What the page calls the agents. Kept in this browser, for every world.">
+        <div className="panel set-panel">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={skin}
+              onChange={(e) => {
+                setPiedPiper(e.target.checked);
+                setSkin(e.target.checked);
+              }}
+            />
+            Pied Piper names
+          </label>
+          <p className="faint">
+            Off: Planner, Worker 1 to 4 and Judge. On: Richard plans, Gilfoyle, Dinesh, Jared and Big Head work,
+            Erlich judges, Anton writes the graph and Russ keeps the budget.
+          </p>
+        </div>
       </Row>
       <Row title="Danger" about="Deleting a world cannot be undone.">
         <div className="panel set-panel">

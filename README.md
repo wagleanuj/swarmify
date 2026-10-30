@@ -1,6 +1,10 @@
 # Swarmify
 
 A swarm of Claude Code agents sharing one graphify memory per world, running gated workflows.
+Use it for research briefs with cited sources, drafts you approve or send back, scheduled
+monitors that return a typed list of what changed, or a weekly short video; what a workflow makes
+comes from its stages and the connectors a world has, not from Swarmify itself.
+
 Python core (FastAPI, uv workspace, one package per bounded context), React web skin (Vite, pnpm
 workspace), one monorepo. Domain docs live in the Obsidian vault, see `CONTEXT.md`.
 
@@ -42,22 +46,22 @@ A workflow is YAML saved into a world. Every save is a new immutable version; ru
 they started with. Stages are one of four types, each written as `- <type>: <stage name>`:
 
 ```yaml
-name: Weekly short
+name: Weekly brief
 schedule: "0 8 * * 1"      # optional cron
 budget_usd: 5              # optional
 agents: 4                  # optional
 stages:
   - swarm: research        # goal, done_when; optional tools, graphs, output_type, produces, model
-    goal: Find 5 ideas trending this week.
-    done_when: 5 ideas ranked
+    goal: Find what changed in heat pumps this week.
+    done_when: 5 findings ranked, each with a source link
     tools: [web_search, graph]
-    produces: [ideas.md]
+    produces: [findings.md]
   - gate: pick             # ask; optional kind: pick | approve | confirm
-    ask: Pick one idea.
+    ask: Pick the finding worth a brief.
     kind: pick
   - connector: render      # calls (defaults to the stage name); optional input (or inputs: [a, b]), output, params
-    calls: remotion_render
-    input: ideas.md
+    calls: remotion_render # any connector the world has; this one renders a video
+    input: findings.md
     output: short.mp4
     params: {project: ~/videos/shorts, composition: Short}
   - workflow: trends       # runs: a workflow id; optional take: artifacts to copy from the child
@@ -89,12 +93,19 @@ drafts the `output_type` they need.
 ### Workflow editor
 
 The editor at `/worlds/<id>/workflows/new` (and `/<workflow id>`) has three views of one text:
-**Richard** (the planner chat), **Stages** (a visual list: workflow fields, one card per stage
+**Planner** (the planner chat), **Stages** (a visual list: workflow fields, one card per stage
 with its fields, move up and down, remove, add by type) and **YAML**. Every edit in any view
 rewrites the YAML, which the other views project, and the check runs on each change. The
 aside shows the stage rail, the schedule with its next run, the versions, and "Copy to another
 world".
 
+- **Starter workflows.** A new workflow opens on the first of four starters, the others one
+  click away above the tabs: a research brief (one swarm writes a cited `brief.md`), a draft with
+  approval (outline, draft, an approve gate), a scheduled monitor (every Monday, a `list[finding]`)
+  and the weekly short (ranked ideas, then a pick). Each uses only stage types and tools every
+  world has and passes the check as it stands; `<your topic>` and `<your question>` are yours to
+  fill. Picking another replaces an untouched draft and asks first when you have edited it.
+  `GET /api/workflows/starters` lists them (`swarmify_workflows.starters`).
 - **Planner chat.** `POST /api/worlds/<id>/planner` with `{"message", "yaml", "workflow_id",
   "session_id"}` runs one turn of a Planner session on the AgentRuntime whose tools are the
   swarmify MCP server's own `check_workflow`, `save_workflow`, `get_workflow`,
@@ -187,7 +198,7 @@ The run page reads the run, its events and its artifacts only (ADR 0002), top to
 
 ## Budget and baseline
 
-A run's Budget (Russ in the skin) is its spend ceiling in US dollars. One rule
+A run's Budget (Russ in the Pied Piper skin) is its spend ceiling in US dollars. One rule
 (`Runner.budget_for`) sets it for every way a run starts (start, ad hoc, fork, promote, schedule):
 `budget_usd` in the start body (`POST /api/workflows/<id>/runs` or `/api/worlds/<id>/runs`), else
 the workflow's `budget_usd` (a fork keeps its source run's Budget), else 5 USD
@@ -214,7 +225,7 @@ parent's. Spend is the Agent SDK's estimate, not your bill.
   runs' `spent_usd` this month, `GET /api/worlds/<id>/spend`); once that is spent, starting a run
   is refused with 409 until the budget is raised or the month turns, and a scheduled tick starts
   nothing.
-- Baseline (Hooli in the skin): `{"baseline": true}` in the start body runs every swarm stage with
+- Baseline (Hooli in the Pied Piper skin): `{"baseline": true}` in the start body runs every swarm stage with
   one worker and no graph: no planner (the goal is its one task), no judge (so no typed
   projection), no graph tools and no graph-first rule. `GET /api/runs/<id>/baseline`
   returns the newest finished baseline of the same workflow, and the run page shows its cost and
@@ -914,7 +925,7 @@ operators and for agents outside swarmify (a Claude Code session driving a stage
 
 A swarm stage runs the world's Cast (see Settings and cast below) through the AgentRuntime port:
 the planner, then one worker per ready task up to the world's agent count (`worker-1` to
-`worker-n`, Gilfoyle, Dinesh, Jared and Big Head in the skin), each in its own thread over the
+`worker-n`; Worker 1 to n on the page, or Gilfoyle, Dinesh, Jared and Big Head in the Pied Piper skin), each in its own thread over the
 shared whiteboard, then the judge. The adapter is the Claude Agent SDK, whose wheel bundles the
 `claude` CLI; sessions run on your Claude subscription (ADR 0010), so for a headless host run
 `claude setup-token` once and export `CLAUDE_CODE_OAUTH_TOKEN`. The planner seeds an empty
@@ -965,7 +976,7 @@ model. The e2e server (`tests/e2e/scripted_app.py`) runs the same script.
 Each world's graph is `worlds/<w>/graphify-out/graph.json`, built by graphify (`graphifyy`, a
 dependency of `packages/memory`) from the world's files.
 
-- GraphWriter (Anton in the skin, ADR 0003) is the only writer. It polls the world folders every
+- GraphWriter (Anton in the Pied Piper skin, ADR 0003) is the only writer. It polls the world folders every
   2 s, waits until a world has been quiet for 30 s after its last change, then runs
   `python -m graphify extract <world> --backend claude-cli --exclude graphify-out/ --exclude
   assets/` (assets are files, not knowledge, so adding one triggers no rebuild either). One thread
@@ -1013,7 +1024,7 @@ In Docker the graph writer is its own container; see Deployment.
 ## Planner and judge
 
 A swarm stage runs three kinds of agent session on the same runtime: `planner` (Richard in the
-skin), `worker-1` (Gilfoyle) and `judge` (Erlich). Planner and judge are short sessions that may
+Pied Piper skin), `worker-1` (Gilfoyle) and `judge` (Erlich). Planner and judge are short sessions that may
 only read (`query_graph`, `list_tasks`, `Skill`, `Read`) and must answer structured JSON
 (`--json-schema`, the SDK's `output_format`); an answer that does not parse counts as a failed
 session, replaced once like any other.
@@ -1056,7 +1067,10 @@ Budget and baseline), the run cap is the world's DBOS queue concurrency and appl
 retention is read by the retention job, and the agent count is how many workers the cast has.
 
 The Cast is the world's agents: `planner`, `worker-1` to `worker-<agent_count>` and `judge`
-(Richard, Gilfoyle, Dinesh, Jared, Big Head and Erlich in the skin, ADR 0004). `GET
+(Planner, Worker 1 to n and Judge on the page, ADR 0004). The Pied Piper names (Richard,
+Gilfoyle, Dinesh, Jared, Big Head and Erlich, with Anton for the GraphWriter, Russ for the Budget
+and Hooli for a baseline) are an opt-in local skin: Settings, Names, "Pied Piper names", kept in
+that browser only. `GET
 /api/worlds/<id>/cast` lists them at their current version with a record folded from the world's
 event stream, no extra storage: tasks done (`task.updated`), stages passed on the judge's first
 verdict out of stages judged (`verdict.created`), send-backs to stages the agent worked
@@ -1193,9 +1207,11 @@ proposal is decided.
 
 ## Eval: baseline against swarm
 
-The V1 acceptance: does the swarm beat one agent alone? `swarmify-eval` runs the weekly short
-over 22 fixed tasks (niches such as home espresso or chess openings, in
-`swarmify_learning.evals`), each task k times as a baseline and k times as the swarm, following
+The V1 acceptance: does the swarm beat one agent alone? `swarmify-eval` runs 24 fixed tasks (in
+`swarmify_learning.evals`), six for each starter workflow: research briefs (heat pumps in cold
+climates), drafts (a beginner's guide to composting), typed lists from the scheduled monitor (AI
+regulation) and the weekly short (home espresso). Each task names the workflow it exercises and
+runs k times as a baseline and k times as the swarm, following
 Anthropic's agent evaluation guidance. It is separate from the test suite and spends real model
 time, so it runs only when you ask:
 
@@ -1212,17 +1228,21 @@ worlds afterwards).
 
 - Fresh world per trial: each trial creates its own world (`Eval <task> <arm> <n>`), saves the
   eval workflow there and starts one run, `{"baseline": true}` for the baseline arm. The eval
-  workflow is the weekly short's research and script stages (`ideas.md`, `script.md`), with no
-  gate, render or publish, so a trial never posts anything.
-- Outputs are graded, not the path: `ideas.md` must rank at least 5 ideas as a numbered list, and
-  `script.md` must be 60 to 200 words and name the task's topic: one of its topic words or listed
-  synonyms, matched by word stem (so "biking" names "bike"). A trial is accepted when its
+  workflow is the task's starter on the task's topic with no gate, schedule, render or publish,
+  so a trial never posts anything and never waits on you.
+- Outputs are graded, not the path, and each must name the task's topic: one of its topic words
+  or listed synonyms, matched by word stem (so "biking" names "bike"). A research brief's
+  `brief.md` must be 250 to 1000 words citing at least 3 distinct links; a draft needs
+  `outline.md` and a `draft.md` of 500 to 1200 words; a monitor's typed list must project 3 to 10
+  `finding-*.md` items, each with a source link; the weekly short's `ideas.md` must rank at least
+  5 ideas as a numbered list and its `script.md` be 60 to 200 words. A trial is accepted when its
   run is done and every check passed. A retro proposal is rejected so the run can end; a spent
   budget or the timeout aborts the trial, which then fails.
 - A blind pairwise judge then decides quality, since both arms usually pass every check: after
   each pair of trials (the same task and trial number on each arm) the harness calls
   `POST /api/evals/judge` (`{"task_id", "index", "baseline": {"world_id", "run_id"}, "swarm":
-  {...}}`), and one judge session sees both pairs' `ideas.md` and `script.md` as A and B, arm
+  {...}}`), and one judge session sees what each side's workflow left (the brief, the outline
+and draft, every finding, or the ideas and script) as A and B, arm
   labels removed and the order shuffled per task (seeded by the task id, so it is the same every
   run). It answers A, B or tie with a reason; a pair it fails to judge is left undecided.
 - The report gives, per arm, first-try acceptance, pass at k (any of a task's k trials passed)

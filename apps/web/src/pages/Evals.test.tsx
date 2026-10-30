@@ -54,7 +54,7 @@ test("the newest verdict is the line under the title; each eval compares the arm
   await expect.element(screen.getByRole("heading", { name: "Evals", level: 1 })).toBeVisible();
   await expect.element(screen.getByTestId("verdict")).toHaveTextContent("The swarm wins: it accepted 100% of trials.");
   const arms = screen.getByTestId("eval").first().getByTestId("arm");
-  await expect.element(arms.first()).toMatchTextContent(/Hooli baseline.*2.*50% \(1\).*100%.*0%.*\$0\.40.*10 min011no win/);
+  await expect.element(arms.first()).toMatchTextContent(/Baseline.*2.*50% \(1\).*100%.*0%.*\$0\.40.*10 min011no win/);
   await expect.element(arms.nth(1)).toMatchTextContent(/Swarm.*2.*100% \(2\).*100%.*100%.*\$1\.20.*4 min101\$2\.40/);
   const newest = screen.getByTestId("eval").first();
   await newest.getByText("The judge's picks (2)").click();
@@ -64,7 +64,7 @@ test("the newest verdict is the line under the title; each eval compares the arm
   await newest.getByText("Every trial (4)").click();
   const trials = newest.getByTestId("trial");
   expect(trials.elements()).toHaveLength(4);
-  await expect.element(trials.nth(2)).toMatchTextContent(/home-espresso.*Hooli baseline.*2.*script\.md is missing/);
+  await expect.element(trials.nth(2)).toMatchTextContent(/home-espresso.*Baseline.*2.*script\.md is missing/);
   await expect.element(trials.nth(1)).toMatchTextContent(/accepted/);
   await expect
     .element(trials.nth(1).getByRole("link"))

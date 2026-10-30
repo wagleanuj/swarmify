@@ -1,4 +1,5 @@
 import type { ArtifactFile, Verdict } from "../api/events";
+import { cap, the } from "../skin";
 
 /** Loops a stage may take: the first verdict plus three gap loops. Mirrors swarmify_swarm.MAX_LOOPS. */
 const VERDICTS = 4;
@@ -19,9 +20,9 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
   return (
     <>
       <section className="agents" aria-label="Verdict" data-testid="verdict">
-        <h3>Erlich's verdict</h3>
+        <h3>{cap(the("judge"))}'s verdict</h3>
         {!last ? (
-          <p className="faint">No verdict yet. Erlich judges once every task on the whiteboard is done.</p>
+          <p className="faint">No verdict yet. {cap(the("judge"))} judges once every task on the whiteboard is done.</p>
         ) : (
           <>
             <p>
@@ -55,7 +56,7 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
       <section className="agents" aria-label="Artifacts" data-testid="artifacts">
         <h3>Artifacts</h3>
         {typed.length === 0 && files.length === 0 && (
-          <p className="faint">Nothing yet. On a pass, Erlich turns the stage's notes into its declared output.</p>
+          <p className="faint">Nothing yet. On a pass, {the("judge")} turns the stage's notes into its declared output.</p>
         )}
         {typed.length > 0 && (
           <ul className="cards">

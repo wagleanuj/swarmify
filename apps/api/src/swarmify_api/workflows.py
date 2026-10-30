@@ -10,7 +10,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from swarmify_workflows import (
+    STARTERS,
     Invalid,
+    Starter,
     Violation,
     Workflow,
     WorkflowModel,
@@ -81,6 +83,11 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
         except Invalid as exc:
             report = Report(violations=exc.violations, model=None)
             return JSONResponse(status_code=422, content=jsonable_encoder(report))
+
+    @api.get("/workflows/starters")
+    def list_starters() -> list[Starter]:
+        """The starter workflows a new workflow can begin from, each passing the check."""
+        return STARTERS
 
     @api.get("/worlds/{world_id}/workflows")
     def list_workflows(world_id: str) -> list[ListedWorkflow]:

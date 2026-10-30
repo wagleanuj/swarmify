@@ -7,6 +7,7 @@ import type { ArtifactFile } from "../api/events";
 import { actOn, decide, type Gate, money, type Run, setBudget, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { gatesRoute } from "../router";
+import { piedPiper } from "../skin";
 import { ArtifactCards, ArtifactView, choosable, underReview } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { LABEL, PublishValue } from "./Connectors";
@@ -372,7 +373,7 @@ export function GateCard({
               />
             </label>
             <span className="faint">
-              Russ has spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
+              {piedPiper() ? "Russ has" : "This run has"} spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
               stopped agents resume where they stopped.
             </span>
             <div className="row gate-actions">

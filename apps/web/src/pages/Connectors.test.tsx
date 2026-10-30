@@ -230,5 +230,6 @@ test("lists installed packages beside the built-ins with version, kind, about an
   const list = screen.getByRole("list", { name: "Installed packages" });
   await expect.element(list.getByRole("listitem").first()).toMatchTextContent(/Echo\s*Says it back\.\s*echo 1\.0\.0\s*stage\s*Installed/);
   await expect.element(list.getByRole("listitem").last()).toMatchTextContent(/kind: 'robot'.*echo 0\.9\.0\s*Invalid Manifest/);
-  await expect.element(screen.getByRole("list", { name: "Tools agents use inside a swarm step" })).toMatchTextContent(/Web search/);
+  // Web search and the graph are Agent Tools now (#210), named in a note rather than listed.
+  await expect.element(screen.getByText(/Web search and the world's graph are not connectors/)).toBeVisible();
 });

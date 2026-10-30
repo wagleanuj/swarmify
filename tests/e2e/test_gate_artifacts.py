@@ -47,7 +47,7 @@ def test_pick_a_card_then_review_the_video_in_place(
         expect(card).to_contain_text("Pick one idea.", timeout=20_000)
         cards = card.get_by_test_id("pick-card")
         expect(cards).to_have_count(2)
-        expect(cards.first).to_contain_text("Erlich's #1 of 2")
+        expect(cards.first).to_contain_text("The judge's #1 of 2")
         expect(cards.first).to_contain_text("Hook first")
         expect(cards.first).to_contain_text("Wait for it")
         expect(cards.first).to_contain_text("Why: Hooks in the first second win.")

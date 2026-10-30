@@ -28,7 +28,7 @@ def test_a_run_s_notes_rebuild_the_graph_live_and_the_page_can_query_it(
 
         rebuilt = page.get_by_test_id("rebuilt")
         expect(rebuilt).to_contain_text(
-            "Anton rebuilt it just now: +2 nodes, +1 edges", timeout=20000
+            "The graph writer rebuilt it just now: +2 nodes, +1 edges", timeout=20000
         )
         expect(page.get_by_test_id("graph-size")).to_contain_text(re.compile(r"Nodes\s*2\s*Edges"))
         expect(page.get_by_test_id("god-nodes")).to_contain_text("Short hooks")
