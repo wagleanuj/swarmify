@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
-from api_fakes import FakeNotifier, until
+from api_fakes import FakeNotifier, studio, until
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -21,15 +21,13 @@ GRAPH = Call(tool_id("query_graph"), {"question": "What did we reject before?"})
 WEEKLY = """name: Weekly short
 stages:
   - connector: research
-    calls: remotion_render
-    params: {project: /tmp, composition: Short}
+    calls: studio
   - gate: pick
     ask: Pick one idea.
     kind: pick
   - connector: script
-    calls: remotion_render
+    calls: studio
     output: short.mp4
-    params: {project: /tmp, composition: Short}
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve
@@ -65,6 +63,7 @@ def running(tmp_path: Path, calls: list[str], notifier: FakeNotifier) -> Iterato
 
 def start(client: TestClient, yaml: str = WEEKLY) -> tuple[str, dict]:
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    studio(client, world)
     wf = client.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()["workflow_id"]
     return world, client.post(f"/api/workflows/{wf}/runs", json={}).json()
 

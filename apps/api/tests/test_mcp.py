@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from api_fakes import studio
 from mcp import Client, StdioServerParameters
 
 from swarmify_api.main import (
@@ -95,12 +96,11 @@ async def test_workflow_tools_save_check_list_get(tmp_path: Path) -> None:
 
         refused = await client.call_tool(
             "save_workflow",
-            {"world_id": world.id, "yaml": "name: x\nstages:\n  - connector: remotion_render\n"},
+            {"world_id": world.id, "yaml": "name: x\nstages:\n  - connector: remotion_build\n"},
         )
         assert not refused.is_error and refused.structured_content
         assert [v["rule"] for v in refused.structured_content["violations"]] == [
-            "connector_params",
-            "connector_params",
+            "connector_params"  # its script
         ]
         assert (
             await client.call_tool("list_workflows", {"world_id": world.id})
@@ -185,8 +185,8 @@ async def test_task_tools_add_and_list_on_a_swarm_stage(tmp_path: Path) -> None:
 
 
 REVIEW = (
-    "name: Review loop\nstages:\n  - connector: render\n    calls: remotion_render\n"
-    "    output: short.mp4\n    params: {project: /tmp, composition: Short}\n"
+    "name: Review loop\nstages:\n  - connector: render\n    calls: studio\n"
+    "    output: short.mp4\n"
     "  - gate: review\n    ask: Watch it.\n    kind: approve\n  - gate: publish_ok\n"
     "    ask: Publish?\n    kind: confirm\n  - connector: youtube\n    calls: youtube\n"
     "    input: short.mp4\n    params: {title: Hooks}\n"
@@ -204,6 +204,7 @@ async def test_gate_tools_act_on_runs_the_api_process_hosts(tmp_path: Path) -> N
     control = run_control(tmp_path)
     with TestClient(create_app(tmp_path, connector=lambda *_: None, retro=False)) as http:
         world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        studio(http, world)
         wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": REVIEW}).json()
         run = http.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
         until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
@@ -256,8 +257,7 @@ async def test_gate_tools_act_on_runs_the_api_process_hosts(tmp_path: Path) -> N
 
 
 PICK = (
-    "name: Pick loop\nstages:\n  - connector: research\n    calls: remotion_render\n"
-    "    params: {project: /tmp, composition: Short}\n"
+    "name: Pick loop\nstages:\n  - connector: research\n    calls: studio\n"
     "  - gate: pick\n    ask: Pick one.\n    kind: pick\n"
 )
 IDEA = '---\ntype: "idea"\ntitle: "Hooks"\nrank: 1\n---\n\n# Hooks\n\nOpen on the hook.\n'
@@ -274,6 +274,7 @@ async def test_a_pick_gate_takes_an_artifact_path_as_the_choice(tmp_path: Path) 
     control = run_control(tmp_path)
     with TestClient(create_app(tmp_path, connector=lambda *_: None, retro=False)) as http:
         world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        studio(http, world)
         wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": PICK}).json()
         run = http.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
         until(lambda: http.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
@@ -313,6 +314,7 @@ async def test_the_stdio_server_deletes_a_world_like_the_api_does(tmp_path: Path
     control = run_control(tmp_path)
     with TestClient(create_app(tmp_path, connector=lambda *_: None, retro=False)) as http:
         world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        studio(http, world)
         hook = {"slack_webhook": "https://hooks.slack.com/services/T/B/x"}
         assert http.put(f"/api/worlds/{world}/notifications", json=hook).status_code < 300
         wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": REVIEW}).json()
@@ -350,6 +352,7 @@ async def test_mcp_starts_a_run_lists_its_artifacts_and_forks_it(tmp_path: Path)
     app = create_app(tmp_path, connector=lambda *_: None, retro=False, sweep_seconds=0.05)
     with TestClient(app) as http:
         world = http.post("/api/worlds", json={"name": "Video"}).json()["id"]
+        studio(http, world)
         wf = http.post(f"/api/worlds/{world}/workflows", json={"yaml": PICK}).json()
         status = lambda r: http.get(f"/api/runs/{r}").json()["status"]  # noqa: E731
 

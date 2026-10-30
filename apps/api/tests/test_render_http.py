@@ -18,7 +18,7 @@ from swarmify_connectors import ConnectorError
 from swarmify_runs import Run, RunStageView
 
 HERE = Path(__file__).parent
-FAKE_NPX = HERE.parents[2] / "packages/connectors/tests/fake_npx.py"
+FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
 
 
 @pytest.fixture
@@ -157,13 +157,11 @@ stages:
     output: short.mp4
     params: {project: /tmp, composition: Short}
 """
-    workflow = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml}).json()
-    run = running.post(f"/api/workflows/{workflow['workflow_id']}/runs", json={}).json()
-    deadline = time.monotonic() + 30
-    while (run := running.get(f"/api/runs/{run['id']}").json())["status"] != "failed":
-        assert time.monotonic() < deadline, run
-        time.sleep(0.05)
-    assert "the render stage needs an `input`" in run["stages"][0]["error"]
+    refused = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
+    assert refused.status_code == 422
+    assert [v["message"] for v in refused.json()["violations"]] == [
+        "remotion_render needs an input, the script"
+    ]
 
 
 def _run(*names: str) -> Run:

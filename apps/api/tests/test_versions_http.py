@@ -97,10 +97,12 @@ def test_a_workflow_saved_on_v1_keeps_running_v1_after_the_world_moves_to_v2(
     again = client.post(url, json={"yaml": SAY}).json()
     assert again["packages"]["echo"] == "2.0.0"
 
-    transport.versions.clear()  # what the Setup test tool saw
+    transport.calls.clear()  # what the Setup test tool saw
+    transport.versions.clear()
     run_once(client, saved["workflow_id"], 1)
     run_once(client, saved["workflow_id"], 2)
-    assert transport.versions[1::2] == ["1.0.0", "2.0.0"]  # each run's echo, after draft
+    ran = [v for c, v in zip(transport.calls, transport.versions, strict=True) if c[1] == "echo"]
+    assert ran == ["1.0.0", "2.0.0"]  # each run's echo call
 
 
 def test_the_switch_shows_the_diff_and_waits_for_a_new_required_field(client: TestClient) -> None:

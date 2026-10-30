@@ -6,7 +6,9 @@ Credentials (secret fields) and Settings live together in one JSON file in the d
 Values are keyed by package, not version, so they outlive an upgrade; a field's `renamed_from`
 finds a value saved under its old key. For a world, a field resolves to the world's value, else
 the shared one (a `world`-scoped field has none), else its default. The process gets each
-resolved field as the environment variable its `env` names, the upper-cased key by default.
+resolved field as the environment variable its `env` names, the upper-cased key by default; a
+relative `path` value reaches it taken from the data directory, so a default can name a folder in
+it.
 An `oauth` field's value is its token set (see `oauth`); the process gets a fresh access token.
 """
 
@@ -128,9 +130,10 @@ def missing(manifest: dict[str, Any], resolved: Values) -> list[str]:
     ]
 
 
-def environment(manifest: dict[str, Any], resolved: Values) -> dict[str, str]:
-    """The resolved values as the process environment they reach it as. An oauth field reaches
-    it only once its token set is replaced by the access token; its app's client never does."""
+def environment(manifest: dict[str, Any], resolved: Values, data_dir: Path) -> dict[str, str]:
+    """The resolved values as the process environment they reach it as, a relative `path` taken
+    from `data_dir`. An oauth field reaches it only once its token set is replaced by the access
+    token; its app's client never does."""
     out = {}
     for f in fields(manifest):
         if f["key"] in resolved and "client_of" not in f:
@@ -139,6 +142,8 @@ def environment(manifest: dict[str, Any], resolved: Values) -> dict[str, str]:
                 continue
             if isinstance(value, bool):
                 value = "true" if value else "false"
+            if f["type"] == "path" and not str(value).startswith(("/", "~")):
+                value = data_dir / str(value)
             out[env_name(f)] = str(value)
     return out
 

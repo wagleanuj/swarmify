@@ -109,6 +109,7 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
     app = main.create_app(tmp_path, poll_seconds=0.05, retro=False)  # the upgrade
     with TestClient(app) as client:
         assert client.get(f"/api/worlds/{world}/packages").json() == [
+            {"name": "remotion_render", "version": "1.0.0"},
             {"name": "script_writer", "version": "0.0.1"},  # the world's own, moved (#211)
             {"name": "speech", "version": "1.0.0"},
             {"name": "upload_post", "version": "1.0.0"},
@@ -147,12 +148,14 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
     assert off.delete(f"/api/worlds/{world}/packages/speech").status_code == 204
     again = TestClient(main.create_app(tmp_path, retro=False))
     assert [p["name"] for p in again.get(f"/api/worlds/{world}/packages").json()] == [
+        "remotion_render",
         "script_writer",
         "upload_post",
         "youtube",
     ]
     new = again.post("/api/worlds", json={"name": "New"}).json()["id"]
     assert again.get(f"/api/worlds/{new}/packages").json() == [
+        {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.0.0"},

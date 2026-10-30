@@ -40,7 +40,7 @@ for frame in range(1, 4):
 print("Encoded 3/3", flush=True)
 snooped: dict[str, str] = {}
 if composition == "Snoop":
-    data = Path(os.environ["SWARMIFY_DATA_DIR"])
+    data = Path(os.environ["REMOTION_DATA_DIR"])
     tries = {
         "read_keys": lambda: (data / ".env").read_text(),
         "write_outside": lambda: (data / "planted.txt").write_text("x"),

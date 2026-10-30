@@ -20,7 +20,6 @@ import os
 import re
 import secrets
 import shlex
-import sys
 import threading
 import time
 from collections.abc import Mapping
@@ -123,34 +122,6 @@ _SCRIPT_IN = {"description": "the script", "media_type": "text/markdown"}
 MANIFESTS: dict[str, dict[str, Any]] = {
     m["name"]: m
     for m in (
-        {
-            "name": "remotion_render",
-            "label": "Remotion render",
-            "kind": "stage",
-            "stage_types": ["connector"],
-            "about": "Renders a script with the Remotion CLI. Needs Node and a Remotion project.",
-            "command": [sys.executable, "-m", "swarmify_connectors.remotion"],
-            "params": {
-                "type": "object",
-                "required": ["project", "composition"],
-                "properties": {
-                    "project": {
-                        "type": "string",
-                        "description": "a template's name under the data directory's remotion"
-                        " folder, or a folder path",
-                    },
-                    "composition": {"type": "string", "description": "its composition ID"},
-                    "entry": {"type": "string", "default": "src/index.ts"},
-                    "codec": {"type": "string", "default": "h264"},
-                    "frames": {"type": "string", "description": "a range, as 0-29"},
-                    "props": {"type": "object", "description": "the composition's input props"},
-                },
-            },
-            "planner_notes": "Use it only when the operator has a finished template; else"
-            " remotion_build makes the video.",
-            "inputs": [_SCRIPT_IN],
-            "outputs": [{"description": "the video", "media_type": "video/mp4"}],
-        },
         {
             "name": "remotion_build",
             "label": "Remotion build",
@@ -529,7 +500,9 @@ class Connectors:
         check = None
         if test := connector.manifest.get("setup", {}).get("test"):
             env = setup.environment(
-                connector.manifest, self._signed_in(connector, now_shared, now_world)
+                connector.manifest,
+                self._signed_in(connector, now_shared, now_world),
+                self.data_dir,
             )
             try:
                 answer = self._tool(connector, test, {}, env)
@@ -936,19 +909,14 @@ class Connectors:
                 raise ConnectorError(
                     f"{connector.name} needs its Setup on the Connectors page: {', '.join(gaps)}"
                 )
-            return setup.environment(connector.manifest, resolved)
+            return setup.environment(connector.manifest, resolved, self.data_dir)
         values = {**self.credentials.read(), **{k: v for k, v in (extra or {}).items() if v}}
         missing = [n for n in connector.credentials if not values.get(n)]
         if missing:
             raise ConnectorError(
                 f"{connector.name} needs {', '.join(missing)} in {self.credentials.path}"
             )
-        env = {n: values[n] for n in connector.credentials}
-        if connector.builtin and connector.name == "remotion_render":
-            env["SWARMIFY_DATA_DIR"] = str(self.data_dir)  # where its templates live
-            if os.environ.get(remotion.CONCURRENCY):
-                env[remotion.CONCURRENCY] = os.environ[remotion.CONCURRENCY]
-        return env
+        return {n: values[n] for n in connector.credentials}
 
     def health(self, connector: Connector) -> list[HealthCheck]:
         """Whether each Service a package declares answers, then what the connector's `health`
@@ -1071,17 +1039,6 @@ class Connectors:
                 raw = None
             if isinstance(raw, dict) and isinstance(raw.get("fields"), list):
                 return publish.checked_preview(raw)["problems"]
-        if connector.builtin and connector.name == "remotion_render":
-            out = []
-            project = str(params.get("project") or "").strip()
-            if not project:
-                out.append("remotion_render needs params.project, the Remotion project folder")
-            elif not (folder := remotion.project_folder(project, self.data_dir)).is_dir():
-                where = "" if Path(project).expanduser().is_absolute() else f" in {folder.parent}"
-                out.append(f"the Remotion project {project} does not exist{where}")
-            if not str(params.get("composition") or "").strip():
-                out.append("remotion_render needs params.composition, the composition ID")
-            return out
         if connector.builtin and connector.name == "remotion_build":
             script = config.get("input") or config.get("inputs")
             out = [] if script else ["remotion_build needs an input, the script"]
@@ -1092,7 +1049,20 @@ class Connectors:
                     out.append(str(exc))
             return out
         manifest = connector.manifest  # a built-in's or an installed package's
-        return _manifest_problems(manifest, config, params) if manifest else []
+        out = _manifest_problems(manifest, config, params) if manifest else []
+        if "check" in manifest.get("capabilities", []):
+            # The Check capability: rules a JSON Schema cannot say, as a template that exists.
+            # Until its Setup is done it cannot run; the Connectors page says what is missing.
+            try:
+                env = self._env(connector)
+            except ConnectorError:
+                return out
+            try:
+                answer = self._tool(connector, "check", {"config": config}, env)
+                out += [str(p) for p in answer.get("problems") or []]
+            except ConnectorError as exc:
+                out.append(f"{connector.name} check failed: {exc}")
+        return out
 
     def publish_result(self, call: Call) -> dict[str, Any]:
         """A finished publish call's links, normalized across connectors."""

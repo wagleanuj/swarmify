@@ -7,7 +7,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from api_fakes import until
+from api_fakes import studio, until
 from fastapi.testclient import TestClient
 
 from swarmify_api.main import create_app
@@ -15,10 +15,7 @@ from swarmify_notifications.fake import FakeSlack
 
 BASE = "http://swarmify.lan:8000"
 QUICK = "name: Quick\nstages:\n  - gate: ok\n    ask: Go?\n    kind: confirm\n"
-BOOM = (
-    "name: Boom\nstages:\n  - connector: explode\n    calls: remotion_render\n"
-    "    params: {project: /tmp, composition: Short}\n"
-)
+BOOM = "name: Boom\nstages:\n  - connector: explode\n    calls: studio\n"
 
 
 @pytest.fixture
@@ -42,7 +39,9 @@ def running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestCli
 
 
 def world(client: TestClient, name: str = "Video") -> str:
-    return client.post("/api/worlds", json={"name": name}).json()["id"]
+    world_id = client.post("/api/worlds", json={"name": name}).json()["id"]
+    studio(client, world_id)
+    return world_id
 
 
 def start(client: TestClient, world_id: str, yaml: str) -> str:
