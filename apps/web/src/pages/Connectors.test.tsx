@@ -236,3 +236,45 @@ test("lists installed packages beside the built-ins with version, kind, about an
   // Web search and the graph are Agent Tools now (#210), named in a note rather than listed.
   await expect.element(screen.getByText(/Web search and the world's graph are not connectors/)).toBeVisible();
 });
+
+test("shows which packages this world enables at which version, and enables, switches and disables them", async () => {
+  const pkg = { name: "echo", label: "Echo", kind: "stage", about: "Says it back.", source: "connectors/echo", installed_at: "2026-10-30T10:00:00+00:00", state: "installed", problem: null };
+  let enabled = [{ name: "echo", version: "1.0.0" }];
+  const echo = { ...base, id: "package_echo", world_id: "world_1", name: "echo", kind: "stage", stage_types: ["connector"], builtin: false, about: "Says it back.", command: ["uv", "run", "server.py"], version: "1.0.0", label: "Echo" };
+  const bodies: unknown[] = [];
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  const calls = fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => Response.json(enabled.length ? [...builtins, echo] : builtins),
+    "GET /api/packages": () => Response.json([{ ...pkg, version: "1.0.0" }, { ...pkg, version: "1.1.0" }]),
+    "GET /api/worlds/world_1/packages": () => Response.json(enabled),
+    "PUT /api/worlds/world_1/packages/echo": async (req) => {
+      const body = (await req.json()) as { version: string };
+      bodies.push(body);
+      enabled = [{ name: "echo", ...body }];
+      return Response.json(enabled[0]);
+    },
+    "DELETE /api/worlds/world_1/packages/echo": () => {
+      enabled = [];
+      return new Response(null, { status: 204 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  const rows = screen.getByRole("list", { name: "Installed packages" }).getByRole("listitem");
+  await expect.element(rows.first()).toMatchTextContent(/echo 1\.0\.0.*Installed\s*Enabled here\s*Disable/);
+  await expect.element(rows.last()).toMatchTextContent(/echo 1\.1\.0.*Installed\s*Switch from 1\.0\.0/);
+  const steps = screen.getByRole("list", { name: "Steps of their own" });
+  await expect.element(steps).toMatchTextContent(/Echo\s*Says it back\. · package echo 1\.0\.0/);
+  expect(screen.getByRole("button", { name: "Remove echo" }).elements()).toHaveLength(0);
+
+  await screen.getByRole("button", { name: "Enable echo 1.1.0" }).click();
+  await expect.element(rows.last()).toMatchTextContent(/Enabled here/);
+  await expect.element(rows.first()).toMatchTextContent(/Switch from 1\.1\.0/);
+  expect(bodies).toEqual([{ version: "1.1.0" }]);
+
+  await screen.getByRole("button", { name: "Disable echo 1.1.0" }).click();
+  await expect.element(rows.first()).toMatchTextContent(/Installed\s*Enable$/);
+  await expect.element(rows.last()).toMatchTextContent(/Installed\s*Enable$/);
+  expect(calls).toContain("DELETE /api/worlds/world_1/packages/echo");
+  expect(screen.getByRole("list", { name: "Steps of their own" }).elements()).toHaveLength(0);
+});

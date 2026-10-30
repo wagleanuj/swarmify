@@ -59,16 +59,41 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
 
 
-def test_an_installed_package_shows_on_the_connectors_page(page: Page, base_url: str) -> None:
+SAY = """name: Say it
+stages:
+  - connector: say
+    calls: echo
+    output: said.wav
+"""
+
+
+def test_a_world_enables_an_installed_package_and_disables_it(page: Page, base_url: str) -> None:
     source = "packages/connectors/tests/fixtures/packages/echo"
     installed = httpx.post(f"{base_url}/api/packages", json={"source": source})
     assert installed.status_code == 201, installed.text
     world = httpx.post(f"{base_url}/api/worlds", json={"name": "Packages"}).json()
+    other = httpx.post(f"{base_url}/api/worlds", json={"name": "Other"}).json()
+    workflows = f"{base_url}/api/worlds/{world['id']}/workflows"
     try:
+        httpx.put(f"{base_url}/api/worlds/{other['id']}/packages/echo", json={"version": "1.0.0"})
         page.goto(f"{base_url}/worlds/{world['id']}/connectors")
         row = page.locator("[data-package=echo]")
-        expect(row).to_contain_text("Echo")
         expect(row).to_contain_text("echo 1.0.0")
         expect(row).to_contain_text("Installed")
+        expect(page.get_by_test_id("connector-list")).to_contain_text("YouTube")
+        assert httpx.post(workflows, json={"yaml": SAY}).status_code == 422
+
+        row.get_by_role("button", name="Enable echo 1.0.0").click()
+        expect(row).to_contain_text("Enabled here")
+        expect(page.locator("[data-name=echo]")).to_contain_text("package echo 1.0.0")
+        assert httpx.post(workflows, json={"yaml": SAY}).status_code == 201
+
+        page.once("dialog", lambda d: d.accept())
+        row.get_by_role("button", name="Disable echo 1.0.0").click()
+        expect(row.get_by_role("button", name="Enable echo 1.0.0")).to_be_visible()
+        expect(page.locator("[data-name=echo]")).to_have_count(0)
+        enabled = httpx.get(f"{base_url}/api/worlds/{other['id']}/packages").json()
+        assert enabled == [{"name": "echo", "version": "1.0.0"}]
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
+        httpx.delete(f"{base_url}/api/worlds/{other['id']}")

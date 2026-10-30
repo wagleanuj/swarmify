@@ -1,10 +1,11 @@
 """Connectors context: the only way the swarm touches anything outside the box.
 
 A Connector is an MCP server plus its credentials plus the stage types allowed to use it. Each
-world adds its own; the built-ins need no setup. A connector stage calls one Tool through the
-ConnectorTransport port with the stage id as its Idempotency Key, records the raw call and
-response, and polls a long job until it ends, appending a `connector_call.updated` event per
-change so the timeline shows progress.
+world adds its own; the built-ins need no setup; an installed Connector Package gives a world a
+Connector, named as the package, only once the world enables it at a pinned version (ADR 0023).
+A connector stage calls one Tool through the ConnectorTransport port with the stage id as its
+Idempotency Key, records the raw call and response, and polls a long job until it ends,
+appending a `connector_call.updated` event per change so the timeline shows progress.
 
 A long job is a tool answer carrying `job_id` and `poll`, the tool to poll with
 `{"job_id": ...}`; each poll answers `status` (running, done or failed) and optionally
@@ -298,18 +299,74 @@ class Connectors:
         transport: ConnectorTransport,
         credentials: Credentials,
         poll_seconds: float = 2.0,
+        packages: Packages | None = None,
     ) -> None:
         self.storage = storage
         self.transport = transport
         self.credentials = credentials
         self.poll_seconds = poll_seconds
         self.data_dir = credentials.path.parent  # credentials live in `<data dir>/.env`
+        self.packages = packages or Packages(self.data_dir / "packages", self.data_dir)
 
     # Registry
 
     def list_all(self, world_id: str) -> list[Connector]:
-        """Built-ins first, then the world's own in the order they were added."""
-        return [*BUILTINS, *self.storage.list_connectors(world_id)]
+        """Built-ins first, then the packages the world enables by name, then the world's own in
+        the order they were added."""
+        enabled = self.storage.enabled_packages(world_id).items()
+        packaged = [self.package_connector(world_id, n, v) for n, v in enabled]
+        return [*BUILTINS, *(c for c in packaged if c), *self.storage.list_connectors(world_id)]
+
+    # Connector Packages a world enables (ADR 0023)
+
+    def package_connector(self, world_id: str, name: str, version: str) -> Connector | None:
+        """The Connector an installed package version gives a world, read from its Manifest;
+        None, logged, when that version is gone or its Manifest no longer passes."""
+        try:
+            m = self.packages.manifest(name, version)
+        except (InstallError, ManifestError) as exc:
+            log.warning("%s enables %s %s, which is unusable: %s", world_id, name, version, exc)
+            return None
+        # ponytail: no Credentials yet; the package's Setup values reach it with #209.
+        return Connector(
+            f"package_{name}",
+            world_id,
+            name,
+            m["kind"],
+            m.get("command", []),
+            m.get("url"),
+            stage_types=m["stage_types"],
+            about=m["about"],
+            types=m.get("types", {}),
+            input_types=m.get("input_types", []),
+            world_types=m.get("world_types"),
+            version=version,
+            folder=str(self.packages.root / name / version),
+            manifest=m,
+        )
+
+    def enabled(self, world_id: str) -> dict[str, str]:
+        """Package name to the version the world pins, for each package it enables."""
+        return self.storage.enabled_packages(world_id)
+
+    def enable(self, world_id: str, name: str, version: str) -> None:
+        """Enable an installed package in the world at `version`, or move its pin there.
+        Raises ValueError when that version is not installed or valid, or the name is taken."""
+        if any(c.name == name for c in BUILTINS):
+            raise ValueError(f"'{name}' is a built-in connector")
+        if name in AGENT_TOOLS:
+            raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
+        if any(c.name == name for c in self.storage.list_connectors(world_id)):
+            raise ValueError(f"this world has its own connector named '{name}': remove it first")
+        try:
+            self.packages.manifest(name, version)
+        except (InstallError, ManifestError) as exc:
+            raise ValueError(str(exc)) from exc
+        self.storage.enable_package(world_id, name, version, _now())
+
+    def disable(self, world_id: str, name: str) -> bool:
+        """Stop the world using the package; other worlds keep theirs. False if not enabled."""
+        return self.storage.disable_package(world_id, name)
 
     def find(self, world_id: str, name: str) -> Connector | None:
         return next((c for c in self.list_all(world_id) if c.name == name), None)
@@ -348,6 +405,7 @@ class Connectors:
         return types, note.strip() if isinstance(note, str) else ""
 
     def get(self, connector_id: str) -> Connector | None:
+        """A built-in or a world's own connector; a package's has no id outside its world."""
         builtin = next((c for c in BUILTINS if c.id == connector_id), None)
         return builtin or self.storage.get_connector(connector_id)
 
@@ -371,6 +429,8 @@ class Connectors:
             raise ValueError(f"'{name}' is a built-in connector")
         if name in AGENT_TOOLS:
             raise ValueError(f"'{name}' is an Agent Tool the core gives swarm stages")
+        if name in self.storage.enabled_packages(world_id):
+            raise ValueError(f"'{name}' is a Connector Package this world enables")
         if kind not in KINDS:
             raise ValueError(f"kind is one of {', '.join(KINDS)}")
         if not server:

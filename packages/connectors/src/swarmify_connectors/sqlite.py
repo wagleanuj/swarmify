@@ -118,9 +118,37 @@ class SqliteStorage:
             conn.execute("COMMIT")
         return call
 
+    def enabled_packages(self, world_id: str) -> dict[str, str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT package, version FROM world_packages WHERE world_id = ? ORDER BY package",
+                (world_id,),
+            )
+            return {r["package"]: r["version"] for r in rows}
+
+    def enable_package(self, world_id: str, package: str, version: str, at: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO world_packages (world_id, package, version, enabled_at)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT (world_id, package)"
+                " DO UPDATE SET version = excluded.version, enabled_at = excluded.enabled_at",
+                (world_id, package, version, at),
+            )
+
+    def disable_package(self, world_id: str, package: str) -> bool:
+        with self._conn() as conn:
+            return (
+                conn.execute(
+                    "DELETE FROM world_packages WHERE world_id = ? AND package = ?",
+                    (world_id, package),
+                ).rowcount
+                > 0
+            )
+
     def delete_world(self, world_id: str) -> None:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM connectors WHERE world_id = ?", (world_id,))
+            conn.execute("DELETE FROM world_packages WHERE world_id = ?", (world_id,))
             conn.execute("DELETE FROM connector_calls WHERE world_id = ?", (world_id,))
             conn.execute("COMMIT")

@@ -10,6 +10,7 @@ written last, so a version folder without it never counts and a failed step remo
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tomllib
@@ -35,6 +36,7 @@ _PYTHON |= {"number": (int, float), "integer": int, "boolean": bool}
 _SNAKE = "^[a-z][a-z0-9_]{0,59}$"
 _TOOL = "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
 _URL = "^https?://[^\\s/]+"
+_VERSION = "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$"
 _strings = {"type": "array", "items": {"type": "string", "minLength": 1}}
 _text = {"type": "string", "minLength": 1}
 _file = {
@@ -54,7 +56,7 @@ SCHEMA: dict[str, Any] = {
     "properties": {
         # What it is
         "name": {"type": "string", "pattern": _SNAKE},
-        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$"},
+        "version": {"type": "string", "pattern": _VERSION},
         "label": {"type": "string", "minLength": 1, "maxLength": 60},
         "about": _text,
         "kind": {"enum": list(KINDS)},
@@ -308,6 +310,15 @@ class Packages:
     def list(self) -> list[Package]:
         """Every installed version, by name then version folder."""
         return [self._package(f) for f in sorted(self.root.glob(f"*/*/{RECORD}"))]
+
+    def manifest(self, name: str, version: str) -> dict[str, Any]:
+        """The Manifest of an installed version. Raises InstallError when it is not installed,
+        ManifestError when its Manifest no longer passes."""
+        installed = re.fullmatch(_SNAKE, name) and re.fullmatch(_VERSION, version)
+        folder = self.root / name / version
+        if not installed or not (folder / RECORD).is_file():
+            raise InstallError(f"{name} {version} is not installed")
+        return read_manifest(folder)
 
     def _package(self, record_file: Path) -> Package:
         folder, record = record_file.parent, json.loads(record_file.read_text())

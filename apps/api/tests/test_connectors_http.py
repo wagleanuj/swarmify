@@ -285,3 +285,48 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
     assert client.get("/api/packages").json() == []
+
+
+ECHO = """name: Say it
+stages:
+  - connector: say
+    calls: echo
+    output: said.wav
+"""
+
+
+def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None:
+    source = "packages/connectors/tests/fixtures/packages/echo"
+    assert client.post("/api/packages", json={"source": source}).status_code == 201
+    one, two = world(client), world(client)
+    refused = client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO})
+    assert refused.status_code == 422
+    assert refused.json()["violations"][0]["message"] == "no connector named 'echo'"
+
+    for w in (one, two):
+        put = client.put(f"/api/worlds/{w}/packages/echo", json={"version": "1.0.0"})
+        assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
+    assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "echo", "version": "1.0.0"}
+    ]
+    echo = client.get(f"/api/worlds/{one}/connectors").json()[-1]
+    assert (echo["name"], echo["version"], echo["builtin"]) == ("echo", "1.0.0", False)
+    assert "folder" not in echo
+    assert echo["label"] == "Echo"  # from its Manifest
+    assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 201
+
+    assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
+    assert client.get(f"/api/worlds/{one}/packages").json() == []
+    assert client.get(f"/api/worlds/{two}/packages").json() == [
+        {"name": "echo", "version": "1.0.0"}
+    ]
+    assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 422
+    assert client.post(f"/api/worlds/{two}/workflows", json={"yaml": ECHO}).status_code == 201
+    names = [c["name"] for c in client.get(f"/api/worlds/{one}/connectors").json()]
+    assert "echo" not in names and "speech" in names and "youtube" in names
+
+    assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 404
+    missing = client.put(f"/api/worlds/{one}/packages/echo", json={"version": "9.0.0"})
+    assert missing.status_code == 422 and missing.json()["detail"] == "echo 9.0.0 is not installed"
+    nope = client.put("/api/worlds/world_nope/packages/echo", json={"version": "1.0.0"})
+    assert nope.status_code == 404

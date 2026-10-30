@@ -76,6 +76,7 @@ export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off
 }
 
 function where(c: Connector): string {
+  if (c.version) return `${c.about} · package ${c.name} ${c.version}`;
   if (c.missing.length > 0) return `${c.builtin ? c.about : c.url ?? c.command.join(" ")} · ${c.missing.join(", ")} not set`;
   if (c.builtin) return c.about;
   const server = c.url ?? c.command.join(" ");
@@ -87,6 +88,7 @@ export function Connectors() {
   const [world, setWorld] = useState<World | null | undefined>(undefined);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
+  const [enabled, setEnabled] = useState<Record<string, string>>({});
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Kind>("stage");
   const [server, setServer] = useState("");
@@ -108,12 +110,19 @@ export function Connectors() {
       .then(({ data }) => data && setConnectors(data));
   }
 
+  function loadEnabled() {
+    return api
+      .GET("/api/worlds/{world_id}/packages", { params: { path: { world_id: worldId } } })
+      .then(({ data }) => data && setEnabled(Object.fromEntries(data.map((e) => [e.name, e.version]))));
+  }
+
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
       .then(({ data, response }) => setWorld(response.status === 404 ? null : (data ?? null)))
       .catch(() => setError("Could not load this world. Is the API running?"));
     void load().catch(() => undefined);
+    void loadEnabled().catch(() => undefined);
     api
       .GET("/api/packages")
       .then(({ data }) => data && setPackages(data))
@@ -166,6 +175,31 @@ export function Connectors() {
       return;
     }
     await load();
+  }
+
+  async function enable(p: Package) {
+    setError(null);
+    const { error } = await api.PUT("/api/worlds/{world_id}/packages/{name}", {
+      params: { path: { world_id: worldId, name: p.name } },
+      body: { version: p.version },
+    });
+    if (error) {
+      setError(detail(error) ?? `Could not enable ${p.label}. Try again.`);
+      return;
+    }
+    await Promise.all([loadEnabled(), load()]);
+  }
+
+  async function disable(p: Package) {
+    if (!window.confirm(`Disable ${p.label} in this world? Its workflows that call ${p.name} stop passing their checks. Other worlds keep it.`)) return;
+    const { error } = await api.DELETE("/api/worlds/{world_id}/packages/{name}", {
+      params: { path: { world_id: worldId, name: p.name } },
+    });
+    if (error) {
+      setError(`Could not disable ${p.label}. Try again.`);
+      return;
+    }
+    await Promise.all([loadEnabled(), load()]);
   }
 
   if (world === null) {
@@ -319,12 +353,12 @@ export function Connectors() {
                       <span className={s.tone === "ok" ? "dot live" : s.tone === "warn" ? "dot warn" : "dot"} />
                       <span className="con-main">
                         <b>{c.label}</b>
-                        <span className={c.builtin ? "faint" : "faint mono"}>{where(c)}</span>
+                        <span className={c.builtin || c.version ? "faint" : "faint mono"}>{where(c)}</span>
                       </span>
                       <span className="faint">{c.stage_types.join(", ")} steps</span>
                       <span className={s.tone === "warn" ? "pill warning" : "pill"}>{s.text}</span>
                       {c.credentials.length > 0 && <SetKeys connector={c} onSaved={load} onError={setError} />}
-                      {!c.builtin && (
+                      {!c.builtin && !c.version && (
                         <button type="button" className="link" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}>
                           Remove
                         </button>
@@ -342,7 +376,8 @@ export function Connectors() {
             <div className="panel-head">
               <h2 id="group-packages">Installed packages</h2>
               <span className="faint">
-                Installed once for every world. <span className="num">{packages.length}</span>
+                Installed once for every world; this world uses the ones it enables, at the version it pins.{" "}
+                <span className="num">{packages.length}</span>
               </span>
             </div>
             <ul className="con-list" aria-label="Installed packages">
@@ -360,6 +395,20 @@ export function Connectors() {
                   <span className={p.state === "installed" ? "pill" : "pill warning"}>
                     {p.state === "installed" ? "Installed" : "Invalid Manifest"}
                   </span>
+                  {enabled[p.name] === p.version ? (
+                    <>
+                      <span className="pill">Enabled here</span>
+                      <button type="button" onClick={() => disable(p)} aria-label={`Disable ${p.name} ${p.version}`}>
+                        Disable
+                      </button>
+                    </>
+                  ) : (
+                    p.state === "installed" && (
+                      <button type="button" onClick={() => enable(p)} aria-label={`Enable ${p.name} ${p.version}`}>
+                        {enabled[p.name] ? `Switch from ${enabled[p.name]}` : "Enable"}
+                      </button>
+                    )
+                  )}
                 </li>
               ))}
             </ul>
