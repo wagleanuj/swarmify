@@ -79,6 +79,8 @@ class ConnectorView(BaseModel):
     """What a stage of it makes, which a skin picks a step's panel by (ADR 0025)."""
     missing: list[str]
     """Credential names the credentials file does not hold yet."""
+    version: str | None
+    """The Connector Package version the world pins; None for a built-in or the world's own."""
 
 
 class SavedKeys(ConnectorView):
@@ -101,6 +103,16 @@ class CredentialValues(BaseModel):
 class PackageSource(BaseModel):
     source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
     """A folder of this repository, as `connectors/speech`, or an absolute local path."""
+
+
+class EnabledPackage(BaseModel):
+    name: str
+    version: str
+
+
+class PinnedVersion(BaseModel):
+    version: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    """An installed version of the package, as `1.0.0`."""
 
 
 def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRouter:
@@ -209,6 +221,31 @@ def router(connectors: Connectors, worlds: Worlds, packages: Packages) -> APIRou
             raise HTTPException(422, f"invalid Manifest: {exc}") from exc
         except InstallError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @api.get("/worlds/{world_id}/packages")
+    def enabled_packages(world_id: str) -> list[EnabledPackage]:
+        """The Connector Packages this world enables, each at the version it pins (ADR 0023)."""
+        world_or_404(world_id)
+        return [EnabledPackage(name=n, version=v) for n, v in connectors.enabled(world_id).items()]
+
+    @api.put("/worlds/{world_id}/packages/{name}")
+    def enable_package(world_id: str, name: str, body: PinnedVersion) -> EnabledPackage:
+        """Enable an installed package in this world at a version, or move its pin there; its
+        Connector then exists in this world, called by the package's name. 422 saying why not."""
+        world_or_404(world_id)
+        try:
+            connectors.enable(world_id, name, body.version)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return EnabledPackage(name=name, version=body.version)
+
+    @api.delete("/worlds/{world_id}/packages/{name}", status_code=204)
+    def disable_package(world_id: str, name: str) -> Response:
+        """Stop this world using the package; other worlds that enable it are untouched."""
+        world_or_404(world_id)
+        if not connectors.disable(world_id, name):
+            raise HTTPException(404, f"this world does not enable {name}")
+        return Response(status_code=204)
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

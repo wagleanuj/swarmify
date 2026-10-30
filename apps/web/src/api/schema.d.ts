@@ -725,6 +725,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Enabled Packages
+         * @description The Connector Packages this world enables, each at the version it pins (ADR 0023).
+         */
+        get: operations["enabled_packages_api_worlds__world_id__packages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/packages/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Enable Package
+         * @description Enable an installed package in this world at a version, or move its pin there; its
+         *     Connector then exists in this world, called by the package's name. 422 saying why not.
+         */
+        put: operations["enable_package_api_worlds__world_id__packages__name__put"];
+        post?: never;
+        /**
+         * Disable Package
+         * @description Stop this world using the package; other worlds that enable it are untouched.
+         */
+        delete: operations["disable_package_api_worlds__world_id__packages__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stage_id}/call": {
         parameters: {
             query?: never;
@@ -1878,6 +1923,8 @@ export interface components {
             outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
+            /** Version */
+            version: string | null;
         };
         /** CopyBody */
         CopyBody: {
@@ -1979,6 +2026,13 @@ export interface components {
              * @default []
              */
             tags: string[];
+        };
+        /** EnabledPackage */
+        EnabledPackage: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
         };
         /** EvalReport */
         EvalReport: {
@@ -2463,6 +2517,11 @@ export interface components {
              */
             pinned: boolean;
         };
+        /** PinnedVersion */
+        PinnedVersion: {
+            /** Version */
+            version: string;
+        };
         /** Progress */
         Progress: {
             /** Agent */
@@ -2826,6 +2885,8 @@ export interface components {
             outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
+            /** Version */
+            version: string | null;
             check: components["schemas"]["KeyCheck"] | null;
         };
         /**
@@ -4858,6 +4919,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Package"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enabled_packages_api_worlds__world_id__packages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnabledPackage"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_package_api_worlds__world_id__packages__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinnedVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnabledPackage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_package_api_worlds__world_id__packages__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

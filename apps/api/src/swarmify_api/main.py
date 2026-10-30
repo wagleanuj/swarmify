@@ -149,6 +149,7 @@ def connector_service(
         transport or McpTransport(),
         Credentials(root / ".env"),
         poll_seconds,
+        Packages(root / "packages", REPO),
     )
 
 
@@ -768,7 +769,7 @@ def create_app(
     app.include_router(
         runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)
     )
-    app.include_router(connectors.router(registry, world_svc, Packages(root / "packages", REPO)))
+    app.include_router(connectors.router(registry, world_svc, registry.packages))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))

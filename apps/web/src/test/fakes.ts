@@ -28,6 +28,7 @@ const builtin = (name: string, label: string, kind: Connector["kind"], over: Par
   capabilities: [],
   outputs: [],
   missing: [],
+  version: null,
   ...over,
 });
 const video = [{ description: "the video", media_type: "video/mp4" }];

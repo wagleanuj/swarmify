@@ -80,7 +80,9 @@ class McpTransport:
         server: Any
         if connector.command:
             command, *args = connector.command
-            server = StdioServerParameters(command=command, args=args, env=env)
+            server = StdioServerParameters(
+                command=command, args=args, env=env, cwd=connector.folder
+            )
         elif connector.url:
             server = _http(connector.url, env)
         else:
