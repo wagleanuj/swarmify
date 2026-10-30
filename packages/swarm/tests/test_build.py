@@ -69,6 +69,27 @@ def _scripted(board: SqliteStorage, data: Path, *sessions: list[Step], **kw: Any
     return script
 
 
+def test_nothing_readable_holds_the_build_folder(tmp_path: Path) -> None:
+    """Under bubblewrap a read-only path over the writable build folder leaves the build folder
+    read-only and the sandbox cannot start (every command failed on Linux), so the session reads
+    the world's assets and the run's other stage folders, never the world, run or stage folder."""
+    world = tmp_path / "worlds/w"
+    folder = world / "runs/r/build-stage/build"
+    for d in (folder, world / "assets/voices", world / "runs/r/script-stage/artifacts",
+              world / "runs/r/gate-stage", world / "runs/other-run/x"):  # fmt: skip
+        d.mkdir(parents=True)
+    rules = build.sandbox(folder, world, tmp_path, tmp_path / "npm-cache", [])["filesystem"]
+    read = [Path(p) for p in rules["allowRead"]]
+    assert not any(folder.resolve().is_relative_to(p) for p in read)
+    assert set(read) == {
+        (tmp_path / "npm-cache").resolve(),
+        (world / "assets").resolve(),
+        (world / "runs/r/gate-stage").resolve(),
+        (world / "runs/r/script-stage").resolve(),
+    }
+    assert rules["allowWrite"][0] == str(folder.resolve())
+
+
 def test_the_session_is_sandboxed_in_its_build_folder_without_keys(
     board: SqliteStorage, data: Path
 ) -> None:
@@ -89,7 +110,7 @@ def test_the_session_is_sandboxed_in_its_build_folder_without_keys(
         "filesystem": {
             "allowWrite": [str(folder), str(data / "npm-cache")],
             "denyRead": [str(data)],
-            "allowRead": [str(folder), str(data / "npm-cache"), str(world)],
+            "allowRead": [str(data / "npm-cache"), str(world / "runs" / R / "s0")],
         },
         "credentials": {
             "envVars": [
