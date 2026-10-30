@@ -1,12 +1,16 @@
 """HTTP face of the Connectors context: the registry, test-and-list-tools, stage calls, and the
 Connector Packages installed for the whole install."""
 
+import hashlib
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, StringConstraints
 
+from swarmify_api.auth import COOKIE
 from swarmify_connectors import (
     Call,
     Connector,
@@ -19,7 +23,8 @@ from swarmify_connectors import (
     Package,
     Tool,
 )
-from swarmify_connectors.setup import env_name, fields, scope
+from swarmify_connectors.oauth import CALLBACK, SignInNeeded
+from swarmify_connectors.setup import env_name, fields, needs_sign_in, scope, secret
 from swarmify_workflows import Workflows
 from swarmify_worlds import Worlds
 
@@ -81,6 +86,8 @@ class ConnectorView(BaseModel):
     missing: list[str]
     """Credential names the credentials file does not hold yet; for a package, the keys of
     required Setup fields with no value for this world."""
+    sign_in: list[str]
+    """Keys of a package's sign-in fields the provider refused, to sign in to again."""
     version: str | None
     """The Connector Package version the world pins; None for a built-in."""
 
@@ -126,12 +133,17 @@ class SetupField(BaseModel):
 
     key: str
     label: str
-    type: Literal["string", "text", "number", "integer", "boolean", "choice", "url", "path"]
+    type: Literal[
+        "string", "text", "number", "integer", "boolean", "choice", "url", "path", "oauth"
+    ]
+    """`oauth`: a sign-in Swarmify runs (`POST .../setup/oauth/{key}`), never typed."""
     secret: bool
     required: bool
     scope: Literal["shared", "world"]
     """`shared`: one value for every world, which a world may override; `world`: per world."""
-    env: str
+    env: str | None
+    """The variable it reaches the process as; null for an OAuth app's client ID and secret,
+    which only Swarmify uses."""
     help: str | None
     options: list[str] | None
     default: SetupValue
@@ -144,6 +156,8 @@ class SetupField(BaseModel):
     """This world's own value; null for a Credential."""
     shared_set: bool
     world_set: bool
+    needs_sign_in: bool
+    """An `oauth` field whose sign-in the provider refused, or the connector reported failing."""
 
 
 class SetupView(BaseModel):
@@ -194,6 +208,13 @@ class PackageSwitch(BaseModel):
     until each has one."""
 
 
+class SignInStart(BaseModel):
+    url: str
+    """The provider's sign-in page, to send the browser to."""
+    redirect_uri: str
+    """Where the provider sends it back: register this with the provider's app."""
+
+
 def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["connectors"])
     packages = connectors.packages
@@ -206,6 +227,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
             capabilities=m.get("capabilities", []),
             outputs=m.get("outputs", []),
             missing=connectors.missing(connector),
+            sign_in=connectors.sign_in_needed(connector),
         )
 
     def world_or_404(world_id: str) -> None:
@@ -358,7 +380,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         m = connector.manifest
 
         def shown(f: dict[str, Any], values: dict[str, Any]) -> Any:
-            return None if f.get("secret") else values.get(f["key"])
+            return None if secret(f) else values.get(f["key"])
 
         return SetupView(
             package=name,
@@ -370,14 +392,17 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
                     {
                         **{k: f.get(k) for k in ("key", "label", "type", "help", "options")},
                         **{k: f.get(k) for k in ("default", "min", "max", "pattern")},
-                        "secret": f.get("secret", False),
+                        "secret": secret(f),
                         "required": f.get("required", False),
                         "scope": scope(f),
-                        "env": env_name(f),
+                        "env": None if "client_of" in f else env_name(f),
                         "shared": None if scope(f) == "world" else shown(f, shared),
                         "world": shown(f, world),
                         "shared_set": scope(f) == "shared" and shared.get(f["key"]) is not None,
                         "world_set": world.get(f["key"]) is not None,
+                        "needs_sign_in": needs_sign_in(
+                            f, (world if scope(f) == "world" else shared).get(f["key"])
+                        ),
                     }
                 )
                 for f in fields(m)
@@ -413,6 +438,65 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         if check is not None and not check.ok:
             raise HTTPException(422, f"Not saved. The test said: {check.message}")
         return SavedSetup(**setup_view(world_id, name, version).model_dump(), check=check)
+
+    def session_digest(request: Request) -> str:
+        """What a sign-in's state is bound to: the session cookie, hashed (empty without one, as
+        on an install with no password)."""
+        return hashlib.sha256(request.cookies.get(COOKIE, "").encode()).hexdigest()
+
+    @api.post("/worlds/{world_id}/packages/{name}/setup/oauth/{key}")
+    def start_sign_in(world_id: str, name: str, key: str, request: Request) -> SignInStart:
+        """Begin signing in to the package's `oauth` field `key`: the browser goes to the
+        returned URL, and the provider sends it back to `/api/setup/oauth/callback` at the
+        origin this request came to (behind a proxy, its X-Forwarded-Proto and -Host), which
+        is the redirect URI to register with the provider. 422 until the field's client ID is
+        saved."""
+        world_or_404(world_id)
+        setup_view(world_id, name, None)
+
+        def first(header: str) -> str:  # the client-facing proxy's, when several add one
+            return request.headers.get(header, "").split(",")[0].strip()
+
+        host = first("x-forwarded-host") or first("host")
+        proto = first("x-forwarded-proto") or request.url.scheme
+        redirect_uri = f"{proto}://{host}{CALLBACK}"
+        try:
+            url = connectors.start_sign_in(
+                world_id, name, key, redirect_uri, session_digest(request)
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return SignInStart(url=url, redirect_uri=redirect_uri)
+
+    @api.get(CALLBACK.removeprefix("/api"), response_class=RedirectResponse, status_code=303)
+    def finish_sign_in(
+        request: Request, state: str = "", code: str = "", error: str = ""
+    ) -> RedirectResponse:
+        """Where the provider sends the browser back. The state must be one this session began
+        in the last ten minutes, once; the code is traded for the token set, stored as the
+        field's Credential. Redirects to the world's Connectors page with `sign_in` (the
+        package) or `sign_in_error` (why not) in the query. 400 for a stale or foreign state."""
+        try:
+            pending = connectors.sign_in_for(state, session_digest(request))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        back = f"/worlds/{pending['world_id']}/connectors?"
+        if error or not code:
+            why = (
+                "you said no"
+                if error == "access_denied"
+                else f"the provider said {error or 'nothing'}"
+            )
+            return RedirectResponse(
+                back + urlencode({"sign_in_error": f"Not signed in: {why}."}), 303
+            )
+        try:
+            connectors.finish_sign_in(pending, code)
+        except (ValueError, SignInNeeded, PermissionError) as exc:
+            return RedirectResponse(
+                back + urlencode({"sign_in_error": f"Not signed in. {exc}"}), 303
+            )
+        return RedirectResponse(back + urlencode({"sign_in": pending["name"]}), 303)
 
     @api.get("/stages/{stage_id}/call")
     def get_call(stage_id: str) -> Call:

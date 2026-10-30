@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 mcp = MCPServer("probe")
 
@@ -18,6 +19,11 @@ def check_setup() -> dict[str, Any]:
 @mcp.tool(description="Answer with this process's environment.")
 def environ(idempotency_key: str = "") -> dict[str, Any]:
     return {"env": dict(os.environ)}
+
+
+@mcp.tool(description="Fail as a tool does when the provider refuses its access token.")
+def refused(idempotency_key: str = "") -> dict[str, Any]:
+    raise ToolError("auth_failed: the provider refused the access token")
 
 
 if __name__ == "__main__":

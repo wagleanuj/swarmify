@@ -8,6 +8,8 @@ from pathlib import Path
 import httpx
 from playwright.sync_api import Page, expect
 
+from swarmify_connectors.fake_oauth import FakeProvider
+
 ECHO = Path(__file__).parents[2] / "packages/connectors/tests/echo_server.py"
 RENDER = """name: Render then pick
 stages:
@@ -191,3 +193,71 @@ def test_a_pin_switch_shows_the_manifest_diff_and_uninstall_names_the_users(
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
         httpx.delete(f"{base_url}/api/packages/echo/2.0.0")
+
+
+def test_an_oauth_field_signs_in_through_the_provider_and_back(
+    page: Page, base_url: str, data_dir: Path, tmp_path: Path
+) -> None:
+    probe = Path(__file__).parents[2] / "packages/connectors/tests/fixtures/packages/probe"
+    source = tmp_path / "probe"
+    shutil.copytree(probe, source)
+    toml = source / "swarmify-connector.toml"
+    with FakeProvider() as provider:
+        toml.write_text(
+            toml.read_text()
+            .replace('name = "probe"', 'name = "probe_oauth"')
+            .replace('["python3", "server.py"]', json.dumps([sys.executable, "server.py"]))
+            + f"""
+[[config]]
+key = "account"
+label = "Account"
+type = "oauth"
+required = true
+scope = "world"
+env = "PROBE_TOKEN"
+[config.oauth]
+authorize_url = "{provider.url}/authorize"
+token_url = "{provider.url}/token"
+scopes = ["read"]
+pkce = true
+client = "operator"
+"""
+        )
+        installed = httpx.post(f"{base_url}/api/packages", json={"source": str(source)})
+        assert installed.status_code == 201, installed.text
+        world = httpx.post(f"{base_url}/api/worlds", json={"name": "Sign-in"}).json()
+        try:
+            httpx.put(
+                f"{base_url}/api/worlds/{world['id']}/packages/probe_oauth",
+                json={"version": "1.0.0"},
+            )
+            page.goto(f"{base_url}/worlds/{world['id']}/connectors")
+            row = page.locator("[data-name=probe_oauth]")
+            expect(row).to_contain_text("Needs setup")
+            row.get_by_role("button", name="Set up probe_oauth").click()
+            form = page.get_by_role("form", name="Setup of Probe")
+            expect(form).to_contain_text(f"{base_url}/api/setup/oauth/callback")
+            form.get_by_label(re.compile(r"^API key · every world")).fill("good")
+            form.get_by_label(re.compile(r"^Account client ID.*every world")).fill("app")
+            form.get_by_label(re.compile(r"^Account client secret.*every world")).fill("shh")
+            form.get_by_role("button", name="Test and save").click()
+            expect(row.get_by_role("status")).to_contain_text("Setup saved.", timeout=15_000)
+
+            row.get_by_role("button", name="Set up probe_oauth").click()
+            form.get_by_role("button", name="Sign in to Account").click()
+            # to the provider, which consents at once, and back through the callback
+            expect(page.get_by_role("status")).to_have_text(
+                "Signed in. probe_oauth gets a fresh access token each time it starts.",
+                timeout=15_000,
+            )
+            expect(page).to_have_url(f"{base_url}/worlds/{world['id']}/connectors")
+            expect(row).to_contain_text("Ready")
+            saved = json.loads((data_dir / "setup.json").read_text())["probe_oauth"]
+            tokens = saved["worlds"][world["id"]]["account"]
+            assert tokens["access_token"] in provider.access_tokens
+            form_now = httpx.get(
+                f"{base_url}/api/worlds/{world['id']}/packages/probe_oauth/setup"
+            ).text
+            assert tokens["access_token"] not in form_now and "shh" not in form_now
+        finally:
+            httpx.delete(f"{base_url}/api/worlds/{world['id']}")

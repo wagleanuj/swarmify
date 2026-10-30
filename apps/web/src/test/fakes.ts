@@ -28,6 +28,7 @@ const builtin = (name: string, label: string, kind: Connector["kind"], over: Par
   capabilities: [],
   outputs: [],
   missing: [],
+  sign_in: [],
   version: null,
   ...over,
 });
