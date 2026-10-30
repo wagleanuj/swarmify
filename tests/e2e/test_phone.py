@@ -85,11 +85,14 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
             .slice(0, 5).map(e => e.tagName + '.' + e.className)"""
     )
     assert wide <= 0, f"{path} scrolls sideways by {wide}px: {culprits}"
-    # The sidebar folds behind the menu button; every way out is a thumb tap (WCAG 2.5.8: 24px).
+    # The sidebar gives way to a bottom tab bar; every tab and More's rows are a 44px thumb tap.
     expect(phone.get_by_role("navigation", name="Main")).to_be_hidden()
-    phone.get_by_role("button", name="Menu").click()
-    links = phone.locator(".nav-item").evaluate_all("as => as.map(a => a.offsetHeight)")
-    assert links and all(h >= 24 for h in links), f"{path} has menu links {links}px tall"
+    tabs = phone.get_by_role("navigation", name="Tabs")
+    heights = tabs.locator(".tabbar-item").evaluate_all("as => as.map(a => a.offsetHeight)")
+    assert len(heights) == 5 and all(h >= 44 for h in heights), f"{path} has tabs {heights}px tall"
+    tabs.get_by_role("button", name="More").click()
+    rows = phone.locator(".sheet-row").evaluate_all("as => as.map(a => a.offsetHeight)")
+    assert rows and all(h >= 44 for h in rows), f"{path} has More rows {rows}px tall"
 
 
 def test_a_gate_is_answered_from_a_phone_as_the_stream_moves(phone: Page, ids: dict) -> None:

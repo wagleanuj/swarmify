@@ -50,7 +50,7 @@ export function parseKeys(text: string): Record<string, string> {
   return keys;
 }
 
-function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
+export function status(c: Connector): { text: string; tone: "ok" | "warn" | "off" } {
   if (c.missing.length > 0) return { text: "Needs a key", tone: "warn" };
   // remotion_build runs inside swarmify (a session, then the render), so it has no server
   if (c.builtin && c.kind !== "tool" && c.command.length === 0 && !c.url && c.name !== "remotion_build") {

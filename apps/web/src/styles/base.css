@@ -38,6 +38,9 @@
   --radius-field: 6px;
   --radius-control: 999px;
   --nav-row: 32px;
+  /* The phone's bottom tab bar, safe area included; 0 wider. A bar pinned above it uses
+     `bottom: var(--tabbar)`. */
+  --tabbar: 0px;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--ground); color: var(--text); font: 400 var(--fs-body)/1.5 var(--font); -webkit-font-smoothing: antialiased; }
@@ -85,6 +88,33 @@ button.icon { min-height: 32px; width: 32px; padding: 0; }
   .sidebar.open .menu-close { display: inline-flex; }
   .switcher b { max-width: none; }
 }
+/* The phone: a world chip on top, five tabs at the bottom; the sidebar and its menu go. */
+.world-chip, .tabbar { display: none; }
+@media (max-width: 48rem) {
+  :root { --tabbar: calc(56px + env(safe-area-inset-bottom)); }
+  .sidebar, .sidebar.open, .topbar .brand, .topbar button.icon { display: none; }
+  .topbar { padding: 0 16px; border-bottom-color: var(--rule); }
+  .world-chip { display: inline-flex; min-width: 0; min-height: 32px; padding: 6px 12px; border: 0; background: var(--raised); font-weight: 600; }
+  .world-chip svg { flex: none; color: var(--faint); }
+  .canvas { padding-bottom: var(--tabbar); }
+  .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; height: var(--tabbar); padding: 6px 4px env(safe-area-inset-bottom); background: #141416; border-top: 1px solid var(--rule); }
+}
+.tabbar-item { position: relative; display: grid; justify-items: center; align-content: center; gap: 3px; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--faint); font-size: 10.5px; font-weight: 500; line-height: 1.2; text-decoration: none; }
+button.tabbar-item:hover { background: none; }
+.tabbar-item svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.tabbar-item.on { color: var(--text); font-weight: 700; }
+.tabbar-item.on svg { fill: currentColor; fill-opacity: 0.18; }
+.tabbar-badge { position: absolute; top: -3px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; border: 2px solid #141416; background: var(--warning); color: #1a1405; font-size: 10px; font-weight: 800; display: grid; place-items: center; box-sizing: content-box; }
+/* A bottom sheet (Sheet.tsx): rises above the tab bar, rows of a label and a faint summary. */
+dialog.sheet { margin: auto 0 var(--tabbar); width: 100%; max-width: none; max-height: calc(100svh - var(--tabbar) - 48px); padding: 0; border: 0; border-top: 1px solid var(--border); border-radius: 18px 18px 0 0; background: var(--surface); color: var(--text); box-shadow: 0 -20px 40px #000c; }
+dialog.sheet::backdrop { background: #000a; }
+.sheet-body { padding: 8px 16px 14px; }
+.sheet-body::before { content: ""; display: block; width: 38px; height: 5px; margin: 2px auto 12px; border-radius: 3px; background: var(--control); }
+.sheet-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; padding: 0 2px; border-bottom: 1px solid var(--rule); font-size: 15px; text-decoration: none; }
+.sheet-row:last-child { border-bottom: 0; }
+.sheet-row[aria-current] { font-weight: 600; }
+.sheet-row small { color: var(--faint); font-size: 12px; text-align: right; }
+.sheet .nav-health { padding: 10px 2px 0; }
 
 /* Title row */
 header.page { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; align-items: flex-end; margin-bottom: 24px; }
