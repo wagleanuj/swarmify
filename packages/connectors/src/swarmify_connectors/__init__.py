@@ -38,7 +38,6 @@ from swarmify_connectors.model import (
     ConnectorError,
     HealthCheck,
     KeyCheck,
-    Kind,
     Tool,
 )
 from swarmify_connectors.packages import (
@@ -74,6 +73,7 @@ __all__ = [
     "SqliteStorage",
     "Storage",
     "Tool",
+    "from_manifest",
     "read_manifest",
 ]
 
@@ -83,81 +83,159 @@ TYPE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 """A declared type's name, as a swarm stage's `output_type` names it."""
 
 
-def _builtin(
-    name: str,
-    kind: Kind,
-    stage_type: str,
-    about: str,
-    command: list[str] | None = None,
-    credentials: list[str] | None = None,
-) -> Connector:
+def from_manifest(m: dict[str, Any]) -> Connector:
+    """The built-in Connector a Manifest declares; it keeps the Manifest for the planner."""
     return Connector(
-        f"builtin_{name}",
+        f"builtin_{m['name']}",
         None,
-        name,
-        kind,
-        command or [],
-        credentials=credentials or [],
-        stage_types=[stage_type],
+        m["name"],
+        m["kind"],
+        m.get("command", []),
+        credentials=m.get("credentials", []),
+        stage_types=m["stage_types"],
         builtin=True,
-        about=about,
+        about=m["about"],
+        health=m.get("health"),
+        types=m.get("types", {}),
+        input_types=m.get("input_types", []),
+        world_types=m.get("world_types"),
+        manifest=m,
     )
 
 
-# Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019): the core
-# reads only these fields, so moving one into a package moves its module and this entry.
-MANIFESTS: dict[str, dict[str, Any]] = {m["name"]: m for m in (speech.MANIFEST,)}
+_SCRIPT_IN = {"description": "the script", "media_type": "text/markdown"}
+_VIDEO_IN = {"description": "the video", "media_type": "video/mp4"}
+_PUBLISH_PARAMS: dict[str, Any] = {
+    "title": {
+        "type": "string",
+        "description": "required unless metadata names a file an earlier stage produced whose"
+        " frontmatter has title and description",
+    },
+    "metadata": {
+        "type": "string",
+        "description": "a file an earlier stage produced; its frontmatter's title, description,"
+        " hashtags and tags win over these params",
+    },
+    "description": {"type": "string"},
+    "visibility": {"enum": ["public", "unlisted", "private"], "default": "private"},
+    "schedule": {
+        "type": "string",
+        "description": "ISO 8601 with a timezone, or 09:00, or +1d 09:00; needs public",
+    },
+    "made_for_kids": {"type": "boolean", "default": False},
+}
 
-BUILTINS = [
-    _builtin(
-        "remotion_render",
-        "stage",
-        "connector",
-        "Renders a script with the Remotion CLI. Needs Node and a Remotion project.",
-        [sys.executable, "-m", "swarmify_connectors.remotion"],
-    ),
-    _builtin(
-        "remotion_build",
-        "stage",
-        "connector",
-        "Writes a Remotion project from the script in a sandboxed coding session, then renders"
-        " it. Needs Node.",
-    ),
-    _builtin(
-        "youtube",
-        "publish",
-        "connector",
-        "Uploads to YouTube through the Data API; a schedule keeps it private until then.",
-        [sys.executable, "-m", "swarmify_connectors.youtube"],
-        ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
-    ),
-    _builtin(
-        "upload_post",
-        "publish",
-        "connector",
-        "Posts or schedules to YouTube, TikTok and Instagram through Upload-Post's MCP.",
-        ["npx", "-y", "@upload-post/mcp@0.11.4"],
-        ["UPLOAD_POST_API_KEY"],
-    ),
-    *(
-        Connector(
-            f"builtin_{m['name']}",
-            None,
-            m["name"],
-            m["kind"],
-            m["command"],
-            credentials=m["credentials"],
-            stage_types=m["stage_types"],
-            builtin=True,
-            about=m["about"],
-            health=m.get("health"),
-            types=m.get("types", {}),
-            input_types=m.get("input_types", []),
-            world_types=m.get("world_types"),
-        )
-        for m in MANIFESTS.values()
-    ),
-]
+# Built-ins declared by a manifest in the shape of a V2 connector package's (ADR 0019): the core
+# and the planner read only these fields, so moving one into a package moves its module and
+# this entry.
+MANIFESTS: dict[str, dict[str, Any]] = {
+    m["name"]: m
+    for m in (
+        {
+            "name": "remotion_render",
+            "kind": "stage",
+            "stage_types": ["connector"],
+            "about": "Renders a script with the Remotion CLI. Needs Node and a Remotion project.",
+            "command": [sys.executable, "-m", "swarmify_connectors.remotion"],
+            "params": {
+                "type": "object",
+                "required": ["project", "composition"],
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "a template's name under the data directory's remotion"
+                        " folder, or a folder path",
+                    },
+                    "composition": {"type": "string", "description": "its composition ID"},
+                    "entry": {"type": "string", "default": "src/index.ts"},
+                    "codec": {"type": "string", "default": "h264"},
+                    "frames": {"type": "string", "description": "a range, as 0-29"},
+                    "props": {"type": "object", "description": "the composition's input props"},
+                },
+            },
+            "planner_notes": "Use it only when the operator has a finished template; else"
+            " remotion_build makes the video.",
+            "inputs": [_SCRIPT_IN],
+            "outputs": [{"description": "the video", "media_type": "video/mp4"}],
+        },
+        {
+            "name": "remotion_build",
+            "kind": "stage",
+            "stage_types": ["connector"],
+            "about": "Writes a Remotion project from the script in a sandboxed coding session,"
+            " then renders it. Needs Node.",
+            "params": {
+                "type": "object",
+                "properties": {
+                    "base": {
+                        "type": "string",
+                        "description": "a template's name under the data directory's remotion"
+                        " folder to start from, else a minimal starter",
+                    },
+                    "composition": {"type": "string", "default": "Main"},
+                    "brief": {
+                        "type": "string",
+                        "description": "free text for the builder: style, length, pacing",
+                    },
+                    "model": {"type": "string"},
+                    "max_turns": {"type": "integer", "default": 80},
+                    "minutes": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "the session's time limit",
+                    },
+                },
+            },
+            "planner_notes": "This is how a workflow makes a video. One sandboxed coding session"
+            " writes a Remotion project for the script, reading the run's gate decisions, then"
+            " swarmify renders it. It costs a coding session from the run's budget. Give it the"
+            " script as input, or inputs: the script first, then files the builder should also"
+            " read (as speech's timings.json).",
+            "inputs": [_SCRIPT_IN],
+            "outputs": [
+                {"description": "the video, video.mp4 by default", "media_type": "video/mp4"}
+            ],
+        },
+        {
+            "name": "youtube",
+            "kind": "publish",
+            "stage_types": ["connector"],
+            "about": "Uploads to YouTube through the Data API; a schedule keeps it private until"
+            " then.",
+            "command": [sys.executable, "-m", "swarmify_connectors.youtube"],
+            "credentials": ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
+            "params": {"type": "object", "properties": _PUBLISH_PARAMS},
+            "inputs": [_VIDEO_IN],
+        },
+        {
+            "name": "upload_post",
+            "kind": "publish",
+            "stage_types": ["connector"],
+            "about": "Posts or schedules to YouTube, TikTok and Instagram through Upload-Post's"
+            " MCP.",
+            "command": ["npx", "-y", "@upload-post/mcp@0.11.4"],
+            "credentials": ["UPLOAD_POST_API_KEY"],
+            "params": {
+                "type": "object",
+                "required": ["user"],
+                "properties": {
+                    **_PUBLISH_PARAMS,
+                    "user": {"type": "string", "description": "the Upload-Post profile"},
+                    "platforms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "default": ["youtube"],
+                        "description": "where to post: youtube, tiktok, instagram",
+                    },
+                },
+            },
+            "inputs": [_VIDEO_IN],
+        },
+        speech.MANIFEST,
+    )
+}
+
+BUILTINS = [from_manifest(m) for m in MANIFESTS.values()]
 
 
 # The cheap read-only tool each built-in publish connector proves its keys with.
@@ -198,9 +276,9 @@ def _manifest_problems(
     """A stage's input, output and params against what its connector's manifest declares."""
     name, out = manifest["name"], []
     if manifest.get("inputs") and not (config.get("input") or config.get("inputs")):
-        out.append(f"{name} needs an input, {manifest['inputs'][0]}")
+        out.append(f"{name} needs an input, {manifest['inputs'][0]['description']}")
     if manifest.get("outputs") and not config.get("output"):
-        out.append(f"{name} needs an output, {manifest['outputs'][0]}")
+        out.append(f"{name} needs an output, {manifest['outputs'][0]['description']}")
     schema = manifest.get("params") or {}
     if schema.get("additionalProperties") is False:
         allowed = {*(schema.get("properties") or {}), "tool"}

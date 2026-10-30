@@ -106,8 +106,8 @@ MANIFEST: dict[str, Any] = {
         "properties": {
             "voice": {
                 "type": "string",
-                "description": "fixes the voice: a name from the world's voice catalog, else the"
-                " engine's own, as af_heart; it wins over the script's voice",
+                "description": "fixes the voice for every script: a name from the world's voice"
+                " catalog, else the engine's own, as af_heart; it wins over the script's voice",
             },
             "engines": {
                 "type": "array",
@@ -118,11 +118,31 @@ MANIFEST: dict[str, Any] = {
         },
         "additionalProperties": False,
     },
+    "planner_notes": 'The script is a fenced JSON block {"scenes": [{"id", "lines":'
+    ' [{"text", "pause_after"}]}]}, each line an object, pause_after optional seconds;'
+    " else paragraphs become scenes and sentences lines. In a line's text, (pause), (beat),"
+    " (long pause) or (pause 1.5s) is silence, and delivery directions (whispers), (laughs),"
+    " (chuckles), (sighs), (gasps), (excited), (dramatically), (sadly), (angrily),"
+    " (sarcastically), (surprised), (scared), or tags as [clear throat], [cough], [groan],"
+    " [sniff], [shush], [narration], [advertisement], are voiced by engines that support them"
+    " and never read aloud. It voices one take per scene into narration/ beside timings.json,"
+    " which holds each line's words (Remotion Caption shape) and cut points; give a later"
+    " build stage both the script and timings.json as inputs. Left without params.voice, the"
+    " script's own voice speaks, which its judge picks when the world has voices.",
     "inputs": [
-        "the script: fenced JSON scenes and lines, else paragraphs and sentences; directions in"
-        " brackets, as (pause), (beat), (whispers), (laughs) or [sigh]"
+        {
+            "description": "the script: fenced JSON scenes and lines, else paragraphs and"
+            " sentences; directions in brackets, as (pause), (beat), (whispers), (laughs) or"
+            " [sigh]",
+            "media_type": "text/markdown",
+        }
     ],
-    "outputs": ["timings.json, with the takes in narration/ beside it"],
+    "outputs": [
+        {
+            "description": "timings.json, with the takes in narration/ beside it",
+            "media_type": "application/json",
+        }
+    ],
     "health": "speech_health",
     "types": {"script": SCRIPT},
     "input_types": ["script"],

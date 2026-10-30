@@ -17,7 +17,7 @@ from mcp.server.mcpserver.exceptions import ToolError as McpToolError
 from mcp.types import CallToolResult
 from pydantic import BaseModel, Field
 
-from swarmify_connectors import Connectors
+from swarmify_connectors import Connector, Connectors
 from swarmify_kernel import AGENT_TOOLS
 from swarmify_swarm import (
     AgentRuntime,
@@ -62,46 +62,14 @@ plus its fields:
   inputs (a list of artifact names, each produced by an earlier stage) instead of input when
   the connector takes several files.
 - workflow: runs (a workflow id); optional take (artifact names to copy from the child).
-Rules: a publish connector (youtube, upload_post) must come right after a gate; a connector's
-input must be produced by an earlier stage; connectors must exist in the world. Swarm agents
-write text only, so a swarm stage produces text files (script.md, ideas.json), never video.mp4
-or an image: a video comes from a remotion_build connector stage (or remotion_render, when the
-operator has a finished template).
+Rules: a publish connector must come right after a gate; a connector's input must be produced
+by an earlier stage; connectors must exist in the world. Swarm agents write text only, so a swarm
+stage produces text files (script.md, ideas.json), never video, audio or an image: such a file
+comes from a connector stage whose output has that media type (the world's connectors, below).
 
 The Agent Tools the core gives a swarm stage's agents; they are not connectors, so never a
 connector stage:
 {agent_tools}
-
-The built-in connector stages and their params:
-- remotion_build: input is the script (or inputs, the script first, then files the builder
-  should also read); output defaults to video.mp4. One sandboxed coding session writes a
-  Remotion project for this script (reading the run's gate decisions), then swarmify renders
-  it. Optional params: base (a template's name under the data directory's remotion folder to
-  start from, else a minimal starter), composition (default Main), brief (free text for the
-  builder: style, length, pacing), model, max_turns (default 80), minutes (the session's time
-  limit, default 20). It costs a coding session from the run's budget.
-- remotion_render: input is the script; params project (a template's name under the data
-  directory's remotion folder, or a folder path) and composition (its ID), both required;
-  optional entry, codec, frames, props.
-- speech: input is the script (a fenced JSON block {"scenes": [{"id", "lines": [{"text",
-  "pause_after"}]}]}, each line an object, pause_after optional seconds; else paragraphs
-  become scenes and sentences lines). In a line's text, (pause), (beat), (long pause) or
-  (pause 1.5s) is silence, and delivery directions (whispers), (laughs), (chuckles), (sighs),
-  (gasps), (excited), (dramatically), (sadly), (angrily), (sarcastically), (surprised),
-  (scared), or tags as [clear throat], [cough], [groan], [sniff], [shush], [narration],
-  [advertisement], are voiced by engines that support them and never read aloud;
-  output timings.json. Voices one take per scene into narration/ beside timings.json, which
-  holds each line's words (Remotion Caption shape) and cut points; give remotion_build both the
-  script and timings.json as inputs. Optional params: voice (fixes the voice for every script:
-  a name from the world's voice catalog, else an engine's own voice as af_heart; left out, the
-  script's own voice speaks, which its judge picks when the world has voices), engines (the
-  configured speech endpoints to try, in order), seed.
-- youtube: input is the video; params title (required unless metadata names a file an earlier
-  stage produced whose frontmatter has title and description), description, visibility
-  (public, unlisted or private), schedule (ISO 8601 with a timezone, or 09:00, or +1d 09:00;
-  needs public), made_for_kids (true or false).
-- upload_post: the same params as youtube, plus user (the Upload-Post profile, required) and
-  platforms (default [youtube]).
 
 How you work: draft the whole YAML, call check_workflow with it and fix what it reports before
 you answer, then return the full YAML in `yaml` with a short reply. Ask about a detail only when
@@ -200,6 +168,48 @@ def parse_answer(output: Any) -> tuple[str, str | None]:
     return str(output["reply"]).strip(), (yaml if yaml and yaml.strip() else None)
 
 
+def _files(files: list[dict[str, Any]]) -> str:
+    return "; ".join(f"{f['description']} ({f['media_type']})" for f in files)
+
+
+def describe(connector: Connector) -> str:
+    """One connector as the planner reads it, generated from its Manifest (ADR 0019): about,
+    input and output files, params from the JSON Schema with their descriptions, and its planner
+    notes. A connector a world added by hand has no Manifest; its own fields stand in."""
+    m = connector.manifest or {"about": connector.about}
+    where = " and ".join(connector.stage_types)
+    lines = [f"- {connector.name} ({connector.kind}, in {where} stages): {m['about']}".rstrip()]
+    for key in ("inputs", "outputs"):
+        if files := m.get(key):
+            label = key[:-1] if len(files) == 1 else f"{key}, in order"
+            lines.append(f"  {label}: {_files(files)}")
+    schema = m.get("params") or {}
+    required = set(schema.get("required") or [])
+    for name, param in (schema.get("properties") or {}).items():
+        said = [
+            "required" if name in required else "",
+            f"one of {', '.join(map(str, param['enum']))}" if "enum" in param else "",
+            f"default {json.dumps(param['default'])}" if "default" in param else "",
+            str(param.get("description") or ""),
+        ]
+        lines.append(f"  params.{name}: {'; '.join(s for s in said if s)}".rstrip(": "))
+    if m.get("planner_notes"):
+        lines.append(f"  {m['planner_notes']}")
+    return "\n".join(lines)
+
+
+def world_connectors(connectors: Connectors, world_id: str) -> str:
+    """Every connector the world can use, each described from its Manifest."""
+    return "\n".join(
+        [
+            "The world's connectors, each with its kind, the stage types that may use it (a"
+            " connector stage calls it; a swarm stage lists it in tools), its files, params and"
+            " notes:",
+            *(describe(c) for c in connectors.list_all(world_id)),
+        ]
+    )
+
+
 def typed_inputs(connectors: Connectors, world_id: str) -> str:
     """The planner's view of the world's typed contracts (issue 133): which connector input
     takes which declared type, so it drafts `output_type` on the swarm stage that writes it."""
@@ -249,7 +259,12 @@ def router(
             system_prompt="\n\n".join(
                 filter(
                     None,
-                    [SYSTEM, typed_inputs(connectors, world_id), f"The world's id is {world_id}."],
+                    [
+                        SYSTEM,
+                        world_connectors(connectors, world_id),
+                        typed_inputs(connectors, world_id),
+                        f"The world's id is {world_id}.",
+                    ],
                 )
             ),
             prompt=_prompt(body),
