@@ -34,13 +34,25 @@ from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.build import SYSTEM as BUILDER_SYSTEM
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script, ScriptedTransport
 
+IDEAS_MD = """# Ideas
+
+```
+ffmpeg -i take.mp4 -vf scale=1080:1920,setsar=1 -c:v libx264 -preset slow -crf 18 short.mp4
+```
+
+| Hook | Seconds | Views | Retention | Likes | Shares | Comments | Saves |
+|---|---|---|---|---|---|---|---|
+| Wait for it | 1.0 | 120000 | 64 percent | 5400 | 820 | 311 | 990 |
+
+1. Hooks"""
+"""The worker's ideas.md: a wide code block and a wide table for the phone reader, then the list."""
 PLANNER = [Answer({"tasks": [{"title": "Pull this week's top shorts"}]})]
 WORKER = [
     Call(tool_id("query_graph"), {"question": "What do we know already?"}),
     Call(tool_id("claim_task")),
     Call("Bash", {"command": "ls"}),
     Call(tool_id("write_note"), {"title": "Findings", "body": "Hooks in the first second win."}),
-    Call(tool_id("write_artifact"), {"name": "ideas.md", "content": "1. Hooks"}),
+    Call(tool_id("write_artifact"), {"name": "ideas.md", "content": IDEAS_MD}),
     Call(tool_id("finish_task"), {"task_id": LAST, "note": "Found two."}),
     Say("Done."),
 ]
@@ -126,6 +138,17 @@ stages:
     input: short.mp4
     params: {title: Five hooks that work, visibility: unlisted}
 """
+LONG = """name: Long haul
+stages:
+  - swarm: research
+    goal: Find 5 ideas.
+    done_when: 5 ideas ranked
+  - gate: review
+    ask: Good enough to go on?
+    kind: approve
+""" + "".join(f"  - gate: step{i}\n    ask: Go on?\n" for i in range(3, 10))
+"""Waiting at step 2 of 9, seven steps not started: the run whose time strip once laid a phone out
+444 px wide (issue 175)."""
 PLANNER_CHAT = [
     Answer(
         {
