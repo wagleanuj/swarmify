@@ -1,5 +1,6 @@
 # The same file on the Mac and on a Debian VM: `docker compose up -d --build`, settings in `.env`
-# next to it (README, Deployment). Both services share the one `data` volume.
+# next to it (README, Deployment). `web` serves the skin and proxies /api to `api`, so a UI-only
+# change rebuilds and restarts only `web`. api and graph-writer share the one `data` volume.
 x-env: &env
   SWARMIFY_DATA_DIR: /data
   # Headless Claude Code on the subscription: `claude setup-token` prints it (ADR 0010).
@@ -7,11 +8,16 @@ x-env: &env
   CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
 
 services:
-  api:
-    build: .
+  # The only published port. Caddy with the built skin; basic auth stays the api's (Caddyfile).
+  web:
+    build: { context: ., target: web }
     ports:
       # The LAN sees it on every interface by default; SWARMIFY_BIND=127.0.0.1 keeps it local.
       - "${SWARMIFY_BIND:-0.0.0.0}:${SWARMIFY_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  api:
+    build: .
     volumes:
       - data:/data
     # bubblewrap sandboxes a remotion_build stage's Bash and render (ADR 0018): it needs user
