@@ -64,7 +64,7 @@ const SAME_AREA = {
 } as const;
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-const Mark = () => (
+export const Mark = () => (
   <span className="brand">
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 18 L12 4 L20 18 Z" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinejoin="round" />

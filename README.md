@@ -32,7 +32,7 @@ behind a pipe, so the web tests silently never run.
 | `mise run e2e` | builds the web skin and runs Playwright against the real API |
 | `mise run gen-client` | regenerates `apps/web/src/api/schema.d.ts` from the OpenAPI schema |
 | `uv run swarmify-eval` | the baseline against swarm eval, against the running API with the real model (see Eval below) |
-| `uv run swarmify-mcp` | the swarmify MCP server over stdio (`claude mcp add swarmify -- uv run swarmify-mcp`) |
+| `uv run swarmify-mcp` | the swarmify MCP server over stdio (`claude mcp add swarmify -- uv run swarmify-mcp`); over HTTP it is `/mcp` with an API token (see Sign-in) |
 
 Data lives in `SWARMIFY_DATA_DIR` (default `~/.swarmify`): `swarmify.db`, the DBOS system database
 `dbos.sqlite`, and one folder per world under `worlds/<id>/`. The API streams every world's events at `GET /api/worlds/<id>/events` (SSE,
@@ -1224,8 +1224,8 @@ uv run swarmify-eval --kind typed-lists --tasks 2 --k 1   # a smoke run
 
 `--kind` is `research-briefs`, `long-form-writing` or `typed-lists`.
 
-Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, basic auth from
-`SWARMIFY_PASSWORD`), `--budget` (USD a trial, default 5, since the swarm's research stage alone
+Options: `--api` (default `SWARMIFY_BASE_URL` or `http://localhost:8000`, signing in with
+`SWARMIFY_PASSWORD` when set), `--budget` (USD a trial, default 5, since the swarm's research stage alone
 spends about 3), `--timeout` (seconds a trial, default 2700) and `--clean` (delete the trial
 worlds afterwards).
 
@@ -1266,6 +1266,54 @@ and draft, every finding, or the ideas and script) as A and B, arm
 Tests drive the harness against the real app with the scripted CLI behind the Agent SDK, so the
 suite checks the whole loop with no model.
 
+## Sign-in
+
+One operator account per install. Its password is `SWARMIFY_PASSWORD`: at every start the api
+stores a scrypt hash of it (a salt of its own, in `swarmify.db`) unless the stored hash already
+matches, so changing it in `.env` and restarting changes the password and signs every browser
+out. Once stored, the variable may be dropped natively and the password stays; with none set or
+stored there is no sign-in, which is right only on `127.0.0.1`.
+
+- The skin shows a sign-in page that asks only for the password. `POST /api/session`
+  (`{"password"}`) sets the session cookie, a random id signed with the install's secret, valid
+  30 days on that browser: HttpOnly, SameSite Lax, and Secure when the request came over https
+  (directly or with `X-Forwarded-Proto: https` from a proxy). `GET /api/session` says whether
+  the browser is signed in; `DELETE /api/session` signs out, which ends that session on the
+  server too. Ten wrong passwords within 15 minutes are answered 429 with `Retry-After` until the
+  oldest leaves the window.
+- Every other `/api` path and `/mcp` answers 401 without a session; the skin's static files and
+  `/api/health` stay open.
+- API tokens are for the MCP server and scripts, so tools never hold the password. The API
+  tokens row of any world's Settings page (tokens are the install's, not the world's) creates
+  one with a name and shows it once (`POST /api/tokens`); only its SHA-256 is kept. The Sign-in
+  row below it signs the browser out. `GET /api/tokens` lists them without secrets,
+  `DELETE /api/tokens/<id>` revokes one at once. A token opens only the MCP server over HTTP,
+  `/mcp` (Streamable HTTP, stateless, the same tools as `swarmify-mcp`), sent as
+  `Authorization: Bearer <token>`; the rest of the API refuses it. For Claude Code:
+  `claude mcp add --transport http swarmify http://<host>:8000/mcp --header "Authorization: Bearer swm_..."`.
+- Upgrading from basic auth needs no step: the `SWARMIFY_PASSWORD` already in `.env` becomes the
+  operator password on the first start, and the browser asks for it once on the new sign-in page
+  (no user name; `SWARMIFY_USER` is no longer read and may be removed).
+
+### Reaching an install over Tailscale
+
+Tailscale puts your devices on a private network, so a phone away from home reaches the install
+without opening a port on the router.
+
+1. Install Tailscale on the host and on each device you use, signed in to the same tailnet
+   (`curl -fsSL https://tailscale.com/install.sh | sh`, then `sudo tailscale up` on Debian; the
+   app on a Mac or phone).
+2. The install is now at `http://<host name>:8000` from those devices (MagicDNS), as on the LAN.
+3. For https, turn on HTTPS certificates in the tailnet's admin console and run
+   `sudo tailscale serve --bg 8000` on the host: the install is at
+   `https://<host name>.<tailnet>.ts.net` with a real certificate, and the session cookie is
+   Secure there. `tailscale serve status` shows it, `tailscale serve --https=443 off` stops it.
+4. To keep it off the LAN, set `SWARMIFY_BIND=127.0.0.1` in `.env`: only `tailscale serve` on the
+   host reaches it then.
+
+Do not use `tailscale funnel`, which publishes the install to the whole internet. Set
+`SWARMIFY_BASE_URL` to the address you open, so Slack links point there.
+
 ## Deployment
 
 The same `compose.yaml` runs on the Mac (Docker Desktop) and on a Debian VM (Docker Engine with the
@@ -1287,8 +1335,7 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 
    ```sh
    CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...   # from step 1, both containers get it
-   SWARMIFY_PASSWORD=pick-a-long-one          # basic auth for the LAN, required
-   SWARMIFY_USER=swarmify                     # optional, this is the default
+   SWARMIFY_PASSWORD=pick-a-long-one          # the operator's sign-in password, required
    SWARMIFY_BASE_URL=http://192.168.1.20:8000 # optional: where Slack deep links point
    SWARMIFY_BIND=0.0.0.0                      # optional: 127.0.0.1 keeps it off the LAN
    SWARMIFY_PORT=8000                         # optional: the host port
@@ -1303,16 +1350,16 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    the missing one (`docker/needs.sh`); `docker compose up -d kokoro` alone needs neither.
 3. `docker compose up -d --build`, then open `http://<host>:8000` from any device on the LAN,
    phone included, and sign in. `docker compose logs -f` shows every service; the api container
-   is healthy once `/api/health` answers (the only path open without the password).
+   is healthy once `/api/health` answers (open without signing in, like the skin's files).
 
 - Updating: `git pull`, then the same `docker compose up -d --build` (with `--profile ...` if
   you use one). Only images whose inputs changed are rebuilt, and only their containers restart:
   a change under `apps/web` alone restarts `web` and leaves the api and its runs alone. For a
   UI-only update `docker compose up -d --build web` builds and restarts nothing else.
-- Basic auth is enforced in one place, the api (`auth.py`). `web` passes `/api` straight
-  through, and before serving any page or asset asks the api whether the request's credentials
-  pass (Caddy's `forward_auth` against `/api/models`), so nothing on the port answers without
-  the password but `/api/health`. While the api is down the skin answers 502.
+- Sign-in is enforced in one place, the api (`auth.py`). `web` passes `/api` and `/mcp`
+  straight through and serves the skin's static files to anyone, so the sign-in page loads; no
+  data comes back without a session or, on `/mcp`, an API token. While the api is down the
+  skin loads and every call answers 502.
 
 - Moving to Proxmox is a copy: the repo and `.env` onto the VM, `docker compose up -d --build`.
   To carry data across, stop both services and copy the volume, for example
@@ -1334,10 +1381,10 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   GPU a 3D scene (`@remotion/three`) renders in software, and the default of half the CPUs runs
   out of memory. Unset, as natively, Remotion picks. No `--gl` flag is passed: the default
   renders 3D on the Mac and in the image, and `--gl=angle` crashes in the image.
-- Basic auth works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
-  swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same prompt.
-  Unset, there is no auth, which is right only on `127.0.0.1`. For access from outside the house
-  use Tailscale rather than opening the port; proper auth is V2.
+- Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
+  swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same sign-in
+  page. With no password set or stored there is no sign-in, which is right only on `127.0.0.1`.
+  For access from outside the house use Tailscale (see Sign-in) rather than opening the port.
 - Docker Desktop on a Mac stuck at "load metadata" on every pull is its `desktop` credential helper
   hanging. Pulling public images needs no credentials, so point Docker at a config without it:
   `mkdir -p /tmp/dockercfg && ln -sf ~/.docker/cli-plugins /tmp/dockercfg/ &&
@@ -1352,7 +1399,7 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `migrations` table, so a lower number merged after a higher one still runs. Numbers are unique
   across the repo (take the next free one, renumber on rebase if another ticket took it): each package ships its own `migrations/` folder
   (kernel 0001, worlds 0002, 0019, 0020 and 0021, workflows 0003, runs 0004, connectors 0005, swarm 0006 and 0007,
-  runs 0008, 0010, 0013 and 0017, swarm 0009, notifications 0016, learning 0022, ...) and the composition root passes them all to `migrate` once.
+  runs 0008, 0010, 0013 and 0017, swarm 0009, notifications 0016, learning 0022, the api's operator 0031, ...) and the composition root passes them all to `migrate` once.
   Adapters never migrate.
 - `packages/<context>` one package per bounded context (worlds, workflows, runs, swarm, memory,
   connectors, learning, notifications). `packages/learning` declares its Storage port and `Ask`,
@@ -1375,7 +1422,7 @@ Code CLI the Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 - `services/` engines that run beside Swarmify, each its own project outside the workspace:
   `speech-chatterbox` (see Speech engines).
 - `tests/e2e` Playwright for Python against the real API. `test_phone.py` opens every page at
-  390 by 844 behind basic auth and fails if any scrolls sideways.
+  390 by 844 signed in and fails if any scrolls sideways.
 
 ## License
 

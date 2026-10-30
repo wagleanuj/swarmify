@@ -1,4 +1,4 @@
-"""Every page at phone width, behind basic auth, as an operator answering a gate from the sofa.
+"""Every page at phone width, signed in, as an operator answering a gate from the sofa.
 
 A page passes when it renders its content with no sideways scroll: nothing wider than the
 screen. Runs wait at a gate (one early in a long workflow), run and finish with a video, so the
@@ -16,7 +16,7 @@ from playwright.sync_api import Browser, Page, ViewportSize, expect
 
 from scripted_app import LONG
 
-LOGIN = ("erlich", "aviato")  # what the `locked_url` app expects
+PASSWORD = "aviato"  # what the `locked_url` app expects
 PHONE: ViewportSize = {"width": 390, "height": 844}  # an iPhone 14
 FLOW = """name: Brief then research
 stages:
@@ -65,11 +65,18 @@ PAGES = [
 ]
 
 
+def signed_in(url: str) -> httpx.Client:
+    """An API client signed in as the operator; it keeps the session cookie."""
+    api = httpx.Client(base_url=f"{url}/api")
+    api.post("/session", json={"password": PASSWORD}).raise_for_status()
+    return api
+
+
 @pytest.fixture(scope="module")
 def ids(locked_url: str) -> dict[str, str]:
     """A run in every state: `run` and `long` wait at a gate, `running` waits on its child run,
     `done` rendered a video; `doc` is the ideas.md `done`'s research made."""
-    api = httpx.Client(base_url=f"{locked_url}/api", auth=LOGIN)
+    api = signed_in(locked_url)
     world = api.post("/worlds", json={"name": "Video"}).json()["id"]
     api.patch(f"/worlds/{world}", json={"run_cap": 8}).raise_for_status()  # the default 2 queues
 
@@ -111,25 +118,39 @@ def ids(locked_url: str) -> dict[str, str]:
 
 @pytest.fixture
 def phone(browser: Browser, locked_url: str) -> Iterator[Page]:
-    user, password = LOGIN
     context = browser.new_context(
-        viewport=PHONE,
-        http_credentials={"username": user, "password": password},
-        base_url=locked_url,
-        is_mobile=True,
-        has_touch=True,
+        viewport=PHONE, base_url=locked_url, is_mobile=True, has_touch=True
     )
+    context.request.post("/api/session", data={"password": PASSWORD})
     yield context.new_page()
     context.close()  # an open event stream would hold the server's shutdown
 
 
-def test_without_signing_in_the_lan_sees_only_a_challenge(
-    browser: Browser, locked_url: str
+def test_signing_in_opens_the_app_until_signing_out(
+    browser: Browser, locked_url: str, ids: dict
 ) -> None:
-    context = browser.new_context()
-    assert context.new_page().goto(locked_url).status == 401  # type: ignore[union-attr]
-    context.close()
+    """Issue 227: the sign-in page, a wrong then the right password, staying signed in across
+    a reload, and signing out from Settings."""
     assert httpx.get(f"{locked_url}/api/worlds").status_code == 401
+    context = browser.new_context(viewport=PHONE, base_url=locked_url, is_mobile=True)
+    page = context.new_page()
+    page.goto("/gates")
+    password = page.get_by_label("Password")
+    password.fill("hooli")
+    page.get_by_role("button", name="Sign in").click()
+    expect(page.get_by_role("alert")).to_contain_text("That is not the password")
+    password.fill(PASSWORD)
+    page.get_by_role("button", name="Sign in").click()
+    expect(page.get_by_role("heading", name="Needs you")).to_be_visible()
+    page.reload()
+    expect(page.get_by_role("heading", name="Needs you")).to_be_visible()
+
+    page.goto(f"/worlds/{ids['world']}/settings")
+    page.get_by_role("button", name="Sign out").click()
+    expect(page.get_by_label("Password")).to_be_visible()
+    page.reload()
+    expect(page.get_by_label("Password")).to_be_visible()
+    context.close()
 
 
 def _fits(page: Page) -> None:
@@ -246,7 +267,7 @@ def test_assets_plays_a_voice_first_and_pins_add_a_voice_above_the_tab_bar(
     phone: Page, ids: dict, locked_url: str
 ) -> None:
     """Issue 194: a voice added over the API is a playable card; Add a voice opens its sheet."""
-    api = httpx.Client(base_url=f"{locked_url}/api", auth=LOGIN)
+    api = signed_in(locked_url)
     form = {"name": "narrator", "description": "Warm and calm", "consent": "Mine."}
     files = {"clip": ("n.wav", _clip(6), "audio/wav")}
     added = api.post(f"/worlds/{ids['world']}/voices", data=form, files=files)

@@ -8,7 +8,7 @@ x-env: &env
   CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
 
 services:
-  # The only published port. Caddy with the built skin; basic auth stays the api's (Caddyfile).
+  # The only published port. Caddy with the built skin; sign-in stays the api's (Caddyfile).
   web:
     build: { context: ., target: web }
     ports:
@@ -33,8 +33,8 @@ services:
     environment:
       <<: *env
       SWARMIFY_GRAPH_WRITER: external
-      SWARMIFY_USER: ${SWARMIFY_USER:-swarmify}
-      SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:-}  # required, see entrypoint
+      # The operator's sign-in password (README, Sign-in), required, see entrypoint.
+      SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:-}
       SWARMIFY_BASE_URL: ${SWARMIFY_BASE_URL:-http://localhost:8000}
       # Speech engines in the order the speech connector tries them (README, Speech engines):
       # Chatterbox running natively on the Mac host, then Kokoro below.

@@ -197,15 +197,18 @@ def test_the_command_line_runs_one_task_kind_and_talks_to_the_api(
     seen: dict = {}
 
     def fake(http, tasks, k, settings, clean, say, kind):  # noqa: ANN001
-        seen.update(base=str(http.base_url), auth=http.auth, tasks=tasks, k=k, kind=kind)
+        seen.update(base=str(http.base_url), tasks=tasks, k=k, kind=kind)
         seen.update(budget=settings.budget_usd, clean=clean)
         return {"verdict": "The swarm wins: ...", "id": "eval_1"}
 
     monkeypatch.setattr("swarmify_api.eval_harness.run_eval", fake)
+    monkeypatch.setattr(
+        "swarmify_api.eval_harness.sign_in", lambda http, pw: seen.update(password=pw)
+    )
     monkeypatch.setenv("SWARMIFY_PASSWORD", "pw")
     argv = ["--api", "http://box:8000", "--kind", "typed-lists", "--k", "1", "--tasks", "3"]
     main([*argv, "--budget", "1.5", "--clean"])
-    assert seen["base"] == "http://box:8000" and seen["auth"] is not None
+    assert seen["base"] == "http://box:8000" and seen["password"] == "pw"
     assert (len(seen["tasks"]), seen["k"], seen["budget"], seen["clean"]) == (3, 1, 1.5, True)
     assert seen["kind"] == "typed lists"
     assert {t.workflow for t in seen["tasks"]} == {"Scheduled monitor"}
