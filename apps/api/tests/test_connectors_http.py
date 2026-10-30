@@ -50,12 +50,19 @@ def until(check: Callable[[], bool]) -> None:
         time.sleep(0.05)
 
 
-def test_a_new_world_has_web_search_and_the_graph_with_no_setup(client: TestClient) -> None:
-    listed = client.get(f"/api/worlds/{world(client)}/connectors").json()
-    ready = {c["name"]: c for c in listed if c["kind"] == "tool"}
-    assert set(ready) == {"web_search", "graph"}
-    assert all(c["builtin"] and c["missing"] == [] for c in ready.values())
-    assert all(c["stage_types"] == ["swarm"] for c in ready.values())
+def test_web_search_and_the_graph_are_agent_tools_not_listed_connectors(
+    client: TestClient,
+) -> None:
+    w = world(client)
+    listed = client.get(f"/api/worlds/{w}/connectors").json()
+    assert not {c["name"] for c in listed} & {"web_search", "graph"}
+    saved = (
+        "name: s\nstages:\n  - swarm: r\n    goal: g\n    done_when: d\n"
+        "    tools: [web_search, graph]\n"
+    )
+    assert client.post(f"/api/worlds/{w}/workflows", json={"yaml": saved}).status_code == 201
+    taken = client.post(f"/api/worlds/{w}/connectors", json={**FAL, "name": "graph"})
+    assert taken.status_code == 422 and "Agent Tool" in taken.text
     assert client.get("/api/worlds/world_nope/connectors").status_code == 404
 
 
@@ -130,7 +137,7 @@ def test_workflows_see_the_registry(client: TestClient) -> None:
 def test_delete_removes_an_added_connector_but_never_a_built_in(client: TestClient) -> None:
     w = world(client)
     added = client.post(f"/api/worlds/{w}/connectors", json=FAL).json()
-    assert client.delete("/api/connectors/builtin_web_search").status_code == 409
+    assert client.delete("/api/connectors/builtin_youtube").status_code == 409
     assert client.delete(f"/api/connectors/{added['id']}").status_code == 204
     assert client.delete(f"/api/connectors/{added['id']}").status_code == 404
     assert client.get(f"/api/worlds/{w}/connectors").json()[-1]["builtin"]

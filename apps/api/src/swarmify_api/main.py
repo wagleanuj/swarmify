@@ -59,6 +59,7 @@ from swarmify_connectors import (
     remotion,
 )
 from swarmify_connectors import SqliteStorage as ConnectorStorage
+from swarmify_kernel import AGENT_TOOLS
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
 from swarmify_learning import MIGRATIONS as LEARNING_MIGRATIONS
@@ -669,8 +670,10 @@ def create_app(
     runner.pin = runs.pinner(workflow_svc)
 
     def swarm_tools(world_id: str) -> list[str]:
-        """The world's connectors a swarm stage may use: an Ad Hoc Run's tools."""
-        return [c.name for c in registry.list_all(world_id) if "swarm" in c.stage_types]
+        """The Agent Tools and the world's connectors a swarm stage may use: an Ad Hoc Run's
+        tools."""
+        world = [c.name for c in registry.list_all(world_id) if "swarm" in c.stage_types]
+        return [*AGENT_TOOLS, *world]
 
     async def sweep() -> None:
         while True:

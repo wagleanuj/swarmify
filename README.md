@@ -291,10 +291,14 @@ the world's event stream and handed to the notifier; the adapter logs a line unt
 A connector is an MCP server (a command line or an http(s) URL), the credential names it needs,
 its kind (tool, stage or publish) and the stage types allowed to use it (swarm, connector). A
 publish connector is only ever allowed in connector stages, and the editor makes it follow a gate.
-Every world starts with the built-ins: `web_search` and `graph` (swarm tools, no setup),
-the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
+Every world starts with the built-ins: the stage connectors `remotion_render` and `remotion_build` (see Remotion render and Remotion
 build below) and `speech` (see Speech engines), and the two publish
 connectors `youtube` and `upload_post` (see Publishing below).
+
+`web_search` and `graph` are not connectors but Agent Tools: the core gives them to swarm stages,
+with no package, version or credentials. A swarm stage lists them in `tools` like a tool
+connector (`tools: [web_search, graph]`); the Connectors page does not show them and no connector
+may take their names.
 
 Credentials live in one file, `<data dir>/.env` (`~/.swarmify/.env`), written with mode 600; the
 app refuses to read it when group or others can. Values never enter the database, a run, a
@@ -842,7 +846,7 @@ the run page shows it beside each agent.
   `get_node`, `get_neighbors`, `god_nodes`, `shortest_path`, `graph_stats`) are described under
   Graph below.
 - Allowlist: the tools above, `Skill`, `Read` (inside the world folder only), plus per stage
-  `web_search` (WebSearch, WebFetch) and any connector named in `tools` (`mcp__<name>__*`, its
+  the Agent Tool `web_search` (WebSearch, WebFetch) and any connector named in `tools` (`mcp__<name>__*`, its
   server and credentials passed to the session).
 - Hooks: a PreToolUse hook writes every tool call to the stage's live log, denies anything outside
   the allowlist and denies a claim until the agent has queried the graph. Each step's estimated

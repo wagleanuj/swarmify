@@ -25,7 +25,8 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
     try:
         page.goto(f"{base_url}/worlds/{world['id']}")
         page.get_by_role("navigation", name="Main").get_by_role("link", name="Connectors").click()
-        expect(page.get_by_test_id("connector-list")).to_contain_text("Web search")
+        expect(page.get_by_test_id("connector-list")).to_contain_text("YouTube")
+        expect(page.get_by_test_id("connector-list")).not_to_contain_text("Web search")
         page.get_by_role("button", name="Add a connector").click()
 
         page.get_by_role("textbox", name="Name", exact=True).fill("echo")

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from swarm_db import DiskFiles, DiskGraphs
+from swarmify_kernel import AGENT_TOOLS
 from swarmify_swarm import (
     OPERATOR,
     WORKER,
@@ -24,6 +25,7 @@ from swarmify_swarm import (
 from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script, Step
 from swarmify_swarm.projection import PLAN_SCHEMA
 from swarmify_swarm.sdk import HARNESS
+from swarmify_swarm.worker import STAGE_TOOLS
 
 W, R, S = "world_1", "run_1", "stage_1"
 STAGE = {"goal": "Find 5 ideas.", "done_when": "5 ideas ranked", "tools": []}
@@ -392,11 +394,11 @@ def test_tools_outside_the_stage_allowlist_are_denied(board: SqliteStorage, tmp_
         servers.append(names)
         return {n: {"type": "stdio", "command": n} for n in names}
 
-    stage = {**STAGE, "tools": ["web_search", "fal"]}
+    stage = {**STAGE, "tools": ["web_search", "graph", "fal"]}  # Agent Tools need no server
     _run(_swarm(board, tmp_path, script, servers=connectors), tmp_path, stage)
     assert _tools(board, "denied") == ["Bash", "mcp__youtube__upload", "Read"]
     assert _tools(board)[:3] == ["WebSearch", "mcp__fal__run", "Read"]
-    assert servers == [["fal"]]
+    assert servers == [["fal"]] and set(STAGE_TOOLS) == set(AGENT_TOOLS)
     options = script.sessions[0]
     assert options.mcp_servers["fal"] == {"type": "stdio", "command": "fal"}  # type: ignore[index]
     assert "WebSearch" in options.allowed_tools and "mcp__fal__*" in options.allowed_tools

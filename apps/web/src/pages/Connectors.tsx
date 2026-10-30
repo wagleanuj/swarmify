@@ -16,8 +16,6 @@ type StageType = NewConnector["stage_types"][number];
 
 /** Skin labels for the built-ins (ADR 0004); code keeps the plain names. */
 export const LABEL: Record<string, string> = {
-  web_search: "Web search",
-  graph: "Middle-out",
   remotion_render: "Remotion render",
   remotion_build: "Remotion build",
   youtube: "YouTube",
@@ -193,6 +191,8 @@ export function Connectors() {
           <p className="sub">
             {connectors.length} connectors, {waiting} waiting on a key. Any MCP server can be one: its keys
             live in ~/.swarmify/.env, never inside a run or a shared workflow, and are shared by every world.
+            Web search and the world's graph are not connectors: they are Agent Tools Swarmify gives swarm steps,
+            with nothing to set up.
           </p>
         </div>
         <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>

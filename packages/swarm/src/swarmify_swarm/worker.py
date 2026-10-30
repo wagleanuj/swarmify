@@ -69,7 +69,8 @@ GRAPH, CLAIM = tool_id("query_graph"), tool_id("claim_task")
 BUILTIN = ["Skill", "Read"]
 """Built-ins every worker may use. Read is limited to the world folder by the hooks."""
 STAGE_TOOLS = {"web_search": ["WebSearch", "WebFetch"], "graph": []}
-"""A stage's `tools` beyond the built-ins name connectors, allowed as `mcp__<name>__*`."""
+"""What each Agent Tool (the kernel's AGENT_TOOLS) grants; the graph tools come with every
+non-baseline stage. A stage's other `tools` name connectors, allowed as `mcp__<name>__*`."""
 
 Servers = Callable[[str, list[str]], dict[str, dict[str, Any]]]
 """(world id, connector names) to their MCP server configs, for the session."""
