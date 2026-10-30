@@ -1,9 +1,11 @@
 import { Link, useParams, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { money, type Run } from "../api/runs";
+import { money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
+import { usePhone } from "../usePhone";
+import { when } from "./Runs";
 
 type Workflow = components["schemas"]["ListedWorkflow"];
 
@@ -15,6 +17,7 @@ export function Workflows() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const phone = usePhone();
 
   useEffect(() => {
     api
@@ -52,13 +55,15 @@ export function Workflows() {
         <div>
           <h1>Workflows</h1>
           <p className="sub">
-            {workflows ? `${workflows.length} in this world. ` : ""}Each save is a new version; a run keeps
-            the version it started on.
+            {workflows ? `${workflows.length} in this world. ` : ""}
+            {phone ? "A run keeps the version it started on." : "Each save is a new version; a run keeps the version it started on."}
           </p>
         </div>
-        <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
-          New workflow
-        </Link>
+        {!phone && (
+          <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
+            New workflow
+          </Link>
+        )}
       </header>
       {error && <p role="alert">{error}</p>}
       {workflows === null && !error && <p role="status">Loading...</p>}
@@ -67,7 +72,29 @@ export function Workflows() {
           <p>No workflows yet. A workflow is a list of steps you can run again and again.</p>
         </div>
       )}
-      {workflows && workflows.length > 0 && (
+      {phone && workflows && (
+        <>
+          <ul className="wf-cards">
+            {workflows.map((w) => (
+              <WorkflowCard key={w.id} worldId={worldId} workflow={w} runs={runs.filter((r) => r.workflow_id === w.id)}>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => start(w.id)}
+                  disabled={starting !== null}
+                  aria-label={`Start a run of ${w.name}`}
+                >
+                  {starting === w.id ? "Starting..." : "Start run"}
+                </button>
+              </WorkflowCard>
+            ))}
+          </ul>
+          <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button wf-new">
+            New workflow
+          </Link>
+        </>
+      )}
+      {!phone && workflows && workflows.length > 0 && (
         <div className="scroll-x">
           <table className="scores workflows" data-testid="workflows">
             <thead>
@@ -119,5 +146,48 @@ export function Workflows() {
         </div>
       )}
     </main>
+  );
+}
+
+const dollars = (n: number) => (Number.isInteger(n) ? `$${n}` : money(n));
+
+/** A workflow on a phone: the full name, its numbers on one line with the budget they are measured
+ * against (the latest run's), the last run with its state, then Start run and Edit. */
+function WorkflowCard({ worldId, workflow: w, runs, children }: { worldId: string; workflow: Workflow; runs: Run[]; children: ReactNode }) {
+  const last = runs.reduce<Run | null>((a, r) => (a && a.created_at > r.created_at ? a : r), null);
+  const cost = runs.reduce((sum, r) => sum + r.spent_usd, 0) / (runs.length || 1);
+  const budget = last?.budget_usd;
+  return (
+    <li className="card wf-card" data-testid="workflow-card">
+      <h2>{w.name}</h2>
+      {w.violations?.slice(0, 1).map((v) => (
+        <p key={v.rule} className="faint">
+          Fails today's check: {v.message}.
+        </p>
+      ))}
+      <p className="faint num">
+        v{w.current_version} ·{" "}
+        {last
+          ? `${runs.length} ${runs.length === 1 ? "run" : "runs"} · about ${money(cost)} a run${budget ? ` of a ${dollars(budget)} budget` : ""}`
+          : "no runs yet"}
+      </p>
+      {last && (
+        <p className="faint">
+          Last run {when(last.created_at)} ·{" "}
+          {last.status === "waiting_gate" ? <span className="warn">waiting for you</span> : STATUS_LABEL[last.status]}
+        </p>
+      )}
+      <div className="wf-actions">
+        {children}
+        <Link
+          to="/worlds/$worldId/workflows/$workflowId"
+          params={{ worldId, workflowId: w.id }}
+          className="button"
+          aria-label={`Edit ${w.name}`}
+        >
+          Edit
+        </Link>
+      </div>
+    </li>
   );
 }

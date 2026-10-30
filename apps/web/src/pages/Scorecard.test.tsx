@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import type { components } from "../api/schema";
 import { FakeEventSource, fakeFetch } from "../test/fakes";
@@ -32,7 +33,11 @@ const runs = [
   score("run_6", day(6), { first_try: 2, send_backs: 0, cost_usd: 0.4, workflow_version: null }),
 ];
 
-beforeEach(() => FakeEventSource.install());
+// The editor is read-only below 48rem; these read its desktop Scorecard tab.
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

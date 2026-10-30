@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
+
+import "../index.css";
 
 import type { components } from "../api/schema";
 import { FakeEventSource, fakeFetch } from "../test/fakes";
@@ -66,7 +69,10 @@ const brief = item("brief.md", {
   created: "2026-10-20T09:00:00+00:00",
 });
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -304,4 +310,38 @@ test("an uploaded file gets a name the API takes", () => {
   expect(plainName("Calm Bed (loop).mp3")).toBe("Calm-Bed-loop-.mp3");
   expect(plainName(".hidden.wav")).toBe("hidden.wav");
   expect(plainName("logo.png")).toBe("logo.png");
+});
+
+test("on a phone the library opens on search and type chips, with the other filters in a Filters sheet", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short, long]),
+    "GET /api/worlds/world_1/library": () => Response.json([decision, hook, ideas, brief]),
+    "GET /api/worlds/world_1/assets": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  const search = screen.getByRole("searchbox", { name: "Search the library" });
+  await expect.element(search).toBeVisible();
+  const chips = screen.getByRole("navigation", { name: "Types" });
+  await expect.element(chips).toMatchTextContent(/^All 4\s*decision 1\s*idea 1\s*file 2\s*Filters$/);
+  expect(search.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(chips.element().getBoundingClientRect().top);
+  await expect.element(screen.getByRole("combobox", { name: /^Workflow/ })).not.toBeInTheDocument();
+  await expect.element(screen.getByTestId("artifact").first()).toBeVisible();
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+
+  await chips.getByRole("button", { name: "Filters" }).click();
+  const sheet = screen.getByRole("dialog", { name: "Filters" });
+  await sheet.getByLabelText(/^Workflow/).selectOptions("Long form");
+  await sheet.getByLabelText(/^From/).fill("2026-10-01");
+  await expect.element(sheet.getByTestId("sheet-count")).toHaveTextContent("1 of 4");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(sheet).not.toBeInTheDocument();
+  await expect.element(chips.getByRole("button", { name: "Filters, 2 set" })).toHaveTextContent("Filters 2");
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
+
+  await chips.getByRole("button", { name: "Filters, 2 set" }).click();
+  await screen.getByRole("dialog", { name: "Filters" }).getByRole("button", { name: "Clear filters" }).click();
+  await expect.element(screen.getByTestId("sheet-count")).toHaveTextContent("4 of 4");
 });
