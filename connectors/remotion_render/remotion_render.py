@@ -1,4 +1,5 @@
-"""The Remotion render connector: a stdio MCP server wrapping `npx remotion render` (ADR 0015).
+"""The Remotion render connector: a stdio MCP server wrapping `remotion render` (ADR 0015), the
+Remotion CLI the project itself installed (`node_modules/.bin/remotion`).
 
 `remotion_render` starts one render per idempotency key and answers with a long job;
 `remotion_render_status` reports its progress, parsed from the CLI's `Rendered n/N` and
@@ -10,14 +11,17 @@ The composition receives the script as input props: `{"script": <text>, "scriptP
 `<output>.md`, with frontmatter (type video, world, run, stage, created) and a body that names
 the source script, so the graph sees it, and the template's git commit when it has one.
 
-A relative `project` names a template under `<data folder>/remotion/`, the data folder being its
-Setting (`REMOTION_DATA_DIR`, Swarmify's data directory unless changed); a template without
-`node_modules` gets `npm ci` (`npm install` without a lockfile) once, in the render's log, before
-it renders. `check` answers the workflow check's rules for a stage (the Check capability).
+A relative `project` names a template in its templates folder, a Setting (`REMOTION_TEMPLATES`,
+the data directory's `remotion/` unless changed). `check` answers the workflow check's rules for
+a stage (the Check capability).
 
 It is a Connector Package (ADR 0019): `swarmify-connector.toml` beside it is everything Swarmify
 knows of it. Its install step puts the Remotion CLI and the Chrome Headless Shell it downloads in
-`node_modules/` here (ADR 0026), and every render uses that browser.
+`node_modules/` here (ADR 0026), and every render uses that browser. It runs in the connector
+sandbox (ADR 0021), which also holds the code a render executes, a template's or a coding
+session's (`remotion.config.ts`, `node_modules`): it reads only this folder, its templates and the
+run's files, writes only its stage's folder, and reaches no host but its own loopback, so a render
+never installs or downloads; a project brings its `node_modules`, fonts and images.
 """
 
 import json
@@ -39,6 +43,8 @@ CONCURRENCY = "SWARMIFY_RENDER_CONCURRENCY"
 TAIL = 40
 _STEP = re.compile(r"^(Rendered|Encoded) (\d+)/(\d+)", re.M)
 BROWSERS = Path(__file__).parent / "node_modules" / ".remotion"
+CLI = Path("node_modules") / ".bin" / "remotion"
+"""The Remotion CLI in a project, which its `npm ci` installs."""
 """Where the install step's `remotion browser ensure` put Chrome Headless Shell."""
 
 mcp = MCPServer("remotion_render")
@@ -48,14 +54,15 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def project_folder(project: str, data_dir: Path) -> Path:
-    """A relative project is a template by name under `<data folder>/remotion/`."""
+def project_folder(project: str, templates: Path) -> Path:
+    """A relative project is a template by name in the templates folder."""
     path = Path(project).expanduser()
-    return path if path.is_absolute() else data_dir / "remotion" / path
+    return path if path.is_absolute() else templates / path
 
 
-def _data_dir() -> Path:
-    return Path(os.environ.get("REMOTION_DATA_DIR", Path.home() / ".swarmify")).expanduser()
+def _templates() -> Path:
+    default = Path.home() / ".swarmify" / "remotion"
+    return Path(os.environ.get("REMOTION_TEMPLATES", default)).expanduser()
 
 
 def _commit(folder: Path) -> str | None:
@@ -129,14 +136,14 @@ def remotion_render(
     props: dict[str, Any] | None = None,
     frontmatter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """`project` is the Remotion project folder, or a template's name under the data directory's
-    `remotion/` folder; `entry` its entry point relative to it, and `frames` an optional range
-    like `0-29`. A second call with the same key returns the same
-    job unless it failed or its process died, which starts it again."""
+    """`project` is the Remotion project folder, or a template's name in the templates folder;
+    `entry` its entry point relative to it, and `frames` an optional range like `0-29`. A second
+    call with the same key returns the same job unless it failed or its process died, which
+    starts it again."""
     if not input_path:
         raise ToolError("the render stage needs an `input`: the script artifact to render")
     output, script = Path(output_path), Path(input_path)
-    folder = project_folder(project, _data_dir())
+    folder = project_folder(project, _templates())
     if not script.is_file():
         raise ToolError(f"the script {script} does not exist")
     if not folder.is_dir():
@@ -148,7 +155,8 @@ def remotion_render(
         running = state["status"] == "running" and alive(state["pid"])
         if state["key"] == idempotency_key and (state["status"] == "done" or running):
             return {**answer, "message": "render already started"}
-    argv = ["npx", "--no", "remotion", "render", _flag("entry", entry)]
+    # the project's own CLI: npx, which would find the same one, cannot in the sandbox on macOS
+    argv = [str(folder / CLI), "render", _flag("entry", entry)]
     argv += [_flag("composition", composition), str(output)]
     argv += [f"--props={_hidden(output, 'props.json')}", f"--codec={_flag('codec', codec)}"]
     if frames:
@@ -224,7 +232,7 @@ def check(config: dict[str, Any]) -> dict[str, Any]:
     """`config` is the stage as its workflow writes it (calls, input, output, params). A
     missing project or composition the core reports from the params schema."""
     project = str((config.get("params") or {}).get("project") or "").strip()
-    if not project or (folder := project_folder(project, _data_dir())).is_dir():
+    if not project or (folder := project_folder(project, _templates())).is_dir():
         return {"problems": []}
     where = "" if Path(project).expanduser().is_absolute() else f" in {folder.parent}"
     return {"problems": [f"the Remotion project {project} does not exist{where}"]}
@@ -254,12 +262,6 @@ def _sidecar(state: dict[str, Any], size: int) -> Path:
     return path
 
 
-def built(project: Path, data_dir: Path) -> bool:
-    """A project under the data directory's `worlds/` folder was written by an agent (a
-    `remotion_build` stage), so its code is untrusted."""
-    return project.resolve().is_relative_to((data_dir / "worlds").resolve())
-
-
 def _free_port() -> int:
     """Remotion's own port probe misses a server listening on IPv6 only and then renders that
     server's page; a port the OS just handed out is free on both."""
@@ -269,124 +271,41 @@ def _free_port() -> int:
 
 
 def _shell() -> str | None:
-    """Chrome Headless Shell: the one the install step downloaded beside it, else one on PATH
-    (as in Swarmify's image), else None and Remotion finds its own. The binary is
-    chrome-headless-shell, or headless_shell on Linux arm64."""
+    """Chrome Headless Shell: the one the install step downloaded beside it, else one on PATH,
+    else None. The binary is chrome-headless-shell, or headless_shell on Linux arm64."""
     names = ("chrome-headless-shell", "headless_shell")
     found = [p for p in BROWSERS.rglob("*") if p.name in names and p.is_file()]
     return str(found[0]) if found else shutil.which("chrome-headless-shell")
 
 
-def _seatbelt(data_dir: Path, readable: list[Path], writable: list[Path]) -> str:
-    def paths(kind: str, folders: list[Path]) -> str:
-        return " ".join(f"({kind} {json.dumps(str(f.resolve()))})" for f in folders)
-
-    # ponytail: allow-default with the escapes we know denied (network, the data directory,
-    # writes, other processes, Apple Events, Launch Services); a deny-default profile like the
-    # Agent SDK's breaks Chrome, which must register Mach services.
-    return "\n".join(
-        [
-            "(version 1)",
-            "(allow default)",
-            "(deny network*)",
-            '(allow network-bind network-inbound (local ip "localhost:*"))',
-            '(allow network-outbound (remote ip "localhost:*"))',
-            f"(deny file-read-data (subpath {json.dumps(str(data_dir.resolve()))}))",
-            f"(allow file-read-data {paths('subpath', readable)})",
-            '(deny file-write* (subpath "/"))',
-            '(allow file-write* (subpath "/private/tmp") (subpath "/private/var/folders")'
-            ' (literal "/dev/null") (subpath "/dev/fd") (literal "/dev/tty")'
-            ' (literal "/dev/dtracehelper"))',
-            f"(deny file-write* (subpath {json.dumps(str(data_dir.resolve()))}))",
-            f"(allow file-write* {paths('subpath', writable)})",
-            "(deny process-info*)",  # other processes' arguments and environment
-            "(allow process-info* (target same-sandbox))",
-            "(deny appleevent-send)",
-            "(deny lsopen)",
-            '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd")'
-            ' (global-name "com.apple.coreservices.appleevents"))',
-        ]
-    )
-
-
-def sandboxed(argv: list[str], project: Path, output: Path, data_dir: Path) -> list[str]:
-    """`argv` inside the OS sandbox an agent-written project renders in: no network beyond
-    loopback, nothing of the data directory readable but the project, the output's folder and
-    this package's browser, nothing writable but the project, the output's folder and temp.
-    Raises OSError where neither sandbox-exec (macOS) nor bwrap (Linux) is available."""
-    readable = [project, output.parent, BROWSERS]
-    writable = [project, output.parent]
-    if sys.platform == "darwin" and shutil.which("sandbox-exec"):
-        return ["sandbox-exec", "-p", _seatbelt(data_dir, readable, writable), *argv]
-    if shutil.which("bwrap"):
-        binds = [a for f in writable for a in ("--bind", str(f.resolve()), str(f.resolve()))]
-        browser = BROWSERS.resolve()
-        if browser.is_dir():
-            binds += ["--ro-bind", str(browser), str(browser)]
-        return [
-            "bwrap", "--die-with-parent", "--unshare-all", "--ro-bind", "/", "/",
-            "--dev", "/dev", "--proc", "/proc", "--bind", "/tmp", "/tmp",
-            "--tmpfs", str(data_dir.resolve()), *binds, "--remount-ro", str(data_dir.resolve()),
-            "--chdir", str(project.resolve()),
-            "--", *argv,
-        ]  # fmt: skip
-    raise OSError("no sandbox to render an agent's project in: install bubblewrap (bwrap)")
-
-
 def run_job(job: Path) -> None:
-    """The detached render: run the CLI, then record done (with a sidecar) or failed. A built
-    project (`built`) never installs and renders inside `sandboxed`."""
+    """The detached render: run the CLI, then record done (with a sidecar) or failed. It never
+    installs, which the sandbox has no network for: a project without `node_modules` or a
+    render without Chrome Headless Shell fails saying what to do."""
     state = _read(job)
     output = Path(state["output"])
     project = Path(state["project"])
-    data_dir = _data_dir()
     render = [*state["argv"], f"--port={_free_port()}"]
-    steps: list[tuple[list[str], Path]] = []
     code = 0
     with open(state["log"], "w") as log:
-        if built(project, data_dir):
-            # No network in the sandbox for Remotion to fetch a browser: it must be here already.
-            if not (project / "node_modules").is_dir():
-                code, state["error"] = -1, "the build left no node_modules: run npm install in it"
-            elif not any(a.startswith("--browser-executable=") for a in render):
-                code, state["error"] = -1, "no Chrome Headless Shell: reinstall remotion_render"
-            else:
-                try:
-                    render = sandboxed(render, project, output, data_dir)
-                except OSError as exc:
-                    code, state["error"] = -1, str(exc)
+        if not (project / CLI).is_file():
+            code, state["error"] = -1, f"{project} has no node_modules: run npm ci there"
+        elif not any(a.startswith("--browser-executable=") for a in render):
+            code, state["error"] = -1, "no Chrome Headless Shell: reinstall remotion_render"
         else:
-            # ponytail: two first renders of one template at once both install; a lock if that
-            # bites.
-            lock = (project / "package-lock.json").is_file()
-            if not (project / "node_modules").is_dir():
-                steps = [(["npm", "ci" if lock else "install"], project)]
-            code = _steps(steps, log, state)
-        if code == 0:
-            code = _steps([(render, project)], log, state, "remotion render")
+            try:
+                ran = subprocess.run(render, cwd=project, stdout=log, stderr=subprocess.STDOUT)
+                code = ran.returncode
+            except OSError as exc:
+                code, state["error"] = -1, f"could not start remotion render: {exc}"
+            if code != 0:
+                state.setdefault("error", f"remotion render exited with {code}")
     if code == 0 and output.is_file() and output.stat().st_size > 0:
         size = output.stat().st_size
         state = {**state, "status": "done", "bytes": size, "sidecar": str(_sidecar(state, size))}
     else:
         state = {"error": "remotion render wrote no video", **state, "status": "failed"}
     _write(job, {**state, "ended": _now()})
-
-
-def _steps(
-    steps: list[tuple[list[str], Path]], log: Any, state: dict[str, Any], name: str = ""
-) -> int:
-    """Run each command in its folder, its output in the log, until one fails; that one's
-    error lands in `state`."""
-    for argv, cwd in steps:
-        what = name or " ".join(argv[:2])
-        try:
-            code = subprocess.run(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT).returncode
-        except OSError as exc:
-            code, state["error"] = -1, f"could not start {what}: {exc}"
-        if code != 0:
-            state.setdefault("error", f"{what} exited with {code}")
-            return code
-    return 0
 
 
 if __name__ == "__main__":

@@ -48,6 +48,11 @@ class NewConnector(BaseModel):
     world_types: str | None = Field(default=None, max_length=60)
     """A tool answering its types for one world, given `world` and `assets_path`, as
     `{"types": {name: schema}, "note": "..."}`; a type it declares changes only there."""
+    network: list[Annotated[str, StringConstraints(max_length=253)]] = Field(
+        default_factory=list, max_length=40
+    )
+    """The hosts it may reach from the connector sandbox, as `api.example.com` or
+    `*.example.com`; npx and uvx also reach their registry, where they fetch it from."""
 
 
 class MediaFile(BaseModel):
@@ -234,6 +239,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
                 body.types,
                 body.input_types,
                 body.world_types,
+                body.network,
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc

@@ -1,0 +1,9 @@
+{
+  "name": "swarmify-sandbox",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81"
+  }
+}

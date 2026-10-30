@@ -59,5 +59,6 @@ required = true
 env = "UPLOAD_POST_API_KEY"
 help = "From app.upload-post.com, under API keys."
 
+# Its sandbox (ADR 0021): Upload-Post's API, the video uploaded to it too.
 [permissions]
 network = ["api.upload-post.com"]

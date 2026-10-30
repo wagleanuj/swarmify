@@ -111,7 +111,8 @@ export function describe(e: LogEntry, tasks: Map<string, string> = new Map()): s
     case "tool":
       return action(e, tasks);
     case "denied":
-      return `Refused ${short(e.tool)}: ${e.detail}`;
+      // A connector's own process has no tool: its line says what the sandbox blocked.
+      return e.tool ? `Refused ${short(e.tool)}: ${e.detail}` : e.detail;
     case "session": {
       const model = /started on (\S+)/.exec(e.detail)?.[1];
       return model ? `Started on ${model}` : "Started";

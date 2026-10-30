@@ -89,6 +89,7 @@ export function Connectors() {
   const [kind, setKind] = useState<Kind>("stage");
   const [server, setServer] = useState("");
   const [keys, setKeys] = useState("");
+  const [network, setNetwork] = useState("");
   const [allowed, setAllowed] = useState<StageType[]>(["connector"]);
   const [tested, setTested] = useState<{ body: string; tools: Tool[] } | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
@@ -109,7 +110,8 @@ export function Connectors() {
   }, [signIn, navigate]);
 
   const stageTypes: StageType[] = kind === "publish" ? ["connector"] : allowed;
-  const body: NewConnector = { name, kind, server, credentials: parseKeys(keys), stage_types: stageTypes };
+  const hosts = network.split(/[\s,]+/).filter(Boolean);
+  const body: NewConnector = { name, kind, server, credentials: parseKeys(keys), stage_types: stageTypes, network: hosts };
   const current = JSON.stringify(body);
   const tools = tested?.body === current ? tested.tools : null;
 
@@ -171,6 +173,7 @@ export function Connectors() {
     setName("");
     setServer("");
     setKeys("");
+    setNetwork("");
     setTested(null);
     await Promise.all([load(), loadEnabled(), loadPackages()]);
   }
@@ -294,6 +297,16 @@ export function Connectors() {
             onChange={(e) => setKeys(e.target.value)}
             rows={2}
             placeholder="FAL_KEY=..."
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          Network domains it reaches, comma separated (its sandbox blocks every other host; npx and uvx also reach their registry)
+          <input
+            value={network}
+            onChange={(e) => setNetwork(e.target.value)}
+            placeholder="api.fal.ai, *.fal.media"
+            autoComplete="off"
             spellCheck={false}
           />
         </label>

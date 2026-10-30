@@ -523,9 +523,12 @@ def test_the_installed_package_voices_a_script_over_stdio(
     down = "http://127.0.0.1:9"  # nothing listens on discard
     real = given(McpTransport())
     real.save_setup("w", "speech", {"speech_endpoints": f"{down},{engine}"}, {})
-    script = tmp_path / "script.md"
+    # where a run keeps them: the only files its sandbox lets it read and write (ADR 0021)
+    run = tmp_path / "worlds" / "w" / "runs" / "run_1"
+    script = run / "write" / "artifacts" / "script.md"
+    script.parent.mkdir(parents=True)
     script.write_text(SCRIPT)
-    out = tmp_path / "speak" / "artifacts" / "timings.json"
+    out = run / "speak" / "artifacts" / "timings.json"
     out.parent.mkdir(parents=True)
     config = {
         "calls": "speech",

@@ -48,5 +48,7 @@ env = "SLACK_CHANNEL"
 pattern = "^[A-Z0-9]{8,}$"
 help = "The ID of the channel this world's gates go to, as C0123ABCDEF (the channel's details, at the bottom). Invite the app to it."
 
+# Its sandbox (ADR 0021): Slack's Web API and its Socket Mode websocket (wss-primary.slack.com and
+# the like). Its listener also reaches Swarmify's own /mcp/remote_approvals, which the core grants.
 [permissions]
 network = ["slack.com", "*.slack.com"]

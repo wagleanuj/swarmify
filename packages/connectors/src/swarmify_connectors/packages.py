@@ -10,7 +10,9 @@ A local package is one Swarmify wrote the Manifest of itself, from the Connector
 MCP server" form (issue 211); it has no code of its own, only the command or URL it names.
 """
 
+import functools
 import json
+import logging
 import os
 import re
 import shutil
@@ -26,6 +28,9 @@ from jsonschema.exceptions import SchemaError, ValidationError, best_match
 from jsonschema.validators import Draft202012Validator, validator_for
 
 from swarmify_connectors.model import KINDS, STAGE_TYPES
+from swarmify_connectors.sandbox import REGISTRIES, Grants, Sandbox
+
+log = logging.getLogger(__name__)
 
 MANIFEST = "swarmify-connector.toml"
 RECORD = ".swarmify-install.json"
@@ -45,6 +50,12 @@ _VERSION = "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$"
 _MEDIA = "^[a-z]+/([a-z0-9.+-]+|\\*)$"
 _strings = {"type": "array", "items": {"type": "string", "minLength": 1}}
 _text = {"type": "string", "minLength": 1}
+_domains = {
+    "type": "array",
+    "items": {"type": "string", "pattern": "^(\\*\\.)?[a-z0-9.-]+(:\\d+)?$"},
+}
+_FOLDER = "^(\\{world\\}|[a-z0-9][a-z0-9_-]*)(/(\\{world\\}|[a-z0-9][a-z0-9_-]*))*$"
+"""A folder of the data directory: plain names, so never a file such as `setup.json`."""
 _inside = {"type": "string", "pattern": "^(?![/~])(?!.*(^|/)\\.\\.(/|$)).+$"}
 """A path inside the package folder, relative to it."""
 _file = {
@@ -195,16 +206,21 @@ SCHEMA: dict[str, Any] = {
             },
         },
         "primary_metric": {"type": "string", "pattern": _SNAKE},
+        # What the sandbox lets it use (ADR 0021): the hosts it reaches (`localhost` alone: its
+        # own loopback servers), the Services whose URLs it calls, the data directory's folders it
+        # reads (`{world}` is the world it runs for), and the hosts its install step reaches
+        # besides its runtime's registry.
         "permissions": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "network": {
-                    "type": "array",
-                    "items": {"type": "string", "pattern": "^(\\*\\.)?[a-z0-9.-]+(:\\d+)?$"},
-                },
+                "network": _domains,
                 "services": _strings,
-                "folders": _strings,
+                "folders": {
+                    "type": "array",
+                    "items": {"type": "string", "pattern": _FOLDER},
+                },
+                "install_network": _domains,
             },
         },
     },
@@ -334,6 +350,9 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     for i, name in enumerate(manifest.get("permissions", {}).get("services", [])):
         if name not in names:
             bad(f"permissions.services[{i}]", f"{name} is not one of its [[services]]")
+    for i, folder in enumerate(manifest.get("permissions", {}).get("folders", [])):
+        if folder.split("/")[0] == "sandbox":  # other processes' scratch folders
+            bad(f"permissions.folders[{i}]", "sandbox is the connector sandbox's own")
     folders = [f["folder"] for f in manifest.get("owned_folders", [])]
     for i, folder in enumerate(folders):
         if folder in folders[:i]:
@@ -432,19 +451,41 @@ def write_manifest(manifest: dict[str, Any]) -> str:
 
 
 def _install_env() -> dict[str, str]:
-    """What the install step sees: enough to find uv, npm and their caches, and none of the
-    app's own variables (no keys, no VIRTUAL_ENV pointing at Swarmify's venv)."""
-    keep = ("PATH", "HOME", "TMPDIR", "LANG", "UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR")
+    """What the install step sees of the app's environment: enough to find uv, npm and Python,
+    and none of the app's own variables (no keys, no VIRTUAL_ENV pointing at Swarmify's venv).
+    Its HOME and TMPDIR are its own scratch folder (sandbox.py)."""
+    keep = ("PATH", "LANG", "UV_PYTHON", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON_PREFERENCE")
+    keep += ("UV_LINK_MODE", "UV_COMPILE_BYTECODE")
     return {k: os.environ[k] for k in keep if k in os.environ}
+
+
+@functools.cache
+def _caches() -> dict[str, Path]:
+    """uv's and npm's own caches, by the variable that points an install step at them: where
+    `UV_CACHE_DIR` and `npm_config_cache` say, as in Docker, where both are in the volume the
+    sandbox service shares."""
+    try:
+        uv = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, timeout=30)
+        found = {"UV_CACHE_DIR": Path(uv.stdout.strip())} if uv.returncode == 0 else {}
+    except (OSError, subprocess.TimeoutExpired):
+        found = {}
+    npm = os.environ.get("npm_config_cache") or Path.home() / ".npm"
+    return {**found, "npm_config_cache": Path(npm)}
 
 
 class Packages:
     """Connector Packages installed for the whole install under `root` (`<data dir>/packages`),
     from a folder of this repository (`repo`), as `connectors/<name>`, or a local path."""
 
-    def __init__(self, root: Path, repo: Path) -> None:
+    def __init__(self, root: Path, repo: Path, sandbox: Sandbox | None = None) -> None:
         self.root = root
         self.repo = repo
+        self.sandbox = sandbox or Sandbox(root.parent)
+
+    def source(self, name: str, version: str) -> str:
+        """Where an installed version came from: a folder, or `local` for one Swarmify wrote."""
+        record = self.root / name / version / RECORD
+        return str(json.loads(record.read_text())["source"]) if record.is_file() else ""
 
     def list(self) -> list[Package]:
         """Every installed version, by name then version folder."""
@@ -512,7 +553,7 @@ class Packages:
         try:
             shutil.copytree(folder, target, ignore=COPY_SKIPS)
             if manifest.get("install"):
-                self._run_install(manifest, target)
+                self._run_install(manifest, target, folder.is_relative_to(self.repo.resolve()))
             record = {"source": record_as or source, "installed_at": datetime.now(UTC).isoformat()}
             (target / f"{RECORD}.tmp").write_text(json.dumps(record))
             (target / f"{RECORD}.tmp").replace(target / RECORD)
@@ -523,25 +564,51 @@ class Packages:
             raise
         return self._package(target / RECORD)
 
-    @staticmethod
-    def _run_install(manifest: dict[str, Any], target: Path) -> None:
-        step = manifest["install"]
+    def _run_install(self, manifest: dict[str, Any], target: Path, ours: bool) -> None:
+        """The install step, in the sandbox (ADR 0021): it writes only its version folder and
+        reaches only its runtime's registries and the hosts `permissions.install_network`
+        names. A package of this repository (`ours`) also uses uv's and npm's own caches; any
+        other starts with empty ones of its own, so it cannot plant a poisoned download for the
+        next install. What the sandbox blocked is logged, and said in the error when it fails."""
+        name, step = manifest["name"], manifest["install"]
+        extra = manifest.get("permissions", {}).get("install_network", [])
+        grants = Grants(writes=[target], domains=[*REGISTRIES[manifest["runtime"]], *extra])
+        env = _install_env()
+        if ours:  # this repository's code may share the caches, which it cannot poison
+            for var, cache in _caches().items():
+                cache.mkdir(parents=True, exist_ok=True)
+                env[var] = str(cache)
+                grants.writes.append(cache)
         try:
-            done = subprocess.run(
-                step,
+            confined = self.sandbox.wrap(step, target, grants, env, path=env.get("PATH"))
+            process = subprocess.Popen(
+                confined.argv,
                 cwd=target,
-                env=_install_env(),
-                capture_output=True,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=INSTALL_SECONDS,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise InstallError(f"{manifest['name']}'s install step did not run: {exc}") from exc
-        if done.returncode != 0:
-            tail = (done.stderr or done.stdout).strip()[-600:]
+        except OSError as exc:
+            raise InstallError(f"{name}'s install step did not run: {exc}") from exc
+        try:
+            out, err = process.communicate(timeout=INSTALL_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            process.terminate()  # the launcher stops the sandbox's processes in turn
+            process.communicate()
+            raise InstallError(f"{name}'s install step took over {INSTALL_SECONDS} s") from exc
+        blocked = confined.blocked()
+        if blocked:
+            log.warning(
+                "%s's install step was blocked by the sandbox: %s", name, "; ".join(blocked)
+            )
+        if process.returncode != 0:
+            tail = (err or out).strip()[-600:]
+            said = f" The sandbox blocked: {'; '.join(blocked)}." if blocked else ""
             raise InstallError(
-                f"{manifest['name']}'s install step `{' '.join(step)}` failed"
-                f" ({done.returncode}): {tail}"
+                f"{name}'s install step `{' '.join(step)}` failed ({process.returncode}):"
+                f" {tail}{said}"
             )
 
     def uninstall(self, name: str, version: str) -> None:

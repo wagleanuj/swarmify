@@ -1,23 +1,25 @@
-"""A fake `npx remotion render` for tests, installed as `npx` on PATH by the `fake_npx` fixture.
+"""A fake `remotion render` for tests, installed as a project's `node_modules/.bin/remotion` by
+the `fake_npx` fixture.
 
 It prints the real CLI's progress lines and writes the props it was given as the "video", so a
 test can see the script arrived. Composition `Broken` fails like a bad render; `Slow` pauses
 between frames so a poll can catch it mid-render; `Empty` exits 0 without writing a file;
-`Snoop` is an agent's project trying to break out of the render sandbox and records what it got.
+`Snoop` is an agent's project trying to break out of the connector sandbox (to read the data
+directory's keys, write outside its stage and reach the internet) and records what it got.
 Like the real CLI it serves the bundle on `--port` (3000 without one) and, when another server
 already answers there, talks to that one and fails.
 """
 
 import json
-import os
 import socket
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 args = [a for a in sys.argv[1:] if not a.startswith("-")]
-assert args[:2] == ["remotion", "render"], args
-_, _, entry, composition, output = args[:5]
+assert args[:1] == ["render"], args
+_, entry, composition, output = args[:4]
 props = next(a.split("=", 1)[1] for a in sys.argv if a.startswith("--props="))
 browser = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--browser-executable=")), "")
 concurrency = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--concurrency=")), "")
@@ -40,11 +42,11 @@ for frame in range(1, 4):
 print("Encoded 3/3", flush=True)
 snooped: dict[str, str] = {}
 if composition == "Snoop":
-    data = Path(os.environ["REMOTION_DATA_DIR"])
+    data = next(p.parent for p in Path(output).resolve().parents if p.name == "worlds")
     tries = {
         "read_keys": lambda: (data / ".env").read_text(),
         "write_outside": lambda: (data / "planted.txt").write_text("x"),
-        "network": lambda: socket.create_connection(("1.1.1.1", 80), timeout=2).close(),
+        "network": lambda: urllib.request.urlopen("http://example.com/", timeout=5).read(),
     }
     for name, attempt in tries.items():
         try:

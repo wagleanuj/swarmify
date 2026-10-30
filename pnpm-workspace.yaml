@@ -1,2 +1,4 @@
 packages:
   - apps/web
+  # The connector sandbox's launcher (ADR 0021), which needs Anthropic's sandbox-runtime
+  - packages/connectors/sandbox

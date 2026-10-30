@@ -101,3 +101,17 @@ test("before any agent starts the panel says what will appear", async () => {
   await expect.element(screen.getByTestId("agents")).toMatchTextContent(/No agent has started yet/);
   await expect.element(screen.getByRole("region", { name: "Live log" })).toMatchTextContent(/Every step an agent takes appears here/);
 });
+
+test("a connector step shows what the sandbox blocked in its live log, under the connector's name", async () => {
+  const trying = run("running", [stage(0, "try", "connector", "running", { calls: "intruder" })]);
+  const blocked = (seq: number, detail: string) => entry(seq, { agent: "intruder", kind: "denied", tool: null, detail });
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(trying),
+    "GET /api/runs/run_1/stages/stage_0/log": () => Response.json([blocked(1, "Blocked by the sandbox: read /data/setup.json")]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const log = screen.getByTestId("log");
+  await expect.element(log).toMatchTextContent(/10:00:01 intruder: Blocked by the sandbox: read \/data\/setup\.json/);
+  FakeEventSource.emit("agent.logged", { payload: blocked(2, "Blocked by the sandbox: connect example.com:443") });
+  await expect.element(log).toMatchTextContent(/intruder: Blocked by the sandbox: connect example\.com:443$/);
+});

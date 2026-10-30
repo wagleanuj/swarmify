@@ -16,15 +16,22 @@ jobs:
         with:
           path: ~/.cache/uv
           key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+      - uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: uv sync --locked --all-packages
+      # The connector sandbox's launcher and Anthropic's sandbox-runtime it runs on (ADR 0021)
+      - run: pnpm install --frozen-lockfile
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run python tools/check_imports.py packages
-      # bubblewrap sandboxes a Build Session and the render of what it wrote; Ubuntu
-      # keeps unprivileged user namespaces, which it needs, behind AppArmor by default.
+      # bubblewrap, socat and ripgrep for the OS sandbox every connector process and a Build
+      # Session's Bash run in; Ubuntu keeps unprivileged user namespaces, which it needs, behind
+      # AppArmor by default.
       - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: uv run pytest
 
@@ -67,4 +74,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: uv run playwright install --with-deps chromium
       - run: mise run gen-client && git diff --exit-code apps/web/src/api/schema.d.ts
+      # The connector sandbox, as above: the app installs its default packages and runs in it.
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: mise run e2e

@@ -624,7 +624,10 @@ export function StagePanel(p: PanelProps) {
       <p className="faint">{call?.status === "polling" ? `Working: ${Math.round((call.progress ?? 0) * 100)}%` : "Nothing made yet."}</p>
     );
   }
-  const logged = stage.type === "swarm" || stage.type === "retro" || (connector && kind !== "build" && p.log.length > 0);
+  // A build step's panel shows its builder's steps; anything else logged there (the sandbox
+  // blocking its render) still gets the live log.
+  const shownLog = kind === "build" ? p.log.filter((e) => e.agent !== "builder") : p.log;
+  const logged = stage.type === "swarm" || stage.type === "retro" || (connector && shownLog.length > 0);
   return (
     <section className="panel" aria-label={`Step ${stage.index + 1}, ${stage.name}`} data-testid="stage-panel">
       <div className="panel-head">
@@ -660,7 +663,7 @@ export function StagePanel(p: PanelProps) {
       {connector && <StepInputs run={run} stage={stage} artifacts={p.artifacts} worldId={worldId} />}
       {inside}
       <AllFiles made={made} worldId={worldId} />
-      {logged && <LiveLog log={p.log} tasks={p.tasks} />}
+      {logged && <LiveLog log={shownLog} tasks={p.tasks} />}
       {connector && <TechnicalDetails call={call} />}
     </section>
   );

@@ -58,5 +58,7 @@ scopes = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googlea
 pkce = true
 authorize_params = { access_type = "offline", prompt = "consent" }
 
+# Its sandbox (ADR 0021): the YouTube Data API, uploads included. Swarmify itself signs in and
+# refreshes the token with accounts.google.com and oauth2.googleapis.com, so this never does.
 [permissions]
-network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com"]
+network = ["www.googleapis.com"]

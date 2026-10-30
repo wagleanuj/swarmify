@@ -4,6 +4,8 @@ MCP over stdio or Streamable HTTP is the transport adapter, a recording fake the
 the storage adapter, Postgres the seam.
 """
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any, Protocol
 
 from swarmify_connectors.model import Call, Connector, Tool
@@ -21,6 +23,13 @@ class ConnectorTransport(Protocol):
         self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
     ) -> dict[str, Any]:
         """Call one tool and return its result as JSON. Raises ConnectorError."""
+        ...
+
+    def session(
+        self, connector: Connector, env: dict[str, str]
+    ) -> AbstractContextManager[Callable[[str, dict[str, Any]], dict[str, Any]]]:
+        """Start the server once for several calls (a stage's call and its polls), each made
+        with a tool name and arguments as `call` would. Raises ConnectorError."""
         ...
 
 

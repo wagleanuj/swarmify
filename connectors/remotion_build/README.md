@@ -52,19 +52,16 @@ into `public/`, take the composition's length from the voice timeline, play each
 `white-space: pre`, and duck a music bed from the world's assets under speech. `voice_first.md`
 carries a sample composition doing all of it, which a test type-checks in the starter.
 
-The render executes the agent's code (its `remotion.config.ts`, its `node_modules`), so a project
-under the data directory's `worlds/` renders in an OS sandbox of its own: `sandbox-exec` on macOS,
-`bwrap` on Linux, and no render where neither exists. It has no network beyond loopback (fonts and
-images must be files in `public/`, which the builder is told), reads nothing of the data directory
-but the project, the output folder and the shared browser, and writes only those and temp. It
-never installs: a build that left no `node_modules` fails. Chrome Headless Shell is the one the
-remotion_render package's install step downloaded beside it (else one on `PATH`). On macOS that
-profile starts from allow-all and denies network, the data directory, writes, other processes,
-Apple Events and Launch Services, since Chrome needs Mach services a deny-all profile refuses;
-Linux unshares every namespace.
+The render executes the agent's code (its `remotion.config.ts`, its `node_modules`), in the
+remotion_render package's connector sandbox (ADR 0021, Swarmify's README): no network beyond its
+own loopback (fonts and images must be files in `public/`, which the builder is told), nothing of
+the data directory readable but that package, the templates and the run's folders, and nothing
+writable but the stage's folder. It never installs: a build that left no `node_modules` fails.
+Chrome Headless Shell is the one the remotion_render package's install step downloaded beside it
+(else one on `PATH`).
 
 Tests drive the builder with the scripted CLI and the render with a fake `npx` inside the real
-sandbox. One real build, on your subscription and the real Remotion CLI, runs when you opt in:
+connector sandbox. One real build, on your subscription and the real Remotion CLI, runs when you opt in:
 `SWARMIFY_REAL_BUILD=1 uv run pytest apps/api/tests/test_build_http.py -k real -s` (about a
 minute on a Mac, most of it the first npm install and the Chrome download).
 

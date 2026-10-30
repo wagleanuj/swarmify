@@ -38,7 +38,7 @@ stages:
     calls: remotion_render
     input: ideas.md
     output: short.mp4
-    params: {project: /tmp, composition: Short}
+    params: {project: shorts, composition: Short}
 """
 CHILD = "name: Brief\nstages:\n  - gate: brief\n    ask: Go?\n"
 PAGES = [

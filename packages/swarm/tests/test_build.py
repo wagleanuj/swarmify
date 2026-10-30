@@ -4,7 +4,7 @@ hooks refuse."""
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -21,6 +21,7 @@ from swarmify_swarm import (
     build,
 )
 from swarmify_swarm.fake import Call, Say, Script, Step
+from swarmify_swarm.sdk import options as options_for
 
 DOMAINS = ["registry.npmjs.org", "pypi.org"]
 W, R, S = "world_1", "run_1", "stage_1"
@@ -274,3 +275,17 @@ def test_a_spent_budget_stops_the_build_before_it_starts(board: SqliteStorage, d
     with pytest.raises(Stopped, match="spent"):
         _build(board, data, SdkRuntime(transport=script.transport), budget=lambda _: "spent")
     assert script.sessions == []
+
+
+def test_only_a_sandboxed_session_runs_on_the_cli_that_can_start_its_sandbox(
+    board: SqliteStorage, data: Path
+) -> None:
+    """In Docker the api container cannot start an OS sandbox, so a Build Session's CLI runs
+    in the sandbox runner (`sandboxed_cli`); any other session keeps the bundled CLI."""
+    script = Script([Say("Done.")])
+    runner = "/app/docker/claude-in-runner"
+    _build(board, data, SdkRuntime(transport=script.transport, sandboxed_cli=runner))
+    (options,) = script.sessions
+    assert options.cli_path == runner
+    plain = SessionSpec("system", "prompt", data, None, [], [])
+    assert options_for(plain, cast(Any, None), None, runner).cli_path is None

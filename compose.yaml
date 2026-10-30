@@ -16,22 +16,30 @@ services:
       - "${SWARMIFY_BIND:-0.0.0.0}:${SWARMIFY_PORT:-8000}:8000"
     restart: unless-stopped
 
+  # Docker's default seccomp and AppArmor profiles: the api holds the Claude token, the sign-in
+  # password and every Setup value, and starts no sandbox itself. Connector processes, install
+  # steps and a Build Session's Claude CLI run in the `sandbox` service, over the socket.
   api:
     build: .
+    init: true  # reaps the processes a connector leaves, as uvicorn as PID 1 would not
     volumes:
       - data:/data
-    # bubblewrap sandboxes a Build Session's Bash and render (ADR 0018): it needs user
-    # namespaces and its own /proc, which Docker's default profiles refuse. Without these a
-    # build stage fails rather than run unsandboxed.
+      - sandbox-socket:/run/swarmify
     entrypoint: ["/app/docker/needs.sh", "CLAUDE_CODE_OAUTH_TOKEN", "SWARMIFY_PASSWORD", "--"]
     # A compose entrypoint clears the image's CMD, so the start command is repeated here.
     command: ["uvicorn", "--factory", "swarmify_api.main:create_app", "--host", "0.0.0.0", "--port", "8000"]
-    security_opt:
-      - seccomp=unconfined
-      - apparmor=unconfined
-      - systempaths=unconfined
+    depends_on:
+      sandbox:
+        condition: service_healthy  # it installs the default packages there on startup
     environment:
       <<: *env
+      SWARMIFY_SANDBOX_RUNNER: /run/swarmify/sandbox.sock
+      SWARMIFY_SANDBOX_CLI: /app/docker/claude-in-runner
+      # The caches this repository's packages install with, where the sandbox service sees them
+      UV_CACHE_DIR: /data/sandbox/cache/uv
+      npm_config_cache: /data/npm-cache
+      # Where a connector process reaches the api (a remote approver's MCP calls), from `sandbox`.
+      SWARMIFY_INTERNAL_URL: http://api:8000
       SWARMIFY_GRAPH_WRITER: external
       # The operator's sign-in password (README, Sign-in), required, see entrypoint.
       SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:-}
@@ -40,6 +48,53 @@ services:
       # Speech engines Setting (connectors/speech/README.md); after that the Setting counts.
       SPEECH_ENDPOINTS: ${SPEECH_ENDPOINTS:-http://host.docker.internal:8881,http://kokoro:8880}
     restart: unless-stopped
+
+  # The connector sandbox (ADR 0021, issue 109): runs each connector process and install step
+  # inside Anthropic's sandbox-runtime, and a Build Session's Claude CLI with its Bash sandbox
+  # (ADR 0018). bubblewrap needs unprivileged user, mount, PID and network namespaces and a fresh
+  # /proc, which Docker's defaults refuse, so this service alone gets the narrowest exceptions
+  # that allow them: Docker's default seccomp profile plus those namespace syscalls
+  # (docker/seccomp-sandbox.json), AppArmor off (docker-default denies every mount, a userns
+  # one too; a host profile would have to be installed by hand), and /proc unmasked (the kernel
+  # refuses a new proc mount over a masked one). It holds nothing at rest worth stealing: no
+  # Claude token, password or setup.json, only the data folders the sandboxed processes use.
+  sandbox:
+    build: .
+    init: true
+    command: ["python", "-m", "swarmify_connectors.runner", "serve", "/run/swarmify/sandbox.sock"]
+    security_opt:
+      - seccomp=./docker/seccomp-sandbox.json
+      - apparmor=unconfined
+      - systempaths=unconfined
+    volumes:
+      - sandbox-socket:/run/swarmify
+      # The same paths as in the api, which passes them: packages, the worlds' runs and assets,
+      # Remotion templates, the npm cache of a Build Session and the sandbox's scratch folders.
+      - { type: volume, source: data, target: /data/packages, volume: { subpath: packages } }
+      - { type: volume, source: data, target: /data/worlds, volume: { subpath: worlds } }
+      - { type: volume, source: data, target: /data/remotion, volume: { subpath: remotion } }
+      - { type: volume, source: data, target: /data/npm-cache, volume: { subpath: npm-cache } }
+      - { type: volume, source: data, target: /data/sandbox, volume: { subpath: sandbox } }
+    environment:
+      SWARMIFY_DATA_DIR: /data
+    healthcheck:
+      test: ["CMD", "test", "-S", "/run/swarmify/sandbox.sock"]
+      interval: 2s
+    depends_on:
+      folders:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Makes the data folders the sandbox service mounts, which must exist before it starts.
+  folders:
+    build: .
+    volumes:
+      - data:/data
+    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/remotion", "/data/npm-cache", "/data/sandbox"]
+    command: []
+    healthcheck:
+      disable: true
+    restart: "no"
 
   # The single writer of every world's graph (ADR 0003), graphify on the Claude CLI backend.
   graph-writer:
@@ -61,3 +116,5 @@ networks:
 
 volumes:
   data:
+  # The sandbox runner's socket, shared by the api and the sandbox service only.
+  sandbox-socket:

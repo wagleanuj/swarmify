@@ -244,6 +244,12 @@ def base_url() -> str:
     return os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000")
 
 
+def internal_url() -> str:
+    """Where a connector process reaches the API: `SWARMIFY_INTERNAL_URL`, as `http://api:8000`
+    from the sandbox runner in Docker, else the operator's own `base_url`."""
+    return os.environ.get("SWARMIFY_INTERNAL_URL") or base_url()
+
+
 def learning_service(root: Path) -> Learning:
     """Skills (shared ones in `<data_dir>/skills`, a world's own in its folder), retro
     proposals and the scorecard."""
@@ -460,6 +466,21 @@ def create_app(
     registry.install_defaults()
     registry.adopt_world_connectors()  # V1's world-added connectors become local packages
     whiteboard = task_board(root)
+
+    def blocked(connector: ConnectorDef, stage: tuple[str, str] | None, lines: list[str]) -> None:
+        """What the sandbox blocked (ADR 0021) goes to the API's log, and for a stage's call to
+        the stage's run log too, under the connector's name."""
+        connectors_log(connector, stage, lines)
+        if stage and connector.world_id:
+            run_id, stage_id = stage
+            whiteboard.agent(connector.world_id, run_id, stage_id, connector.name, "worker")
+            for line in lines:
+                whiteboard.log(
+                    stage_id, connector.name, "denied", f"Blocked by the sandbox: {line}"
+                )
+            whiteboard.update_agent(stage_id, connector.name, status="done")
+
+    connectors_log, registry.on_blocked = registry.on_blocked, blocked
     world_svc = world_service(root, on_create=registry.offer_defaults)
     for world in world_svc.list_all():
         registry.offer_defaults(world.id)
@@ -637,7 +658,7 @@ def create_app(
     memory = Memory(migrated_db(root), root)
     swarm = Swarm(
         whiteboard,
-        runtime or SdkRuntime(),
+        runtime or SdkRuntime(sandboxed_cli=os.environ.get("SWARMIFY_SANDBOX_CLI") or None),
         memory,
         graphs=graph.WorldGraphs(world_svc, index),
         servers=registry.agent_servers,
@@ -768,6 +789,7 @@ def create_app(
                 # Runs the MCP process started wait queued for this process to enqueue them.
                 await to_thread.run_sync(runner.adopt)
                 await to_thread.run_sync(listeners.sync)
+                await to_thread.run_sync(registry.drain)
             except Exception:
                 log.exception("sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
@@ -871,7 +893,7 @@ def create_app(
     listeners = remote.Listeners(
         registry,
         lambda name: operator.provision(f"{name} remote approvals", remote.SCOPE),
-        base_url().rstrip("/") + remote.PATH,
+        internal_url().rstrip("/") + remote.PATH,
     )
     if password := os.environ.get("SWARMIFY_PASSWORD"):
         operator.set_password(password)

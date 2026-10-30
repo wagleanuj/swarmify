@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp.client.stdio import get_default_environment
 
 from swarmify_connectors import (
     ConnectorError,
@@ -220,18 +219,16 @@ def test_each_process_gets_exactly_its_own_values_and_never_another_packages(
             "w1", "r", f"s_{name}", {"calls": name, "params": {"tool": "environ"}}
         )
         assert call.response is not None
-        env: dict[str, str] = call.response["env"]
-        # Python itself sets LC_CTYPE in a child under a C locale (PEP 538).
-        safe = {**get_default_environment(), "LC_CTYPE": env.get("LC_CTYPE")}
-        return {k: v for k, v in env.items() if safe.get(k) != v}
+        return call.response["env"]
 
+    # Besides its own values a process has only what every process gets, and what the sandbox
+    # sets (its own HOME and TMPDIR, the proxy): never another package's, nor the API's own.
     own = {"PROBE_KEY": "good", "RETRIES": "3", "LOUD": "false", "VOICE": "low", "CACHE": "/tmp/c"}
-    assert environ("probe") == own
-    other = environ("other")
-    assert other == {
-        "OTHER_KEY": "other-secret",
-        "RATIO": "0.5",
-        "RETRIES": "3",
-        "LOUD": "false",
-        "VOICE": "high",
-    }
+    theirs = {"OTHER_KEY": "other-secret", "RATIO": "0.5", "RETRIES": "3", "LOUD": "false"}
+    theirs |= {"VOICE": "high"}
+    for name, mine, foreign in (("probe", own, theirs), ("other", theirs, own)):
+        env = environ(name)
+        assert {k: env.get(k) for k in mine} == mine
+        assert not set(env) & (set(foreign) - set(mine))
+        assert not {foreign[k] for k in set(foreign) - set(mine)} & set(env.values())
+        assert "SWARMIFY_LEAK_PROBE" not in env and "a V1 key" not in env.values()
