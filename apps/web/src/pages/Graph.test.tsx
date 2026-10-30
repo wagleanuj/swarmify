@@ -155,8 +155,8 @@ test("communities with their size and surprising links name each node with its r
   await expect.element(runs).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
   const notes = communities.getByRole("link", { name: "note" });
   expect(notes.elements().map((a) => a.getAttribute("href"))).toEqual([
-    "/api/worlds/world_1/files/runs/run_1/research/notes/hooks.md",
-    "/api/worlds/world_1/files/brief.md",
+    "/worlds/world_1/read?path=runs%2Frun_1%2Fresearch%2Fnotes%2Fhooks.md",
+    "/worlds/world_1/read?path=brief.md",
   ]);
   await expect
     .element(screen.getByTestId("surprises"))

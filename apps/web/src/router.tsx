@@ -12,6 +12,7 @@ import { Evals } from "./pages/Evals";
 import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
 import { Library } from "./pages/Library";
+import { Reader } from "./pages/Reader";
 import { Runs } from "./pages/Runs";
 import { RunTimeline } from "./pages/RunTimeline";
 import { Settings } from "./pages/Settings";
@@ -126,6 +127,14 @@ export const libraryRoute = createRoute({
     ),
 });
 
+// A document artifact or note, rendered to fit a phone; `path` is its path in the world folder.
+export const readerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/read",
+  component: Reader,
+  validateSearch: (search: Record<string, unknown>): { path: string } => ({ path: typeof search.path === "string" ? search.path : "" }),
+});
+
 export const castRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/cast",
@@ -152,6 +161,7 @@ const routeTree = rootRoute.addChildren([
   connectorsRoute,
   graphRoute,
   libraryRoute,
+  readerRoute,
   castRoute,
   settingsRoute,
 ]);

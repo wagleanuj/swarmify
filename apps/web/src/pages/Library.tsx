@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
-import { IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
+import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
 
 type Workflow = components["schemas"]["Workflow"];
 type Item = components["schemas"]["LibraryItem"];
@@ -269,7 +269,11 @@ function Detail({
       </div>
       <dl className="kv">
         <dt>File</dt>
-        <dd className="mono">{item.name}</dd>
+        <dd className="mono">
+          <FileLink a={item} worldId={worldId}>
+            {item.name}
+          </FileLink>
+        </dd>
         <dt>From</dt>
         <dd>
           <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: item.run_id }}>
@@ -345,9 +349,9 @@ function Preview({ item, worldId }: { item: Item; worldId: string }) {
     );
   }
   return (
-    <a href={url} target="_blank" rel="noreferrer">
+    <FileLink a={item} worldId={worldId}>
       Open {item.name}
-    </a>
+    </FileLink>
   );
 }
 
