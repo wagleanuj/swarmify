@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -14,7 +15,10 @@ const done = run("done", [
   stage(2, "render", "connector", "done"),
 ]);
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800); // the step list sits beside the step; a phone has it in a sheet
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

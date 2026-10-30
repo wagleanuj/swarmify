@@ -170,6 +170,8 @@ export function Shell() {
           {worldName}
           <Icon name="chev" />
         </button>
+        {/* A page's own phone top bar (the run page's "‹ Runs" and menu) renders here. */}
+        <div id="topbar-slot" className="topbar-slot" />
         <button type="button" className="icon" aria-label="Menu" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>
           <Icon name="menu" />
         </button>
