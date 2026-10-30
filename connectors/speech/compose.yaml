@@ -1,0 +1,49 @@
+# The speech engines, run by the operator beside Swarmify (ADR 0026; README.md, Running the
+# engines beside Swarmify): `docker compose -f connectors/speech/compose.yaml up -d` from the
+# repository root, after Swarmify's own compose file, whose network this one joins. Swarmify polls
+# their /health and never starts or stops them.
+name: swarmify-speech
+
+services:
+  # Kokoro-FastAPI, the second engine (Apache 2.0, CPU). Bound to this host only: no sign-in.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.1
+    ports:
+      - "127.0.0.1:8880:8880"
+    restart: unless-stopped
+
+  # Chatterbox Turbo on the CPU, for hosts without an Apple GPU: `--profile chatterbox` and the
+  # Speech engines Setting http://chatterbox:8881,http://kokoro:8880. On a Mac run it natively
+  # instead (README.md) to use the GPU.
+  chatterbox: &chatterbox
+    profiles: [chatterbox]
+    build: chatterbox
+    ports:
+      - "127.0.0.1:8881:8881"
+    volumes:
+      - speech-models:/models
+    restart: unless-stopped
+
+  # Chatterbox on an NVIDIA GPU (the NVIDIA Container Toolkit on the host): `--profile
+  # chatterbox-gpu` and the Setting http://chatterbox-gpu:8881,http://kokoro:8880.
+  chatterbox-gpu:
+    <<: *chatterbox
+    profiles: [chatterbox-gpu]
+    build:
+      context: chatterbox
+      args: { TORCH: cu124 }
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+networks:
+  # Swarmify's (compose.yaml at the repository root), so its api reaches these by service name.
+  default:
+    name: swarmify
+    external: true
+
+volumes:
+  # The volume V1's compose file kept the models in, so an upgrade does not download them again.
+  speech-models:
+    name: swarmify_speech-models

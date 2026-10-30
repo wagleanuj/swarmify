@@ -162,9 +162,10 @@ def test_the_planner_describes_each_connector_from_its_manifest(
         "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
         "youtube": ["title", "metadata", "description", "visibility", "schedule", "made_for_kids"],
         "upload_post": ["title", "visibility", "schedule", "user", "platforms"],
-        "speech": ["voice", "engines", "seed"],
     }
     assert {c.name for c in BUILTINS} == set(params)
+    speech = system.split("\n- speech (")[1].split("\n- ")[0]  # a default package
+    assert all(f"params.{p}" in speech for p in ("voice", "engines", "seed"))
     for c in BUILTINS:
         entry = system.split(f"\n- {c.name} (")[1].split("\n- ")[0]
         assert c.manifest["about"] in entry and c.manifest.get("planner_notes", "") in entry

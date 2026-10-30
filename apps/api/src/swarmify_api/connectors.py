@@ -70,7 +70,9 @@ class ConnectorView(BaseModel):
     about: str
     created_at: str | None
     health: str | None
-    """The tool `GET /api/connectors/<id>/health` calls; None when it has no health check."""
+    """The tool its health check calls; None when it has none."""
+    services: list[str]
+    """The Services a package declares, which the operator runs and its health check polls."""
     types: dict[str, dict[str, Any]]
     """Input types it declares, a JSON Schema by name."""
     input_types: list[str | None]
@@ -225,6 +227,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
             **asdict(connector),
             label=m.get("label") or connector.name,
             capabilities=m.get("capabilities", []),
+            services=[s["name"] for s in m.get("services", [])],
             outputs=m.get("outputs", []),
             missing=connectors.missing(connector),
             sign_in=connectors.sign_in_needed(connector),
@@ -290,11 +293,25 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
 
     @api.get("/connectors/{connector_id}/health")
     def connector_health(connector_id: str) -> list[HealthCheck]:
-        """What the connector depends on and whether each answers, as a speech connector's
-        engines. Empty for a connector without a health check."""
+        """What a built-in or a world's own connector depends on and whether each answers.
+        Empty for one without a health check; a package's is under its world."""
         found = connectors.get(connector_id)
         if found is None:
             raise HTTPException(404, "connector not found")
+        try:
+            return connectors.health(found)
+        except ConnectorError as exc:
+            raise HTTPException(502, str(exc)) from exc
+
+    @api.get("/worlds/{world_id}/packages/{name}/health")
+    def package_health(world_id: str, name: str) -> list[HealthCheck]:
+        """Whether each Service the enabled package declares answers its health path, one check
+        per URL its Setting holds, then what its health tool finds (ADR 0026). 404 when the
+        world does not enable it, 502 when the tool cannot be called."""
+        world_or_404(world_id)
+        found = connectors.find(world_id, name)
+        if found is None or found.version is None:
+            raise HTTPException(404, f"this world does not enable {name}")
         try:
             return connectors.health(found)
         except ConnectorError as exc:

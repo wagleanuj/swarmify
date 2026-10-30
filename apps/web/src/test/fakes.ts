@@ -21,6 +21,7 @@ const builtin = (name: string, label: string, kind: Connector["kind"], over: Par
   about: "",
   created_at: null,
   health: null,
+  services: [],
   types: {},
   input_types: [],
   world_types: null,
@@ -40,7 +41,14 @@ export const CONNECTORS: Connector[] = [
   builtin("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
   builtin("youtube", "YouTube", "publish"),
   builtin("upload_post", "Upload-Post", "publish"),
+  // a default package, given to every world
   builtin("speech", "Speech", "stage", {
+    id: "package_speech",
+    world_id: "world_1",
+    builtin: false,
+    command: [".venv/bin/python", "speech.py"],
+    version: "1.0.0",
+    services: ["engines"],
     outputs: [
       { description: "timings.json, with the takes in narration/ beside it", media_type: "application/json" },
       { description: "the takes, one per scene, in narration/", media_type: "audio/wav" },

@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from swarmify_connectors.speech import VOICES
+from swarmify_connectors.voices import VOICES
 from swarmify_memory import ASSETS, ArtifactFile, Memory
 from swarmify_runs import Run
 from swarmify_worlds import Worlds

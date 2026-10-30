@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from swarmify_connectors import speech
+from swarmify_connectors import voices
 
 SPOKEN = """name: Bedtime
 stages:
@@ -64,9 +64,9 @@ def test_a_voice_is_added_heard_used_edited_and_deleted(client: TestClient, tmp_
     }  # fmt: skip
     assert added.json() == me and client.get(url).json() == {"voices": [me], "warnings": []}
     assert client.get(f"/api/worlds/{world}/files/assets/voices/me.wav").content == wav(6)
-    # the speech connector reads the same catalog unchanged
+    # read back with the speech package's rules, unchanged
     assets = tmp_path / "worlds" / world / "assets"
-    found, warnings = speech.catalog(str(assets))
+    found, warnings = voices.catalog(str(assets))
     assert [v["name"] for v in found] == ["me"] and warnings == []
 
     edited = client.patch(f"{url}/me", json={"description": "Warmer", "tags": ["bedtime"]})

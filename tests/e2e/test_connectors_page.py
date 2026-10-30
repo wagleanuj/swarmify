@@ -73,8 +73,14 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
 
 SAY = """name: Say it
 stages:
+  - swarm: write
+    goal: a line
+    done_when: written
+    output_type: line
+    produces: [line.md]
   - connector: say
     calls: echo
+    input: line.md
     output: said.wav
 """
 
@@ -105,7 +111,7 @@ def test_a_world_enables_an_installed_package_and_disables_it(page: Page, base_u
         expect(row.get_by_role("button", name="Enable echo 1.0.0")).to_be_visible()
         expect(page.locator("[data-name=echo]")).to_have_count(0)
         enabled = httpx.get(f"{base_url}/api/worlds/{other['id']}/packages").json()
-        assert enabled == [{"name": "echo", "version": "1.0.0"}]
+        assert {"name": "echo", "version": "1.0.0"} in enabled
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
         httpx.delete(f"{base_url}/api/worlds/{other['id']}")

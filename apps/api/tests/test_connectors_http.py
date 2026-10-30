@@ -118,10 +118,12 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     )
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
-        ("fal_video", "0.0.1", "local")
+        ("fal_video", "0.0.1", "local"),
+        ("speech", "1.0.0", "connectors/speech"),
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
-        {"name": "fal_video", "version": "0.0.1"}
+        {"name": "fal_video", "version": "0.0.1"},
+        {"name": "speech", "version": "1.0.0"},
     ]
     form = client.get(f"/api/worlds/{w}/packages/fal_video/setup")
     (field,) = form.json()["fields"]
@@ -136,7 +138,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert "s3cret" in setup.read_text() and stat.S_IMODE(setup.stat().st_mode) == 0o600
     assert not (tmp_path / ".env").exists()
     listed = client.get(f"/api/worlds/{w}/connectors")
-    assert "s3cret" not in listed.text and listed.json()[-1]["id"] == body["id"]
+    assert "s3cret" not in listed.text and body["id"] in [c["id"] for c in listed.json()]
 
     again = client.post(f"/api/worlds/{w}/connectors", json=FAL)
     assert again.status_code == 422 and "enables already" in again.json()["detail"]
@@ -179,7 +181,7 @@ def test_an_added_connector_leaves_the_world_as_any_package_does(client: TestCli
     w = world(client)
     client.post(f"/api/worlds/{w}/connectors", json=FAL)
     assert client.delete(f"/api/worlds/{w}/packages/fal_video").status_code == 204
-    assert client.get(f"/api/worlds/{w}/connectors").json()[-1]["builtin"]
+    assert all(c["name"] != "fal_video" for c in client.get(f"/api/worlds/{w}/connectors").json())
 
 
 def test_a_v1_data_directory_moves_its_world_added_connectors_to_local_packages(
@@ -203,7 +205,8 @@ def test_a_v1_data_directory_moves_its_world_added_connectors_to_local_packages(
 
     app = create_app(root, transport=transport, poll_seconds=0.01, retro=False)
     with TestClient(app) as client:
-        (fal,) = [c for c in client.get(f"/api/worlds/{w}/connectors").json() if not c["builtin"]]
+        listed = client.get(f"/api/worlds/{w}/connectors").json()
+        (fal,) = [c for c in listed if not c["builtin"] and c["name"] != "speech"]  # not a default
         assert (fal["name"], fal["version"], fal["missing"]) == ("fal_video", "0.0.1", [])
         assert env.read_text() == "YOUTUBE_CLIENT_ID=yt\n"
         with closing(connect(db)) as conn:
@@ -285,30 +288,30 @@ def test_progress_streams_on_the_world_events(live_url: str, transport: FakeTran
     assert seen == [("running", None), ("polling", 0.0), ("polling", 0.5), ("done", 1.0)]
 
 
-def test_the_speech_connector_reports_each_engine_s_health(
-    client: TestClient, transport: FakeTransport
-) -> None:
-    listed = {c["name"]: c for c in client.get(f"/api/worlds/{world(client)}/connectors").json()}
-    assert listed["speech"]["health"] == "speech_health" and listed["youtube"]["health"] is None
-    transport.outputs["speech_health"] = [
-        {"checks": [{"name": "http://kokoro:8880", "ok": False, "message": "refused"}]},
-        ConnectorError("speech: could not start"),
-    ]
-    health = client.get("/api/connectors/builtin_speech/health")
-    assert health.json() == [{"name": "http://kokoro:8880", "ok": False, "message": "refused"}]
-    assert client.get("/api/connectors/builtin_speech/health").status_code == 502
+def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient) -> None:
+    w = world(client)
+    listed = {c["name"]: c for c in client.get(f"/api/worlds/{w}/connectors").json()}
+    assert listed["speech"]["services"] == ["engines"] and listed["speech"]["version"] == "1.0.0"
+    assert listed["youtube"]["services"] == [] and listed["youtube"]["health"] is None
+    down = "http://127.0.0.1:9"  # nothing listens on discard
+    setup = {"shared": {"speech_endpoints": down}, "world": {}}
+    assert client.put(f"/api/worlds/{w}/packages/speech/setup", json=setup).status_code == 200
+    (check,) = client.get(f"/api/worlds/{w}/packages/speech/health").json()
+    assert check["name"] == down and check["ok"] is False and check["message"]
+    assert client.get(f"/api/worlds/{w}/packages/echo/health").status_code == 404
+    assert client.get("/api/worlds/nope/packages/speech/health").status_code == 404
     assert client.get("/api/connectors/builtin_youtube/health").json() == []
     assert client.get("/api/connectors/nope/health").status_code == 404
 
 
 def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
-    assert client.get("/api/packages").json() == []
+    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech"]  # a default
     source = "packages/connectors/tests/fixtures/packages/echo"
     installed = client.post("/api/packages", json={"source": source})
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed == [installed.json()]
+    assert listed[0] == installed.json() and len(listed) == 2
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -336,13 +339,19 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     refused = client.post("/api/packages", json={"source": str(source)})
     assert refused.status_code == 422
     assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
-    assert client.get("/api/packages").json() == []
+    assert [p["name"] for p in client.get("/api/packages").json()] == ["speech"]
 
 
 ECHO = """name: Say it
 stages:
+  - swarm: write
+    goal: a line
+    done_when: written
+    output_type: line
+    produces: [line.md]
   - connector: say
     calls: echo
+    input: line.md
     output: said.wav
 """
 
@@ -359,18 +368,24 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         put = client.put(f"/api/worlds/{w}/packages/echo", json={"version": "1.0.0"})
         assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
     assert client.get(f"/api/worlds/{one}/packages").json() == [
-        {"name": "echo", "version": "1.0.0"}
+        {"name": "echo", "version": "1.0.0"},
+        {"name": "speech", "version": "1.0.0"},  # a default package
     ]
-    echo = client.get(f"/api/worlds/{one}/connectors").json()[-1]
+    echo = next(
+        c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "echo"
+    )
     assert (echo["name"], echo["version"], echo["builtin"]) == ("echo", "1.0.0", False)
     assert "folder" not in echo
     assert echo["label"] == "Echo"  # from its Manifest
     assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 201
 
     assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
-    assert client.get(f"/api/worlds/{one}/packages").json() == []
+    assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "speech", "version": "1.0.0"}
+    ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
-        {"name": "echo", "version": "1.0.0"}
+        {"name": "echo", "version": "1.0.0"},
+        {"name": "speech", "version": "1.0.0"},
     ]
     assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 422
     assert client.post(f"/api/worlds/{two}/workflows", json={"yaml": ECHO}).status_code == 201
@@ -401,7 +416,9 @@ def test_a_packages_setup_form_tests_before_saving_and_never_returns_a_credentia
         "api_key", True, True, "PROBE_KEY"
     )  # fmt: skip
     assert form["missing"] == ["api_key"] and form["test"] == "check_setup"
-    probe = client.get(f"/api/worlds/{one}/connectors").json()[-1]
+    probe = next(
+        c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "probe"
+    )
     assert probe["missing"] == ["api_key"] and probe["credentials"] == ["PROBE_KEY"]
 
     transport.outputs["check_setup"] = [

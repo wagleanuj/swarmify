@@ -78,7 +78,6 @@ def test_a_connector_may_declare_input_types_and_they_are_kept(connectors: Conne
     saved = connectors.add(cook, {})
     assert saved.types == {"recipe": recipe} and saved.input_types == ["recipe", None]
     assert connectors.type_schema(W, "recipe") == recipe
-    assert connectors.type_schema(W, "script") is not None  # the speech built-in declares it
     assert connectors.type_schema(W, "idea") is None
     with pytest.raises(ValueError, match="a type name is lower_snake_case"):
         fal(connectors, name="other", declared={"Recipe": recipe})

@@ -1,5 +1,5 @@
 # Its own uv project, outside the Swarmify workspace: PyTorch and the models never enter the core
-# (ADR 0019). `mise run speech` installs and starts it.
+# (ADR 0019). The speech package's README says how to run it.
 [project]
 name = "speech-chatterbox"
 version = "0.1.0"

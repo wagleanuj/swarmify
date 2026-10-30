@@ -3,7 +3,8 @@
 A Connector is an MCP server plus its credentials plus the stage types allowed to use it. The
 built-ins live in code; every other is an installed Connector Package, giving a world a Connector
 named as the package only once the world enables it at a pinned version (ADR 0023). The "add an
-MCP server" form writes a minimal Manifest and installs it as a local package (issue 211).
+MCP server" form writes a minimal Manifest and installs it as a local package (issue 211). This
+repository's own packages are the defaults every world is given once (`install_defaults`).
 A connector stage calls one Tool through the ConnectorTransport port with the stage id as its
 Idempotency Key, records the raw call and response, and polls a long job until it ends,
 appending a `connector_call.updated` event per change so the timeline shows progress.
@@ -28,10 +29,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
-from swarmify_connectors import builtin_publish, oauth, publish, remotion, setup, speech
+from swarmify_connectors import builtin_publish, oauth, publish, remotion, setup
 from swarmify_connectors.credentials import Credentials
 from swarmify_connectors.fake import FakeTransport
 from swarmify_connectors.mcp_transport import McpTransport
@@ -46,6 +48,7 @@ from swarmify_connectors.model import (
     Tool,
 )
 from swarmify_connectors.packages import (
+    MANIFEST,
     InstallError,
     ManifestError,
     Package,
@@ -86,6 +89,8 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
+DEFAULTS = "connectors"
+"""The folder of this repository whose packages are the defaults every world is given."""
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,59}$")
 TYPE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 """A declared type's name, as a swarm stage's `output_type` names it."""
@@ -244,7 +249,6 @@ MANIFESTS: dict[str, dict[str, Any]] = {
             },
             "inputs": [_VIDEO_IN],
         },
-        speech.MANIFEST,
     )
 }
 
@@ -357,6 +361,8 @@ class Connectors:
         """Sign-ins under way by their `state`, each bound to the browser session it began in."""
         self._tokens = threading.Lock()
         """One refresh at a time, so a rotated refresh token is never spent twice."""
+        self.defaults: dict[str, str] = {}
+        """Default package name to the version a world is given (`install_defaults`)."""
 
     # Registry
 
@@ -395,6 +401,7 @@ class Connectors:
             about=m["about"],
             types=m.get("types", {}),
             input_types=[t or None for t in m.get("input_types", [])],
+            health=m.get("health"),
             world_types=m.get("world_types"),
             version=version,
             folder=str(self.packages.root / name / version),
@@ -447,6 +454,66 @@ class Connectors:
     def disable(self, world_id: str, name: str) -> bool:
         """Stop the world using the package; other worlds keep theirs. False if not enabled."""
         return self.storage.disable_package(world_id, name)
+
+    # Default packages (ADR 0023): this repository's own, given to every world
+
+    def install_defaults(self) -> dict[str, str]:
+        """Install each package of this repository's `connectors/` folder whose version is not
+        installed yet, and keep them as the defaults worlds are given. The first install of a
+        package carries what V1 kept for it into its shared Setup: a Setting from the app's env
+        and a Credential from the credentials file, each found by its field's `env` name. One
+        that does not install is logged and left out; the others still are."""
+        for manifest in sorted((self.packages.repo / DEFAULTS).glob(f"*/{MANIFEST}")):
+            source = f"{DEFAULTS}/{manifest.parent.name}"
+            try:
+                m = read_manifest(manifest.parent)
+                first = not (self.packages.root / m["name"]).is_dir()
+                try:
+                    self.packages.manifest(m["name"], m["version"])
+                except InstallError:
+                    self.packages.install(source)
+            except (ManifestError, InstallError) as exc:
+                log.error("the default package %s did not install: %s", source, exc)
+                continue
+            if first:
+                self._carry(m)
+            self.defaults[m["name"]] = m["version"]
+        return self.defaults
+
+    def _carry(self, m: dict[str, Any]) -> None:
+        try:
+            shared, _ = self.setups.values(m["name"], "")
+            saved = self.credentials.read()
+        except PermissionError as exc:
+            log.error("%s's Setup was not carried over from V1: %s", m["name"], exc)
+            return
+        carried = dict(shared)
+        for f in setup.fields(m):
+            env = setup.env_name(f)
+            raw = saved.get(env) if f.get("secret") else os.environ.get(env)
+            # an OAuth sign-in holds a token set, not a value from V1: its package moves it
+            if not raw or f["key"] in carried or setup.scope(f) == "world" or f["type"] == "oauth":
+                continue
+            try:
+                carried[f["key"]] = setup.coerce(f, raw)
+            except ValueError as exc:
+                log.warning("%s's %s was not carried over: %s", m["name"], env, exc)
+        for key in carried.keys() - shared.keys():
+            self.setups.put_value(m["name"], None, key, carried[key])
+
+    def offer_defaults(self, world_id: str) -> None:
+        """Enable in the world each default package it has not been given yet, at the default
+        version; given once, the world's own choice stands, disabling it included."""
+        given = self.storage.offered_defaults(world_id)
+        for name, version in self.defaults.items():
+            if name in given:
+                continue
+            if name not in self.storage.enabled_packages(world_id):
+                try:
+                    self.enable(world_id, name, version)
+                except ValueError as exc:
+                    log.warning("%s was not given the default package %s: %s", world_id, name, exc)
+            self.storage.offer_default(world_id, name, _now())
 
     # Setup of a package a world enables (ADR 0024)
 
@@ -926,23 +993,42 @@ class Connectors:
             env["SWARMIFY_DATA_DIR"] = str(self.data_dir)  # where its templates live
             if os.environ.get(remotion.CONCURRENCY):
                 env[remotion.CONCURRENCY] = os.environ[remotion.CONCURRENCY]
-        manifest = MANIFESTS.get(connector.name) if connector.builtin else None
-        for setting in (manifest or {}).get("settings", []):  # non-secret, from the app's env
-            if os.environ.get(setting):
-                env[setting] = os.environ[setting]
         return env
 
     def health(self, connector: Connector) -> list[HealthCheck]:
-        """What the connector's `health` tool finds, as a speech connector's engines. Empty for
-        one without a health tool. Raises ConnectorError when the tool cannot be called."""
+        """Whether each Service a package declares answers, then what the connector's `health`
+        tool finds. Empty for one with neither. Raises ConnectorError when the tool cannot be
+        called."""
+        checks = self.services(connector) if connector.version is not None else []
         if not connector.health:
-            return []
+            return checks
         answer = self._tool(connector, connector.health, {}, self._env(connector))
-        return [
+        return checks + [
             HealthCheck(str(c.get("name", "")), bool(c.get("ok")), str(c.get("message", "")))
             for c in answer.get("checks") or []
             if isinstance(c, dict)
         ]
+
+    def services(self, connector: Connector) -> list[HealthCheck]:
+        """A GET of each declared Service's `health` path, one check per URL its Setting holds
+        (a comma-separated list is several, as speech's engines). Swarmify never starts or
+        stops a Service (ADR 0026); the operator runs them."""
+        try:
+            resolved = self._resolved(connector)
+        except PermissionError:
+            resolved = {}
+        checks = []
+        with httpx.Client(timeout=3) as http:
+            for service in connector.manifest.get("services", []):
+                for url in str(resolved.get(service["url"]) or "").split(","):
+                    if not (url := url.strip().rstrip("/")):
+                        continue
+                    try:
+                        http.get(url + service.get("health", "")).raise_for_status()
+                        checks.append(HealthCheck(url, True, "up"))
+                    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+                        checks.append(HealthCheck(url, False, str(exc) or type(exc).__name__))
+        return checks
 
     # Publish stages (ADR 0007)
 
@@ -1018,7 +1104,7 @@ class Connectors:
                 except ValueError as exc:
                     out.append(str(exc))
             return out
-        manifest = MANIFESTS.get(connector.name) if connector.builtin else None
+        manifest = connector.manifest  # a built-in's or an installed package's
         return _manifest_problems(manifest, config, params) if manifest else []
 
     def publish_result(self, call: Call) -> dict[str, Any]:

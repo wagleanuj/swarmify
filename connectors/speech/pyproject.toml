@@ -1,0 +1,12 @@
+# The speech connector's own uv project, outside the Swarmify workspace: its install step syncs
+# these into the installed version's folder (ADR 0026).
+[project]
+name = "swarmify-speech"
+version = "1.0.0"
+description = "Voices a script, one take per scene, with word timings and cut points"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["httpx==0.28.1", "mcp==2.3.0"]
+
+[tool.uv]
+package = false

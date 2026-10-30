@@ -122,10 +122,26 @@ class SqliteStorage:
             )
             return [r["world_id"] for r in rows]
 
+    def offered_defaults(self, world_id: str) -> set[str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT package FROM world_default_packages WHERE world_id = ?", (world_id,)
+            )
+            return {r["package"] for r in rows}
+
+    def offer_default(self, world_id: str, package: str, at: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO world_default_packages (world_id, package, offered_at)"
+                " VALUES (?, ?, ?)",
+                (world_id, package, at),
+            )
+
     def delete_world(self, world_id: str) -> None:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM connectors WHERE world_id = ?", (world_id,))
             conn.execute("DELETE FROM world_packages WHERE world_id = ?", (world_id,))
+            conn.execute("DELETE FROM world_default_packages WHERE world_id = ?", (world_id,))
             conn.execute("DELETE FROM connector_calls WHERE world_id = ?", (world_id,))
             conn.execute("COMMIT")

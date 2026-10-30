@@ -247,7 +247,7 @@ test("empty voices and files name what goes there", async () => {
   });
   const { screen } = await mountAt("/worlds/world_1/assets");
   await expect.element(screen.getByText(/No voices yet\. A voice is a 5 to 10 s clip/)).toBeVisible();
-  await expect.element(screen.getByText("mise run voices:seed -- world_1")).toBeVisible();
+  await expect.element(screen.getByText("uv run --project connectors/speech python connectors/speech/voices.py world_1")).toBeVisible();
   await expect.element(screen.getByText("voice 1 in voices.json is ignored: x has no consent")).toBeVisible();
   await expect.element(screen.getByText("Put images, music or fonts here for your builds to use.")).toBeVisible();
   await expect.element(screen.getByLabelText("Upload files")).toBeInTheDocument();

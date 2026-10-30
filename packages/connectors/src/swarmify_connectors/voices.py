@@ -1,95 +1,104 @@
-"""Starter voices for a world, recorded from no one: `mise run voices:seed -- <world id>
-[presets...]` has Kokoro speak one neutral sentence in each preset, saves each take as a
-reference clip in the world's `assets/voices/`, and writes its catalog entry (README, Voices).
+"""A world's voice catalog as the Assets page edits it: `assets/voices/voices.json` and its clips,
+read with the speech package's rules and written as its `voices.py` seeding writes them (`listed`,
+`add`, `edit`, `remove`).
 
-Each entry carries the clip, which Chatterbox clones, and the preset itself, which Kokoro speaks
-directly, so a fallback from one engine to the other keeps the same voice. Part of the speech
-connector: only it gives `voices/` a meaning.
-
-The operator's edits to the catalog live here too (`listed`, `add`, `edit`, `remove`), so the
-Assets page writes voices.json exactly as `voices:seed` does and the connector reads it unchanged.
+The speech connector is a Connector Package now (connectors/speech) and its own copy of these
+rules is what voices a script; this one only serves the core Voices API.
 """
 
+# ponytail: a copy of the speech package's catalog rules; #220 moves voices into the package's
+# Owned Folder and deletes this module with the core Voices API.
+
+import io
 import json
 import os
-import shutil
-import subprocess
+import re
 import sys
 import threading
-import time
+import wave
+from array import array
 from pathlib import Path
 from typing import Any
 
-import httpx
-
-from swarmify_connectors import speech
-from swarmify_connectors.speech import _ID, VOICES, decode
-
-KOKORO = "http://localhost:8880"
-SENTENCE = (
-    "On a quiet morning the town wakes slowly, the bakery opens its doors, and people stop to"
-    " talk about the weather before they walk on to work."
-)
-"""About nine seconds in most presets: Chatterbox clones from five to ten."""
-STARTERS: dict[str, tuple[str, list[str]]] = {
-    "af_heart": ("Warm, friendly American woman", ["warm", "friendly", "female", "american"]),
-    "am_michael": ("Warm, steady American man", ["warm", "steady", "male", "american"]),
-    "af_bella": ("Bright, lively American woman", ["bright", "lively", "female", "american"]),
-    "am_puck": ("Bright, playful American man", ["bright", "playful", "male", "american"]),
-    "am_onyx": ("Deep, resonant American man", ["deep", "resonant", "male", "american"]),
-    "am_fenrir": ("Deep, strong American man", ["deep", "strong", "male", "american"]),
-    "bf_emma": ("Clear, composed British woman", ["british", "clear", "female"]),
-    "bm_fable": ("Calm British storyteller", ["calm", "narrator", "british", "male"]),
-}
-"""The default set and how each is described: two warm, two bright, two deep, one British and a
-calm narrator."""
+VOICES = "voices"
+"""The folder of a world's assets holding its voice catalog, voices.json, and its clips."""
+_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 
 
-def described(preset: str) -> tuple[str, list[str]]:
-    """A preset's description and tags; one not in STARTERS is told by its name, as Kokoro's
-    names say accent and sex (`bf_` a British woman)."""
-    if preset in STARTERS:
-        return STARTERS[preset]
-    accent = {"a": "american", "b": "british"}.get(preset[:1])
-    sex = {"f": "female", "m": "male"}.get(preset[1:2])
-    tags = [t for t in (accent, sex) if t]
-    return f"Kokoro preset {preset}", tags
-
-
-def seed(http: httpx.Client, base: str, voices: Path, presets: list[str]) -> list[str]:
-    """Speak SENTENCE in each preset the engine at `base` lists, save `<preset>.wav` in `voices`
-    and add or replace its entry in voices.json, keeping the others. Returns what was skipped."""
-    listed = speech.voice_names(http.get(f"{base}/v1/audio/voices").json().get("voices"))
-    voices.mkdir(parents=True, exist_ok=True)
-    file = voices / "voices.json"
-    entries = json.loads(file.read_text()) if file.is_file() else []
-    skipped = []
-    for preset in presets:
-        if preset not in listed:
-            skipped.append(f"{preset}: not among the engine's voices")
+def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """The world's voices from `<assets>/voices/voices.json`, a list of `{name, description,
+    tags, engine, clip?, preset?, consent}` (`clip` made a path), and a warning for each entry
+    ignored: one without consent, without a clip in that folder or a preset, or named twice."""
+    folder = Path(assets_path) / VOICES
+    file = folder / "voices.json"
+    if not assets_path or not file.is_file():
+        return [], []
+    try:
+        raw = json.loads(file.read_text())
+    except ValueError as exc:
+        return [], [f"voices.json is not JSON, so no voice of it is used: {exc}"]
+    if not isinstance(raw, list):
+        return [], ["voices.json is not a list of voices, so none of it is used"]
+    voices: list[dict[str, Any]] = []
+    warnings = []
+    for n, entry in enumerate(raw, 1):
+        if problem := _unusable(entry, folder, voices):
+            warnings.append(f"voice {n} in voices.json is ignored: {problem}")
             continue
-        body = {"model": "kokoro", "input": SENTENCE, "voice": preset, "response_format": "wav"}
-        r = http.post(f"{base}/v1/audio/speech", json=body)
-        r.raise_for_status()
-        samples, rate = decode(r.content)
-        if len(samples) / rate < 5:
-            skipped.append(f"{preset}: the clip is under 5 s, too short to clone")
-            continue
-        (voices / f"{preset}.wav").write_bytes(r.content)
-        description, tags = described(preset)
-        entry = {
-            "name": preset,
-            "description": description,
-            "tags": tags,
-            "engine": "chatterbox",
-            "clip": f"{preset}.wav",
-            "preset": preset,
-            "consent": f"synthetic: Kokoro preset {preset}, Apache 2.0",
-        }
-        entries = [e for e in entries if not (isinstance(e, dict) and e.get("name") == preset)]
-        entries.append(entry)
-    file.write_text(json.dumps(entries, indent=2) + "\n")
-    return skipped
+        clip = entry.get("clip")
+        voices.append(
+            {
+                **{k: entry[k].strip() for k in ("name", "description", "engine", "consent")},
+                "tags": entry.get("tags") or [],
+                "clip": str(folder / clip) if clip else None,
+                "preset": entry.get("preset") or None,
+            }
+        )
+    return voices, warnings
+
+
+def _unusable(entry: Any, folder: Path, kept: list[dict[str, Any]]) -> str:
+    def text(key: str) -> bool:
+        return isinstance(entry.get(key), str) and bool(entry[key].strip())
+
+    if not isinstance(entry, dict):
+        return "it is not an object"
+    name = entry.get("name")
+    if not isinstance(name, str) or not _ID.match(name):
+        return f"a name is letters, digits, _ or -, got {name!r}"
+    if any(v["name"] == name for v in kept):
+        return f"{name} is named twice"
+    if not text("consent"):
+        return f"{name} has no consent, the short statement of the right to use the voice"
+    if missing := [k for k in ("description", "engine") if not text(k)]:
+        return f"{name} has no {missing[0]}"
+    tags = entry.get("tags") or []
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return f"{name}'s tags are not a list of words"
+    clip, preset = entry.get("clip"), entry.get("preset")
+    if clip and (not isinstance(clip, str) or Path(clip).name != clip or clip.startswith(".")):
+        return f"{name}'s clip is not a file name in voices/: {clip!r}"
+    if clip and not (folder / clip).is_file():
+        return f"{name}'s clip {clip} is not in voices/"
+    if preset is not None and not text("preset"):
+        return f"{name}'s preset is not an engine voice name"
+    return "" if clip or preset else f"{name} has neither a clip nor a preset"
+
+
+def decode(wav: bytes) -> tuple[array, int]:
+    """The first channel's 16-bit samples and the rate. Counts the frames itself: a streamed
+    WAV (Kokoro's) declares a bogus length. Raises ValueError."""
+    try:
+        with wave.open(io.BytesIO(wav)) as w:
+            if w.getsampwidth() != 2:
+                raise ValueError(f"takes must be 16-bit WAV, got {8 * w.getsampwidth()}-bit")
+            channels, rate, data = w.getnchannels(), w.getframerate(), w.readframes(2**31 - 1)
+    except (wave.Error, EOFError) as exc:
+        raise ValueError(f"the take is not a WAV file: {exc}") from exc
+    samples = array("h", data[: len(data) // 2 * 2])
+    if sys.byteorder == "big":
+        samples.byteswap()
+    return samples[::channels], rate
 
 
 CLIP_SECONDS = (5.0, 10.0)
@@ -115,9 +124,9 @@ def clip_seconds(wav: bytes) -> float:
 
 
 def listed(assets: Path) -> tuple[list[dict[str, Any]], list[str]]:
-    """The catalog as the speech connector reads it (`speech.catalog`), each voice with its
+    """The catalog as the speech connector reads it (`catalog`), each voice with its
     clip's file name and length in seconds (None without a clip or for one it cannot read)."""
-    found, warnings = speech.catalog(str(assets))
+    found, warnings = catalog(str(assets))
     for voice in found:
         clip = voice["clip"] and Path(voice["clip"])
         voice["clip"], voice["seconds"] = (clip.name, _length(clip)) if clip else (None, None)
@@ -219,50 +228,3 @@ def remove(folder: Path, name: str) -> None:
         others = {e.get("clip") for e in entries if isinstance(e, dict)}
         if isinstance(clip, str) and Path(clip).name == clip and clip not in others:
             (folder / clip).unlink(missing_ok=True)
-
-
-def _up(http: httpx.Client, base: str) -> bool:
-    try:
-        return http.get(f"{base}/health").is_success
-    except httpx.HTTPError:
-        return False
-
-
-def main(argv: list[str]) -> int:
-    if not argv:
-        print("usage: mise run voices:seed -- <world id> [kokoro presets...]", file=sys.stderr)
-        return 2
-    world, presets = argv[0], argv[1:] or list(STARTERS)
-    data = Path(os.environ.get("SWARMIFY_DATA_DIR", Path.home() / ".swarmify"))
-    folder = data / "worlds" / world
-    if not folder.is_dir():
-        print(f"no world {world} in {data / 'worlds'}", file=sys.stderr)
-        return 1
-    base = os.environ.get("KOKORO_URL", KOKORO).rstrip("/")
-    with httpx.Client(timeout=httpx.Timeout(300, connect=5)) as http:
-        if not _up(http, base):
-            docker = shutil.which("docker")
-            if not docker or subprocess.run([docker, "info"], capture_output=True).returncode:
-                print(
-                    f"Kokoro is not up at {base} and Docker is unavailable: start Kokoro"
-                    " (README, Speech engines) and run this again",
-                    file=sys.stderr,
-                )
-                return 1
-            print("starting Kokoro: docker compose up -d kokoro")
-            subprocess.run(["docker", "compose", "up", "-d", "kokoro"], check=True)
-            deadline = time.monotonic() + 180
-            while not _up(http, base):
-                if time.monotonic() > deadline:
-                    print(f"Kokoro did not come up at {base}", file=sys.stderr)
-                    return 1
-                time.sleep(2)
-        skipped = seed(http, base, folder / "assets" / VOICES, presets)
-    for line in skipped:
-        print(f"skipped {line}", file=sys.stderr)
-    print(f"{len(presets) - len(skipped)} voices in {folder / 'assets' / VOICES / 'voices.json'}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

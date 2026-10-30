@@ -23,24 +23,9 @@ run = "uv run uvicorn --factory swarmify_api.main:create_app --reload --port 800
 description = "Run the Vite dev server on :5173, proxying /api to :8000"
 run = "pnpm --filter web dev"
 
-[tasks.speech]
-description = "Install and run the Chatterbox Turbo speech service on :8881 (README, Speech engines)"
-dir = "services/speech-chatterbox"
-# Its own venv, not the workspace's; MPS falls back to the CPU for the ops it lacks.
-env = { VIRTUAL_ENV = "", PYTORCH_ENABLE_MPS_FALLBACK = "1" }
-run = ["uv sync --frozen", "uv run --frozen uvicorn server:app --port 8881"]
-
-[tasks."voices:seed"]
-description = "Give a world starter voices from Kokoro presets: voices:seed -- <world id> [presets...] (README, Voices)"
-run = "uv run python -m swarmify_connectors.voices"
-
-[tasks."dev:speech"]
-description = "Run the speech service when SWARMIFY_SPEECH=chatterbox, else nothing"
-run = '[ "${SWARMIFY_SPEECH:-}" != chatterbox ] || mise run speech'
-
 [tasks.dev]
-description = "Run the API and the web dev server together, and speech when SWARMIFY_SPEECH=chatterbox"
-depends = ["dev:api", "dev:web", "dev:speech"]
+description = "Run the API and the web dev server together"
+depends = ["dev:api", "dev:web"]
 
 [tasks.gen-client]
 description = "Regenerate the typed web client from the API's OpenAPI schema"

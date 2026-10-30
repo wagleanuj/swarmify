@@ -166,7 +166,7 @@ export function Assets() {
           <div className="empty">
             <p>
               No voices yet. A voice is a 5 to 10 s clip of speech your speech steps clone. Add your own, or give the world eight starter voices with{" "}
-              <code>mise run voices:seed -- {worldId}</code>.
+              <code>uv run --project connectors/speech python connectors/speech/voices.py {worldId}</code> (the speech package&apos;s README, Voices).
             </p>
           </div>
         ) : (

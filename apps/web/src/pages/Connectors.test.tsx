@@ -13,6 +13,7 @@ const base = {
   builtin: true,
   created_at: null,
   health: null,
+  services: [],
   capabilities: [],
   outputs: [],
   missing: [],
@@ -213,19 +214,19 @@ test("the page says keys are shared by every world, and a failing key check warn
   );
 });
 
-test("shows whether each speech engine is up", async () => {
-  const speech = { ...base, id: "builtin_speech", name: "speech", kind: "stage", stage_types: ["connector"], command: ["python"], about: "Voices a script.", health: "speech_health", label: "Speech" };
+test("shows whether each Service a package declares is up, as each speech engine", async () => {
+  const speech = { ...base, id: "package_speech", world_id: "world_1", name: "speech", kind: "stage", stage_types: ["connector"], command: [".venv/bin/python", "speech.py"], about: "Voices a script.", services: ["engines"], version: "1.0.0", label: "Speech" };
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json([...builtins, speech]),
-    "GET /api/connectors/builtin_speech/health": () =>
+    "GET /api/worlds/world_1/packages/speech/health": () =>
       Response.json([
         { name: "http://localhost:8881", ok: true, message: "up" },
         { name: "http://localhost:8880", ok: false, message: "connection refused" },
       ]),
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
-  const engines = screen.getByRole("list", { name: "Speech engines" });
+  const engines = screen.getByRole("list", { name: "Speech services" });
   await expect.element(engines).toMatchTextContent(/localhost:8881\s*up/);
   await expect.element(engines).toMatchTextContent(/localhost:8880\s*down\s*connection refused/);
 });

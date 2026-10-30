@@ -4,7 +4,7 @@
 x-env: &env
   SWARMIFY_DATA_DIR: /data
   # Headless Claude Code on the subscription: `claude setup-token` prints it (ADR 0010).
-  # Checked per service by docker/needs.sh, so `docker compose up kokoro` works without it.
+  # Checked per service by docker/needs.sh.
   CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
 
 services:
@@ -36,8 +36,8 @@ services:
       # The operator's sign-in password (README, Sign-in), required, see entrypoint.
       SWARMIFY_PASSWORD: ${SWARMIFY_PASSWORD:-}
       SWARMIFY_BASE_URL: ${SWARMIFY_BASE_URL:-http://localhost:8000}
-      # Speech engines in the order the speech connector tries them (README, Speech engines):
-      # Chatterbox running natively on the Mac host, then Kokoro below.
+      # V1's speech engines: the first start of V2 carries this into the speech package's
+      # Speech engines Setting (connectors/speech/README.md); after that the Setting counts.
       SPEECH_ENDPOINTS: ${SPEECH_ENDPOINTS:-http://host.docker.internal:8881,http://kokoro:8880}
     restart: unless-stopped
 
@@ -53,39 +53,11 @@ services:
       disable: true
     restart: unless-stopped
 
-  # Kokoro-FastAPI, the second speech engine (Apache 2.0, CPU). Bound to this host only: it has no
-  # sign-in.
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.1
-    ports:
-      - "127.0.0.1:8880:8880"
-    restart: unless-stopped
-
-  # Chatterbox Turbo on the CPU, for hosts without an Apple GPU: `docker compose --profile
-  # chatterbox up -d` and SPEECH_ENDPOINTS=http://chatterbox:8881,http://kokoro:8880 in .env. On a
-  # Mac run it natively instead (`mise run speech`) to use the GPU.
-  chatterbox: &chatterbox
-    profiles: [chatterbox]
-    build: services/speech-chatterbox
-    ports:
-      - "127.0.0.1:8881:8881"
-    volumes:
-      - speech-models:/models
-    restart: unless-stopped
-
-  # Chatterbox on an NVIDIA GPU (the NVIDIA Container Toolkit on the host): `docker compose
-  # --profile chatterbox-gpu up -d` and SPEECH_ENDPOINTS=http://chatterbox-gpu:8881,http://kokoro:8880.
-  chatterbox-gpu:
-    <<: *chatterbox
-    profiles: [chatterbox-gpu]
-    build:
-      context: services/speech-chatterbox
-      args: { TORCH: cu124 }
-    deploy:
-      resources:
-        reservations:
-          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+# Named, so a package's own compose file (connectors/speech/compose.yaml) joins it and the api
+# reaches its Services by name.
+networks:
+  default:
+    name: swarmify
 
 volumes:
   data:
-  speech-models:

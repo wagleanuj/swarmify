@@ -1,5 +1,6 @@
 """The speech connector against fake engines: order and fallback, words matched to the script,
-cut points and the flag for joins with no silence, and the built-in started over stdio MCP."""
+cut points and the flag for joins with no silence, and the package installed through the real
+install path, given to a world as a default and started over stdio MCP."""
 
 import base64
 import io
@@ -9,6 +10,7 @@ import re
 import threading
 import wave
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -16,12 +18,20 @@ from typing import Any
 import httpx
 import jsonschema
 import pytest
+import speech as sp
 from mcp.server.mcpserver.exceptions import ToolError
 
-from swarmify_connectors import BUILTINS, Connectors, FakeTransport, HealthCheck, McpTransport
-from swarmify_connectors import speech as sp
-from swarmify_connectors.credentials import Credentials
-from swarmify_connectors.sqlite import SqliteStorage
+from swarmify_connectors import (
+    MIGRATIONS,
+    Connectors,
+    Credentials,
+    FakeTransport,
+    McpTransport,
+    SqliteStorage,
+    read_manifest,
+)
+from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
+from swarmify_kernel.sqlite import connect, migrate
 
 RATE = 16000
 SCRIPT = """# The hedgehog
@@ -134,7 +144,7 @@ def test_the_fenced_json_gives_scenes_and_lines() -> None:
 
 def test_a_line_of_the_wrong_shape_is_named_with_the_shape_expected() -> None:
     # the script that failed run_01M6329GYYWZE12C55T0HKSBXV: lines as plain strings
-    script = (Path(__file__).parent / "fixtures/kidney_script.md").read_text()
+    script = (Path(__file__).parent / "kidney_script.md").read_text()
     with pytest.raises(ValueError) as err:
         sp.parse_script(script)
     assert str(err.value) == (
@@ -376,22 +386,22 @@ def test_a_streamed_wav_with_a_bogus_length_is_read_to_its_end() -> None:
     assert rate == RATE and len(samples) == int(2.2 * RATE)
 
 
-def test_the_built_in_is_declared_by_its_manifest() -> None:
-    builtin = next(c for c in BUILTINS if c.name == "speech")
-    m = sp.MANIFEST
-    assert (builtin.kind, builtin.command, builtin.stage_types) == (
-        m["kind"],
-        m["command"],
-        m["stage_types"],
-    )
-    assert builtin.health == m["health"] == "speech_health"
-    tool = next(t for t in sp.mcp._tool_manager.list_tools() if t.name == "speech")
-    assert set(m["params"]["properties"]) <= set(tool.parameters["properties"])
+HERE = Path(__file__).parent
+
+
+def test_the_manifest_passes_and_declares_what_the_tool_takes() -> None:
+    m = read_manifest(HERE)
+    assert m == sp.MANIFEST and (m["name"], m["kind"]) == ("speech", "stage")
+    tools = {t.name: t for t in sp.mcp._tool_manager.list_tools()}
+    assert set(m["params"]["properties"]) <= set(tools["speech"].parameters["properties"])
+    assert m["world_types"] in tools
+    endpoints = next(f for f in m["config"] if f["env"] == "SPEECH_ENDPOINTS")
+    assert endpoints["default"] == sp.DEFAULT_ENDPOINTS  # V1's default, kept
+    assert m["services"] == [{"name": "engines", "url": endpoints["key"], "health": "/health"}]
 
 
 def test_it_declares_the_script_type_its_input_takes() -> None:
-    builtin = next(c for c in BUILTINS if c.name == "speech")
-    assert builtin.types == {"script": sp.SCRIPT} and builtin.input_types == ["script"]
+    assert sp.MANIFEST["input_types"] == ["script"]
     jsonschema.Draft202012Validator.check_schema(sp.SCRIPT)
     text = sp.SCRIPT["properties"]["scenes"]["items"]["properties"]["lines"]["items"]
     told = text["properties"]["text"]["description"]
@@ -412,9 +422,49 @@ def test_a_script_of_the_declared_type_parses_and_a_bad_one_is_named_by_both() -
         sp.parse_script(f"```json\n{json.dumps(bad)}\n```")
 
 
+# Installed from this folder as a default package, as Swarmify does at startup.
+
+
+def registry(data: Path, transport: Any) -> Connectors:
+    db = data / "swarmify.db"
+    with closing(connect(db)) as conn:
+        migrate(conn, KERNEL_MIGRATIONS, MIGRATIONS)
+    connectors = Connectors(SqliteStorage(db), transport, Credentials(data / ".env"), 0.05)
+    connectors.packages.repo = HERE.parents[1]  # this repository
+    return connectors
+
+
+@pytest.fixture(scope="module")
+def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One real install for the module: copied to the packages folder and `uv sync`ed there."""
+    data = tmp_path_factory.mktemp("data")
+    assert registry(data, FakeTransport()).install_defaults() == {"speech": "1.0.0"}
+    return data / "packages"
+
+
+@pytest.fixture
+def given(installed: Path, tmp_path: Path) -> Callable[[Any], Connectors]:
+    """A registry sharing that install, the speech package given to world `w` as a default."""
+
+    def make(transport: Any) -> Connectors:
+        (tmp_path / "packages").symlink_to(installed)
+        connectors = registry(tmp_path, transport)
+        connectors.install_defaults()  # installed already: only remembered
+        connectors.offer_defaults("w")
+        return connectors
+
+    return make
+
+
+def test_install_puts_its_dependencies_beside_it(installed: Path) -> None:
+    folder = installed / "speech" / "1.0.0"
+    assert (folder / ".venv" / "bin" / "python").is_file() and (folder / "speech.py").is_file()
+
+
 def test_a_speech_stage_is_checked_for_its_script_output_and_params(
-    connectors: Connectors,
+    given: Callable[[Any], Connectors],
 ) -> None:
+    connectors = given(FakeTransport())
     ok = {"calls": "speech", "input": "script.md", "output": "timings.json", "params": {"seed": 7}}
     assert connectors.stage_problems("w", ok) == []
     assert connectors.stage_problems("w", {"calls": "speech", "params": {"speed": 2}}) == [
@@ -424,42 +474,15 @@ def test_a_speech_stage_is_checked_for_its_script_output_and_params(
     ]
 
 
-def test_a_stage_is_checked_against_its_manifest_not_its_name(
-    connectors: Connectors, monkeypatch: pytest.MonkeyPatch
+def test_the_engines_setting_reaches_the_process_as_speech_endpoints(
+    given: Callable[[Any], Connectors],
 ) -> None:
-    # what #111 moves into a package: the core reads the rules from the manifest alone
-    monkeypatch.setitem(sp.MANIFEST, "inputs", [{"description": "the words"}])
-    monkeypatch.setitem(sp.MANIFEST, "outputs", [{"description": "voice.json"}])
-    monkeypatch.setitem(sp.MANIFEST["params"], "properties", {"speed": {"type": "number"}})
-    assert connectors.stage_problems("w", {"calls": "speech", "params": {"seed": 1}}) == [
-        "speech needs an input, the words",
-        "speech needs an output, voice.json",
-        "speech does not take params.seed",
-    ]
-
-
-def test_a_built_in_gets_the_settings_its_manifest_declares(
-    connectors: Connectors, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    connectors = given(FakeTransport())
     speech = connectors.find("w", "speech")
-    assert speech is not None
-    assert sp.MANIFEST["settings"] == ["SPEECH_ENDPOINTS"]
-    monkeypatch.setenv("SPEECH_ENDPOINTS", "http://a")
-    monkeypatch.setenv("OTHER_SETTING", "x")
-    assert connectors._env(speech) == {"SPEECH_ENDPOINTS": "http://a"}
-    monkeypatch.setitem(sp.MANIFEST, "settings", ["OTHER_SETTING"])
-    assert connectors._env(speech) == {"OTHER_SETTING": "x"}
-
-
-def test_health_lists_each_engine(connectors: Connectors, transport: FakeTransport) -> None:
-    transport.outputs["speech_health"] = [
-        {"checks": [{"name": "http://a", "ok": True, "message": "up"}]}
-    ]
-    speech = connectors.find("w", "speech")
-    assert speech is not None
-    assert connectors.health(speech) == [HealthCheck("http://a", True, "up")]
-    youtube = connectors.find("w", "youtube")
-    assert youtube is not None and connectors.health(youtube) == []
+    assert speech is not None and speech.version == "1.0.0"
+    assert connectors._env(speech) == {"SPEECH_ENDPOINTS": sp.DEFAULT_ENDPOINTS}
+    connectors.save_setup("w", "speech", {"speech_endpoints": "http://a,http://b"}, {})
+    assert connectors._env(speech) == {"SPEECH_ENDPOINTS": "http://a,http://b"}
 
 
 # Over stdio MCP, against a fake engine on a real port.
@@ -494,12 +517,12 @@ def engine() -> Iterator[str]:
     server.shutdown()
 
 
-def test_the_built_in_voices_a_script_over_stdio(
-    tmp_path: Path, db: Path, engine: str, monkeypatch: pytest.MonkeyPatch
+def test_the_installed_package_voices_a_script_over_stdio(
+    tmp_path: Path, given: Callable[[Any], Connectors], engine: str
 ) -> None:
     down = "http://127.0.0.1:9"  # nothing listens on discard
-    monkeypatch.setenv("SPEECH_ENDPOINTS", f"{down},{engine}")
-    real = Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
+    real = given(McpTransport())
+    real.save_setup("w", "speech", {"speech_endpoints": f"{down},{engine}"}, {})
     script = tmp_path / "script.md"
     script.write_text(SCRIPT)
     out = tmp_path / "speak" / "artifacts" / "timings.json"
@@ -520,7 +543,7 @@ def test_the_built_in_voices_a_script_over_stdio(
 
     speech = real.find("w", "speech")
     assert speech is not None
-    checks = real.health(speech)
+    checks = real.health(speech)  # its declared Service, one check per engine
     assert [(c.name, c.ok) for c in checks] == [(down, False), (engine, True)]
 
 
@@ -610,7 +633,6 @@ def test_the_world_s_script_type_offers_its_voices_to_the_judge(assets: Path) ->
         "warnings": [],
     }
     assert sp.MANIFEST["world_types"] == "speech_types"
-    assert next(c for c in BUILTINS if c.name == "speech").world_types == "speech_types"
 
 
 def voiced(
