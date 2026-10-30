@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../index.css";
 
@@ -549,14 +549,89 @@ test("the time strip: widths follow step times, a long wait on a person is cappe
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^research/);
 });
 
-test("on a phone the selected step comes before the step list", async () => {
+test("on a phone the run opens on a status line, the strip with its spend, and the step button before the step", async () => {
   await page.viewport(390, 844);
-  fakeFetch({ "GET /api/runs/run_1": () => Response.json(run("running", [research("done"), video("running", timed(3, null))])) });
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(at(21)));
+  const running = run("running", [research("done"), voice("done"), video("running", timed(3, null))], { budget_usd: 10, spent_usd: 5.01 });
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(running) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  const panel = screen.getByTestId("stage-panel");
-  await expect.element(panel).toMatchTextContent(/^video/);
+  await expect.element(screen.getByTestId("run-pill")).toHaveTextContent("running");
+  await expect.element(screen.getByTestId("status-line")).toMatchTextContent("Video is working · step 3 of 3 · 21 min so far");
+  await expect.element(screen.getByTestId("strip-spend")).toHaveTextContent("$5.01 of $10.00");
+  // The top bar trades the world chip for the way back and the run menu.
+  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+  expect(screen.getByRole("button", { name: "Run actions" }).elements().filter((b) => b.checkVisibility())).toHaveLength(1);
+  const button = screen.getByRole("button", { name: /^Step 3 of 3/ });
+  await expect.element(button).toMatchTextContent(/^Step 3 of 3 · build\s*video\s*All steps ▾$/);
+  // The step list and spend wait in the sheet; the selected step comes right under the button.
+  expect(screen.getByRole("navigation", { name: "Steps" }).query()).toBeNull();
+  expect(screen.getByRole("region", { name: "Spend" }).query()).toBeNull();
   const top = (el: Element) => el.getBoundingClientRect().top;
-  expect(top(panel.element())).toBeLessThan(top(screen.getByRole("navigation", { name: "Steps" }).element()));
+  expect(top(button.element())).toBeLessThan(top(screen.getByTestId("stage-panel").element()));
+  expect(top(screen.getByTestId("stage-panel").element())).toBeLessThan(844);
+  vi.useRealTimers();
+});
+
+test("on a phone the step button opens the steps and spend in a sheet; picking a step closes it and keeps it in the URL", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(run("done", [research("done"), voice("done"), video("done")], { budget_usd: 10, spent_usd: 5.01 })) });
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_2");
+  await screen.getByRole("button", { name: /^Step 3 of 3/ }).click();
+  const sheet = screen.getByRole("dialog", { name: "All steps" });
+  await expect.element(sheet.getByRole("navigation", { name: "Steps" })).toBeVisible();
+  await expect.element(sheet.getByTestId("budget")).toHaveTextContent("$5.01 of $10.00");
+  await sheet.getByRole("button", { name: /^Step 2, voice/ }).click();
+  await expect.element(sheet).not.toBeInTheDocument();
+  expect(router.state.location.search).toEqual({ stage: "stage_1" });
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^voice\s*speech · step 2 of 3/);
+  await expect.element(screen.getByRole("button", { name: /^Step 2 of 3/ })).toMatchTextContent(/^Step 2 of 3 · speech\s*voice/);
+  // Escape closes it too, with the step unchanged.
+  await screen.getByRole("button", { name: /^Step 2 of 3/ }).click();
+  await expect.element(screen.getByRole("dialog", { name: "All steps" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(screen.getByRole("dialog", { name: "All steps" })).not.toBeInTheDocument();
+  expect(router.state.location.search).toEqual({ stage: "stage_1" });
+});
+
+test("on a phone the result video is capped with its facts under it", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("done", [research("done"), voice("done"), video("done")])),
+    "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const player = screen.getByTestId("player");
+  await expect.element(player).toBeVisible();
+  const el = player.element() as HTMLVideoElement;
+  // A tall video, as a phone short is: without the cap it would fill the screen.
+  el.style.aspectRatio = "9 / 16";
+  el.style.width = "100%";
+  const box = el.getBoundingClientRect();
+  expect(box.height).toBeLessThanOrEqual(300);
+  const facts = screen.getByTestId("result").element().querySelector("dl")!;
+  expect(facts.getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom);
+});
+
+test("on a phone runs waiting, running and done never scroll sideways", async () => {
+  await page.viewport(390, 844);
+  const runs = [
+    run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))], { budget_usd: 10, spent_usd: 5.01 }),
+    run("running", [research("done"), voice("done"), video("running", timed(3, null)), review("pending"), publish("pending")]),
+    run("done", [research("done"), voice("done"), video("done"), review("done"), publish("done")], { budget_usd: 40, spent_usd: 5.06 }),
+  ];
+  for (const r of runs) {
+    fakeFetch({
+      "GET /api/runs/run_1": () => Response.json(r),
+      "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
+      "GET /api/gates": () => Response.json(r.status === "waiting_gate" ? [gate("approve", { stage_index: 3, stage_id: "stage_3" })] : []),
+    });
+    const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+    await expect.element(screen.getByTestId("stage-panel")).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: /^Step \d of \d/ })).toBeVisible();
+    expect(document.documentElement.scrollWidth, r.status).toBeLessThanOrEqual(390);
+    await screen.unmount();
+  }
 });
 
 test("on a phone a run with many steps still to come never scrolls sideways", async () => {

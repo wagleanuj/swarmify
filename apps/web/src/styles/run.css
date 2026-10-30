@@ -7,6 +7,14 @@ p.status-line { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(-
 p.status-line.state-waiting_gate { color: var(--warning); }
 p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative); }
 .saved { margin: 0 0 16px; color: var(--muted); }
+/* Phone only: the state pill, the spend under the strip, and the button that opens the steps sheet */
+.run-pill, .axis-spend, .step-button, .run-topbar { display: none; }
+.run-topbar { flex: 1; justify-content: space-between; align-items: center; gap: 12px; }
+.run-topbar a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: none; }
+.step-button { width: 100%; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px; margin-bottom: var(--gap); padding: 8px 12px; border: 0; border-radius: 10px; background: var(--raised); text-align: left; font-weight: 400; }
+.step-button > span { display: grid; min-width: 0; }
+.step-button b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-button small { color: var(--faint); font-size: 12px; white-space: nowrap; }
 
 /* The time strip: each step as wide as its time; the bare variant is a list row's small strip */
 .strip { display: flex; gap: 2px; height: 40px; margin: 4px 0 6px; min-width: 0; }
@@ -131,7 +139,15 @@ svg.glyph { color: var(--accent); }
 
 @media (max-width: 48rem) {
   .run-grid, .result-one, .inline-gate .gate:has(> .artifact-view) { grid-template-columns: minmax(0, 1fr); }
-  .run-grid > .panel { order: -1; } /* the selected step, with its decision, comes before the step list */
+  .run-grid > .run-side, .axis-time { display: none; } /* the steps, spend and time move to the sheet and the status line */
+  .run-pill { display: inline-flex; margin: 6px 8px 0 0; }
+  .run-pill + p.status-line { display: inline; }
+  .axis-spend, .step-button, .run-topbar { display: flex; }
+  /* "‹ Runs" and the run menu take the top bar from the world chip */
+  .topbar:has(.run-topbar) .world-chip, .run-actions .menu-wrap { display: none; }
+  .topbar-slot:has(.run-topbar) { display: flex; flex: 1; }
+  .topbar .run-topbar button.icon { display: inline-flex; } /* the shell hides its own menu button */
+  .player { max-height: 300px; }
   .strip-seg { min-width: 10px; }
   .strip-seg span { display: none; }
   .run-actions .menu { left: 0; right: auto; }

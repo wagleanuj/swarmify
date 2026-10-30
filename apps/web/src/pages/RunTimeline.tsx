@@ -1,13 +1,15 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { api } from "../api/client";
 import { dropGate, useOpenGates } from "../api/gates";
 import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
-import { actOn, type Call, current, duration, type Gate, money, type Run, statusLine, took } from "../api/runs";
+import { actOn, type Call, current, duration, type Gate, money, type Run, STATUS_LABEL, statusLine, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
+import { Sheet } from "../Sheet";
 import { LABEL } from "./Connectors";
 import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
@@ -56,6 +58,10 @@ export function RunTimeline() {
   const [baseline, setBaseline] = useState<Run | null>(null);
   // The gate answered here last: its step shows what you decided until you move on yourself.
   const [answered, setAnswered] = useState<{ stageId: string; said: string; at: string } | null>(null);
+  const [stepsOpen, setStepsOpen] = useState(false);
+  // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
+  const [topbar, setTopbar] = useState<Element | null>(null);
+  useEffect(() => setTopbar(document.getElementById("topbar-slot")), []);
   const openGates = useOpenGates().gates ?? [];
   const chosen = run?.stages.find((s) => s.id === search.stage);
   const stage = run ? (chosen ?? arrivalStage(run, loaded)) : undefined;
@@ -311,6 +317,38 @@ export function RunTimeline() {
   if (!ended) {
     items.push({ label: "Abort run", note: "Stops every agent; finished steps keep their artifacts", danger: true, onSelect: () => act("abort") });
   }
+  /** The step list and spend: beside the step on a wide screen, in the steps sheet on a phone. */
+  const side = (pick: (id: string) => void) => (
+    <aside className="run-side">
+      <nav className="panel steps" aria-label="Steps">
+        <ol data-testid="timeline">
+          {run.stages.map((s) => {
+            const now = run.status === "queued" ? s.index === 0 : s.status === "running" || s.status === "waiting";
+            const meta = stepMeta(s, run.status === "queued");
+            return (
+              <li key={s.id} data-status={s.status} className={`step step-${s.status}`}>
+                <button
+                  type="button"
+                  aria-pressed={s.id === stageId}
+                  aria-current={now ? "step" : undefined}
+                  aria-label={`Step ${s.index + 1}, ${s.name}, ${meta}`}
+                  onClick={() => pick(s.id)}
+                >
+                  <Glyph status={s.status} />
+                  <span className="step-name">
+                    {s.name}
+                    <small>{s.status === "waiting" ? "waiting for you" : kindOf(s)}</small>
+                  </span>
+                  <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+      <Spend run={run} baseline={baseline} />
+    </aside>
+  );
   return (
     <main className="run-page">
       <header className="page">
@@ -318,6 +356,12 @@ export function RunTimeline() {
           <h1>
             {run.name} <span className="faint-title">{version(run)}</span>
           </h1>
+          {/* On a phone the line leads with the run's state; waiting says it in amber instead. */}
+          {run.status !== "waiting_gate" && (
+            <span className={`status status-${run.status} run-pill`} data-testid="run-pill">
+              {STATUS_LABEL[run.status]}
+            </span>
+          )}
           <p role="status" data-testid="status-line" className={`status-line state-${run.status}`}>
             {statusLine(run, gate?.ask)}
             {run.send_backs > 0 && ` Sent back ${run.send_backs === 1 ? "once" : `${run.send_backs} times`}.`}
@@ -349,6 +393,16 @@ export function RunTimeline() {
           )}
         </div>
       </header>
+      {topbar &&
+        createPortal(
+          <div className="run-topbar">
+            <Link to="/worlds/$worldId/runs" params={{ worldId }}>
+              ‹ Runs
+            </Link>
+            {items.length > 0 && <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />}
+          </div>,
+          topbar,
+        )}
       {error && <p role="alert">{error}</p>}
       {saved && (
         <p className="saved" role="status" data-testid="saved">
@@ -361,38 +415,31 @@ export function RunTimeline() {
       <TimeStrip stages={run.stages} selected={stageId} onSelect={select} />
       <div className="strip-axis">
         <span>{started ? new Date(started).toLocaleTimeString([], { timeStyle: "short" }) : "Not started"}</span>
-        {seconds !== null && <span>{ended ? took(seconds) : `${took(seconds)} so far`}</span>}
+        {seconds !== null && <span className="axis-time">{ended ? took(seconds) : `${took(seconds)} so far`}</span>}
+        {/* A phone has the time in the status line, so the strip carries the spend. */}
+        <span className="axis-spend" data-testid="strip-spend">
+          {run.budget_usd != null ? `${money(run.spent_usd ?? 0)} of ${money(run.budget_usd)}` : `${money(run.spent_usd ?? 0)} spent`}
+        </span>
       </div>
+      {stage && (
+        <button type="button" className="step-button" aria-haspopup="dialog" aria-expanded={stepsOpen} onClick={() => setStepsOpen(true)}>
+          <span>
+            <small>
+              Step {stage.index + 1} of {run.stages.length} · {kindOf(stage)}
+            </small>
+            <b>{stage.name}</b>
+          </span>
+          <small>All steps ▾</small>
+        </button>
+      )}
+      <Sheet open={stepsOpen} onClose={() => setStepsOpen(false)} label="All steps">
+        {side((id) => {
+          setStepsOpen(false);
+          select(id);
+        })}
+      </Sheet>
       <div className="run-grid">
-        <aside className="run-side">
-          <nav className="panel steps" aria-label="Steps">
-            <ol data-testid="timeline">
-              {run.stages.map((s) => {
-                const now = run.status === "queued" ? s.index === 0 : s.status === "running" || s.status === "waiting";
-                const meta = stepMeta(s, run.status === "queued");
-                return (
-                  <li key={s.id} data-status={s.status} className={`step step-${s.status}`}>
-                    <button
-                      type="button"
-                      aria-pressed={s.id === stageId}
-                      aria-current={now ? "step" : undefined}
-                      aria-label={`Step ${s.index + 1}, ${s.name}, ${meta}`}
-                      onClick={() => select(s.id)}
-                    >
-                      <Glyph status={s.status} />
-                      <span className="step-name">
-                        {s.name}
-                        <small>{s.status === "waiting" ? "waiting for you" : kindOf(s)}</small>
-                      </span>
-                      <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
-          <Spend run={run} baseline={baseline} />
-        </aside>
+        {side(select)}
         {stage && (
           <StagePanel
             run={run}
