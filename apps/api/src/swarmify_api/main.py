@@ -264,7 +264,16 @@ def frontmatter(text: str) -> dict[str, Any]:
         front = yaml.safe_load(text[4:].split("\n---", 1)[0])
     except yaml.YAMLError:
         return {}
-    return front if isinstance(front, dict) else {}
+    return {k: _whole(v) for k, v in front.items()} if isinstance(front, dict) else {}
+
+
+def _whole(value: Any) -> Any:
+    """A string with its UTF-16 surrogate pairs joined. Frontmatter is written with json.dumps,
+    which escapes an emoji as two `\\u` halves, and YAML decodes each half alone into a lone
+    surrogate that cannot be encoded, so a title with an emoji broke every response holding it."""
+    if not isinstance(value, str):
+        return value
+    return value.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 
 
 def publish_config(

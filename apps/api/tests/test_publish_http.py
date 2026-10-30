@@ -3,6 +3,7 @@ that shows exactly what goes out, the call that sends it, the publish artifact w
 and the editor and runner refusing a publish stage no gate precedes. The fake ConnectorTransport
 stands in for YouTube and Upload-Post; DBOS runs for real on SQLite."""
 
+import json
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -244,6 +245,24 @@ def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_
         .split("\n---\n", 1)[1]
         .startswith("\n# Owls, explained")
     )
+
+
+def test_an_emoji_in_the_metadata_title_reaches_the_gate_whole(
+    running: TestClient, tmp_path: Path
+) -> None:
+    """Frontmatter is written with json.dumps, which escapes an emoji as a surrogate pair; the
+    gate list once answered 500 on it, so the gate had no Approve button."""
+    running.put("/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS})
+    world, workflow = setup(running, weekly(extra="\n      metadata: script.md"))
+    run = at_gate(running, tmp_path, world, workflow)
+    folder = tmp_path / "worlds" / world / "runs" / run["id"] / "01-render"
+    title = json.dumps("Why a cast saw can't cut you \N{FEARFUL FACE}")
+    (folder / "script.md").write_text(f"---\ntitle: {title}\n---\n\n# Script\n")
+    assert "\\ud83d\\ude28" in (folder / "script.md").read_text()
+
+    gates = running.get("/api/gates")
+    assert gates.status_code == 200
+    assert gates.json()[0]["publish"]["title"] == "Why a cast saw can't cut you \N{FEARFUL FACE}"
 
 
 def test_a_missing_metadata_artifact_is_a_problem_the_gate_shows(
