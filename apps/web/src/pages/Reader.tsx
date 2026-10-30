@@ -119,7 +119,7 @@ export function Reader() {
         ) : (
           <>
             <TypedText body={doc.body} />
-            <Markdown text={doc.body} />
+            <Markdown text={doc.body} base={{ worldId, path: doc.path }} />
           </>
         )}
       </article>

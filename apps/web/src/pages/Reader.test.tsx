@@ -103,3 +103,22 @@ test("Open on a run's document goes to the reader; a video still opens raw", asy
   expect(router.state.location.search).toEqual({ path: notes.path });
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("notes.md");
 });
+
+test("on a phone a relative image loads from the files route, fits the width, and an escaping one shows its alt", async () => {
+  await page.viewport(390, 844);
+  const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="), (c) => c.charCodeAt(0));
+  const body = "# Frames\n\n![The first frame](../build/frame.png)\n\n![Escaped](../../../../../secret.png) and ![Root](/etc/passwd.png)";
+  fakeFetch({ "GET /api/worlds/world_1/library": () => Response.json([{ ...script, body }]) });
+  const { screen } = await mountAt(at);
+  const img = screen.getByRole("img", { name: "The first frame" });
+  await expect.element(img).toHaveAttribute("src", "/api/worlds/world_1/files/runs/run_1/stage_2/build/frame.png");
+  const el = img.element() as HTMLImageElement;
+  el.src = URL.createObjectURL(new Blob([png], { type: "image/png" })); // a real image, stretched to show it fits
+  el.style.width = "2000px";
+  await vi.waitFor(() => expect(el.complete && el.naturalWidth).toBe(1));
+  expect(el.getBoundingClientRect().right).toBeLessThanOrEqual(390);
+  const doc = screen.getByTestId("document");
+  await expect.element(doc).toMatchTextContent(/Escaped and Root/);
+  expect(doc.element().querySelectorAll("img").length).toBe(1);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});

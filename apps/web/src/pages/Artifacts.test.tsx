@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { render } from "vitest-browser-react";
 
 import type { ArtifactFile } from "../api/events";
-import { ArtifactCards, ArtifactView, choosable, Markdown, underReview } from "./Artifacts";
+import { ArtifactCards, ArtifactView, choosable, imageSrc, Markdown, underReview } from "./Artifacts";
 
 const artifact = (over: Partial<ArtifactFile>): ArtifactFile => ({
   name: "idea-x.md",
@@ -111,4 +111,19 @@ test("markdown renders as elements, never as HTML, and only web links become lin
   await expect.element(screen.getByText("name: x")).toBeVisible();
   await expect.element(screen.getByText(/<img src=x onerror=alert\(1\)> and \[bad\]\(javascript:alert\(1\)\)/)).toBeVisible();
   expect(document.querySelectorAll("img, a").length).toBe(0);
+});
+
+test("an image resolves against its document's folder and never leaves the world folder", () => {
+  const base = { worldId: "world_1", path: "runs/run_1/stage_2/artifacts/script.md" };
+  const files = "/api/worlds/world_1/files/runs/run_1/stage_2";
+  expect(imageSrc("frame.png", base)).toBe(`${files}/artifacts/frame.png`);
+  expect(imageSrc("./sub/frame.png", base)).toBe(`${files}/artifacts/sub/frame.png`);
+  expect(imageSrc("../x/frame.png", base)).toBe(`${files}/x/frame.png`);
+  expect(imageSrc("../../../../frame.png", base)).toBe("/api/worlds/world_1/files/frame.png");
+  expect(imageSrc("https://example.com/a.png", base)).toBe("https://example.com/a.png");
+  expect(imageSrc("https://example.com/a.png")).toBe("https://example.com/a.png");
+  for (const refused of ["../../../../../frame.png", "../../../../..", "/etc/passwd", "//evil.com/a.png", "C:\\x.png", "..\\..\\x.png", "http://example.com/a.png", "javascript:alert(1)", "data:image/png;base64,AA", "file:///etc/passwd"]) {
+    expect(imageSrc(refused, base), refused).toBeNull();
+  }
+  expect(imageSrc("frame.png"), "no base, no relative image").toBeNull();
 });
