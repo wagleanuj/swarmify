@@ -584,13 +584,43 @@ def test_the_catalog_keeps_voices_with_consent_and_warns_of_each_other(assets: P
     assert warnings == [
         "voice 4 in voices.json is ignored: stranger has no consent, the short statement of the"
         " right to use the voice",
-        "voice 5 in voices.json is ignored: ghost's clip ghost.wav is not in voices/",
         "voice 6 in voices.json is ignored: heart is named twice",
     ]
+    # ghost's clip was deleted on the Assets page, so it is gone without a warning
     assert sp.catalog(str(assets.parent / "elsewhere")) == ([], [])
     assert sp.catalog("") == ([], [])
     (assets / "voices" / "voices.json").write_text("{nope")
     assert sp.catalog(str(assets))[1][0].startswith("voices.json is not JSON")
+
+
+def test_a_clip_voices_json_does_not_describe_is_a_voice_named_by_its_file(assets: Path) -> None:
+    folder = assets / "voices"
+    (folder / "me.wav").write_bytes(CLIP)  # as the Assets page uploads one
+    (folder / "short.wav").write_bytes(wav([(2.0, True)]))
+    (folder / "heart.wav").write_bytes(CLIP)
+    (folder / "notes.txt").write_text("not a clip")
+    voices, warnings = sp.catalog(str(assets))
+    assert [v["name"] for v in voices] == ["narrator", "heart", "puck", "me"]
+    assert voices[-1] == {
+        "name": "me",
+        "description": "the voice in me.wav",
+        "tags": [],
+        "engine": "chatterbox",
+        "consent": sp.UPLOADED,
+        "clip": str(folder / "me.wav"),
+        "preset": None,
+    }
+    assert warnings[-2:] == [
+        "heart.wav is not a voice: voices.json already names heart",
+        "short.wav is not a voice: it is 2.0 s, not 5-10",
+    ]
+    (folder / "voices.json").unlink()  # the catalog is the folder; voices.json only describes
+    assert [v["name"] for v in sp.catalog(str(assets))[0]] == ["heart", "me", "narrator"]
+
+
+def test_the_manifest_owns_the_voices_folder() -> None:
+    (owned,) = sp.MANIFEST["owned_folders"]
+    assert owned["folder"] == sp.VOICES and owned["accept"] == ["audio/wav"]
 
 
 @pytest.mark.parametrize(
@@ -625,7 +655,7 @@ def test_the_world_s_script_type_offers_its_voices_to_the_judge(assets: Path) ->
     jsonschema.validate({"scenes": scenes}, script)  # no voice: the engine's default
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"voice": "nobody", "scenes": scenes}, script)
-    assert "narrator, heart, puck" in answer["note"] and len(answer["warnings"]) == 3
+    assert "narrator, heart, puck" in answer["note"] and len(answer["warnings"]) == 2
     # a world without a catalog gets the declared type, and the planner hears nothing
     assert sp.speech_types("world_2", str(assets.parent / "none")) == {
         "types": {"script": sp.SCRIPT},
@@ -742,7 +772,7 @@ def test_the_stage_s_voice_wins_over_the_script_s_and_timings_record_who_spoke(
     timings = speak(tmp_path, assets, chose)
     assert (timings["voice"], timings["chosen"]) == ("puck", "puck")
     assert one_engine[-1]["voice"] == "am_puck"
-    assert len(timings["warnings"]) == 3  # the ignored entries, in the stage's own record
+    assert len(timings["warnings"]) == 2  # the ignored entries, in the stage's own record
     timings = speak(tmp_path, assets, chose, voice="narrator")
     assert timings["voice"] == "narrator" and one_engine[-1]["reference"] == CLIP
     timings = speak(tmp_path, assets, SCRIPT)  # no voice anywhere: the engine's default

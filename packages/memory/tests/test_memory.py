@@ -233,6 +233,10 @@ def test_assets_are_the_operators_files_listed_served_and_never_a_path(memory: M
     for bad in ("../x.mp3", "sfx/x.mp3", ".env", ""):
         with pytest.raises(ValueError):
             memory.add_asset("w1", bad, b"x")
+    assert memory.add_asset("w1", "me.wav", b"RIFF", "voices") == "assets/voices/me.wav"
+    for folder in ("../runs", "a/b", ".hidden"):
+        with pytest.raises(ValueError):
+            memory.add_asset("w1", "x.wav", b"x", folder)
     assert memory.library("w1") == []  # not run artifacts
 
 

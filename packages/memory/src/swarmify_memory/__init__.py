@@ -301,15 +301,18 @@ class Memory:
             if not any(part.startswith(".") for part in p.relative_to(world).parts)
         )
 
-    def add_asset(self, world_id: str, name: str, data: bytes) -> str:
-        """Write (or replace) the asset `name`, a plain file name. Returns its path relative to
-        the world folder. Raises ValueError for a name that is a path or a dotfile."""
-        if not _NAME.match(name):
-            raise ValueError(f"an asset needs a plain file name, got '{name}'")
-        folder = self.world_folder(world_id) / ASSETS
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / name).write_bytes(data)
-        return f"{ASSETS}/{name}"
+    def add_asset(self, world_id: str, name: str, data: bytes, folder: str = "") -> str:
+        """Write (or replace) the asset `name`, a plain file name, in the assets folder or its
+        subfolder `folder`, a plain name too. Returns its path relative to the world folder.
+        Raises ValueError for a name that is a path or a dotfile."""
+        for plain in (name, folder) if folder else (name,):
+            if not _NAME.match(plain):
+                raise ValueError(f"an asset needs a plain file name, got '{plain}'")
+        path = f"{ASSETS}/{folder}/{name}" if folder else f"{ASSETS}/{name}"
+        file = self.world_folder(world_id) / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(data)
+        return path
 
     def remove_asset(self, world_id: str, path: str) -> None:
         """Delete the asset at `path` (relative to the world folder). Raises ValueError when it

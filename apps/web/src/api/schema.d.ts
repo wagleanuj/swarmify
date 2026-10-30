@@ -1230,6 +1230,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/owned_folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Owned Folders
+         * @description The Owned Folders of the packages the world enables, each a group on the Assets
+         *     page; their files are in the assets list under each one's `path`.
+         */
+        get: operations["list_owned_folders_api_worlds__world_id__owned_folders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/assets/{name}": {
         parameters: {
             query?: never;
@@ -1240,8 +1261,9 @@ export interface paths {
         get?: never;
         /**
          * Add Asset
-         * @description Upload an asset: the request body is the file, `name` a plain file name. A name
-         *     already there is replaced.
+         * @description Upload an asset: the request body is the file, `name` a plain file name, into the
+         *     assets folder or one of the world's Owned Folders, whose `accept` it must match. A
+         *     name already there is replaced.
          */
         put: operations["add_asset_api_worlds__world_id__assets__name__put"];
         post?: never;
@@ -1263,8 +1285,7 @@ export interface paths {
         post?: never;
         /**
          * Remove Asset
-         * @description Delete an asset by its path, as the list gives it. A voice's clip or voices.json is
-         *     refused: delete the voice instead.
+         * @description Delete an asset by its path, as the list gives it.
          */
         delete: operations["remove_asset_api_worlds__world_id__assets__path__delete"];
         options?: never;
@@ -1295,55 +1316,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/worlds/{world_id}/voices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Voices
-         * @description The world's voices as the speech connector reads them, in catalog order.
-         */
-        get: operations["list_voices_api_worlds__world_id__voices_get"];
-        put?: never;
-        /**
-         * Add Voice
-         * @description Add a voice: its clip saved as `<name>.wav` and its entry appended to voices.json.
-         */
-        post: operations["add_voice_api_worlds__world_id__voices_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/worlds/{world_id}/voices/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Voice
-         * @description Delete a voice's entry and its clip. A workflow still naming it hands the name to the
-         *     engines as their own voice, so the page names those workflows before it asks.
-         */
-        delete: operations["delete_voice_api_worlds__world_id__voices__name__delete"];
-        options?: never;
-        head?: never;
-        /**
-         * Edit Voice
-         * @description Change a voice's description and tags.
-         */
-        patch: operations["edit_voice_api_worlds__world_id__voices__name__patch"];
         trace?: never;
     };
     "/api/worlds/{world_id}/notifications": {
@@ -1802,26 +1774,6 @@ export interface components {
             /** Bytes */
             bytes: number;
         };
-        /** Body_add_voice_api_worlds__world_id__voices_post */
-        Body_add_voice_api_worlds__world_id__voices_post: {
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Consent */
-            consent: string;
-            /**
-             * Clip
-             * @description 5 to 10 s of speech, a 16-bit WAV
-             */
-            clip: string;
-            /**
-             * Tags
-             * @description comma separated
-             * @default
-             */
-            tags: string;
-        };
         /**
          * Call
          * @description One connector stage call, keyed by the stage id. `response` is the latest raw response:
@@ -1935,13 +1887,6 @@ export interface components {
             /** Updated At */
             updated_at: string | null;
             record?: components["schemas"]["Record"];
-        };
-        /** Catalog */
-        Catalog: {
-            /** Voices */
-            voices: components["schemas"]["Voice"][];
-            /** Warnings */
-            warnings: string[];
         };
         /** Changes */
         Changes: {
@@ -2162,16 +2107,6 @@ export interface components {
             publish?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** EditBody */
-        EditBody: {
-            /** Description */
-            description: string;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: string[];
         };
         /** EnabledPackage */
         EnabledPackage: {
@@ -2607,6 +2542,28 @@ export interface components {
             body: string;
             /** Ts */
             ts: string;
+        };
+        /**
+         * OwnedFolder
+         * @description A folder of the world's assets a package it enables owns (Manifest `[[owned_folders]]`).
+         *     Swarmify lists, plays, uploads, renames and deletes its files; the package gives them
+         *     meaning.
+         */
+        OwnedFolder: {
+            /** Path */
+            path: string;
+            /** Folder */
+            folder: string;
+            /** Label */
+            label: string;
+            /** About */
+            about: string;
+            /** Accept */
+            accept: string[];
+            /** Confirm */
+            confirm: string;
+            /** Package */
+            package: string;
         };
         /**
          * Package
@@ -3451,13 +3408,6 @@ export interface components {
             /** Failed */
             failed?: string[];
         };
-        /** UsedBy */
-        UsedBy: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -3514,27 +3464,6 @@ export interface components {
             message: string;
             /** Stage */
             stage?: string | null;
-        };
-        /** Voice */
-        Voice: {
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Tags */
-            tags: string[];
-            /** Engine */
-            engine: string;
-            /** Consent */
-            consent: string;
-            /** Preset */
-            preset: string | null;
-            /** Clip */
-            clip: string | null;
-            /** Seconds */
-            seconds: number | null;
-            /** Used By */
-            used_by: components["schemas"]["UsedBy"][];
         };
         /** Workflow */
         Workflow: {
@@ -6084,9 +6013,43 @@ export interface operations {
             };
         };
     };
-    add_asset_api_worlds__world_id__assets__name__put: {
+    list_owned_folders_api_worlds__world_id__owned_folders_get: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnedFolder"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_asset_api_worlds__world_id__assets__name__put: {
+        parameters: {
+            query?: {
+                /** @description an Owned Folder's `folder` */
+                folder?: string;
+            };
             header?: never;
             path: {
                 world_id: string;
@@ -6222,148 +6185,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
-            };
-        };
-    };
-    list_voices_api_worlds__world_id__voices_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Catalog"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    add_voice_api_worlds__world_id__voices_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_add_voice_api_worlds__world_id__voices_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Voice"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    delete_voice_api_worlds__world_id__voices__name__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    edit_voice_api_worlds__world_id__voices__name__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EditBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Voice"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

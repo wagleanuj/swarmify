@@ -1,0 +1,17 @@
+# error: owned_folders[1].folder: voices is declared twice
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+
+[[owned_folders]]
+folder = "voices"
+label = "Voices"
+
+[[owned_folders]]
+folder = "voices"
+label = "More voices"

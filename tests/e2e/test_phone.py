@@ -265,28 +265,27 @@ def _clip(seconds: float, rate: int = 8000) -> bytes:
     return buf.getvalue()
 
 
-def test_assets_plays_a_voice_first_and_pins_add_a_voice_above_the_tab_bar(
+def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
     phone: Page, ids: dict, locked_url: str
 ) -> None:
-    """Issue 194: a voice added over the API is a playable card; Add a voice opens its sheet."""
+    """Issues 194 and 220: a clip in the speech package's Owned Folder is a playable card; Add to
+    Voices opens its sheet, with the package's confirm."""
     api = signed_in(locked_url)
-    form = {"name": "narrator", "description": "Warm and calm", "consent": "Mine."}
-    files = {"clip": ("n.wav", _clip(6), "audio/wav")}
-    added = api.post(f"/worlds/{ids['world']}/voices", data=form, files=files)
-    assert added.status_code in (201, 422), added.text  # 422: a rerun on the same world
+    added = api.put(f"/worlds/{ids['world']}/assets/narrator.wav?folder=voices", content=_clip(6))
+    assert added.status_code == 201, added.text
     api.put(f"/worlds/{ids['world']}/assets/logo.png", content=b"PNG")
     phone.goto(f"/worlds/{ids['world']}/assets")
-    card = phone.get_by_role("listitem", name="narrator")
+    card = phone.get_by_role("listitem", name="narrator.wav")
     expect(card.get_by_role("button", name="Play narrator")).to_be_visible()
-    expect(card).to_contain_text("6.0 s clip")
+    expect(card).to_contain_text("6.0 s")
     expect(phone.get_by_role("listitem", name="logo.png")).to_contain_text("KB")
-    add = phone.get_by_role("button", name="Add a voice")
+    add = phone.get_by_role("button", name="Add to Voices")
     expect(add).to_be_in_viewport(ratio=1)
     box, bar = add.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
     _fits(phone)
     add.click()
-    sheet = phone.get_by_role("dialog", name="Add a voice")
+    sheet = phone.get_by_role("dialog", name="Add to Voices")
     expect(sheet.get_by_role("button", name="Record")).to_be_visible()
     expect(
         sheet.get_by_text("This is my voice, or I have the speaker's permission")

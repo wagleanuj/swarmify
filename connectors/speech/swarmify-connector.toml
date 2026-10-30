@@ -15,7 +15,13 @@ runtime = "uv"
 install = ["uv", "sync", "--frozen", "--no-dev"]
 command = [".venv/bin/python", "speech.py"]
 
-owned_folders = ["voices"]
+# Each world's voices: the Assets page shows the folder, the connector gives it meaning (README, Voices).
+[[owned_folders]]
+folder = "voices"
+label = "Voices"
+about = "Each clip is a voice your speech steps can clone, named by its file: 5 to 10 s of one speaker's clear speech, no music. voices.json, when there, describes them. Eight starter voices: the speech package's README, Voices."
+accept = ["audio/wav"]
+confirm = "This is my voice, or I have the speaker's permission"
 
 [params]
 type = "object"

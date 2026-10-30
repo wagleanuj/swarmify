@@ -257,7 +257,7 @@ export function Library() {
         </>
       )}
       <p className="faint assets-link">
-        Voices and files for your builds live on <Link to="/worlds/$worldId/assets" params={{ worldId }}>Assets</Link>.
+        Files for your builds and connectors live on <Link to="/worlds/$worldId/assets" params={{ worldId }}>Assets</Link>.
       </p>
     </main>
   );
