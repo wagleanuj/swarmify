@@ -438,7 +438,7 @@ def registry(data: Path, transport: Any) -> Connectors:
 def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One real install for the module: copied to the packages folder and `uv sync`ed there."""
     data = tmp_path_factory.mktemp("data")
-    assert registry(data, FakeTransport()).install_defaults() == {"speech": "1.0.0"}
+    assert registry(data, FakeTransport()).install_defaults()["speech"] == "1.0.0"
     return data / "packages"
 
 

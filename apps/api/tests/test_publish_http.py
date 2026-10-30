@@ -85,8 +85,11 @@ def test_built_in_publish_connectors_take_their_keys_and_never_return_them(
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
     listed = {c["name"]: c for c in client.get(f"/api/worlds/{world}/connectors").json()}
     assert listed["youtube"]["missing"] == list(KEYS)
-    assert listed["upload_post"]["missing"] == ["UPLOAD_POST_API_KEY"]
-    assert listed["upload_post"]["command"][:2] == ["npx", "-y"]
+    # a default package now, whose key is a Setup field (connectors/upload_post)
+    assert (listed["upload_post"]["missing"], listed["upload_post"]["builtin"]) == (
+        ["api_key"],
+        False,
+    )
 
     url = "/api/connectors/builtin_youtube/credentials"
     saved = client.put(url, json={"credentials": KEYS})
@@ -166,23 +169,32 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert "- youtube: https://youtu.be/vid1\n" in text
 
 
-def test_upload_post_schedules_through_its_own_tool(
+def test_upload_post_previews_and_schedules_through_its_package(
     running: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
-    keys = {"credentials": {"UPLOAD_POST_API_KEY": "k"}}
-    running.put("/api/connectors/builtin_upload_post/credentials", json=keys)
     extra = "\n      user: me\n      platforms: [tiktok, instagram]"
     world, workflow = setup(running, weekly("upload_post", extra))
+    keys = {"shared": {"api_key": "k"}}
+    assert running.put(f"/api/worlds/{world}/packages/upload_post/setup", json=keys).is_success
+    platforms = {"key": "platforms", "label": "Platforms", "value": ["tiktok", "instagram"]}
+    title = {"key": "title", "label": "Title", "value": "Five hooks that work", "editable": True}
+    transport.outputs["preview"] = [{"fields": [title, platforms], "problems": []}]
     run = at_gate(running, tmp_path, world, workflow)
-    shown = vals(running.get("/api/gates").json()[0]["publish"])
-    assert shown["platforms"] == ["tiktok", "instagram"]
+    shown = running.get("/api/gates").json()[0]["publish"]
+    assert shown["connector"] == "upload_post" and vals(shown)["platforms"] == [
+        "tiktok",
+        "instagram",
+    ]
+    _, tool, args, env = transport.calls[-1]
+    assert (tool, args["params"]["user"], env) == ("preview", "me", {"UPLOAD_POST_API_KEY": "k"})
 
-    transport.outputs["upload_video"] = [{"result": {"success": True, "job_id": "job_9"}}]
+    transport.outputs["publish"] = [{"status": "scheduled", "id": "job_9", "links": {}}]
     running.post(f"/api/runs/{run['id']}/decision", json={})
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     _, tool, args, _ = transport.calls[-1]
-    assert tool == "upload_video" and args["scheduledDate"] == "2099-01-01T09:00:00Z"
-    assert args["platforms"] == ["tiktok", "instagram"] and args["user"] == "me"
+    assert tool == "publish" and args["fields"]["platforms"] == ["tiktok", "instagram"]
+    assert args["idempotency_key"] == run["stages"][2]["id"]
+    assert args["input_path"].endswith(f"{run['id']}/01-render/short.mp4")
     stage_id = run["stages"][2]["id"]
     folder = tmp_path / "worlds" / world / "runs" / run["id"] / stage_id / "artifacts"
     text = (folder / "publish.md").read_text()

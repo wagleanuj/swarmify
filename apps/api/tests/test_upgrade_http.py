@@ -1,6 +1,7 @@
-"""Upgrading a V1 data directory (issue 213, ADR 0023): the speech connector became a default
-Connector Package, installed and given to every world at startup, its engines moved from the app's
-env into its shared Setup, and a workflow saved in V1 with a speech stage runs unchanged."""
+"""Upgrading a V1 data directory (issues 213 and 215, ADR 0023): the speech and Upload-Post
+connectors became default Connector Packages, installed and given to every world at startup,
+speech's engines moved from the app's env and Upload-Post's key from the credentials file into
+their shared Setup, and a workflow saved in V1 with a speech stage runs unchanged."""
 
 import base64
 import json
@@ -73,7 +74,8 @@ def engine() -> Iterator[str]:
 
 def v1_data_dir(root: Path) -> tuple[str, str]:
     """What V1 left: a world with its own script writer and a saved workflow whose speech stage
-    called the built-in, no packages folder, no Setup, and no package versions recorded."""
+    called the built-in, Upload-Post's key in the credentials file, no packages folder, no Setup,
+    and no package versions recorded."""
     world = main.world_service(root).create("Bedtime")  # no defaults given: V1 had none
     command = [sys.executable, str(Path(__file__).parent / "script_server.py")]
     with sqlite3.connect(main.migrated_db(root)) as conn:  # V1's row for a world's connector
@@ -87,6 +89,8 @@ def v1_data_dir(root: Path) -> tuple[str, str]:
     flow = Workflow(new_id("wf"), world.id, "Bedtime", 1, "2026-10-28T09:00:00+00:00")
     saved = Event.new("workflow.saved", world_id=world.id, payload={"workflow_id": flow.id})
     WorkflowStorage(main.migrated_db(root)).add_workflow(flow, V1_WORKFLOW, saved)
+    (root / ".env").write_text("UPLOAD_POST_API_KEY=up-k3y\n")
+    (root / ".env").chmod(0o600)
     assert not (root / "packages").exists() and not (root / "setup.json").exists()
     return world.id, flow.id
 
@@ -102,9 +106,18 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
         assert client.get(f"/api/worlds/{world}/packages").json() == [
             {"name": "script_writer", "version": "0.0.1"},  # the world's own, moved (#211)
             {"name": "speech", "version": "1.0.0"},
+            {"name": "upload_post", "version": "1.0.0"},
         ]
         version = client.get(f"/api/workflows/{flow}/versions/1").json()
         assert version["packages"] == {"script_writer": "0.0.1", "speech": "1.0.0"}  # stamped
+        (key,) = client.get(f"/api/worlds/{world}/packages/upload_post/setup").json()["fields"]
+        assert (key["env"], key["shared_set"], key["shared"]) == ("UPLOAD_POST_API_KEY", True, None)
+        posts = next(
+            c
+            for c in client.get(f"/api/worlds/{world}/connectors").json()
+            if c["name"] == "upload_post"
+        )
+        assert posts["missing"] == [] and "up-k3y" not in json.dumps(posts)
         setup = client.get(f"/api/worlds/{world}/packages/speech/setup").json()
         (engines,) = setup["fields"]
         assert (engines["env"], engines["shared"]) == ("SPEECH_ENDPOINTS", engine)
@@ -128,9 +141,11 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
     assert off.delete(f"/api/worlds/{world}/packages/speech").status_code == 204
     again = TestClient(main.create_app(tmp_path, retro=False))
     assert [p["name"] for p in again.get(f"/api/worlds/{world}/packages").json()] == [
-        "script_writer"
+        "script_writer",
+        "upload_post",
     ]
     new = again.post("/api/worlds", json={"name": "New"}).json()["id"]
     assert again.get(f"/api/worlds/{new}/packages").json() == [
-        {"name": "speech", "version": "1.0.0"}
+        {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
     ]

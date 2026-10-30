@@ -224,31 +224,6 @@ MANIFESTS: dict[str, dict[str, Any]] = {
             "params": {"type": "object", "properties": _PUBLISH_PARAMS},
             "inputs": [_VIDEO_IN],
         },
-        {
-            "name": "upload_post",
-            "label": "Upload-Post",
-            "kind": "publish",
-            "stage_types": ["connector"],
-            "about": "Posts or schedules to YouTube, TikTok and Instagram through Upload-Post's"
-            " MCP.",
-            "command": ["npx", "-y", "@upload-post/mcp@0.11.4"],
-            "credentials": ["UPLOAD_POST_API_KEY"],
-            "params": {
-                "type": "object",
-                "required": ["user"],
-                "properties": {
-                    **_PUBLISH_PARAMS,
-                    "user": {"type": "string", "description": "the Upload-Post profile"},
-                    "platforms": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "default": ["youtube"],
-                        "description": "where to post: youtube, tiktok, instagram",
-                    },
-                },
-            },
-            "inputs": [_VIDEO_IN],
-        },
     )
 }
 
@@ -256,7 +231,7 @@ BUILTINS = [from_manifest(m) for m in MANIFESTS.values()]
 
 
 # The cheap read-only tool each built-in publish connector proves its keys with.
-KEY_CHECKS = {"youtube": "channel", "upload_post": "get_account_info"}
+KEY_CHECKS = {"youtube": "channel"}
 
 KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
 """A key name the add form takes; lower-cased, it is its Setup field's key."""
@@ -300,9 +275,6 @@ def _local_manifest(c: Connector) -> dict[str, Any]:
 def _account(connector: str, answer: dict[str, Any]) -> str:
     if connector == "youtube" and answer.get("channel"):
         return f"Posts to the YouTube channel {answer['channel']}."
-    account = answer.get("result")
-    if isinstance(account, dict) and account.get("email"):
-        return f"Signed in to Upload-Post as {account['email']}."
     return "The keys work."
 
 
@@ -335,8 +307,13 @@ def _manifest_problems(
     if manifest.get("outputs") and not config.get("output"):
         out.append(f"{name} needs an output, {manifest['outputs'][0]['description']}")
     schema = manifest.get("params") or {}
+    props = schema.get("properties") or {}
+    for k in schema.get("required") or []:
+        if k not in params:
+            said = props.get(k, {}).get("description")
+            out.append(f"{name} needs params.{k}" + (f", {said}" if said else ""))
     if schema.get("additionalProperties") is False:
-        allowed = {*(schema.get("properties") or {}), "tool"}
+        allowed = {*props, "tool"}
         out += [f"{name} does not take params.{k}" for k in params if k not in allowed]
     return out
 
@@ -1081,9 +1058,10 @@ class Connectors:
             return []
         params = dict(config.get("params") or {})
         if connector.kind == "publish":
-            # A world's own connector previews at the gate, when its inputs exist.
-            shown = self.publish_preview(world_id, config) if connector.builtin else None
-            return shown["problems"] if shown else []
+            if connector.builtin:
+                shown = self.publish_preview(world_id, config)
+                return shown["problems"] if shown else []
+            # A package previews at the gate, when its inputs exist; its Manifest is checked now.
         if connector.builtin and connector.name == "remotion_render":
             out = []
             project = str(params.get("project") or "").strip()
@@ -1238,13 +1216,7 @@ class Connectors:
             )
         call = replace(call, response=response, updated_at=_now())
         if connector.kind == "publish":
-            out = publish.result(connector.name, response)
-            if out["status"] == "pending":
-                # Upload-Post moved it to the background: poll its status for the links.
-                return self.storage.save_call(
-                    replace(call, status="polling", job_id=out["id"], poll_tool="get_status")
-                )
-            self._check_posted(connector, call, out)
+            self._check_posted(connector, call, publish.result(connector.name, response))
         return self.storage.save_call(replace(call, status="done", progress=1.0))
 
     def _check_posted(self, connector: Connector, call: Call, out: dict[str, Any]) -> None:
@@ -1255,10 +1227,8 @@ class Connectors:
 
     def _poll(self, connector: Connector, call: Call, env: dict[str, str]) -> Call:
         assert call.poll_tool is not None and call.job_id is not None
-        background = connector.name == "upload_post"  # an upload Upload-Post moved off
-        args = {"requestId": call.job_id} if background else {"job_id": call.job_id}
         try:
-            answer = self._tool(connector, call.poll_tool, args, env)
+            answer = self._tool(connector, call.poll_tool, {"job_id": call.job_id}, env)
         except Exception as exc:
             self._fail(call, str(exc))
             raise
@@ -1270,18 +1240,14 @@ class Connectors:
             message=answer.get("message", call.message),
             updated_at=_now(),
         )
-        if background:
-            out = publish.result(connector.name, answer)
-            if out["status"] == "pending":
-                return self.storage.save_call(call)
-            self._check_posted(connector, call, out)
-            return self.storage.save_call(replace(call, status="done", progress=1.0))
         status = answer.get("status")
         if status == "failed":
             error = str(answer.get("error") or "the job failed")
             self._fail(call, error)
             raise ConnectorError(f"{connector.name}: {error}")
         if status == "done":
+            if connector.kind == "publish":  # its last answer carries what was posted
+                self._check_posted(connector, call, publish.result(connector.name, answer))
             call = replace(call, status="done", progress=1.0)
         return self.storage.save_call(call)
 
