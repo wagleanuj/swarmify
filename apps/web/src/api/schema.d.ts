@@ -2473,6 +2473,8 @@ export interface components {
             calls?: string | null;
             /** Ask */
             ask?: string | null;
+            /** Inputs */
+            inputs?: string[];
         };
         /** SaveAsWorkflow */
         SaveAsWorkflow: {

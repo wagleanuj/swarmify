@@ -399,6 +399,7 @@ export function RunTimeline() {
             stage={stage}
             worldId={worldId}
             made={made}
+            artifacts={artifacts}
             agents={Object.values(agents).filter((a) => a.stage_id === stage.id)}
             log={log}
             tasks={tasks}

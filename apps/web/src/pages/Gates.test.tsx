@@ -55,7 +55,7 @@ test("the queue opens the next decision after each answer and says what was deci
   await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You confirmed it at .*\./);
   await expect
     .element(screen.getByTestId("answered").getByRole("link", { name: "Open that run" }))
-    .toHaveAttribute("href", "/worlds/world_1/runs/run_3");
+    .toHaveAttribute("href", "/worlds/world_1/runs/run_3?stage=s3");
   expect(router.state.location.search).toEqual({ gate: "s2", done: "s3" });
   // Answered items sort last, dimmed.
   await expect.element(queue).toMatchTextContent(/Review and approve.*Pick an idea.*Answered.*Publish it/);

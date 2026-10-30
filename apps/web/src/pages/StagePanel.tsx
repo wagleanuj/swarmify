@@ -7,7 +7,7 @@ import { type Call, clock, decisionLine, PUBLISHERS, type Run } from "../api/run
 import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
-import { AUDIO, fileUrl, IMAGE, Markdown, RECORD, rawUrl, summary, VIDEO } from "./Artifacts";
+import { ArtifactView, AUDIO, fileUrl, IMAGE, Markdown, RECORD, rawUrl, summary, underReview, VIDEO } from "./Artifacts";
 import { LABEL } from "./Connectors";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
@@ -411,12 +411,30 @@ function RetroPanel({ run, stage }: { run: Run; stage: Stage }) {
   );
 }
 
-function GatePanel({ run, stage, open }: { run: Run; stage: Stage; open: boolean }) {
+/** The artifacts the earlier steps made, oldest first. */
+const before = (run: Run, stage: Stage, artifacts: ArtifactFile[]) => {
+  const earlier = new Set(run.stages.filter((s) => s.index < stage.index).map((s) => s.id));
+  return artifacts.filter((a) => earlier.has(a.stage));
+};
+
+/** What a gate was about: the artifact its decision names, else what an approve gate reviews. */
+export function reviewed(run: Run, stage: Stage, artifacts: ArtifactFile[]): ArtifactFile[] {
+  const named = (run.decisions ?? []).filter((d) => d.stage_index === stage.index && d.artifact).map((d) => d.artifact);
+  const picked = artifacts.filter((a) => named.includes(a.path));
+  if (picked.length) return picked.slice(-1);
+  return (run.decisions ?? []).some((d) => d.stage_index === stage.index && d.kind === "approve") || stage.status === "waiting"
+    ? underReview(before(run, stage, artifacts))
+    : [];
+}
+
+function GatePanel({ run, stage, open, artifacts, worldId }: { run: Run; stage: Stage; open: boolean; artifacts: ArtifactFile[]; worldId: string }) {
   const decisions = (run.decisions ?? []).filter((d) => d.stage_index === stage.index);
-  if (open) return null; // the open gate leads the panel, its question included
+  if (open) return null; // the open gate leads the panel, its question and artifact included
+  const about = decisions.length ? reviewed(run, stage, artifacts) : [];
   return (
     <div data-testid="gate-panel">
       {stage.ask && <p className="ask">{stage.ask}</p>}
+      {about.length > 0 && <ArtifactView artifacts={about} worldId={worldId} />}
       {decisions.map((d) => (
         <p key={d.id} data-testid="decision">
           {decisionLine(d)}
@@ -424,6 +442,72 @@ function GatePanel({ run, stage, open }: { run: Run; stage: Stage; open: boolean
       ))}
       {decisions.length === 0 && stage.status !== "waiting" && <p className="faint">Not reached yet.</p>}
     </div>
+  );
+}
+
+/** A connector step's inputs: each named artifact, the latest an earlier step made, and that step. */
+export function inputsOf(run: Run, stage: Stage, artifacts: ArtifactFile[]) {
+  const earlier = before(run, stage, artifacts);
+  return (stage.inputs ?? []).map((name) => {
+    const a = earlier.filter((x) => x.name === name || x.type === name).at(-1);
+    return { name, a, from: a && run.stages.find((s) => s.id === a.stage) };
+  });
+}
+
+function StepInputs({ run, stage, artifacts, worldId }: { run: Run; stage: Stage; artifacts: ArtifactFile[]; worldId: string }) {
+  const ins = inputsOf(run, stage, artifacts);
+  if (!ins.length) return null;
+  return (
+    <section className="phase" aria-label="In" data-testid="inputs">
+      <h3>In</h3>
+      <ul className="files">
+        {ins.map(({ name, a, from }) => (
+          <li key={name} data-testid="input">
+            {a && from ? (
+              <>
+                <a href={rawUrl(worldId, a)} target="_blank" rel="noreferrer">
+                  {a.name}
+                </a>{" "}
+                <span className="faint">
+                  from{" "}
+                  <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: run.id }} search={{ stage: from.id }}>
+                    step {from.index + 1}, {from.name}
+                  </Link>
+                </span>
+              </>
+            ) : (
+              <>
+                <code>{name}</code> <span className="faint">not made by an earlier step yet</span>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Every file a step made, records included, folded away. */
+function AllFiles({ made, worldId }: { made: ArtifactFile[]; worldId: string }) {
+  if (!made.length) return null;
+  return (
+    <details className="technical" data-testid="all-files">
+      <summary>All files ({made.length})</summary>
+      <ul className="files">
+        {made.map((a) => (
+          <li key={a.path}>
+            {a.fields.deleted ? (
+              <span className="faint">{a.name}, deleted by retention</span>
+            ) : (
+              <a href={rawUrl(worldId, a)} target="_blank" rel="noreferrer">
+                {a.name}
+              </a>
+            )}{" "}
+            <span className="faint">{a.type}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -463,6 +547,8 @@ export type PanelProps = {
   stage: Stage;
   worldId: string;
   made: ArtifactFile[];
+  /** Every artifact of the run, for a step's inputs and what a gate reviewed. */
+  artifacts: ArtifactFile[];
   agents: Agent[];
   log: LogEntry[];
   tasks: Task[];
@@ -492,7 +578,7 @@ export function StagePanel(p: PanelProps) {
       </>
     );
   } else if (stage.type === "gate") {
-    inside = <GatePanel run={run} stage={stage} open={!!p.answering} />;
+    inside = <GatePanel run={run} stage={stage} open={!!p.answering} artifacts={p.artifacts} worldId={worldId} />;
   } else if (stage.type === "retro") {
     inside = <RetroPanel run={run} stage={stage} />;
   } else if (kind === "speech") {
@@ -558,7 +644,9 @@ export function StagePanel(p: PanelProps) {
           )}
         </div>
       )}
+      {connector && <StepInputs run={run} stage={stage} artifacts={p.artifacts} worldId={worldId} />}
       {inside}
+      <AllFiles made={made} worldId={worldId} />
       {logged && <LiveLog log={p.log} tasks={p.tasks} />}
       {connector && <TechnicalDetails call={call} />}
     </section>

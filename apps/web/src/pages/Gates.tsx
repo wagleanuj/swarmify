@@ -159,7 +159,11 @@ export function Gates() {
                 <span>
                   {last.said} at {new Date(last.at).toLocaleTimeString([], { timeStyle: "short" })}.
                 </span>
-                <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: last.gate.world_id, runId: last.gate.run_id }}>
+                <Link
+                  to="/worlds/$worldId/runs/$runId"
+                  params={{ worldId: last.gate.world_id, runId: last.gate.run_id }}
+                  search={{ stage: last.gate.stage_id }}
+                >
                   Open that run
                 </Link>
               </p>

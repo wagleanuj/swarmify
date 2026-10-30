@@ -558,3 +558,44 @@ test("on a phone the selected step comes before the step list", async () => {
   const top = (el: Element) => el.getBoundingClientRect().top;
   expect(top(panel.element())).toBeLessThan(top(screen.getByRole("navigation", { name: "Steps" }).element()));
 });
+
+test("a step lists what went in, linked to the step that made it, and every file it made", async () => {
+  const script = made("stage_0", "script.md", { body: "# Script" });
+  const note = made("stage_2", "notes.md", { type: "note" });
+  const later = made("stage_4", "timings.json"); // a later step's file of the same name never counts
+  const done = run("done", [
+    research("done"),
+    { ...voice("done"), inputs: ["script.md"] },
+    { ...video("done"), inputs: ["timings.json", "missing.md"] },
+    review("done"),
+    publish("done"),
+  ]);
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(done),
+    "GET /api/runs/run_1/artifacts": () => Response.json([script, timings, mp4, note, later]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_2");
+  const ins = screen.getByTestId("inputs");
+  await expect.element(ins.getByTestId("input").first()).toMatchTextContent(/^timings\.json from step 2, voice$/);
+  await expect.element(ins.getByRole("link", { name: "step 2, voice" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1?stage=stage_1");
+  await expect.element(ins.getByRole("link", { name: "timings.json" })).toHaveAttribute("href", "/api/worlds/world_1/files/runs/run_1/stage_1/artifacts/timings.json");
+  await expect.element(ins.getByTestId("input").nth(1)).toMatchTextContent(/missing\.md not made by an earlier step yet/);
+  await screen.getByText("All files (2)").click();
+  const files = screen.getByTestId("all-files");
+  await expect.element(files.getByRole("link", { name: "video.mp4" })).toHaveAttribute("href", "/api/worlds/world_1/files/runs/run_1/stage_2/artifacts/video.mp4");
+  await expect.element(files.getByRole("link", { name: "notes.md" })).toBeVisible();
+});
+
+test("an answered review gate shows the video it approved, above the decision", async () => {
+  const done = run("done", [research("done"), voice("done"), video("done"), review("done"), publish("done")], {
+    decisions: [{ id: "d1", stage_index: 3, stage_name: "review", kind: "approve", choice: "video.mp4", note: "", send_back_to: null, path: "/x", decided_at: at(9), artifact: mp4.path }],
+  });
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(done),
+    "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4, posted]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_3");
+  const gatePanel = screen.getByTestId("gate-panel");
+  await expect.element(gatePanel.getByTestId("under-review").getByTestId("player")).toHaveAttribute("src", "/api/worlds/world_1/files/runs/run_1/stage_2/artifacts/video.mp4");
+  expect(screen.getByTestId("inputs").query()).toBeNull();
+});

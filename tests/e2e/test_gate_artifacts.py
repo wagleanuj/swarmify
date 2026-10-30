@@ -77,5 +77,14 @@ def test_pick_a_card_then_review_the_video_in_place(
         assert "Approved." in review
         # A binary is named by its sidecar, as the Library lists it.
         assert f'artifact: "runs/{run["id"]}/{render}/artifacts/short.mp4.md"' in review
+
+        # On the run page the answered review step still shows the video it approved, and the
+        # render step names what went in.
+        screen.goto(f"/worlds/{world}/runs/{run['id']}?stage={gates[1]}")
+        reviewed = screen.get_by_test_id("gate-panel").get_by_test_id("player")
+        expect(reviewed).to_have_attribute("src", re.compile(r"/artifacts/short\.mp4$"))
+        screen.goto(f"/worlds/{world}/runs/{run['id']}?stage={render}")
+        expect(screen.get_by_test_id("inputs")).to_contain_text("ideas.md")
+        _fits(screen)
     finally:
         httpx.delete(f"{base_url}/api/worlds/{world}")
