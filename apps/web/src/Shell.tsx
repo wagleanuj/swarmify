@@ -3,8 +3,12 @@ import { createContext, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "./api/client";
 import { useOpenGates } from "./api/gates";
+import { money } from "./api/runs";
 import type { components } from "./api/schema";
 import { Health } from "./Health";
+import { status } from "./pages/Connectors";
+import { figures } from "./pages/WorldOverview";
+import { Sheet } from "./Sheet";
 
 type World = components["schemas"]["World"];
 
@@ -31,6 +35,33 @@ const Icon = ({ name }: { name: string }) => (
   </svg>
 );
 
+// The phone's tab bar draws its own 24px icons, filled when current.
+const TAB_ICON: Record<string, string> = {
+  gates: "M4 13l3-8h10l3 8v6H4zM4 13h5l1 2h4l1-2h5",
+  runs: "M7 5l12 7-12 7z",
+  workflows: "M3.5 6a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M15.5 18a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M8.5 6H14a4 4 0 0 1 4 4v5.5",
+  library: "M5 4v16M10 4v16M15 5l4 14",
+  more: "M3.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0M10.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0M17.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0",
+};
+const TabIcon = ({ name }: { name: string }) => (
+  <svg viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={TAB_ICON[name]} />
+  </svg>
+);
+// Areas reached through More, so its tab is current on them.
+const MORE = new Set(["overview", "graph", "cast", "connectors", "settings", "worlds", "evals"]);
+// Switching worlds keeps the area you are in; anywhere else lands on the world's overview.
+const SAME_AREA = {
+  runs: "/worlds/$worldId/runs",
+  workflows: "/worlds/$worldId/workflows",
+  library: "/worlds/$worldId/library",
+  graph: "/worlds/$worldId/graph",
+  cast: "/worlds/$worldId/cast",
+  connectors: "/worlds/$worldId/connectors",
+  settings: "/worlds/$worldId/settings",
+} as const;
+const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
 const Mark = () => (
   <span className="brand">
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
@@ -44,7 +75,8 @@ const Mark = () => (
 /** The world the switcher shows, for global screens that mark it. */
 export const CurrentWorld = createContext<string | undefined>(undefined);
 
-/** The app shell: a labelled sidebar around every screen, folded to a top bar on a phone. */
+/** The app shell: a labelled sidebar around every screen, folded behind a menu on a narrow
+ * screen; on a phone, a world chip on top and a bottom tab bar with More instead. */
 export function Shell() {
   const { pathname, hash } = useLocation();
   // `/worlds/<id>/<area>`, or a global route: `/` (all worlds), `/gates`, `/evals`.
@@ -59,6 +91,8 @@ export function Shell() {
   if (inWorld && inWorld !== last) setLast(inWorld);
   const worldId = inWorld ?? last ?? worlds[0]?.id;
   const [open, setOpen] = useState(false);
+  const [sheet, setSheet] = useState<"world" | "more" | null>(null);
+  const [summary, setSummary] = useState<Record<string, string>>({});
 
   // Refetch on every world change, so a world made a moment ago has its name.
   useEffect(() => {
@@ -67,7 +101,28 @@ export function Shell() {
       .then(({ data }) => data && setWorlds(data))
       .catch(() => undefined);
   }, [worldId]);
-  useEffect(() => setOpen(false), [pathname, hash]);
+  useEffect(() => {
+    setOpen(false);
+    setSheet(null);
+  }, [pathname, hash]);
+
+  // More's one-line summaries, read each time it opens.
+  useEffect(() => {
+    if (sheet !== "more" || !worldId) return;
+    setSummary({});
+    const path = { params: { path: { world_id: worldId } } };
+    void Promise.all([
+      api.GET("/api/worlds/{world_id}/runs", path).then(({ data }) => {
+        if (!data) return {};
+        const { today, spent } = figures(data, []);
+        return { overview: today ? `${count(today, "run")} today · ${money(spent)}` : "no runs today" };
+      }),
+      api.GET("/api/worlds/{world_id}/cast", path).then(({ data }) => (data ? { cast: count(data.length, "agent") } : {})),
+      api
+        .GET("/api/worlds/{world_id}/connectors", path)
+        .then(({ data }) => (data ? { connectors: `${data.filter((c) => status(c).tone === "ok").length} of ${data.length} ready` } : {})),
+    ].map((p) => p.catch(() => ({})))).then((parts) => setSummary(Object.assign({}, ...parts)));
+  }, [sheet, worldId]);
 
   const item = (key: string, label: string, link: LinkProps, count?: number) => (
     <Link
@@ -87,11 +142,34 @@ export function Shell() {
     </Link>
   );
   const params = { worldId: worldId ?? "" };
+  const worldName = worlds.find((w) => w.id === worldId)?.name ?? (worldId ? "..." : "Choose a world");
+
+  const tab = (key: string, label: string, link: LinkProps, badge?: number) => (
+    <Link {...link} className={current === key ? "tabbar-item on" : "tabbar-item"} aria-current={current === key ? "page" : undefined}>
+      <TabIcon name={key} />
+      {label}
+      {badge ? (
+        <span className="tabbar-badge" aria-label={`${badge} waiting`}>
+          {badge}
+        </span>
+      ) : null}
+    </Link>
+  );
+  const row = (label: string, link: LinkProps, note?: string) => (
+    <Link {...link} className="sheet-row">
+      {label}
+      {note && <small>{note}</small>}
+    </Link>
+  );
 
   return (
     <div className="app">
       <header className="topbar">
         <Mark />
+        <button type="button" className="world-chip" aria-haspopup="dialog" aria-expanded={sheet === "world"} onClick={() => setSheet("world")}>
+          {worldName}
+          <Icon name="chev" />
+        </button>
         <button type="button" className="icon" aria-label="Menu" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>
           <Icon name="menu" />
         </button>
@@ -106,7 +184,7 @@ export function Shell() {
         <Link to="/" className="switcher" activeOptions={{ exact: true, includeHash: true }} data-testid="world-switcher">
           <span>
             <small>World</small>
-            <b>{worlds.find((w) => w.id === worldId)?.name ?? (worldId ? "..." : "Choose a world")}</b>
+            <b>{worldName}</b>
           </span>
           <Icon name="chev" />
         </Link>
@@ -140,6 +218,63 @@ export function Shell() {
           <Outlet />
         </CurrentWorld.Provider>
       </div>
+      <nav className="tabbar" aria-label="Tabs">
+        {tab("gates", "Needs you", { to: "/gates" }, gates?.length)}
+        {worldId && (
+          <>
+            {tab("runs", "Runs", { to: "/worlds/$worldId/runs", params })}
+            {tab("workflows", "Workflows", { to: "/worlds/$worldId/workflows", params })}
+            {tab("library", "Library", { to: "/worlds/$worldId/library", params })}
+          </>
+        )}
+        <button
+          type="button"
+          className={MORE.has(current) || sheet === "more" ? "tabbar-item on" : "tabbar-item"}
+          aria-haspopup="dialog"
+          aria-expanded={sheet === "more"}
+          onClick={() => setSheet("more")}
+        >
+          <TabIcon name="more" />
+          More
+        </button>
+      </nav>
+      {/* A row tapped on the page you are on closes its sheet too. */}
+      <Sheet open={sheet === "world"} onClose={() => setSheet(null)} label="Worlds">
+        <nav aria-label="Worlds" onClick={() => setSheet(null)}>
+          {worlds.map((w) => {
+            const waiting = gates?.filter((g) => g.world_id === w.id).length ?? 0;
+            return (
+              <Link
+                key={w.id}
+                to={SAME_AREA[area as keyof typeof SAME_AREA] ?? "/worlds/$worldId"}
+                params={{ worldId: w.id }}
+                className="sheet-row"
+                aria-current={w.id === worldId ? "true" : undefined}
+              >
+                {w.name}
+                <small>{waiting ? `${waiting} waiting` : "nothing waiting"}</small>
+              </Link>
+            );
+          })}
+          {row("All worlds", { to: "/" }, count(worlds.length, "world"))}
+        </nav>
+      </Sheet>
+      <Sheet open={sheet === "more"} onClose={() => setSheet(null)} label="More">
+        <nav aria-label="More" onClick={() => setSheet(null)}>
+          {worldId && (
+            <>
+              {row("Overview", { to: "/worlds/$worldId", params }, summary.overview)}
+              {row("Memory", { to: "/worlds/$worldId/graph", params }, "graph and notes")}
+              {row("Cast", { to: "/worlds/$worldId/cast", params }, summary.cast)}
+              {row("Connectors", { to: "/worlds/$worldId/connectors", params }, summary.connectors)}
+            </>
+          )}
+          {row("Evals", { to: "/evals" }, "scorecards")}
+          {worldId && row("Settings", { to: "/worlds/$worldId/settings", params }, "this world, keys")}
+          {row("All worlds", { to: "/" }, count(worlds.length, "world"))}
+        </nav>
+        <Health />
+      </Sheet>
     </div>
   );
 }
