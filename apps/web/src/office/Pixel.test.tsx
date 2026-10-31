@@ -127,6 +127,8 @@ test("the room's scale is whole device pixels: 2x on a 1280 by 720 screen, 4/3 o
   expect(scaleFor(985, 630, 1)).toBe(2);
   expect(scaleFor(808, 674, 1)).toBe(1);
   expect(scaleFor(985, 630, 2)).toBe(2);
+  // Pods never shrink a wide screen's room: it keeps its scale for reading.
+  expect(scaleFor(985, 630, 1, 8)).toBe(2);
   await page.viewport(390, 844);
   expect(scaleFor(374, 560, 3)).toBe(4 / 3);
   expect(scaleFor(359, 383, 1)).toBe(1.5);
@@ -164,6 +166,22 @@ test("on a 375 by 667 phone six live runs each have a pod in the pixel room, at 
       expect(r.bottom).toBeLessThanOrEqual(box.bottom + 1);
     }
     expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(innerHeight);
+  } finally {
+    await page.viewport(1280, 800);
+  }
+});
+
+test("at 1280 by 720 six live runs keep the 2x room: every whiteboard in sight over the front of the room", async () => {
+  await page.viewport(1280, 720);
+  try {
+    const six = [weekly, ...[1, 2, 3, 4, 5].map((n) => run("running", [stage(0, "Draft", "swarm", "running", { id: `run_${n}_s0` })], { id: `run_${n}`, name: `Run ${n}` }))];
+    const { screen } = await office("tiny", { runs: six, cap: 8 });
+    await expect.element(screen.getByRole("img", { name: "Worker 1, working" })).toBeVisible();
+    expect(scaleOf(screen.getByRole("img", { name: "Worker 1, working" }).element())).toBe(2);
+    const boards = screen.getByRole("list", { name: "Pods" }).getByRole("button").elements();
+    expect(boards).toHaveLength(6);
+    const front = screen.getByRole("group", { name: "Lobby sofa" }).element().parentElement!.getBoundingClientRect();
+    for (const b of boards) expect(b.getBoundingClientRect().bottom).toBeLessThanOrEqual(front.top);
   } finally {
     await page.viewport(1280, 800);
   }

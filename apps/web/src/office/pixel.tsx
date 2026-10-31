@@ -167,23 +167,22 @@ export function Table({ on, seats }: { on: boolean; seats: number }) {
 
 /** One art pixel in screen pixels: a whole number of device pixels, the most that keeps at
  * least a 430 by 280 art pixel room on screen (230 by 240 on a phone), the size the room's pieces
- * are laid out for, and tall enough for `pods` pods three across (two on a phone) between the wall
- * and the front of the room. A phone takes half steps even on a 1x screen (ponytail: uneven
- * pixels there, which only an old phone or an emulator shows). */
+ * are laid out for; on a phone also tall enough for `pods` pods two across between the wall and
+ * the front of the room. A wide screen keeps its scale for reading: pods past what fits go behind
+ * the front or the "more" chip (Office.tsx). A phone takes half steps even on a 1x screen
+ * (ponytail: uneven pixels there, which only an old phone or an emulator shows). */
 export function scaleFor(w: number, h: number, dpr = window.devicePixelRatio || 1, pods = 0) {
   const phone = window.matchMedia("(max-width: 700px)").matches;
-  const rows = Math.ceil(pods / (phone ? 2 : 3));
+  const rows = phone ? Math.ceil(pods / 2) : 0;
   const [minW, minH] = phone ? [230, 240] : [430, 280];
-  const tall = Math.max(minH, phone ? FLOOR_PHONE + rows * (POD_PHONE + 2) : FLOOR + rows * (POD + 4));
+  const tall = Math.max(minH, FLOOR_PHONE + rows * (POD_PHONE + 2));
   const device = Math.max(phone ? 2 : 1, Math.round(dpr));
   return Math.max(device, Math.floor(Math.min(w / minW, h / tall) * device)) / device;
 }
 
-/** The art pixels a pixel room keeps off the pods, the wall over them and the front under them,
- * and a pod's height with a crew and a pack's table, on a wide screen and on a phone (office.css). */
-const FLOOR = 88 + 74;
+/** The art pixels a phone's pixel room keeps off the pods, the wall over them and the front under
+ * them, and a pod's height with a crew and a pack's table (office.css). */
 const FLOOR_PHONE = 76 + 74;
-const POD = 114;
 const POD_PHONE = 110;
 
 const WALL = 84;

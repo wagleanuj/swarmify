@@ -154,3 +154,32 @@ test("at 1280 by 720 with seven live runs every whiteboard reads in full, and th
     await page.viewport(1280, 800);
   }
 });
+
+test("on a 375 by 667 phone the queued notes on the sofa never cover a pod; the rest wait behind the more chip", async () => {
+  await page.viewport(375, 667);
+  try {
+    const more = [1, 2].map((n) => run("running", stages(3, 1, "swarm"), { id: `run_m${n}`, name: `More #${n}`, created_at: `2026-10-31T08:1${n}:00Z` }));
+    const q = [queued("run_q1", "Changelog #10", recent), queued("run_q2", "Changelog #11", recent)];
+    const { screen } = await office([weekly, long, sending, retro, ...more, ...q], { run_cap: 8 });
+    const sofa = screen.getByRole("group", { name: "Lobby sofa" });
+    await expect.element(sofa.getByRole("button", { name: "Changelog #11, queued" })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: /more$/ })).toBeVisible();
+    const notes = sofa.getByRole("button").elements().map((n) => n.getBoundingClientRect());
+    for (const pod of screen.getByRole("list", { name: "Pods" }).element().children) {
+      const p = pod.getBoundingClientRect();
+      for (const n of notes) expect(n.left >= p.right || p.left >= n.right || n.top >= p.bottom || p.top >= n.bottom).toBe(true);
+    }
+  } finally {
+    await page.viewport(1280, 800);
+  }
+});
+
+test("the sofa holds two queued notes, or one and a chip for the rest that opens the quest board", async () => {
+  const q = [1, 2, 3, 4].map((n) => queued(`run_q${n}`, `Changelog #${n}`, `2026-10-31T09:0${n}:00Z`));
+  const { screen } = await office([weekly, ...q]);
+  const sofa = screen.getByRole("group", { name: "Lobby sofa" });
+  await expect.element(sofa.getByRole("button", { name: "+3 queued" })).toBeVisible();
+  expect(sofa.getByRole("button", { name: /, queued$/ }).elements().map((b) => b.getAttribute("aria-label"))).toEqual(["Changelog #1, queued"]);
+  await sofa.getByRole("button", { name: "+3 queued" }).click();
+  await expect.element(screen.getByRole("complementary", { name: "Quest board" }).getByRole("button", { name: "Changelog #4, queued" })).toBeVisible();
+});

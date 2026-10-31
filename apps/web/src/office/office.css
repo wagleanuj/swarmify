@@ -145,6 +145,8 @@
   align-content: space-evenly;
   gap: 8px 18px;
 }
+/* Rows that reach behind the front of the room pack from the top (Office.tsx). */
+.office-pods.office-tight { align-content: start; }
 .office-pod {
   justify-self: center;
   --rug: #bfe3ff;
@@ -228,6 +230,7 @@
 }
 .office-note-card b, .office-note-card small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .office-note-card small { color: var(--muted); font-size: 12px; }
+.office-app .office-lobby .office-queued-more { margin: 0; white-space: nowrap; }
 .office-note-card.office-gate { background: #ffe3c2; }
 .office-note-card.office-done { background: #dff5e3; }
 .office-note-card.office-failed, .office-note-card.office-aborted { background: #ece9f3; }
@@ -270,6 +273,10 @@
 /* The cast standing idle on the floor, feet on a ring of their colour. */
 /* One row that takes the floor the line leaves: whoever does not fit wraps out of sight. */
 .office-app .office-cast { flex: 1 1 0; min-width: 0; height: 110px; overflow: hidden; pointer-events: none; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 24px 8px; margin: 0; padding: 20px 0 0; list-style: none; }
+/* An idle actor the cast's floor cannot hold whole (a pixel sprite is 64 wide) stands out of
+   sight, not half behind the line at Your office. */
+.office-app .office-cast { container-type: inline-size; }
+@container (max-width: 63px) { .office-cast > * { visibility: hidden; } }
 .office-actor { --accent: var(--sun); position: relative; width: 66px; height: 88px; }
 .office-actor img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
 .office-actor::before { content: ""; position: absolute; left: 14px; right: 14px; bottom: -3px; height: 9px; border: 2px solid var(--ink); border-radius: 50%; background: var(--accent); opacity: 0.85; }
@@ -446,7 +453,9 @@
 .office-pixel .office-shelf { top: 16px; right: 72px; min-height: 8px; gap: 2px; padding: 0 2px; border-bottom-width: 2px; }
 .office-app .office-pixel button.office-cup { width: 5px; height: 6px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel button:focus-visible { outline-width: 1px; outline-offset: 1px; }
-.office-pixel .office-pods { inset: 88px 6px 74px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; }
+/* A last row may stand behind the front with its whiteboard in sight, as the room's scale is
+   kept for reading, not shrunk for pods (pixel.tsx). */
+.office-pixel .office-pods { --office-tuck: 80px; inset: 88px 6px 74px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; }
 .office-pixel .office-pod { justify-self: stretch; padding: 2px; gap: 1px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel .office-board { width: min(100%, 104px); padding: 2px 3px; gap: 1px; border-width: 2px; outline-width: 1px; border-radius: 0; font-size: 6px; line-height: 1.15; }
 .office-pixel .office-board b { font-size: 7px; }
@@ -472,6 +481,7 @@
 .office-pixel .office-lobby ol { gap: 2px; }
 .office-app .office-pixel .office-note-card { padding: 1px 3px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2); }
 .office-pixel .office-note-card small { font-size: 6px; }
+.office-app .office-pixel .office-queued-more, .office-app .office-pixel .office-more .office-btn { padding: 1px 4px; border-width: 1px; border-radius: 0; box-shadow: none; font-size: 7px; }
 .office-pixel .office-cast { height: var(--frame-h); gap: 10px 4px; padding: 0; }
 /* A phone: a narrower room at a larger scale, so the wall's corners go and the text grows. */
 @media (max-width: 700px) {
@@ -552,7 +562,7 @@
   /* Three rows of pods share a short room: smaller desks, the whiteboard keeps name and stage. */
   .office-pods { gap: 6px; }
   /* The pixel room's whiteboards stand over the wall's baseboard (pixel.tsx counts on it). */
-  .office-pixel .office-pods { grid-template-columns: repeat(2, minmax(0, 1fr)); top: 76px; gap: 2px 6px; }
+  .office-pixel .office-pods { --office-tuck: 0px; grid-template-columns: repeat(2, minmax(0, 1fr)); top: 76px; gap: 2px 6px; }
   .office-pod { justify-self: stretch; padding: 3px; gap: 2px; }
   .office-app .office-board { width: 100%; }
   .office-crew { height: 33px; gap: 6px; }
@@ -561,6 +571,8 @@
   .office-app .office-board { padding: 2px 6px; font-size: 10px; border-width: 2px; }
   .office-board b { font-size: 11px; }
   .office-pod .office-kind { display: none; }
+  /* The sofa's notes keep only the run's name, so they stay low. */
+  .office-lobby .office-note-card small { display: none; }
   .office-progress { height: 6px; }
   .office-desks i { width: 40px; height: 12px; }
   .office-desks i::before { left: 9px; }
