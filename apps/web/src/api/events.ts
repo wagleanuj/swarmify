@@ -36,6 +36,8 @@ export type WorldEvents = {
   "agent.logged": LogEntry;
   "verdict.created": Verdict;
   "artifact.created": ArtifactCreated;
+  /** Only the settings that changed, with the world's id. */
+  "world.updated": Partial<components["schemas"]["World"]>;
 };
 type Handlers = { [K in keyof WorldEvents]?: (payload: WorldEvents[K]) => void };
 const TYPES: (keyof WorldEvents)[] = [
@@ -46,6 +48,7 @@ const TYPES: (keyof WorldEvents)[] = [
   "agent.logged",
   "verdict.created",
   "artifact.created",
+  "world.updated",
 ];
 
 /** Follow one world's event stream with a single EventSource (ADR 0002). */

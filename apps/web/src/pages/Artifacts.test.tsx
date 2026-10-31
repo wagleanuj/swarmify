@@ -1,23 +1,10 @@
 import { expect, test } from "vitest";
 import { render } from "vitest-browser-react";
 
-import type { ArtifactFile } from "../api/events";
-import { ArtifactCards, ArtifactView, choosable, imageSrc, Markdown, underReview } from "./Artifacts";
+import { choosable, underReview } from "../api/answer";
+import { artifact } from "../test/fakes";
+import { ArtifactCards, ArtifactView, imageSrc, Markdown } from "./Artifacts";
 
-const artifact = (over: Partial<ArtifactFile>): ArtifactFile => ({
-  name: "idea-x.md",
-  path: "runs/run_1/stage_0/artifacts/idea-x.md",
-  type: "idea",
-  author: "judge",
-  title: "X",
-  fields: {},
-  body: "",
-  run_id: "run_1",
-  stage: "stage_0",
-  created: "2026-10-26T10:00:00+00:00",
-  pinned: false,
-  ...over,
-});
 const chase = artifact({
   name: "idea-chase.md",
   path: "runs/run_1/stage_0/artifacts/idea-chase.md",

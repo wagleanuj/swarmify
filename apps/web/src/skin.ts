@@ -1,3 +1,6 @@
+import { api } from "./api/client";
+import type { components } from "./api/schema";
+
 /** Role names on the page (ADR 0004, amended): code says planner and worker-1, the plain skin
  * says Planner and Worker 1. The Pied Piper names are an opt-in local skin, turned on in
  * Settings and kept in this browser only. */
@@ -30,7 +33,12 @@ export function setPiedPiper(on: boolean) {
 
 /** A role or agent as a label: Planner, Worker 2, Judge (or Richard, Dinesh, Erlich). */
 export function role(name: string): string {
-  if (piedPiper() && PIED_PIPER[name]) return PIED_PIPER[name];
+  return piedPiper() && PIED_PIPER[name] ? PIED_PIPER[name] : plainRole(name);
+}
+
+/** A role or agent as its plain label whatever the Pied Piper toggle says: the Office names
+ * its cast from the world's skin and pack instead. */
+export function plainRole(name: string): string {
   const worker = /^worker-(\d+)$/.exec(name);
   return worker ? `Worker ${worker[1]}` : (PLAIN[name] ?? name);
 }
@@ -42,3 +50,23 @@ export const the = (name: string) => (piedPiper() && PIED_PIPER[name] ? PIED_PIP
 export const baseline = () => (piedPiper() ? "Hooli baseline" : "baseline");
 
 export const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** How a world is drawn: the plain pages or the Office skin, saved on the world. */
+export type View = "plain" | "office";
+
+/** Where a world opens: its office when its view is Office, else the plain overview. */
+export const worldHome = (world?: { skin?: { view: View } }) =>
+  world?.skin?.view === "office" ? ("/worlds/$worldId/office" as const) : ("/worlds/$worldId" as const);
+
+export type Skin = components["schemas"]["Skin"];
+
+/** The sprite pack shipped with Swarmify, which a world draws with until it picks its own. */
+export const BUNDLED_PACK = "kenney-toon";
+
+/** Save the world's skin, replaced whole, so a caller changing one part sends the rest as it is.
+ * The world as saved, or null when the API refused it. */
+export async function saveSkin(worldId: string, skin: Omit<Skin, "pack"> & { pack?: string }) {
+  const { data } = await api.PATCH("/api/worlds/{world_id}", { params: { path: { world_id: worldId } }, body: { skin: { ...skin, pack: skin.pack ?? BUNDLED_PACK, cast: skin.cast ?? {} } },
+  });
+  return data ?? null;
+}

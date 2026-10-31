@@ -43,7 +43,7 @@ extend-exclude = ["node_modules", ".venv"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["swarmify_*", "check_imports", "samples", "runs_fakes", "echo_server", "swarm_db", "sse", "scripted_app", "fake_graph", "wordmatch"]
+known-first-party = ["swarmify_*", "check_imports", "check_office_imports", "samples", "runs_fakes", "echo_server", "swarm_db", "sse", "scripted_app", "fake_graph", "wordmatch"]
 
 [tool.pyright]
 venvPath = "."
@@ -56,7 +56,8 @@ typeCheckingMode = "standard"
 testpaths = ["packages", "apps/api", "tools", "connectors"]
 pythonpath = ["tools"]
 # -n 8: the suite mostly waits on polling intervals, so eight workers beat one even on a 4-core runner.
-addopts = "-n 8 --cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_learning --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"
+addopts = "-n 8 --cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_learning --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov=check_office_imports --cov-fail-under=85 --cov-report=term-missing"
 
 [tool.coverage.run]
+core = "sysmon"
 omit = ["*/tests/*"]

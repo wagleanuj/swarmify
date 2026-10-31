@@ -32,30 +32,9 @@ export function FileLink({ a, worldId, className, children }: { a: Pick<Artifact
   );
 }
 
-/** What the run wrote about itself, not something to choose or review. */
-export const RECORD = new Set(["verdict", "decision", "note"]);
 export const VIDEO = /\.(mp4|webm|mov|m4v)$/i;
 export const IMAGE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 export const AUDIO = /\.(wav|mp3|m4a|ogg|flac|aac)$/i;
-
-const byRank = (a: ArtifactFile, b: ArtifactFile) =>
-  Number(a.fields.rank ?? 1e9) - Number(b.fields.rank ?? 1e9);
-
-/** The cards a pick gate chooses from: the typed artifacts the judge projected from the earlier
- * stages (an idea per card), his rank first. A plain file is not a choice, so a stage with no
- * declared output leaves the gate its free-text pick. */
-export function choosable(artifacts: ArtifactFile[]): ArtifactFile[] {
-  return artifacts
-    .filter((a) => !RECORD.has(a.type) && a.type !== "file" && !a.fields.deleted)
-    .sort(byRank);
-}
-
-/** What an approve gate reviews: the artifacts of the latest earlier stage that made any. */
-export function underReview(artifacts: ArtifactFile[]): ArtifactFile[] {
-  const work = artifacts.filter((a) => !RECORD.has(a.type));
-  const last = work.at(-1)?.stage;
-  return work.filter((a) => a.stage === last);
-}
 
 /** `runs/<run>/<stage>/notes/trends.md#p3` as "trends.md, paragraph 3", linking to the note. */
 function Source({ ref, worldId }: { ref: string; worldId: string }) {

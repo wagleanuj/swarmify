@@ -12,7 +12,8 @@ export default defineConfig({
       headless: true,
       // A desktop window by default; phone tests set 390 x 844 themselves.
       viewport: { width: 1280, height: 800 },
-      provider: playwright(),
+      // The office's motion is cosmetic; with reduced motion its scene is static to test.
+      provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
       instances: [{ browser: "chromium" }],
     },
   },

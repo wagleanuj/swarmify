@@ -4,10 +4,11 @@ Run with `uvicorn --factory swarmify_api.main:create_app`; importing this module
 The GraphWriter runs in the API process unless `SWARMIFY_GRAPH_WRITER=external` says a
 `swarmify-graph-writer` process does it instead; never both (ADR 0003).
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db`, the DBOS system database
-`dbos.sqlite` and `worlds/<id>/`. DBOS launches in the lifespan, so runs execute only while the
-app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` is the operator's sign-in
-password (auth.py); the MCP server is also served over HTTP at `/mcp`, for API tokens, and its
-Remote Approvals part at `/mcp/remote_approvals`, for the connectors that offer them (remote.py).
+`dbos.sqlite`, `worlds/<id>/` and the operator's `sprite-packs/`. DBOS launches in the
+lifespan, so runs execute only while the app is served (or inside `with TestClient(app)`).
+`SWARMIFY_PASSWORD` is the operator's sign-in password (auth.py); the MCP server is also served
+over HTTP at `/mcp`, for API tokens, and its Remote Approvals part at `/mcp/remote_approvals`, for
+the connectors that offer them (remote.py).
 """
 
 import asyncio
@@ -107,8 +108,8 @@ from swarmify_swarm.sdk import PRICES, default_model
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows, WorkflowVersion
 from swarmify_workflows import SqliteStorage as WorkflowStorage
+from swarmify_worlds import BUNDLED, SpritePacks, SqliteStorage, Worlds
 from swarmify_worlds import MIGRATIONS as WORLDS_MIGRATIONS
-from swarmify_worlds import SqliteStorage, Worlds
 
 log = logging.getLogger(__name__)
 VERSION = version("swarmify-api")
@@ -770,6 +771,7 @@ def create_app(
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
         retro=run_retro,
         worlds=lambda: [w.id for w in world_svc.list_all()],
+        poll_seconds=max(0.05, min(poll_seconds, 1.0)),
     )
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
@@ -859,6 +861,7 @@ def create_app(
     )
     app.include_router(worlds.router(world_svc, delete, lambda w: runner.set_cap(w.id)))
     app.include_router(worlds.events_router(world_svc))
+    app.include_router(worlds.packs_router(SpritePacks(BUNDLED, root / "sprite-packs")))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(
         runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)

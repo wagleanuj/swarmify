@@ -13,7 +13,8 @@ from typing import Any
 from swarmify_kernel import Event
 from swarmify_kernel.events import append, last_seq, read_after
 from swarmify_kernel.sqlite import connect
-from swarmify_worlds.model import MODEL_ROLES, CastEdit, World
+from swarmify_worlds.model import MODEL_ROLES, CastEdit, Skin, World
+from swarmify_worlds.packs import Casting
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 SETTINGS = (
@@ -23,6 +24,7 @@ SETTINGS = (
     "agent_count",
     "model",
     *(f"{role}_model" for role in MODEL_ROLES),
+    "skin",
 )
 """The columns `update_settings` may write."""
 
@@ -37,8 +39,14 @@ def _world(row: sqlite3.Row) -> World:
         row["monthly_budget_usd"],
         row["run_cap"],
         row["agent_count"],
-        *(row[k] for k in SETTINGS[4:]),
+        *(row[k] for k in SETTINGS[4:-1]),
+        skin=_skin(json.loads(row["skin"])) if row["skin"] else Skin(),
     )
+
+
+def _skin(data: dict[str, Any]) -> Skin:
+    cast = {name: Casting(**look) for name, look in data.pop("cast", {}).items()}
+    return Skin(**data, cast=cast)
 
 
 def _edit(row: sqlite3.Row) -> CastEdit:
@@ -92,8 +100,9 @@ class SqliteStorage:
             conn.execute("BEGIN IMMEDIATE")
             if changes:
                 assignments = ", ".join(f"{k} = ?" for k in changes)
+                values = [json.dumps(v) if k == "skin" else v for k, v in changes.items()]
                 found = conn.execute(
-                    f"UPDATE worlds SET {assignments} WHERE id = ?", (*changes.values(), world_id)
+                    f"UPDATE worlds SET {assignments} WHERE id = ?", (*values, world_id)
                 ).rowcount
                 if found:
                     append(conn, event)

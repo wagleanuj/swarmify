@@ -192,6 +192,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sprite-packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Packs
+         * @description The installed sprite packs, the bundled one first, each with its manifest and what is
+         *     wrong with it (an unreadable manifest, a missing frame or idle pose).
+         */
+        get: operations["list_packs_api_sprite_packs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sprite-packs/{pack_id}/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pack File
+         * @description One file of a pack, such as a frame `<character>/<file>`; never outside its folder.
+         */
+        get: operations["pack_file_api_sprite_packs__pack_id___path__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows/starters": {
         parameters: {
             query?: never;
@@ -1893,6 +1934,21 @@ export interface components {
             updated_at: string | null;
             record?: components["schemas"]["Record"];
         };
+        /**
+         * Casting
+         * @description An agent's look: a pack's default, keyed by agent name or role, or a world's own in its
+         *     skin, keyed by agent name.
+         */
+        Casting: {
+            /** Character */
+            character?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Colour */
+            colour?: string | null;
+            /** Catchphrase */
+            catchphrase?: string | null;
+        };
         /** Changes */
         Changes: {
             /** Added */
@@ -1914,6 +1970,15 @@ export interface components {
         ChannelView: {
             /** Slack Webhook */
             slack_webhook: string | null;
+        };
+        /** Character */
+        Character: {
+            /** Name */
+            name: string;
+            /** Poses */
+            poses: {
+                [key: string]: string[];
+            };
         };
         /** CheckBody */
         CheckBody: {
@@ -2423,6 +2488,20 @@ export interface components {
             detail: string;
         };
         /**
+         * LookSetting
+         * @description An agent's look in the skin only: code and logs keep the plain agent name (ADR 0004).
+         */
+        LookSetting: {
+            /** Character */
+            character?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Colour */
+            colour?: string | null;
+            /** Catchphrase */
+            catchphrase?: string | null;
+        };
+        /**
          * MediaFile
          * @description A file a connector makes or takes, as its Manifest declares it.
          */
@@ -2890,6 +2969,27 @@ export interface components {
             /** Next Run At */
             next_run_at?: string | null;
         };
+        /**
+         * Room
+         * @description How the office room is drawn to match the pack's characters.
+         */
+        Room: {
+            /**
+             * Style
+             * @default cartoon
+             * @enum {string}
+             */
+            style: "cartoon" | "pixel";
+            /** Props */
+            props?: {
+                [key: string]: string;
+            };
+            /**
+             * Poses Side
+             * @default false
+             */
+            poses_side: boolean;
+        };
         /** Run */
         Run: {
             /** Id */
@@ -3242,6 +3342,53 @@ export interface components {
             created_at: string;
         };
         /**
+         * Skin
+         * @description How the web app draws a world: its view, its sprite pack and the operator's own casting of
+         *     each agent by name, which wins over the pack's. Skin names never reach code or logs (ADR
+         *     0004).
+         */
+        Skin: {
+            /**
+             * View
+             * @default plain
+             * @enum {string}
+             */
+            view: "plain" | "office";
+            /**
+             * Pack
+             * @default kenney-toon
+             */
+            pack: string;
+            /** Cast */
+            cast?: {
+                [key: string]: components["schemas"]["Casting"];
+            };
+        };
+        /**
+         * SkinSetting
+         * @description How the web app draws the world; unknown keys are refused.
+         */
+        SkinSetting: {
+            /**
+             * View
+             * @default plain
+             * @enum {string}
+             */
+            view: "plain" | "office";
+            /**
+             * Pack
+             * @default kenney-toon
+             */
+            pack: string;
+            /**
+             * Cast
+             * @default {}
+             */
+            cast: {
+                [key: string]: components["schemas"]["LookSetting"];
+            };
+        };
+        /**
          * Spend
          * @description What the world's runs spent this calendar month against its Monthly Budget.
          */
@@ -3264,6 +3411,33 @@ export interface components {
             seconds: number;
             /** Cost Usd */
             cost_usd: number;
+        };
+        /** SpritePack */
+        SpritePack: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Licence
+             * @default
+             */
+            licence: string;
+            /** Author */
+            author?: string | null;
+            /** Frame */
+            frame?: number[] | null;
+            /** Characters */
+            characters?: {
+                [key: string]: components["schemas"]["Character"];
+            };
+            /** Casting */
+            casting?: {
+                [key: string]: components["schemas"]["Casting"];
+            };
+            room?: components["schemas"]["Room"];
+            /** Problems */
+            problems?: string[];
         };
         /** StartRun */
         StartRun: {
@@ -3614,6 +3788,7 @@ export interface components {
             judge_model?: string | null;
             /** Retro Model */
             retro_model?: string | null;
+            skin?: components["schemas"]["Skin"];
         };
         /**
          * WorldSettings
@@ -3638,6 +3813,7 @@ export interface components {
             judge_model?: string | null;
             /** Retro Model */
             retro_model?: string | null;
+            skin?: components["schemas"]["SkinSetting"] | null;
         };
         /** YamlBody */
         YamlBody: {
@@ -3993,6 +4169,63 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_packs_api_sprite_packs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpritePack"][];
+                };
+            };
+        };
+    };
+    pack_file_api_sprite_packs__pack_id___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_id: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

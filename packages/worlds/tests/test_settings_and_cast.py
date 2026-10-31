@@ -8,7 +8,7 @@ import pytest
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel import Event
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_worlds import MIGRATIONS, Record, SqliteStorage, Worlds
+from swarmify_worlds import MIGRATIONS, Casting, Record, Skin, SqliteStorage, Worlds
 from swarmify_worlds.cast import names, records
 
 
@@ -60,6 +60,13 @@ def test_a_new_world_has_default_settings_and_each_change_is_an_event(worlds: Wo
         {"model": "two words"},
         {"judge_model": 5},
         {"intern_model": "claude-haiku-4-5"},
+        {"skin": None},
+        {"skin": {"view": "map"}},
+        {"skin": {"view": "office", "theme": "dark"}},
+        {"skin": {"pack": "../up"}},
+        {"skin": {"cast": {"judge": {"name": "x" * 25}}}},
+        {"skin": {"cast": {"judge": {"colour": "red"}}}},
+        {"skin": {"cast": {"intern": {"name": "Grave"}}}},
     ],
 )
 def test_settings_out_of_range_are_refused_and_nothing_is_written(
@@ -70,6 +77,32 @@ def test_settings_out_of_range_are_refused_and_nothing_is_written(
         worlds.configure(world.id, changes)
     assert worlds.get(world.id) == world
     assert [e.type for e in worlds.events_after(world.id)] == ["world.created"]
+
+
+def test_the_skin_starts_plain_and_is_saved_whole_as_an_event(worlds: Worlds) -> None:
+    world = worlds.create("Video")
+    assert world.skin == Skin("plain")
+    changed = worlds.configure(world.id, {"skin": {"view": "office"}})
+    assert changed is not None and worlds.get(world.id) == changed
+    assert changed.skin == Skin("office")
+    assert worlds.events_after(world.id)[-1].payload == {"id": world.id, "skin": {"view": "office"}}
+    look = {"character": "robot", "name": "Bolt", "colour": "#7fd6ff", "catchphrase": "Shipped."}
+    dressed = worlds.configure(world.id, {"skin": {"pack": "mine", "cast": {"worker-1": look}}})
+    assert dressed is not None and worlds.get(world.id) == dressed
+    assert dressed.skin == Skin("plain", "mine", {"worker-1": Casting(**look)})
+
+
+def test_shrinking_the_cast_drops_the_looks_of_agents_left_out(worlds: Worlds) -> None:
+    world = worlds.create("Video")
+    looks = {"worker-1": {"name": "Bolt"}, "worker-4": {"name": "Gone"}, "retro": {"name": "Grave"}}
+    worlds.configure(world.id, {"skin": {"view": "office", "pack": "mine", "cast": looks}})
+    shrunk = worlds.configure(world.id, {"agent_count": 1})
+    assert shrunk is not None
+    kept_looks = {"worker-1": Casting(name="Bolt"), "retro": Casting(name="Grave")}
+    assert shrunk.skin == Skin("office", "mine", kept_looks)
+    kept = {"view": "plain", "pack": "mine", "cast": {"worker-1": {"name": "Bolt"}}}
+    switched = worlds.configure(world.id, {"skin": kept})
+    assert switched is not None and switched.skin.view == "plain"
 
 
 def test_the_model_for_a_role_is_its_override_then_the_world_default_then_none(

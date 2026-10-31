@@ -2,7 +2,10 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
+  Outlet,
   redirect,
+  useLocation,
   type RouterHistory,
 } from "@tanstack/react-router";
 
@@ -23,7 +26,9 @@ import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 import { Shell } from "./Shell";
 
-const rootRoute = createRootRoute({ component: Shell });
+// The office draws its own full-screen shell; every other screen sits in the sidebar shell.
+const Root = () => (useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />);
+const rootRoute = createRootRoute({ component: Root });
 
 export const worldsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -52,6 +57,30 @@ export const worldRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId",
   component: WorldOverview,
+});
+
+// Its own module, loaded the first time an office route opens.
+export const officeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/office",
+  component: lazyRouteComponent(() => import("./office/Office"), "Office"),
+});
+
+// Crew dresses the cast; the agent being dressed lives in the address.
+export const crewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/office/crew",
+  component: lazyRouteComponent(() => import("./office/Crew"), "Crew"),
+  validateSearch: (search: Record<string, unknown>): { agent?: string } =>
+    typeof search.agent === "string" ? { agent: search.agent } : {},
+});
+
+// Talk: the askers at Your office, one at a time; `?gate=<stage id>` is the one asking.
+export const talkRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/office/talk",
+  component: lazyRouteComponent(() => import("./office/Talk"), "Talk"),
+  validateSearch: (search: Record<string, unknown>): { gate?: string } => (typeof search.gate === "string" ? { gate: search.gate } : {}),
 });
 
 export const workflowsRoute = createRoute({
@@ -164,6 +193,9 @@ const routeTree = rootRoute.addChildren([
   gatesRoute,
   evalsRoute,
   worldRoute,
+  officeRoute,
+  crewRoute,
+  talkRoute,
   workflowsRoute,
   newWorkflowRoute,
   workflowRoute,

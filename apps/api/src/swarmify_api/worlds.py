@@ -8,16 +8,20 @@ from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Response
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, StringConstraints
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from swarmify_worlds import (
+    DEFAULT_PACK,
     MAX_AGENTS,
     MAX_PROMPT,
     MAX_RETENTION_DAYS,
     MAX_RUN_CAP,
     CastEdit,
     CastMember,
+    SpritePack,
+    SpritePacks,
+    View,
     World,
     Worlds,
 )
@@ -29,6 +33,36 @@ KEEPALIVE_SECONDS = 15
 class NewWorld(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
     purpose: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
+
+
+class LookSetting(BaseModel):
+    """An agent's look in the skin only: code and logs keep the plain agent name (ADR 0004)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    character: str | None = None
+    """A character id in the world's pack."""
+    name: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=24)] | None
+    ) = None
+    colour: Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")] | None = None
+    catchphrase: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)] | None
+    ) = None
+    """Said when a run ships."""
+
+
+class SkinSetting(BaseModel):
+    """How the web app draws the world; unknown keys are refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    view: View = "plain"
+    pack: str = DEFAULT_PACK
+    """The installed sprite pack the world draws its cast with (`GET /api/sprite-packs`)."""
+    cast: dict[str, LookSetting] = {}
+    """Each agent's look by agent name, over the pack's casting; an agent left out wears the
+    pack's. A character the pack lacks is kept and reported by the skin."""
 
 
 class WorldSettings(BaseModel):
@@ -50,6 +84,8 @@ class WorldSettings(BaseModel):
     retro_model: str | None = None
     """A role's model, over the world's; null for the world's. A swarm stage's `model` wins
     over both."""
+    skin: SkinSetting | None = None
+    """How the web app draws the world, replaced whole."""
 
 
 class CastChange(BaseModel):
@@ -93,6 +129,8 @@ def router(
     def update_settings(world_id: str, body: WorldSettings) -> World:
         """Change the settings given; `monthly_budget_usd: null` removes the ceiling."""
         changes = {k: getattr(body, k) for k in body.model_fields_set}
+        if body.skin is not None:
+            changes["skin"] = body.skin.model_dump(exclude_none=True)
         try:
             world = worlds.configure(world_id, changes)
         except ValueError as exc:
@@ -178,6 +216,26 @@ def events_router(worlds: Worlds) -> APIRouter:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    return api
+
+
+def packs_router(packs: SpritePacks) -> APIRouter:
+    api = APIRouter(prefix="/api/sprite-packs", tags=["worlds"])
+
+    @api.get("")
+    def list_packs() -> list[SpritePack]:
+        """The installed sprite packs, the bundled one first, each with its manifest and what is
+        wrong with it (an unreadable manifest, a missing frame or idle pose)."""
+        return packs.list_all()
+
+    @api.get("/{pack_id}/{path:path}", response_class=FileResponse, responses={404: {}})
+    def pack_file(pack_id: str, path: str) -> FileResponse:
+        """One file of a pack, such as a frame `<character>/<file>`; never outside its folder."""
+        file = packs.file(pack_id, path)
+        if file is None:
+            raise HTTPException(404, "no such file in this pack")
+        return FileResponse(file)
 
     return api
 

@@ -3,19 +3,16 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useOpenGates } from "../api/gates";
-import { duration, money, type Run, STATUS_LABEL, took } from "../api/runs";
+import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
-import { baseline } from "../skin";
+import { baseline, saveSkin } from "../skin";
 
 type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["ListedWorkflow"];
 type Score = components["schemas"]["RunScore"];
 
 const SHOWN = 5;
-// A run holds one of its world's slots from leaving the queue until it ends; a child run
-// waits on its own queue and spends its parent's budget, so figures count top runs only.
-const HOLDS_SLOT = new Set<Run["status"]>(["running", "waiting_gate", "paused"]);
 
 /** The strip of figures: runs and spend today, slots in use, first-try acceptance. */
 export function figures(runs: Run[], scores: Score[], now = new Date()) {
@@ -24,7 +21,7 @@ export function figures(runs: Run[], scores: Score[], now = new Date()) {
   return {
     today: today.length,
     spent: today.reduce((n, r) => n + r.spent_usd, 0),
-    inUse: top.filter((r) => HOLDS_SLOT.has(r.status)).length,
+    inUse: top.filter(holdsSlot).length,
     firstTry: scores.reduce((n, s) => n + s.first_try, 0),
     judged: scores.reduce((n, s) => n + s.judged, 0),
   };
@@ -92,6 +89,11 @@ export function WorldOverview() {
       if (!run) return;
       setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
     });
+    // A setting changed elsewhere (Crew in another tab): switching views sends the skin as it is now.
+    source.addEventListener("world.updated", (e) => {
+      const changes = (JSON.parse((e as MessageEvent<string>).data) as { payload?: Partial<World> }).payload;
+      if (changes) setWorld((prev) => prev && { ...prev, ...changes });
+    });
     source.addEventListener("workflow.saved", () => {
       void api
         .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
@@ -141,6 +143,11 @@ export function WorldOverview() {
     void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
+  async function officeView() {
+    if (world && (await saveSkin(worldId, { ...world.skin, view: "office" }))) void router.navigate({ to: "/worlds/$worldId/office", params: { worldId } });
+    else setError("Could not switch to the office. Try again.");
+  }
+
   if (world === undefined) {
     return (
       <main>
@@ -167,6 +174,9 @@ export function WorldOverview() {
           <h1>{world.name}</h1>
           <p className="sub">{world.purpose || "No purpose written yet."}</p>
         </div>
+        <button type="button" onClick={() => void officeView()}>
+          Office
+        </button>
       </header>
       {error && <p role="alert">{error}</p>}
       <section className="kpis" aria-label="Figures">

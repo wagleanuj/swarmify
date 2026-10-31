@@ -129,6 +129,61 @@ def test_settings_have_defaults_change_one_at_a_time_and_reach_the_run_queue(
     assert running.patch("/api/worlds/world_nope", json={"run_cap": 2}).status_code == 404
 
 
+def test_the_skin_view_is_read_and_written_through_the_settings(running: TestClient) -> None:
+    world = running.post("/api/worlds", json={"name": "Video"}).json()
+    plain = {"view": "plain", "pack": "kenney-toon", "cast": {}}
+    assert world["skin"] == plain
+    changed = running.patch(f"/api/worlds/{world['id']}", json={"skin": {"view": "office"}})
+    office = {**plain, "view": "office"}
+    assert changed.status_code == 200 and changed.json()["skin"] == office
+    assert running.get(f"/api/worlds/{world['id']}").json()["skin"] == office
+    for bad in ({"view": "map"}, {"view": "office", "theme": "dark"}, None):
+        assert running.patch(f"/api/worlds/{world['id']}", json={"skin": bad}).status_code == 422
+    assert running.get(f"/api/worlds/{world['id']}").json()["skin"] == office
+
+
+def test_one_settings_write_dresses_the_cast_in_the_skin(
+    running: TestClient, tmp_path: Path
+) -> None:
+    world = running.post("/api/worlds", json={"name": "Video", "purpose": ""}).json()
+    url = f"/api/worlds/{world['id']}"
+    look = {"character": "robot", "name": "Bolt", "colour": "#7fd6ff", "catchphrase": "Shipped."}
+    skin = {"view": "office", "pack": "mine", "cast": {"worker-1": look, "judge": {"name": "Rex"}}}
+    changed = running.patch(url, json={"skin": skin})
+    assert changed.status_code == 200
+    blank = dict.fromkeys(look)
+    saved = {**skin, "cast": {"worker-1": look, "judge": {**blank, "name": "Rex"}}}
+    assert changed.json()["skin"] == saved
+    assert running.get(url).json()["skin"] == saved
+    # The event carries the skin as written, so an open office follows it.
+    event = world_service(tmp_path).events_after(world["id"])[-1]
+    assert (event.type, event.payload["skin"]) == ("world.updated", skin)
+
+    # A name not in the cast, unknown keys and over-long or blank text are refused, nothing kept.
+    for bad in (
+        {"intern": {"name": "Grave"}},
+        {"worker-9": {"name": "Nine"}},
+        {"judge": {"hat": "wig"}},
+        {"judge": {"name": "x" * 25}},
+        {"judge": {"catchphrase": "x" * 81}},
+        {"judge": {"name": "  "}},
+        {"judge": {"colour": "orange"}},
+    ):
+        refused = running.patch(url, json={"skin": {**skin, "cast": bad}})
+        assert refused.status_code == 422, bad
+    assert running.patch(url, json={"skin": {**skin, "pack": "../up"}}).status_code == 422
+    assert running.get(url).json()["skin"] == saved
+
+    # The longest name and catchphrase fit; leaving an agent out resets it to the pack casting.
+    longest = {"name": "x" * 24, "catchphrase": "y" * 80}
+    kept = running.patch(url, json={"skin": {**skin, "cast": {"judge": longest}}}).json()
+    assert kept["skin"]["cast"] == {"judge": {**blank, **longest}}
+
+    # The retro agent is dressed too, though it is not in the Cast.
+    retro = running.patch(url, json={"skin": {**skin, "cast": {"retro": {"name": "Grave"}}}})
+    assert retro.json()["skin"]["cast"] == {"retro": {**blank, "name": "Grave"}}
+
+
 def test_the_cast_has_defaults_and_edits_need_confirmation_and_are_versioned(
     running: TestClient, tmp_path: Path
 ) -> None:

@@ -11,10 +11,29 @@ from fastapi.testclient import TestClient
 
 from fake_graph import fake_extract
 from swarmify_api.main import create_app
-from swarmify_connectors import FakeTransport
+from swarmify_connectors import Connectors, FakeTransport, Packages
 from swarmify_memory import FakeGraphIndex
 from swarmify_swarm import SdkRuntime
 from swarmify_swarm.fake import Script
+
+
+@pytest.fixture(autouse=True)
+def no_default_install_steps(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each default package's install step runs for real in connectors/*/test_*.py and
+    packages/connectors/tests; the API starts the app ~200 times, so here it is skipped. A
+    module that starts a default package's `.venv` sets `real_default_installs = True`."""
+    if getattr(request.module, "real_default_installs", False):
+        return
+    real = Connectors.install_defaults
+
+    def install_defaults(self: Connectors) -> dict[str, str]:
+        with monkeypatch.context() as m:
+            m.setattr(Packages, "_run_install", lambda *a: None)
+            return real(self)
+
+    monkeypatch.setattr(Connectors, "install_defaults", install_defaults)
 
 
 @pytest.fixture
