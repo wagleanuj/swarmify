@@ -25,6 +25,11 @@ export const STATUS_LABEL: Record<Run["status"], string> = {
   aborted: "aborted",
 };
 
+// A run holds one of its world's slots from leaving the queue until it ends. A child run waits
+// on its own queue and spends its parent's budget, so only a top run counts.
+const HOLDS_SLOT = new Set<Run["status"]>(["running", "waiting_gate", "paused"]);
+export const holdsSlot = (run: Run) => !run.parent_run_id && HOLDS_SLOT.has(run.status);
+
 export function progress(run: Run): string {
   const done = run.stages.filter((s) => s.status === "done").length;
   return `${done} of ${run.stages.length} stages`;

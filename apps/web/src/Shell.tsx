@@ -9,6 +9,7 @@ import { Health } from "./Health";
 import { status } from "./pages/Connectors";
 import { figures } from "./pages/WorldOverview";
 import { Sheet } from "./Sheet";
+import { worldHome } from "./skin";
 
 type World = components["schemas"]["World"];
 
@@ -51,7 +52,7 @@ const TabIcon = ({ name }: { name: string }) => (
 );
 // Areas reached through More, so its tab is current on them.
 const MORE = new Set(["overview", "assets", "graph", "cast", "connectors", "settings", "worlds", "evals"]);
-// Switching worlds keeps the area you are in; anywhere else lands on the world's overview.
+// Switching worlds keeps the area you are in; anywhere else lands where the world opens.
 const SAME_AREA = {
   runs: "/worlds/$worldId/runs",
   workflows: "/worlds/$worldId/workflows",
@@ -145,7 +146,8 @@ export function Shell() {
     </Link>
   );
   const params = { worldId: worldId ?? "" };
-  const worldName = worlds.find((w) => w.id === worldId)?.name ?? (worldId ? "..." : "Choose a world");
+  const world = worlds.find((w) => w.id === worldId);
+  const worldName = world?.name ?? (worldId ? "..." : "Choose a world");
 
   const tab = (key: string, label: string, link: LinkProps, badge?: number) => (
     <Link {...link} className={current === key ? "tabbar-item on" : "tabbar-item"} aria-current={current === key ? "page" : undefined}>
@@ -197,7 +199,7 @@ export function Shell() {
           {item("gates", "Needs you", { to: "/gates" }, gates?.length)}
           {worldId && (
             <>
-              {item("overview", "Overview", { to: "/worlds/$worldId", params })}
+              {item("overview", "Overview", { to: worldHome(world), params })}
               {item("runs", "Runs", { to: "/worlds/$worldId/runs", params })}
               {item("workflows", "Workflows", { to: "/worlds/$worldId/workflows", params })}
               {item("library", "Library", { to: "/worlds/$worldId/library", params })}
@@ -252,7 +254,7 @@ export function Shell() {
             return (
               <Link
                 key={w.id}
-                to={SAME_AREA[area as keyof typeof SAME_AREA] ?? "/worlds/$worldId"}
+                to={SAME_AREA[area as keyof typeof SAME_AREA] ?? worldHome(w)}
                 params={{ worldId: w.id }}
                 className="sheet-row"
                 aria-current={w.id === worldId ? "true" : undefined}
@@ -269,7 +271,7 @@ export function Shell() {
         <nav aria-label="More" onClick={() => setSheet(null)}>
           {worldId && (
             <>
-              {row("Overview", { to: "/worlds/$worldId", params }, summary.overview)}
+              {row("Overview", { to: worldHome(world), params }, summary.overview)}
               {row("Assets", { to: "/worlds/$worldId/assets", params }, summary.assets ?? "files your builds read")}
               {row("Memory", { to: "/worlds/$worldId/graph", params }, "graph and notes")}
               {row("Cast", { to: "/worlds/$worldId/cast", params }, summary.cast)}
