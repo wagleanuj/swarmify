@@ -24,6 +24,7 @@ import os
 import secrets
 import shutil
 import sys
+import sysconfig
 import tempfile
 import time
 from collections.abc import Iterable
@@ -234,16 +235,19 @@ class Sandbox:
 
     def _readable(self, grants: list[Path], path: str, cwd: Path) -> list[Path]:
         """The grants plus the runtimes a package's command needs (the Python its `.venv` was
-        made from, uv, Node, the folders on its PATH, the read tripwire, and Swarmify's own
-        environment and code, whose Python a local package's command may name, and on Linux
-        sandbox-runtime's seccomp helper, found from the launcher, not `sys.path`) where they live
-        inside a denied folder, as in a home folder. A folder holding a denied one (`/`, the home
-        folder itself) is never granted, nor the folder above one on PATH (`~/.cargo` holds
-        crates.io's token beside its `bin`)."""
+        made from, uv, Node, the folders on its PATH) and what Swarmify's own install lends the
+        sandbox (the read tripwire, the Python that runs it, Swarmify's environment, whose Python
+        a local package's command may name, with the source folders its `.pth` files add for an
+        editable install, and on Linux sandbox-runtime's seccomp helper) where they live inside a
+        denied folder, as in a home folder. Each is located directly, never from `sys.path`,
+        which under pytest and `uvicorn --reload` holds the checkout itself. A folder holding a
+        denied one (`/`, the home folder itself) is never granted, nor the folder above one on
+        PATH (`~/.cargo` holds crates.io's token beside its `bin`)."""
         found = [Path(sys.base_prefix), Path(sys.prefix), OBSERVER]
         if sys.platform == "linux":
             found.append(SECCOMP)  # resolved below: pnpm keeps it in the root node_modules
-        found += [Path(p) for p in sys.path if p.startswith("/") and Path(p).is_dir()]
+        for pth in Path(sysconfig.get_path("purelib")).glob("*.pth"):
+            found += [Path(line) for line in pth.read_text().splitlines() if line.startswith("/")]
         found += [Path(p) for p in path.split(os.pathsep) if p.startswith("/")]
         venv = cwd / ".venv" / "pyvenv.cfg"
         if venv.is_file():  # `home = <its Python's bin>`

@@ -162,27 +162,62 @@ def test_a_process_gets_its_own_values_and_the_sandbox_none_of_the_apis(
     assert seen["HOME"] == seen["TMPDIR"] == str(confined.folder / "home")
 
 
-def test_a_process_started_without_the_checkout_on_sys_path_still_runs_sandboxed(
-    tmp_path: Path,
-) -> None:
-    """`python -c` (as `mise run gen-client` starts the app) puts no checkout folder on
-    `sys.path`; the sandbox still finds what it runs with, as bubblewrap's seccomp helper."""
-    root = str(LAUNCHER.parents[3])
-    code = f"""
-import subprocess, sys
+ROOT = LAUNCHER.parents[3]
+README = ROOT / "README.md"
+INSIDE = f"""
+from pathlib import Path
+try:
+    print(Path({str(README)!r}).read_text()[:0] + "read the checkout")
+except OSError:
+    print("inside")
+"""
+APP = f"""
+import multiprocessing, subprocess, sys
 from pathlib import Path
 from swarmify_connectors.sandbox import Grants, Sandbox
-assert {root!r} not in sys.path, sys.path
-argv = [sys.executable, "-c", "print('inside')"]
-confined = Sandbox(Path({str(tmp_path)!r})).wrap(argv, None, Grants())
-print(subprocess.run(confined.argv, capture_output=True, text=True, timeout=60))
+
+def run(data):
+    confined = Sandbox(Path(data)).wrap([sys.executable, "-c", {INSIDE!r}], None, Grants())
+    out = subprocess.run(confined.argv, capture_output=True, text=True, timeout=60)
+    return out.stdout, out.returncode
+
+def worker(data, queue):
+    assert {str(ROOT)!r} in sys.path, sys.path  # multiprocessing made uvicorn's '' absolute
+    queue.put(run(data))
+
+if __name__ == "__main__":
+    mode, data = sys.argv[1:]
+    if mode.startswith("uvicorn"):
+        sys.path.insert(0, "")  # its --app-dir
+    if mode == "uvicorn --reload":  # its worker is a multiprocessing spawn
+        queue = multiprocessing.get_context("spawn").Queue()
+        multiprocessing.get_context("spawn").Process(target=worker, args=(data, queue)).start()
+        print(queue.get(timeout=90))
+    else:
+        print(run(data))
 """
+
+
+@pytest.mark.parametrize("mode", ["pytest", "python", "uvicorn", "uvicorn --reload"])
+def test_a_connector_runs_but_cannot_read_the_checkout_however_the_app_was_started(
+    tmp_path: Path, mode: str
+) -> None:
+    """Swarmify's own install lends the sandbox only what it runs with (its Python, the read
+    tripwire, on Linux bubblewrap's seccomp helper), found the same way whatever is on `sys.path`:
+    the checkout under pytest (the root conftest) and in `uvicorn --reload`'s worker, none of it
+    under plain uvicorn (`''`) or `python -c` (as `mise run gen-client` starts the app)."""
+    assert README.is_file()
+    app = tmp_path / "app.py"
+    app.write_text(APP)
+    if mode == "pytest":
+        assert str(ROOT) in sys.path, sys.path
+        assert runpy.run_path(str(app))["run"](tmp_path) == ("inside\n", 0)
+        return
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    out = subprocess.run(
-        [sys.executable, "-c", code], cwd=tmp_path, env=env, capture_output=True, text=True
-    )
+    argv = [sys.executable, str(app), mode, str(tmp_path)]
+    out = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
-    assert "stdout='inside\\n'" in out.stdout and "returncode=0" in out.stdout, out.stdout
+    assert out.stdout.strip() == repr(("inside\n", 0)), out.stdout
 
 
 def test_what_a_process_may_use(tmp_path: Path) -> None:

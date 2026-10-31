@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import re
@@ -5,6 +6,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import zlib
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -50,7 +52,10 @@ def test_add_a_connector_see_its_tools_and_open_its_call_on_the_timeline(
         page.get_by_role("button", name="Add a connector").click()
 
         page.get_by_role("textbox", name="Name", exact=True).fill("echo")
-        command = shlex.join([sys.executable, str(ECHO), str(tmp_path)])
+        # the server's source in the command itself, as its sandbox cannot read the checkout
+        source = base64.b64encode(zlib.compress(ECHO.read_bytes(), 9)).decode()
+        run = f"import base64, zlib; exec(zlib.decompress(base64.b64decode('{source}')))"
+        command = shlex.join([sys.executable, "-c", run, str(tmp_path)])
         page.get_by_role("textbox", name="MCP server").fill(command)
         page.get_by_role("textbox", name="Keys").fill("ECHO_KEY=e2e-secret")
         page.get_by_role("button", name="Test and list tools").click()
