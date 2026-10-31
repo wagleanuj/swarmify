@@ -34,6 +34,8 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).parent
 LAUNCHER = HERE.parents[1] / "sandbox" / "launcher.mjs"
 OBSERVER = HERE / "observe.py"
+SECCOMP = LAUNCHER.parent / "node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp"
+"""sandbox-runtime's `apply-seccomp` helpers, which bubblewrap starts in the sandbox on Linux."""
 RUNNER = "SWARMIFY_SANDBOX_RUNNER"
 REGISTRIES = {
     "uv": ["pypi.org", "files.pythonhosted.org"],
@@ -233,11 +235,14 @@ class Sandbox:
     def _readable(self, grants: list[Path], path: str, cwd: Path) -> list[Path]:
         """The grants plus the runtimes a package's command needs (the Python its `.venv` was
         made from, uv, Node, the folders on its PATH, the read tripwire, and Swarmify's own
-        environment and code, whose Python a local package's command may name) where they live
+        environment and code, whose Python a local package's command may name, and on Linux
+        sandbox-runtime's seccomp helper, found from the launcher, not `sys.path`) where they live
         inside a denied folder, as in a home folder. A folder holding a denied one (`/`, the home
         folder itself) is never granted, nor the folder above one on PATH (`~/.cargo` holds
         crates.io's token beside its `bin`)."""
         found = [Path(sys.base_prefix), Path(sys.prefix), OBSERVER]
+        if sys.platform == "linux":
+            found.append(SECCOMP)  # resolved below: pnpm keeps it in the root node_modules
         found += [Path(p) for p in sys.path if p.startswith("/") and Path(p).is_dir()]
         found += [Path(p) for p in path.split(os.pathsep) if p.startswith("/")]
         venv = cwd / ".venv" / "pyvenv.cfg"

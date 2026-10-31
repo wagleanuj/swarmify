@@ -162,6 +162,29 @@ def test_a_process_gets_its_own_values_and_the_sandbox_none_of_the_apis(
     assert seen["HOME"] == seen["TMPDIR"] == str(confined.folder / "home")
 
 
+def test_a_process_started_without_the_checkout_on_sys_path_still_runs_sandboxed(
+    tmp_path: Path,
+) -> None:
+    """`python -c` (as `mise run gen-client` starts the app) puts no checkout folder on
+    `sys.path`; the sandbox still finds what it runs with, as bubblewrap's seccomp helper."""
+    root = str(LAUNCHER.parents[3])
+    code = f"""
+import subprocess, sys
+from pathlib import Path
+from swarmify_connectors.sandbox import Grants, Sandbox
+assert {root!r} not in sys.path, sys.path
+argv = [sys.executable, "-c", "print('inside')"]
+confined = Sandbox(Path({str(tmp_path)!r})).wrap(argv, None, Grants())
+print(subprocess.run(confined.argv, capture_output=True, text=True, timeout=60))
+"""
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert out.returncode == 0, out.stderr
+    assert "stdout='inside\\n'" in out.stdout and "returncode=0" in out.stdout, out.stdout
+
+
 def test_what_a_process_may_use(tmp_path: Path) -> None:
     sandbox = Sandbox(tmp_path)
     package, stage = tmp_path / "packages/p/1.0.0", tmp_path / "worlds/w/runs/r/s"
