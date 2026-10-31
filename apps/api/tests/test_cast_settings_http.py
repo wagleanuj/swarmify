@@ -129,6 +129,17 @@ def test_settings_have_defaults_change_one_at_a_time_and_reach_the_run_queue(
     assert running.patch("/api/worlds/world_nope", json={"run_cap": 2}).status_code == 404
 
 
+def test_the_skin_view_is_read_and_written_through_the_settings(running: TestClient) -> None:
+    world = running.post("/api/worlds", json={"name": "Video"}).json()
+    assert world["skin"] == {"view": "plain"}
+    changed = running.patch(f"/api/worlds/{world['id']}", json={"skin": {"view": "office"}})
+    assert changed.status_code == 200 and changed.json()["skin"] == {"view": "office"}
+    assert running.get(f"/api/worlds/{world['id']}").json()["skin"] == {"view": "office"}
+    for bad in ({"view": "map"}, {"view": "office", "theme": "dark"}, None):
+        assert running.patch(f"/api/worlds/{world['id']}", json={"skin": bad}).status_code == 422
+    assert running.get(f"/api/worlds/{world['id']}").json()["skin"] == {"view": "office"}
+
+
 def test_the_cast_has_defaults_and_edits_need_confirmation_and_are_versioned(
     running: TestClient, tmp_path: Path
 ) -> None:

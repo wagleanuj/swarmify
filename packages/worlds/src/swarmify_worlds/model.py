@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal, get_args
 
 RETENTION_DAYS = 90
 """How long a new world keeps run binaries. 0 keeps them forever."""
@@ -8,6 +9,16 @@ AGENT_COUNT = 4
 """How many workers a new world's cast has, besides its planner and judge."""
 MODEL_ROLES = ("planner", "worker", "judge", "retro")
 """The roles the Cast may give a model of their own."""
+View = Literal["plain", "office"]
+"""How a world's page looks: the plain lists or the Office skin."""
+VIEWS: tuple[View, ...] = get_args(View)
+
+
+@dataclass(frozen=True)
+class Skin:
+    """How the web app draws a world. Only the view so far; the Office adds its pack and cast."""
+
+    view: View = "plain"
 
 
 @dataclass(frozen=True)
@@ -28,6 +39,7 @@ class World:
     judge_model: str | None = None
     retro_model: str | None = None
     """Per-role overrides of `model`, set on the Cast. None: the world's model."""
+    skin: Skin = field(default_factory=Skin)
 
     def model_for(self, role: str | None) -> str | None:
         """The role's override, else the world's model; None leaves it to the global default.

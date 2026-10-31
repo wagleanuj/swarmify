@@ -8,7 +8,7 @@ import pytest
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel import Event
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_worlds import MIGRATIONS, Record, SqliteStorage, Worlds
+from swarmify_worlds import MIGRATIONS, Record, Skin, SqliteStorage, Worlds
 from swarmify_worlds.cast import names, records
 
 
@@ -60,6 +60,9 @@ def test_a_new_world_has_default_settings_and_each_change_is_an_event(worlds: Wo
         {"model": "two words"},
         {"judge_model": 5},
         {"intern_model": "claude-haiku-4-5"},
+        {"skin": None},
+        {"skin": {"view": "map"}},
+        {"skin": {"view": "office", "theme": "dark"}},
     ],
 )
 def test_settings_out_of_range_are_refused_and_nothing_is_written(
@@ -70,6 +73,15 @@ def test_settings_out_of_range_are_refused_and_nothing_is_written(
         worlds.configure(world.id, changes)
     assert worlds.get(world.id) == world
     assert [e.type for e in worlds.events_after(world.id)] == ["world.created"]
+
+
+def test_the_skin_starts_plain_and_is_saved_whole_as_an_event(worlds: Worlds) -> None:
+    world = worlds.create("Video")
+    assert world.skin == Skin("plain")
+    changed = worlds.configure(world.id, {"skin": {"view": "office"}})
+    assert changed is not None and worlds.get(world.id) == changed
+    assert changed.skin == Skin("office")
+    assert worlds.events_after(world.id)[-1].payload == {"id": world.id, "skin": {"view": "office"}}
 
 
 def test_the_model_for_a_role_is_its_override_then_the_world_default_then_none(

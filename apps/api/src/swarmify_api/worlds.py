@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from swarmify_worlds import (
     MAX_AGENTS,
@@ -18,6 +18,7 @@ from swarmify_worlds import (
     MAX_RUN_CAP,
     CastEdit,
     CastMember,
+    View,
     World,
     Worlds,
 )
@@ -29,6 +30,14 @@ KEEPALIVE_SECONDS = 15
 class NewWorld(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
     purpose: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
+
+
+class SkinSetting(BaseModel):
+    """How the web app draws the world; unknown keys are refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    view: View = "plain"
 
 
 class WorldSettings(BaseModel):
@@ -50,6 +59,8 @@ class WorldSettings(BaseModel):
     retro_model: str | None = None
     """A role's model, over the world's; null for the world's. A swarm stage's `model` wins
     over both."""
+    skin: SkinSetting | None = None
+    """How the web app draws the world, replaced whole."""
 
 
 class CastChange(BaseModel):
@@ -93,6 +104,8 @@ def router(
     def update_settings(world_id: str, body: WorldSettings) -> World:
         """Change the settings given; `monthly_budget_usd: null` removes the ceiling."""
         changes = {k: getattr(body, k) for k in body.model_fields_set}
+        if body.skin is not None:
+            changes["skin"] = body.skin.model_dump()
         try:
             world = worlds.configure(world_id, changes)
         except ValueError as exc:

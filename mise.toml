@@ -41,6 +41,7 @@ run = [
   "uv run ruff format --check .",
   "uv run pyright",
   "uv run python tools/check_imports.py packages",
+  "uv run python tools/check_office_imports.py apps/web/src",
   "pnpm --filter web typecheck",
 ]
 

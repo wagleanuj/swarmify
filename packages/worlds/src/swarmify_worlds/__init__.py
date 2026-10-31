@@ -3,8 +3,8 @@
 Each world owns a folder under `<data_dir>/worlds/<id>` (files are memory, ADR 0001), with an
 empty `assets/` for the operator's reusable files, and a row plus an event stream in SQLite
 (state). Deleting a world removes both. Its settings (monthly budget, run cap, retention, agent
-count, models) and the edits to its Cast live on the row and in `cast_edits`; every change is an
-event on the world's stream.
+count, models, skin) and the edits to its Cast live on the row and in `cast_edits`; every change
+is an event on the world's stream.
 """
 
 import re
@@ -23,9 +23,12 @@ from swarmify_worlds.model import (
     MODEL_ROLES,
     RETENTION_DAYS,
     RUN_CAP,
+    VIEWS,
     CastEdit,
     CastMember,
     Record,
+    Skin,
+    View,
     World,
 )
 from swarmify_worlds.ports import Storage
@@ -43,10 +46,13 @@ __all__ = [
     "PLANNER",
     "RETENTION_DAYS",
     "RUN_CAP",
+    "VIEWS",
+    "View",
     "SETTINGS",
     "CastEdit",
     "CastMember",
     "Record",
+    "Skin",
     "SqliteStorage",
     "Storage",
     "World",
@@ -79,6 +85,11 @@ def check_settings(changes: dict[str, Any]) -> None:
         elif key == "agent_count":
             if not (isinstance(value, int) and 1 <= value <= MAX_AGENTS):
                 raise ValueError(f"the agent count is 1 to {MAX_AGENTS}, got {value}")
+        elif key == "skin":
+            if not (isinstance(value, dict) and set(value) <= {"view"}):
+                raise ValueError("a skin has only a view")
+            if value.get("view", "plain") not in VIEWS:
+                raise ValueError(f"a view is {' or '.join(VIEWS)}, got {value['view']!r}")
         elif key in SETTINGS[4:]:
             if value is not None and not (isinstance(value, str) and MODEL_ID.fullmatch(value)):
                 raise ValueError(f"a model is a model id such as claude-opus-5-5, got {value!r}")
@@ -132,8 +143,8 @@ class Worlds:
 
     def configure(self, world_id: str, changes: dict[str, Any]) -> World | None:
         """Change the given settings (`monthly_budget_usd`, `run_cap`, `retention_days`,
-        `agent_count`, `model` and the per-role `<role>_model`). Raises ValueError for a value out
-        of range; None for an unknown world."""
+        `agent_count`, `model`, the per-role `<role>_model` and `skin`, replaced whole). Raises
+        ValueError for a value out of range; None for an unknown world."""
         check_settings(changes)
         event = Event.new("world.updated", world_id=world_id, payload={"id": world_id, **changes})
         return self.storage.update_settings(world_id, changes, event)

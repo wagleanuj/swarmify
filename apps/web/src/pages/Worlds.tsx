@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { CurrentWorld } from "../Shell";
+import { worldHome } from "../skin";
 
 type World = components["schemas"]["World"];
 
@@ -63,7 +64,7 @@ export function Worlds() {
   const row = (w: World) => (
     <tr key={w.id} data-testid="world-row">
       <td>
-        <Link to="/worlds/$worldId" params={{ worldId: w.id }}>
+        <Link to={worldHome(w)} params={{ worldId: w.id }}>
           {w.name}
         </Link>
         {w.id === current && (

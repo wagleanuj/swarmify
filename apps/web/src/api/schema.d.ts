@@ -3242,6 +3242,30 @@ export interface components {
             created_at: string;
         };
         /**
+         * Skin
+         * @description How the web app draws a world. Only the view so far; the Office adds its pack and cast.
+         */
+        Skin: {
+            /**
+             * View
+             * @default plain
+             * @enum {string}
+             */
+            view: "plain" | "office";
+        };
+        /**
+         * SkinSetting
+         * @description How the web app draws the world; unknown keys are refused.
+         */
+        SkinSetting: {
+            /**
+             * View
+             * @default plain
+             * @enum {string}
+             */
+            view: "plain" | "office";
+        };
+        /**
          * Spend
          * @description What the world's runs spent this calendar month against its Monthly Budget.
          */
@@ -3614,6 +3638,7 @@ export interface components {
             judge_model?: string | null;
             /** Retro Model */
             retro_model?: string | null;
+            skin?: components["schemas"]["Skin"];
         };
         /**
          * WorldSettings
@@ -3638,6 +3663,7 @@ export interface components {
             judge_model?: string | null;
             /** Retro Model */
             retro_model?: string | null;
+            skin?: components["schemas"]["SkinSetting"] | null;
         };
         /** YamlBody */
         YamlBody: {

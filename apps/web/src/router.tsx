@@ -2,7 +2,10 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
+  Outlet,
   redirect,
+  useLocation,
   type RouterHistory,
 } from "@tanstack/react-router";
 
@@ -23,7 +26,9 @@ import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 import { Shell } from "./Shell";
 
-const rootRoute = createRootRoute({ component: Shell });
+// The office draws its own full-screen shell; every other screen sits in the sidebar shell.
+const Root = () => (useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />);
+const rootRoute = createRootRoute({ component: Root });
 
 export const worldsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -52,6 +57,13 @@ export const worldRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId",
   component: WorldOverview,
+});
+
+// Its own module, loaded the first time an office route opens.
+export const officeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/office",
+  component: lazyRouteComponent(() => import("./office/Office"), "Office"),
 });
 
 export const workflowsRoute = createRoute({
@@ -164,6 +176,7 @@ const routeTree = rootRoute.addChildren([
   gatesRoute,
   evalsRoute,
   worldRoute,
+  officeRoute,
   workflowsRoute,
   newWorkflowRoute,
   workflowRoute,

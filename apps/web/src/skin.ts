@@ -1,3 +1,5 @@
+import { api } from "./api/client";
+
 /** Role names on the page (ADR 0004, amended): code says planner and worker-1, the plain skin
  * says Planner and Worker 1. The Pied Piper names are an opt-in local skin, turned on in
  * Settings and kept in this browser only. */
@@ -42,3 +44,21 @@ export const the = (name: string) => (piedPiper() && PIED_PIPER[name] ? PIED_PIP
 export const baseline = () => (piedPiper() ? "Hooli baseline" : "baseline");
 
 export const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** How a world is drawn: the plain pages or the Office skin, saved on the world. */
+export type View = "plain" | "office";
+
+/** Where a world opens: its office when its view is Office, else the plain overview. */
+export const worldHome = (world?: { skin?: { view: View } }) =>
+  world?.skin?.view === "office" ? ("/worlds/$worldId/office" as const) : ("/worlds/$worldId" as const);
+
+/** Save the world's view; false when the API refused it.
+ * ponytail: the API replaces the skin whole, so once the skin also holds pack and cast this must
+ * send the world's current skin with the new view (or the API must merge skin keys). */
+export async function saveView(worldId: string, view: View): Promise<boolean> {
+  const { error } = await api.PATCH("/api/worlds/{world_id}", {
+    params: { path: { world_id: worldId } },
+    body: { skin: { view } },
+  });
+  return !error;
+}
