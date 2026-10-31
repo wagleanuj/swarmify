@@ -171,13 +171,24 @@ def main(argv: list[str]) -> int:
     if not fds:
         report(f"note: no read tripwire: {message.decode(errors='replace')}")
         return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
-    listener, seen = fds[0], set()
+    listener, seen, status = fds[0], set(), None
     poll = select.poll()
     poll.register(listener, select.POLLIN)
+    # Reap the command as soon as it ends: until a dead task is reaped, kernels before 6.x still
+    # count it as using the filter, so waiting for the listener's hangup first never ends.
+    child = os.pidfd_open(pid)  # pyright: ignore[reportAttributeAccessIssue]  # Linux only, as is this
+    poll.register(child, select.POLLIN)
     while True:
         events = dict(poll.poll())
+        if events.get(child, 0) and status is None:
+            status = os.waitpid(pid, 0)[1]
+            poll.unregister(child)
+            os.close(child)
+            continue
         if events.get(listener, 0) & (select.POLLHUP | select.POLLERR):
             break  # no process uses the filter any more
+        if not events.get(listener, 0) & select.POLLIN:
+            continue
         request = bytearray(80)
         try:
             fcntl.ioctl(listener, NOTIF_RECV, request, True)
@@ -202,7 +213,7 @@ def main(argv: list[str]) -> int:
             fcntl.ioctl(listener, NOTIF_SEND, answer, True)
         except OSError:
             pass
-    return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
+    return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1] if status is None else status)
 
 
 if __name__ == "__main__":
