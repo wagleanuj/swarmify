@@ -413,6 +413,22 @@ installed version with its `label`, `kind`, `about` and `state` (`installed`, or
 the `problem` when its Manifest no longer passes), and the connectors page lists them under
 Installed packages.
 
+A git source may name a `subfolder` (`connectors/speech`), the package's folder when it is not
+at the repository's root; the install record keeps it.
+
+The curated index (ADR 0019, issue 226): one TOML file listing known packages, one
+`[[packages]]` table each with `name`, `description`, `git`, an optional `subfolder`, the
+recommended `ref` and its `permissions` as the review lists them. The format, and how authors
+add a package by pull request, is in `docs/index-repo/README.md`, which with `index.toml` and
+`LICENSE` beside it is the content of the `wagleanuj/swarmify-connectors` repository.
+`SWARMIFY_CONNECTOR_INDEX` says where it is read from: an https URL (no redirects, at most
+1 MB, 10 s) or a local file, by default
+`https://raw.githubusercontent.com/wagleanuj/swarmify-connectors/main/index.toml`.
+`GET /api/packages/index` answers its entries, or a 502 saying why it could not be read (not
+reachable, too large, too slow, not TOML, or the first bad field). The connectors page's Browse
+the index lists them with a search, and installing one opens the usual review: the index's
+permissions are only a summary, and the operator approves what the clone declares.
+
 Default packages (ADR 0023, issue 213): every package in this repository's `connectors/` folder.
 On startup Swarmify installs each whose version is not installed yet, and gives it to every
 world once, enabled at that version: the worlds there on upgrade, and each new world as it is

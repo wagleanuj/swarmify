@@ -476,8 +476,8 @@ test("installing from git shows every permission, marks what an upgrade adds, an
   await shown.getByRole("button", { name: "Approve and install 2.0.0" }).click();
   await expect.element(screen.getByText("Installed Echo 2.0.0. Enable it below in each world that uses it.")).toBeVisible();
   expect(sent).toEqual([
-    { source: "https://example.org/echo.git", ref: "v2.0.0" },
-    { source: "https://example.org/echo.git", ref: "v2.0.0", commit: review.commit, approved: permissions },
+    { source: "https://example.org/echo.git", ref: "v2.0.0", subfolder: null },
+    { source: "https://example.org/echo.git", ref: "v2.0.0", subfolder: null, commit: review.commit, approved: permissions },
   ]);
 });
 
@@ -506,4 +506,52 @@ test("an upgrade adding no permission says so, and a refused source says why", a
   await expect.element(shown).toMatchTextContent(/No longer asks for: network: old\.example\.org\./);
   await expect.element(shown).toMatchTextContent(/It asks for no permissions/);
   await expect.element(shown.getByRole("button", { name: "Install 1.1.0" })).toBeVisible();
+});
+
+test("browsing the index searches it and installs an entry through the usual review", async () => {
+  const sent: unknown[] = [];
+  const speech = { name: "speech", description: "Voices a script.", git: "https://github.com/wagleanuj/swarmify.git", subfolder: "connectors/speech", ref: "v2", permissions: ["services: engines", "owned_folders: voices"] };
+  const slack = { name: "slack", description: "Posts each gate to a channel.", git: "https://example.org/slack.git", subfolder: null, ref: "v1.0.0", permissions: [] };
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/packages": () => Response.json([{ name: "slack", version: "1.0.0", label: "Slack", kind: "notify", about: "", source: "x", installed_at: "2026-10-30T10:00:00+00:00", state: "installed" }]),
+    "GET /api/packages/index": () => Response.json({ url: "https://example.org/index.toml", packages: [speech, slack] }),
+    "POST /api/packages/review": async (req) => {
+      sent.push(await req.json());
+      return Response.json({ name: "speech", version: "1.0.0", label: "Speech", about: "Voices a script.", commit: "abcdef0123456789", permissions: ["install_network: pypi.org", "services: engines"], upgrade: null });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Browse the index" }).click();
+  const index = screen.getByRole("region", { name: "Browse the index" });
+  await expect.element(index).toMatchTextContent(/read from https:\/\/example\.org\/index\.toml/);
+  const rows = index.getByRole("list", { name: "Packages in the index" }).getByRole("listitem");
+  await expect.element(rows.first()).toMatchTextContent(/speech\s*Voices a script\.\s*Asks for: services: engines, owned_folders: voices/);
+  await expect.element(rows.last()).toMatchTextContent(/Asks for: no permissions.*Installed 1\.0\.0/);
+
+  const search = index.getByRole("searchbox", { name: "Search" });
+  await search.fill("voices");
+  await expect.poll(() => rows.elements().length).toBe(1);
+  await search.fill("nothing like it");
+  await expect.element(index).toMatchTextContent(/Nothing in the index matches "nothing like it"\./);
+  await search.fill("");
+
+  await index.getByRole("button", { name: "Review and install speech" }).click();
+  const form = screen.getByRole("form", { name: "Install a package" });
+  await expect.element(form.getByRole("textbox", { name: /Folder in the repository/ })).toHaveValue("connectors/speech");
+  const shown = form.getByRole("region", { name: "Permissions of speech 1.0.0" });
+  await expect.element(shown).toMatchTextContent(/Hosts its install step reaches\s*pypi\.org/);
+  expect(sent).toEqual([{ source: speech.git, ref: "v2", subfolder: "connectors/speech" }]);
+});
+
+test("an index that cannot be read says why", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/packages/index": () => Response.json({ detail: "Could not read the index at https://example.org/index.toml: it took over 10 s" }, { status: 502 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await screen.getByRole("button", { name: "Browse the index" }).click();
+  await expect
+    .element(screen.getByRole("region", { name: "Browse the index" }).getByRole("alert"))
+    .toHaveTextContent("Could not read the index at https://example.org/index.toml: it took over 10 s");
 });

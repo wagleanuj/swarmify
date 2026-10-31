@@ -46,6 +46,8 @@ INSTALL_SECONDS = 900
 GIT_SECONDS = 300
 _REF = re.compile(r"^(?!-)[A-Za-z0-9._/-]{1,200}$")
 """A tag, branch or commit to check out: never an option, never git's revision syntax."""
+_SUBFOLDER = re.compile(r"^(?!.*(^|/)\.\.?(/|$))[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
+"""A folder of a repository, as `connectors/speech`: relative, never `.` or `..`."""
 SKIPPED = (".git", ".venv", "node_modules", "__pycache__")
 COPY_SKIPS = shutil.ignore_patterns(*SKIPPED, RECORD)
 CAPABILITIES = ("publish", "outcomes", "build_session", "check", "remote_approvals")
@@ -265,6 +267,8 @@ class Package:
     """The tag, branch or commit it was installed at, for one installed from git."""
     commit: str | None = None
     """The commit that ref resolved to, for one installed from git."""
+    subfolder: str | None = None
+    """The folder of the repository the package is in, for one not at its root."""
 
 
 def _where(path: Any) -> str:
@@ -621,11 +625,14 @@ class Packages:
             return self.install(folder, LOCAL)
 
     @contextmanager
-    def _fetched(self, source: str, ref: str | None) -> Iterator[tuple[Path, str | None]]:
-        """The package folder at `source` and, for a git source, the commit checked out. A git
-        source is an https URL, or a local path given a `ref`; it is cloned into a temporary
-        folder, removed after, running none of its code. Raises InstallError for any other URL,
-        one carrying credentials, a bad ref, a git failure or a symlink out of the package."""
+    def _fetched(
+        self, source: str, ref: str | None, subfolder: str | None = None
+    ) -> Iterator[tuple[Path, str | None]]:
+        """The package folder at `source` (its `subfolder` when given, as `connectors/speech`)
+        and, for a git source, the commit checked out. A git source is an https URL, or a local
+        path given a `ref`; it is cloned into a temporary folder, removed after, running none of
+        its code. Raises InstallError for any other URL, one carrying credentials, a bad ref or
+        subfolder, a git failure or a symlink out of the package."""
         scheme = urlsplit(source).scheme
         if "://" in source and scheme != "https":
             raise InstallError(f"{scheme}:// is refused: install from an https:// URL or a path")
@@ -633,8 +640,17 @@ class Packages:
             raise InstallError("the URL carries credentials: only public repositories install")
         if ref is not None and not _REF.fullmatch(ref):
             raise InstallError(f"{ref} is not a tag, branch or commit")
+        if subfolder is not None and not _SUBFOLDER.fullmatch(subfolder):
+            raise InstallError(f"{subfolder} is not a folder inside the repository")
+
+        def inside(root: Path) -> Path:
+            folder = (root / subfolder) if subfolder else root
+            if not folder.resolve().is_relative_to(root.resolve()) or not folder.is_dir():
+                raise InstallError(f"{source} has no folder {subfolder}")
+            return folder
+
         if scheme != "https" and ref is None:
-            folder = self._source(source)
+            folder = inside(self._source(source))
             if link := _escaping(folder):
                 raise InstallError(f"{link} is a symlink out of the package folder")
             yield folder, None
@@ -654,6 +670,7 @@ class Packages:
             if commit is None:
                 raise InstallError(f"{source} has no tag, branch or commit {ref}")
             _git("-C", str(folder), "checkout", "--quiet", "--detach", commit)
+            folder = inside(folder)
             if link := _escaping(folder):
                 raise InstallError(f"{link} is a symlink out of the package folder")
             yield folder, commit
@@ -667,12 +684,15 @@ class Packages:
 
         return max(versions, key=key, default=None)
 
-    def review(self, source: str, ref: str | None = None) -> dict[str, Any]:
-        """What installing `source` at `ref` would grant, read without running any of it: its
-        name, version, label and about, the commit a git source resolved to, every permission
-        it declares, and for an upgrade what they add and remove since the newest installed
-        version (`upgrade`, None for a first install). Raises ManifestError or InstallError."""
-        with self._fetched(source, ref) as (folder, commit):
+    def review(
+        self, source: str, ref: str | None = None, subfolder: str | None = None
+    ) -> dict[str, Any]:
+        """What installing `source` at `ref` (its `subfolder`, when given) would grant, read
+        without running any of it: its name, version, label and about, the commit a git source
+        resolved to, every permission it declares, and for an upgrade what they add and remove
+        since the newest installed version (`upgrade`, None for a first install). Raises
+        ManifestError or InstallError."""
+        with self._fetched(source, ref, subfolder) as (folder, commit):
             m = read_manifest(folder)
         if (self.root / m["name"] / m["version"] / RECORD).exists():
             raise InstallError(f"{m['name']} {m['version']} is already installed")
@@ -696,21 +716,26 @@ class Packages:
         ref: str | None = None,
         commit: str | None = None,
         approved: Collection[str] | None = None,
+        subfolder: str | None = None,
     ) -> Package:
-        """Copy the package at `source` (cloned at `commit`, the one reviewed, else at `ref`)
-        to `<root>/<name>/<version>/` and run its install step there. `approved`, the permissions
-        the operator approved, must hold every one it declares, or nothing of it runs; None
-        for this repository's own packages and local ones, which Swarmify trusts. Raises
+        """Copy the package at `source` (cloned at `commit`, the one reviewed, else at `ref`;
+        its `subfolder`, when given) to `<root>/<name>/<version>/` and run its install step
+        there. `approved`, the permissions the operator approved, must hold every one it
+        declares, or nothing of it runs; None for this repository's own packages and local
+        ones, which Swarmify trusts. Raises
         ManifestError for a bad Manifest, InstallError when a permission is not approved, the
         version is installed already or the step fails; either way nothing new is left
         behind."""
-        with self._fetched(source, commit or ref) as (folder, resolved):
-            return self._install(folder, record_as or source, ref or commit, resolved, approved)
+        with self._fetched(source, commit or ref, subfolder) as (folder, resolved):
+            record = {"source": record_as or source}
+            if subfolder:
+                record["subfolder"] = subfolder
+            return self._install(folder, record, ref or commit, resolved, approved)
 
     def _install(
         self,
         folder: Path,
-        source: str,
+        source: dict[str, str],
         ref: str | None,
         commit: str | None,
         approved: Collection[str] | None,
@@ -730,7 +755,7 @@ class Packages:
             if manifest.get("install"):
                 self._run_install(manifest, target, folder.is_relative_to(self.repo.resolve()))
             record: dict[str, Any] = {
-                "source": source,
+                **source,
                 "installed_at": datetime.now(UTC).isoformat(),
             }
             if commit:

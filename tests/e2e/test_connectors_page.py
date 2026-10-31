@@ -5,6 +5,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import httpx
@@ -348,3 +350,55 @@ def test_install_from_git_shows_the_permissions_and_asks_again_for_an_upgrade(
         httpx.delete(f"{base_url}/api/worlds/{world['id']}")
         for version in ("1.0.0", "2.0.0"):
             httpx.delete(f"{base_url}/api/packages/echo_git/{version}")
+
+
+def test_the_index_is_browsed_and_an_entry_installs_through_the_review(
+    page: Page, serve: Callable[..., AbstractContextManager[str]], tmp_path: Path
+) -> None:
+    work, bare = tmp_path / "mono", tmp_path / "mono.git"
+    package = work / "connectors/echo_index"
+    shutil.copytree(ECHO.parent / "fixtures/packages/echo", package)
+    toml = package / "swarmify-connector.toml"
+    toml.write_text(toml.read_text().replace('name = "echo"', 'name = "echo_index"'))
+    git(work, "init", "-q")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "1.0.0")
+    git(work, "tag", "v1.0.0")
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(bare))
+    index = tmp_path / "index.toml"
+    index.write_text(
+        f"""[[packages]]
+name = "echo_index"
+description = "Says back what it is given."
+git = "{bare}"
+subfolder = "connectors/echo_index"
+ref = "v1.0.0"
+permissions = ["network: api.example.org"]
+
+[[packages]]
+name = "other"
+description = "Something else."
+git = "https://example.org/other.git"
+ref = "v1.0.0"
+permissions = []
+"""
+    )
+    with serve(tmp_path / "data", SWARMIFY_CONNECTOR_INDEX=str(index)) as url:
+        world = httpx.post(f"{url}/api/worlds", json={"name": "Index"}).json()
+        page.goto(f"{url}/worlds/{world['id']}/connectors")
+        page.get_by_role("button", name="Browse the index").click()
+        browse = page.get_by_role("region", name="Browse the index")
+        rows = browse.get_by_role("list", name="Packages in the index").get_by_role("listitem")
+        expect(rows).to_have_count(2)
+        browse.get_by_role("searchbox", name="Search").fill("says back")
+        expect(rows).to_have_count(1)
+        expect(rows).to_contain_text("Asks for: network: api.example.org")
+        rows.get_by_role("button", name="Review and install echo_index").click()
+
+        form = page.get_by_role("form", name="Install a package")
+        shown = form.get_by_role("region", name="Permissions of echo_index 1.0.0")
+        expect(shown).to_contain_text("ECHO_KEY", timeout=15_000)  # the clone's, not the index's
+        shown.get_by_role("button", name="Approve and install 1.0.0").click()
+        expect(page.get_by_text("Installed Echo 1.0.0.")).to_be_visible(timeout=30_000)
+        installed = {p["name"]: p for p in httpx.get(f"{url}/api/packages").json()}
+        assert installed["echo_index"]["subfolder"] == "connectors/echo_index"

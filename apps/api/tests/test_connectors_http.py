@@ -417,6 +417,52 @@ def test_install_from_git_at_a_tag_once_its_permissions_are_approved(
     assert http.status_code == 422 and http.json()["detail"].startswith("http:// is refused")
 
 
+def test_the_index_lists_packages_that_install_through_the_review(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    work = tmp_path / "mono"
+    fixtures = Path(__file__).parents[3] / "packages/connectors/tests/fixtures"
+    shutil.copytree(fixtures / "packages/echo", work / "connectors/echo")
+    git(work, "init", "-q")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "echo")
+    git(work, "tag", "v1.0.0")
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(tmp_path / "mono.git"))
+    index = tmp_path / "index.toml"
+    index.write_text(
+        f"""[[packages]]
+name = "echo"
+description = "Says it back."
+git = "{tmp_path / "mono.git"}"
+subfolder = "connectors/echo"
+ref = "v1.0.0"
+permissions = ["network: api.example.org"]
+"""
+    )
+    monkeypatch.setenv("SWARMIFY_CONNECTOR_INDEX", str(index))
+    listed = client.get("/api/packages/index")
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["url"] == str(index)
+    [entry] = listed.json()["packages"]
+    assert entry["subfolder"] == "connectors/echo" and entry["description"] == "Says it back."
+
+    source = {k: entry[k] for k in ("subfolder", "ref")} | {"source": entry["git"]}
+    review = client.post("/api/packages/review", json=source).json()
+    assert len(review["permissions"]) > len(entry["permissions"])  # the clone's, not the index's
+    approve = {**source, "commit": review["commit"], "approved": review["permissions"]}
+    installed = client.post("/api/packages", json=approve)
+    assert installed.status_code == 201, installed.text
+    assert installed.json()["subfolder"] == "connectors/echo"
+
+    monkeypatch.setenv("SWARMIFY_CONNECTOR_INDEX", "http://example.org/index.toml")
+    down = client.get("/api/packages/index")
+    assert down.status_code == 502
+    assert down.json()["detail"] == (
+        "Could not read the index at http://example.org/index.toml:"
+        " http:// is refused: the index is fetched over https:// only"
+    )
+
+
 ECHO = """name: Say it
 stages:
   - swarm: write

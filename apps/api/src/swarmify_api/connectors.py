@@ -2,6 +2,7 @@
 Connector Packages installed for the whole install."""
 
 import hashlib
+import os
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
@@ -23,6 +24,7 @@ from swarmify_connectors import (
     Package,
     Tool,
 )
+from swarmify_connectors.index import INDEX_URL, IndexUnavailable, read_index
 from swarmify_connectors.oauth import CALLBACK, SignInNeeded
 from swarmify_connectors.setup import env_name, fields, needs_sign_in, scope, secret
 from swarmify_workflows import Workflows
@@ -111,6 +113,9 @@ class PackageSource(BaseModel):
     ref: Ref | None = None
     """The tag, branch or commit to install from git; none for a git URL's default branch, or
     for a folder copied as it is. A local path given one is cloned at it."""
+    subfolder: Ref | None = None
+    """The folder of the repository the package is in, as `connectors/speech`; none for its
+    root."""
 
 
 class PackageInstall(PackageSource):
@@ -143,6 +148,24 @@ class PackageReview(BaseModel):
     install_network, folders, services, owned_folders, credentials, sign_in, capabilities."""
     upgrade: Upgrade | None
     """For a package with a version installed already, how its permissions change."""
+
+
+class IndexEntry(BaseModel):
+    """One package the curated index lists (issue 226). `permissions` is the index's summary,
+    for browsing; the review of the clone lists what the operator approves."""
+
+    name: str
+    description: str
+    git: str
+    subfolder: str | None
+    ref: str
+    permissions: list[str]
+
+
+class PackageIndex(BaseModel):
+    url: str
+    """Where the index was read from: the `SWARMIFY_CONNECTOR_INDEX` setting."""
+    packages: list[IndexEntry]
 
 
 class EnabledPackage(BaseModel):
@@ -327,6 +350,18 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         """Every Connector Package version installed for the whole install (ADR 0023)."""
         return packages.list()
 
+    @api.get("/packages/index")
+    def package_index() -> PackageIndex:
+        """The curated index of known packages, read from `SWARMIFY_CONNECTOR_INDEX` (an https
+        URL or a local file; by default the swarmify-connectors repository's `index.toml`). 502
+        saying why when it cannot be fetched or read."""
+        url = os.environ.get("SWARMIFY_CONNECTOR_INDEX") or INDEX_URL
+        try:
+            entries = read_index(url)
+        except IndexUnavailable as exc:
+            raise HTTPException(502, f"Could not read the index at {url}: {exc}") from exc
+        return PackageIndex(url=url, packages=[IndexEntry(**e) for e in entries])
+
     @api.post("/packages/review")
     def review_package(body: PackageSource) -> PackageReview:
         """Fetch the package (a git source is cloned at its ref, running none of its code) and
@@ -334,7 +369,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         for an invalid Manifest, or saying why it cannot install (a refused URL, an unknown ref,
         a symlink out of the package, that version installed already)."""
         try:
-            review = packages.review(body.source, body.ref)
+            review = packages.review(body.source, body.ref, body.subfolder)
         except ManifestError as exc:
             raise HTTPException(422, f"invalid Manifest: {exc}") from exc
         except InstallError as exc:
@@ -350,7 +385,11 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
         already, the step failed); nothing new is left behind."""
         try:
             return packages.install(
-                body.source, ref=body.ref, commit=body.commit, approved=body.approved
+                body.source,
+                ref=body.ref,
+                commit=body.commit,
+                approved=body.approved,
+                subfolder=body.subfolder,
             )
         except ManifestError as exc:
             raise HTTPException(422, f"invalid Manifest: {exc}") from exc

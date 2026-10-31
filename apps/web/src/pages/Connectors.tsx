@@ -14,6 +14,8 @@ type NewConnector = components["schemas"]["NewConnector"];
 type Package = components["schemas"]["Package"];
 type PackageSwitch = components["schemas"]["PackageSwitch"];
 type PackageReview = components["schemas"]["PackageReview"];
+type IndexEntry = components["schemas"]["IndexEntry"];
+type PackageFrom = { source: string; ref: string; subfolder: string };
 type Tool = components["schemas"]["Tool"];
 type World = components["schemas"]["World"];
 type Kind = NewConnector["kind"];
@@ -96,7 +98,8 @@ export function Connectors() {
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [installing, setInstalling] = useState(false);
+  const [installing, setInstalling] = useState<PackageFrom | null>(null);
+  const [browsing, setBrowsing] = useState(false);
   const [installed, setInstalled] = useState<string | null>(null);
   // Where an OAuth sign-in lands: the callback sends the browser back here saying how it went.
   const search = connectorsRoute.useSearch();
@@ -258,7 +261,14 @@ export function Connectors() {
           </p>
         </div>
         <div className="actions">
-          <button type="button" aria-expanded={installing} onClick={() => setInstalling((i) => !i)}>
+          <button type="button" aria-expanded={browsing} onClick={() => setBrowsing((b) => !b)}>
+            Browse the index
+          </button>
+          <button
+            type="button"
+            aria-expanded={installing !== null}
+            onClick={() => setInstalling((i) => (i ? null : { source: "", ref: "", subfolder: "" }))}
+          >
             Install a package
           </button>
           <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
@@ -268,10 +278,22 @@ export function Connectors() {
       </header>
       {error && <p role="alert">{error}</p>}
       {installed && <p role="status">{installed}</p>}
+      {browsing && (
+        <BrowseIndex
+          installed={packages}
+          onPick={(e) => {
+            setBrowsing(false);
+            setInstalled(null);
+            setInstalling({ source: e.git, ref: e.ref, subfolder: e.subfolder ?? "" });
+          }}
+        />
+      )}
       {installing && (
         <InstallPackage
+          key={JSON.stringify(installing)}
+          from={installing}
           onInstalled={(p) => {
-            setInstalling(false);
+            setInstalling(null);
             setInstalled(`Installed ${p.label} ${p.version}. Enable it below in each world that uses it.`);
             void loadPackages();
           }}
@@ -502,17 +524,23 @@ const PERMISSION_KINDS: [string, string][] = [
 /** Install a Connector Package from a git URL at a ref, or a local folder: Swarmify fetches it
  * running nothing, shows every permission it declares (what an upgrade adds marked new), and
  * installs only once the operator approves them (ADR 0021). */
-function InstallPackage({ onInstalled }: { onInstalled: (p: Package) => void }) {
-  const [source, setSource] = useState("");
-  const [ref, setRef] = useState("");
+function InstallPackage({ from, onInstalled }: { from: PackageFrom; onInstalled: (p: Package) => void }) {
+  const [source, setSource] = useState(from.source);
+  const [ref, setRef] = useState(from.ref);
+  const [subfolder, setSubfolder] = useState(from.subfolder);
   const [review, setReview] = useState<{ asked: string; r: PackageReview } | null>(null);
   const [busy, setBusy] = useState<"review" | "install" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const body = { source: source.trim(), ref: ref.trim() || null };
+  const body = { source: source.trim(), ref: ref.trim() || null, subfolder: subfolder.trim() || null };
   const shown = review?.asked === JSON.stringify(body) ? review.r : null;
+  // One picked from the index is reviewed straight away: the review is the next step either way.
+  useEffect(() => {
+    if (from.source) void ask();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  async function ask(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function ask(e?: FormEvent<HTMLFormElement>) {
+    e?.preventDefault();
     setBusy("review");
     setError(null);
     const { data, error } = await api.POST("/api/packages/review", { body });
@@ -570,6 +598,17 @@ function InstallPackage({ onInstalled }: { onInstalled: (p: Package) => void }) 
           onChange={(e) => setRef(e.target.value)}
           maxLength={200}
           placeholder="v1.0.0"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <label>
+        Folder in the repository (empty when the package is at its root)
+        <input
+          value={subfolder}
+          onChange={(e) => setSubfolder(e.target.value)}
+          maxLength={200}
+          placeholder="connectors/speech"
           autoComplete="off"
           spellCheck={false}
         />
@@ -641,6 +680,81 @@ function InstallPackage({ onInstalled }: { onInstalled: (p: Package) => void }) 
         </section>
       )}
     </form>
+  );
+}
+
+/** The curated index (ADR 0019): the packages it lists, searchable, each with its description
+ * and the permissions the index says it declares. Picking one opens the usual review, which reads
+ * what the package itself declares; that, not this summary, is what the operator approves. */
+function BrowseIndex({ installed, onPick }: { installed: Package[]; onPick: (e: IndexEntry) => void }) {
+  const [index, setIndex] = useState<{ url: string; packages: IndexEntry[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    void api.GET("/api/packages/index").then(({ data, error }) => {
+      if (data) setIndex(data);
+      else setError(detail(error) ?? "Could not read the index. Try again later.");
+    });
+  }, []);
+
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = (index?.packages ?? []).filter((e) => {
+    const text = [e.name, e.description, ...e.permissions].join(" ").toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+  return (
+    <section className="panel add-connector" aria-label="Browse the index">
+      <h2>Browse the index</h2>
+      <p className="faint">
+        Packages the curated index lists{index && <>, read from <span className="mono">{index.url}</span></>}. What
+        each asks for here is the index's summary: installing one fetches it, shows what it actually declares, and runs
+        nothing until you approve.
+      </p>
+      {error && <p role="alert">{error}</p>}
+      {!index && !error && <p className="faint">Reading the index...</p>}
+      {index && (
+        <>
+          <label>
+            Search
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Name, description or permission"
+              autoComplete="off"
+            />
+          </label>
+          {shown.length === 0 ? (
+            <p>{index.packages.length === 0 ? "The index lists no packages yet." : `Nothing in the index matches "${query}".`}</p>
+          ) : (
+            <ul className="con-list" aria-label="Packages in the index">
+              {shown.map((e) => {
+                const versions = installed.filter((p) => p.name === e.name).map((p) => p.version);
+                return (
+                  <li key={`${e.name} ${e.git} ${e.subfolder}`} data-index-package={e.name} className="con-row">
+                    <span className="con-main">
+                      <b className="mono">{e.name}</b>
+                      <span className="faint">{e.description}</span>
+                      <span className="faint">
+                        Asks for: {e.permissions.length === 0 ? "no permissions" : e.permissions.join(", ")}
+                      </span>
+                      <span className="faint mono">
+                        {e.git}
+                        {e.subfolder && ` ${e.subfolder}`} at {e.ref}
+                      </span>
+                    </span>
+                    {versions.length > 0 && <span className="pill">Installed {versions.join(", ")}</span>}
+                    <button type="button" onClick={() => onPick(e)} aria-label={`Review and install ${e.name}`}>
+                      Review and install
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
