@@ -52,7 +52,9 @@ export type View = "plain" | "office";
 export const worldHome = (world?: { skin?: { view: View } }) =>
   world?.skin?.view === "office" ? ("/worlds/$worldId/office" as const) : ("/worlds/$worldId" as const);
 
-/** Save the world's view; false when the API refused it. */
+/** Save the world's view; false when the API refused it.
+ * ponytail: the API replaces the skin whole, so once the skin also holds pack and cast this must
+ * send the world's current skin with the new view (or the API must merge skin keys). */
 export async function saveView(worldId: string, view: View): Promise<boolean> {
   const { error } = await api.PATCH("/api/worlds/{world_id}", {
     params: { path: { world_id: worldId } },

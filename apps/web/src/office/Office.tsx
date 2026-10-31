@@ -2,7 +2,8 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import { holdsSlot, money, type Run, useRunUpdates } from "../api/runs";
+import { useWorldEvents } from "../api/events";
+import { holdsSlot, money, type Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { saveView } from "../skin";
 import "./office.css";
@@ -41,9 +42,12 @@ export function Office() {
       .catch(() => undefined);
   }, [worldId]);
 
-  useRunUpdates(worldId, (run) =>
-    setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev])),
-  );
+  useWorldEvents(worldId, {
+    "run.updated": (run) =>
+      setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev])),
+    // A setting changed elsewhere (Settings in another tab): the name and run cap follow it.
+    "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
+  });
 
   async function plainView() {
     if (await saveView(worldId, "plain")) void navigate({ to: "/worlds/$worldId", params: { worldId } });

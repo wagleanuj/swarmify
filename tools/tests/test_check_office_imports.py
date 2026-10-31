@@ -49,3 +49,9 @@ def test_the_app_loads_the_office_lazily_only(tmp_path: Path) -> None:
     assert [f.split(": ", 1)[1] for f in violations(tmp_path)] == [
         "./office/Office is imported statically; load it with import()"
     ]
+
+
+def test_an_office_stylesheet_importing_plain_styles_is_a_violation(tmp_path: Path) -> None:
+    _file(tmp_path, "office/office.css", '@import "./room.css";\n@import url("../index.css");\n')
+    found = [f.split(": ", 1)[1] for f in violations(tmp_path)]
+    assert found == ["the office imports ../index.css"]

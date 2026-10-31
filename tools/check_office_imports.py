@@ -13,18 +13,22 @@ from pathlib import Path
 
 STATIC = re.compile(r"""(?:\bfrom|^\s*import)\s*["']([^"']+)["']""", re.MULTILINE)
 DYNAMIC = re.compile(r"""\bimport\(\s*["']([^"']+)["']""")
+CSS = re.compile(r"""@import\s+(?:url\()?\s*["']([^"']+)["']""")
 
 
 def violations(src: Path) -> list[str]:
     src = src.resolve()
     office = src / "office"
     found: list[str] = []
-    for file in sorted(src.rglob("*.ts*")):
+    for file in sorted([*src.rglob("*.ts*"), *office.rglob("*.css")]):
         if ".test." in file.name:
             continue
         text = file.read_text()
         inside = file.is_relative_to(office)
-        matches = [*STATIC.finditer(text), *(DYNAMIC.finditer(text) if inside else [])]
+        if file.suffix == ".css":
+            matches = list(CSS.finditer(text))
+        else:
+            matches = [*STATIC.finditer(text), *(DYNAMIC.finditer(text) if inside else [])]
         for match in matches:
             spec = match.group(1)
             if not spec.startswith("."):

@@ -27,6 +27,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run python tools/check_imports.py packages
+      - run: uv run python tools/check_office_imports.py apps/web/src
       # bubblewrap, socat and ripgrep for the OS sandbox every connector process and a Build
       # Session's Bash run in, and the AppArmor profile that lets bubblewrap make user namespaces.
       - run: |

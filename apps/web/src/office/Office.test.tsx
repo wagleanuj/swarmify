@@ -51,6 +51,11 @@ test("the office has its own shell: a top bar of figures beside their reference,
   FakeEventSource.emit("run.updated", { payload: run("waiting_gate", [], { id: "run_2" }) });
   FakeEventSource.emit("run.updated", { payload: run("running", [], { id: "run_3", parent_run_id: "run_1" }) });
   await expect.element(screen.getByTestId("office-runs")).toHaveTextContent("2 of 3 runs going");
+
+  // The run cap and name follow a change made in Settings elsewhere.
+  FakeEventSource.emit("world.updated", { payload: { id: "world_1", run_cap: 5, name: "Shorts" } });
+  await expect.element(screen.getByTestId("office-runs")).toHaveTextContent("2 of 5 runs going");
+  await expect.element(screen.getByRole("heading", { name: "Shorts", level: 1 })).toBeVisible();
 });
 
 test("a world with no budget says so instead of a bare figure", async () => {
