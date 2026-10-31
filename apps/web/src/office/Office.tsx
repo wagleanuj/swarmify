@@ -1,15 +1,30 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
-import { useWorldEvents } from "../api/events";
+import { type Agent, useWorldEvents } from "../api/events";
 import { holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
 import { cap, saveView } from "../skin";
-import { StandingCast } from "./cast";
+import { Actor, Bench, type Look, still, useCast } from "./cast";
 import "./office.css";
-import { kindLine, kindOf, podName, restName, scene, stageLine } from "./scene";
+import {
+  agentNews,
+  artifactNews,
+  benchPose,
+  bubble,
+  crew,
+  fileName,
+  kindLine,
+  kindOf,
+  podName,
+  podOf,
+  restName,
+  scene,
+  type Seat,
+  stageLine,
+} from "./scene";
 
 type World = components["schemas"]["World"];
 type Spend = components["schemas"]["Spend"];
@@ -26,6 +41,20 @@ export function Office() {
   const [scores, setScores] = useState<Score[]>([]);
   const [error, setError] = useState<string | null>(null);
   const connectors = useConnectors(worldId);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  // The agents as of the latest event, so two updates in one batch compare against each other.
+  const latest = useRef<Agent[]>([]);
+  const putAgents = (next: Agent[]) => {
+    latest.current = next;
+    setAgents(next);
+  };
+  // Per pod (by run id): the latest log line, one bubble per pod, and the latest artifact made.
+  const [lines, setLines] = useState<Record<string, { agent: string; text: string }>>({});
+  const [made, setMade] = useState<Record<string, { name: string; n: number }>>({});
+  const [radio, setRadio] = useState<News[]>([]);
+  const { cast, look, nameOf } = useCast(worldId, world?.agent_count);
+  const hear = (who: string, what: string | null) =>
+    what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
 
   useEffect(() => {
     const path = { params: { path: { world_id: worldId } } };
@@ -44,7 +73,21 @@ export function Office() {
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/runs", path)
-      .then(({ data }) => data && setRuns(data))
+      .then(({ data }) => {
+        if (!data) return;
+        setRuns(data);
+        // Who is at work, and who just shipped: the agents of the live runs and the shelf. Later
+        // changes come on the stream. ponytail: one read per run; a world agents read if it grows.
+        const { live, shelf } = scene(data);
+        return Promise.all(
+          [...live, ...shelf].map((r) =>
+            api.GET("/api/runs/{run_id}/agents", { params: { path: { run_id: r.id } } }).then(({ data }) => data ?? []),
+          ),
+        ).then((all) => {
+          const prev = latest.current;
+          putAgents([...prev, ...all.flat().filter((a) => !prev.some((p) => p.id === a.id))]);
+        });
+      })
       .catch(() => undefined);
     // ponytail: first-try keeps are read when the office opens, one scorecard per workflow, as
     // the plain Scorecard page sums them; a world scorecard endpoint would make it one read.
@@ -66,6 +109,33 @@ export function Office() {
   useWorldEvents(worldId, {
     "run.updated": (run) =>
       setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev])),
+    "agent.updated": (agent) => {
+      const prev = latest.current;
+      const was = prev.find((a) => a.id === agent.id);
+      putAgents(was ? prev.map((a) => (a.id === agent.id ? agent : a)) : [...prev, agent]);
+      const news = agentNews(agent, was, runs);
+      if (!news) return;
+      hear(agent.name, news);
+      // The agent moved: their line leaves the pod with them.
+      setLines((lines) => {
+        if (lines[agent.run_id]?.agent !== agent.name) return lines;
+        const rest = { ...lines };
+        delete rest[agent.run_id];
+        return rest;
+      });
+    },
+    // A bubble is for someone seated in the pod, so a line counts only at its own top-level run;
+    // child run agents are not seated on the parent's pod.
+    "agent.logged": (entry) => {
+      const pod = runs.find((r) => !r.parent_run_id && r.stages.some((s) => s.id === entry.stage_id));
+      const text = bubble(entry);
+      if (pod && text) setLines((prev) => ({ ...prev, [pod.id]: { agent: entry.agent, text } }));
+    },
+    "artifact.created": (artifact) => {
+      const pod = podOf(artifact.stage_id, runs);
+      if (pod) setMade((prev) => ({ ...prev, [pod.id]: { name: fileName(artifact.path), n: (prev[pod.id]?.n ?? 0) + 1 } }));
+      hear(artifact.author, artifactNews(artifact));
+    },
     // A setting changed elsewhere (Settings in another tab): the name and run cap follow it.
     "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
   });
@@ -86,6 +156,17 @@ export function Office() {
   }
 
   const budget = spend?.monthly_budget_usd;
+  const planner = cast.find((m) => m.role === "planner")?.name;
+  const seats = (run: Run) =>
+    crew(run, agents, planner).flatMap((seat) => {
+      const seen = look(seat.agent.name);
+      return seen ? [{ ...seat, look: seen }] : [];
+    });
+  const busy = new Set(scene(runs).live.flatMap((r) => crew(r, agents, planner).map((s) => s.agent.name)));
+  const bench = cast.flatMap((m) => {
+    const seen = busy.has(m.name) ? null : look(m.name);
+    return seen ? [{ name: m.name, look: seen, pose: benchPose(m.name, agents, runs) }] : [];
+  });
   const open = (runId: string) => void navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId } });
   return (
     <div className="office-app">
@@ -115,16 +196,45 @@ export function Office() {
         </p>
       )}
       <div className="office-main">
-        <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open}>
-          {world && <StandingCast worldId={worldId} agentCount={world.agent_count} />}
+        <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
+          <Bench members={bench} />
         </Room>
-        <QuestBoard runs={runs} connectors={connectors} open={open} />
+        <div className="office-side">
+          <QuestBoard runs={runs} connectors={connectors} open={open} />
+          <Radio news={radio} nameOf={nameOf} />
+        </div>
       </div>
     </div>
   );
 }
 
 type Floor = { runs: Run[]; connectors: Connectors; open: (runId: string) => void };
+type News = { who: string; what: string; at: string; n: number };
+type Pods = {
+  seats: (run: Run) => (Seat & { look: Look })[];
+  lines: Record<string, { agent: string; text: string }>;
+  made: Record<string, { name: string; n: number }>;
+};
+
+/** The radio: what just happened, newest first, in the cast's names. */
+function Radio({ news, nameOf }: { news: News[]; nameOf: (name: string) => string }) {
+  return (
+    <section className="office-radio" aria-label="Radio">
+      <h2>Radio</h2>
+      {news.length === 0 ? (
+        <p>Quiet for now.</p>
+      ) : (
+        <ol>
+          {news.map((item) => (
+            <li key={item.n}>
+              <time>{item.at}</time> <b>{nameOf(item.who)}</b> {item.what}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
 
 /** The readable list beside the picture: live, queued and recently finished runs. */
 function QuestBoard({ runs, connectors, open }: Floor) {
@@ -154,7 +264,7 @@ function QuestBoard({ runs, connectors, open }: Floor) {
  * finished runs over a plank floor of pods, one per run slot, and the lobby sofa of queued runs.
  * The cast stands on the floor. The drawing is decorative; the whiteboards, cups and sofa notes
  * are the controls. */
-function Room({ name, runs, slots, connectors, open, children }: Floor & { name: string; slots: number; children?: ReactNode }) {
+function Room({ name, runs, slots, connectors, open, children, ...pods }: Floor & Pods & { name: string; slots: number; children?: ReactNode }) {
   const { live, queued, shelf } = scene(runs);
   // ponytail: every live run gets a pod even past the run cap (the cap was just lowered); that
   // state is short-lived, so no overflow onto the quest board until it proves to matter.
@@ -189,7 +299,7 @@ function Room({ name, runs, slots, connectors, open, children }: Floor & { name:
       <ul className="office-pods" aria-label="Pods">
         {live.map((r) => (
           <li key={r.id} className={`office-pod office-${kindOf(r)}`}>
-            <Pod run={r} runs={runs} connectors={connectors} open={open} />
+            <Pod run={r} runs={runs} connectors={connectors} open={open} {...pods} />
           </li>
         ))}
         {Array.from({ length: spare }, (_, i) => (
@@ -217,10 +327,16 @@ function Room({ name, runs, slots, connectors, open, children }: Floor & { name:
   );
 }
 
-/** One live run's pod: its whiteboard opens the run's plain page; the desks glow while a swarm
- * works and shut when the run waits elsewhere. */
-function Pod({ run, runs, connectors, open }: Floor & { run: Run }) {
+/** One live run's pod: its whiteboard opens the run's plain page; its crew sits at the desks,
+ * which glow while a swarm works and shut when the run waits elsewhere. One bubble per pod, from
+ * the latest log line of someone in it; the latest artifact made pops up over the desks. */
+function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods & { run: Run }) {
   const kind = kindOf(run);
+  const crew = seats(run);
+  const line = lines[run.id];
+  const art = made[run.id];
+  // The last of two or more workers roams to the whiteboard and back.
+  const roamer = crew.filter((s) => s.pose === "work").at(1)?.agent.id;
   const done = run.stages.filter((s) => s.status === "done").length;
   return (
     <>
@@ -232,6 +348,26 @@ function Pod({ run, runs, connectors, open }: Floor & { run: Run }) {
         </span>
         <span className="office-kind">{kindLine(run, runs, connectors)}</span>
       </button>
+      {crew.length > 0 && (
+        <ul className="office-crew" aria-label={`Crew of ${run.name}`}>
+          {crew.map((s) => (
+            // A new key when the agent moves to another stage, so they walk in again.
+            <Actor
+              key={`${s.agent.id}/${s.agent.stage_id}`}
+              look={s.look}
+              pose={s.pose}
+              roam={s.agent.id === roamer}
+              say={s.pose === "talk" ? "!" : line?.agent === s.agent.name ? line.text : null}
+            />
+          ))}
+        </ul>
+      )}
+      {/* With reduced motion there is no pop; the radio carries the news. */}
+      {art && !still() && (
+        <span key={art.n} className="office-pop">
+          {art.name}
+        </span>
+      )}
       <Desks on={kind === "swarm" || kind === "retro"} />
       {kind === "connector" && <div className="office-cart" aria-hidden="true" />}
     </>

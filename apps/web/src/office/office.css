@@ -209,9 +209,9 @@
 .office-note-card.office-gate { background: #ffe3c2; }
 .office-note-card.office-done { background: #dff5e3; }
 .office-note-card.office-failed, .office-note-card.office-aborted { background: #ece9f3; }
+.office-side { width: 250px; flex: none; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .office-quests {
-  width: 250px;
-  flex: none;
+  flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 10px;
@@ -224,10 +224,20 @@
 .office-quests ul { display: flex; flex-direction: column; gap: 8px; }
 .office-quests p { margin: 0; color: #fff; }
 
+/* The radio: recent events in the cast's names. */
+.office-radio { flex: none; max-height: 40%; overflow: hidden; padding: 8px 10px; background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); font-size: 12px; }
+.office-radio h2 { margin: 0 0 4px; font-size: 15px; }
+.office-radio p { margin: 0; color: var(--muted); }
+.office-radio ol { display: flex; flex-direction: column; gap: 2px; }
+.office-radio li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.office-radio time { color: var(--muted); font-variant-numeric: tabular-nums; }
+
 @media (max-width: 700px) {
   .office-app { padding: 8px; gap: 8px; }
   .office-main { flex-direction: column; }
-  .office-quests { width: auto; max-height: 30%; }
+  .office-side { width: auto; max-height: 30%; flex-direction: row; }
+  .office-quests { flex: 1; }
+  .office-radio { width: 40%; max-height: none; }
   .office-pods { grid-template-columns: repeat(2, minmax(0, 1fr)); inset: 30% 2% 26% 2%; gap: 8px; }
   .office-desks i { width: 40px; }
   .office-chip { font-size: 14px; padding: 4px 10px; }
@@ -244,4 +254,26 @@
 @media (max-width: 700px) {
   .office-actor { width: 44px; height: 59px; }
   .office-tag { font-size: 9px; }
+}
+
+/* A pod's crew at the desks, the planner thinking, a worker roaming to the whiteboard. */
+.office-pod { position: relative; justify-content: space-between; }
+.office-app .office-pod:not(.office-spare) .office-board { flex: 0 1 auto; }
+.office-crew { position: absolute; left: 0; right: 0; bottom: 20px; z-index: 1; display: flex; justify-content: center; gap: 2px; pointer-events: none; }
+.office-crew .office-actor { width: 44px; height: 59px; transition: transform 1s ease-in-out; }
+.office-crew .office-actor.office-away { transform: translateY(-46px); }
+.office-crew .office-tag { display: none; }
+.office-crew .office-actor:hover .office-tag { display: block; }
+.office-desks { position: relative; z-index: 2; }
+.office-bubble { position: absolute; z-index: 3; left: 50%; bottom: 100%; transform: translate(-50%, -2px); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; background: var(--paper); border: 2px solid var(--ink); border-radius: 10px; font-size: 11px; quotes: none; }
+.office-alert { background: var(--sun); font-size: 15px; font-weight: 800; animation: office-hop 0.9s ease-in-out infinite; }
+@keyframes office-hop { 50% { transform: translate(-50%, -8px); } }
+/* A mark of work rising from the desks when an artifact is made. */
+.office-pop { position: absolute; z-index: 3; left: 50%; bottom: 34px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 6px; font-size: 10px; transform: translateX(-50%); animation: office-rise 2.4s ease-out forwards; }
+@keyframes office-rise { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -24px); } }
+
+/* Reduced motion: every character holds its state's pose; no pops (Pod skips them). */
+@media (prefers-reduced-motion: reduce) {
+  .office-alert { animation: none; }
+  .office-crew .office-actor { transition: none; }
 }
