@@ -18,7 +18,7 @@ from typing import Any
 
 from swarmify_kernel import Event, new_id
 from swarmify_worlds import cast
-from swarmify_worlds.cast import JUDGE, MAX_AGENTS, MAX_PROMPT, PLANNER, worker
+from swarmify_worlds.cast import JUDGE, MAX_AGENTS, MAX_PROMPT, PLANNER, RETRO, worker
 from swarmify_worlds.model import (
     AGENT_COUNT,
     DEFAULT_PACK,
@@ -181,7 +181,8 @@ class Worlds:
         the looks of the agents it leaves out of the skin."""
         check_settings(changes)
         if {"skin", "agent_count"} & set(changes) and (world := self.get(world_id)) is not None:
-            agents = dict(cast.names(changes.get("agent_count", world.agent_count)))
+            # The retro agent is in the skin's cast too, though its prompt is not the Cast's.
+            agents = {*dict(cast.names(changes.get("agent_count", world.agent_count))), RETRO}
             if "skin" in changes:
                 if strangers := sorted(set(changes["skin"].get("cast", {})) - set(agents)):
                     raise ValueError(f"not in the cast: {', '.join(strangers)}")

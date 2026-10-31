@@ -88,10 +88,13 @@ test.each(SIZES)("at %i by %i every office screen fits on screen", async (w, h) 
   await expect.element(screen.getByRole("region", { name: "The office" })).toBeVisible();
   const room = screen.getByRole("region", { name: "The office" }).element();
   fits(room);
-  // Every pod, all three rows of them, sits inside the room.
+  // A pod per run slot, but free pods only fill out the row of the busy ones (three across, two
+  // on a phone); every pod on the floor sits inside the room.
   await expect.poll(() => room.querySelectorAll(".office-pod").length).toBe(6);
   const walls = room.getBoundingClientRect();
-  const pods = [...room.querySelectorAll(".office-pod")].map((p) => p.getBoundingClientRect());
+  const shown = [...room.querySelectorAll(".office-pod")].filter((p) => p.getClientRects().length);
+  expect(shown).toHaveLength(w > 700 ? 3 : 2);
+  const pods = shown.map((p) => p.getBoundingClientRect());
   for (const p of pods) {
     expect(p.top).toBeGreaterThanOrEqual(walls.top);
     expect(p.bottom).toBeLessThanOrEqual(walls.bottom);
@@ -166,7 +169,7 @@ test("on a phone the Crew form is a sheet over the stage", async () => {
   const roster = screen.getByRole("complementary", { name: "Crew" }).getByRole("button");
   await expect.element(roster.first()).toBeVisible();
   const [a0, a1, ...rest] = roster.elements().map((b) => b.getBoundingClientRect());
-  expect(rest).toHaveLength(1);
+  expect(rest).toHaveLength(2);
   const agents = [a0!, a1!, ...rest];
   for (const a of agents) expect(a.top).toBe(a0!.top);
   expect(a1!.left).toBeGreaterThan(a0!.left);

@@ -17,6 +17,8 @@ from swarmify_kernel import Event
 from swarmify_worlds.model import CastEdit, CastMember, Record
 
 PLANNER, JUDGE = "planner", "judge"
+RETRO = "retro"
+"""The retro agent: not in the Cast (the learning context owns its prompt); a skin dresses it."""
 MAX_AGENTS = 8
 MAX_PROMPT = 10_000
 

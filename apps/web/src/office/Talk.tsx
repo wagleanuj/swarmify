@@ -117,6 +117,9 @@ export function Talk() {
             {waiting.indexOf(gate) + 1} <span>of {waiting.length} waiting at Your office</span>
           </div>
         )}
+        <Link className="office-btn office-wide" to="/worlds/$worldId/office/crew" params={{ worldId }}>
+          Crew
+        </Link>
         <FullScreen />
         <Tabs worldId={worldId} />
       </header>

@@ -66,7 +66,7 @@ def test_a_new_world_has_default_settings_and_each_change_is_an_event(worlds: Wo
         {"skin": {"pack": "../up"}},
         {"skin": {"cast": {"judge": {"name": "x" * 25}}}},
         {"skin": {"cast": {"judge": {"colour": "red"}}}},
-        {"skin": {"cast": {"retro": {"name": "Grave"}}}},
+        {"skin": {"cast": {"intern": {"name": "Grave"}}}},
     ],
 )
 def test_settings_out_of_range_are_refused_and_nothing_is_written(
@@ -94,11 +94,12 @@ def test_the_skin_starts_plain_and_is_saved_whole_as_an_event(worlds: Worlds) ->
 
 def test_shrinking_the_cast_drops_the_looks_of_agents_left_out(worlds: Worlds) -> None:
     world = worlds.create("Video")
-    looks = {"worker-1": {"name": "Bolt"}, "worker-4": {"name": "Gone"}}
+    looks = {"worker-1": {"name": "Bolt"}, "worker-4": {"name": "Gone"}, "retro": {"name": "Grave"}}
     worlds.configure(world.id, {"skin": {"view": "office", "pack": "mine", "cast": looks}})
     shrunk = worlds.configure(world.id, {"agent_count": 1})
     assert shrunk is not None
-    assert shrunk.skin == Skin("office", "mine", {"worker-1": Casting(name="Bolt")})
+    kept_looks = {"worker-1": Casting(name="Bolt"), "retro": Casting(name="Grave")}
+    assert shrunk.skin == Skin("office", "mine", kept_looks)
     kept = {"view": "plain", "pack": "mine", "cast": {"worker-1": {"name": "Bolt"}}}
     switched = worlds.configure(world.id, {"skin": kept})
     assert switched is not None and switched.skin.view == "plain"

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import type { Run } from "../api/runs";
 import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
@@ -126,4 +127,29 @@ test.each([
   await screen.getByRole(role, { name: where }).getByRole("button", { name }).click();
   await expect.element(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
   expect(router.state.location.pathname).toBe(`/worlds/world_1/runs/${id}`);
+});
+
+test("at 1280 by 720 with seven live runs every whiteboard reads in full, and the top bar keeps one row", async () => {
+  await page.viewport(1280, 720);
+  try {
+    const more = [1, 2].map((n) => run("running", stages(3, 1, "swarm"), { id: `run_m${n}`, name: `More #${n}`, created_at: `2026-10-31T08:1${n}:00Z` }));
+    const { screen } = await office([weekly, long, sending, parent, retro, ...more], { run_cap: 8 });
+    const pods = screen.getByRole("list", { name: "Pods" });
+    await expect.element(pods.getByRole("button", { name: /^More #2/ })).toBeVisible();
+    const boards = pods.getByRole("button").elements();
+    expect(boards).toHaveLength(7);
+    for (const b of boards) {
+      // Title, stage line and kind line each stand at least their font size high.
+      for (const line of b.querySelectorAll("b, small, .office-kind")) {
+        expect(line.getBoundingClientRect().height).toBeGreaterThanOrEqual(parseFloat(getComputedStyle(line).fontSize));
+      }
+      // The progress bar runs the board's width, not a tick.
+      expect(b.querySelector(".office-progress")!.getBoundingClientRect().width).toBeGreaterThan(b.getBoundingClientRect().width * 0.8);
+    }
+    const bar = [...document.querySelector("header.office-bar")!.children].filter((c) => c.getClientRects().length);
+    const top = bar[0]!.getBoundingClientRect().top;
+    for (const c of bar) expect(c.getBoundingClientRect().top).toBeLessThan(top + 10);
+  } finally {
+    await page.viewport(1280, 800);
+  }
 });

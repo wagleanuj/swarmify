@@ -161,7 +161,7 @@ def test_one_settings_write_dresses_the_cast_in_the_skin(
 
     # A name not in the cast, unknown keys and over-long or blank text are refused, nothing kept.
     for bad in (
-        {"retro": {"name": "Grave"}},
+        {"intern": {"name": "Grave"}},
         {"worker-9": {"name": "Nine"}},
         {"judge": {"hat": "wig"}},
         {"judge": {"name": "x" * 25}},
@@ -178,6 +178,10 @@ def test_one_settings_write_dresses_the_cast_in_the_skin(
     longest = {"name": "x" * 24, "catchphrase": "y" * 80}
     kept = running.patch(url, json={"skin": {**skin, "cast": {"judge": longest}}}).json()
     assert kept["skin"]["cast"] == {"judge": {**blank, **longest}}
+
+    # The retro agent is dressed too, though it is not in the Cast.
+    retro = running.patch(url, json={"skin": {**skin, "cast": {"retro": {"name": "Grave"}}}})
+    assert retro.json()["skin"]["cast"] == {"retro": {**blank, "name": "Grave"}}
 
 
 def test_the_cast_has_defaults_and_edits_need_confirmation_and_are_versioned(

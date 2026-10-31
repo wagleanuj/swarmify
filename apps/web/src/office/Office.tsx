@@ -249,8 +249,8 @@ export function Office() {
       )}
       <div className="office-main">
         <Room name={world?.name ?? ""} pack={world === undefined ? undefined : pack} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
-          <YourOffice waiting={waiting} talk={talk} />
           <Bench worldId={worldId} members={bench} />
+          <YourOffice waiting={waiting} talk={talk} />
         </Room>
         <div className={`office-side${board ? " office-sheet-open" : ""}`}>
           <button type="button" className="office-btn office-narrow office-done" onClick={() => setBoard(false)}>
@@ -420,20 +420,24 @@ function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor 
           </li>
         ))}
       </ul>
-      <div className="office-lobby" aria-label="Lobby sofa" role="group">
-        <ol>
-          {queued.map((r) => (
-            <li key={r.id}>
-              <button type="button" className="office-note-card office-queued" aria-label={restName(r)} onClick={() => open(r.id)}>
-                <small>Queued, waiting for a free pod</small>
-                <b>{r.name}</b>
-              </button>
-            </li>
-          ))}
-        </ol>
-        <Sofa />
+      {/* The front of the room, left to right: the lobby sofa, the idle cast, the line at Your
+          office. Each keeps its own floor; a cast too big for the rest of it stands out of sight. */}
+      <div className="office-front">
+        <div className="office-lobby" aria-label="Lobby sofa" role="group">
+          <ol>
+            {queued.map((r) => (
+              <li key={r.id}>
+                <button type="button" className="office-note-card office-queued" aria-label={restName(r)} onClick={() => open(r.id)}>
+                  <small>Queued, waiting for a free pod</small>
+                  <b>{r.name}</b>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <Sofa />
+        </div>
+        {children}
       </div>
-      {children}
     </>
   );
 }

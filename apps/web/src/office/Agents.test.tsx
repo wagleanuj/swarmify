@@ -89,8 +89,8 @@ test("each pod's crew stands in the pose its data says; the rest of the cast wai
   );
   const weeklyCrew = crewOf(screen, "Weekly explainer #14");
   await expect.element(weeklyCrew.getByRole("img", { name: "Mira, Planner, thinking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/think.png");
-  await expect.element(weeklyCrew.getByRole("img", { name: "Worker 1, working" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/work0.png");
-  await expect.element(weeklyCrew.getByRole("img", { name: "Worker 2, stuck" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/stuck.png");
+  await expect.element(weeklyCrew.getByRole("img", { name: "Worker 1, working" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/work0.png");
+  await expect.element(weeklyCrew.getByRole("img", { name: "Worker 2, stuck" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/stuck.png");
   expect(weeklyCrew.getByRole("img").elements()).toHaveLength(3);
   await expect.element(crewOf(screen, "Long haul").getByRole("img", { name: "Worker 1, working" })).toBeVisible();
 
@@ -98,16 +98,16 @@ test("each pod's crew stands in the pose its data says; the rest of the cast wai
   const line = screen.getByRole("list", { name: "Line at Your office" });
   await expect.element(line.getByRole("button", { name: "Rex asks about Pick a topic: Pick one idea." })).toBeVisible();
   expect(crewOf(screen, "Pick a topic").elements()).toHaveLength(0);
-  await expect.element(crewOf(screen, "On hold").getByRole("img", { name: "Worker 1, stuck" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/stuck.png");
+  await expect.element(crewOf(screen, "On hold").getByRole("img", { name: "Worker 1, stuck" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/stuck.png");
   await expect
     .element(crewOf(screen, "Wrap up").getByRole("img", { name: "Worker 2, at the whiteboard" }))
-    .toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/back.png");
+    .toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/back.png");
 
   // Off the floor: shipped after a run that is done, stuck after one that failed, else idle.
   const bench = screen.getByRole("list", { name: "The cast" });
   await expect.element(bench.getByRole("img", { name: "Tess, qa, shipped" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/cheer.png");
   await expect.element(bench.getByRole("img", { name: "Budget, stuck" })).toBeVisible();
-  expect(bench.getByRole("img").elements().map((i) => i.getAttribute("alt"))).toEqual(["Tess, qa, shipped", "Budget, stuck"]);
+  expect(bench.getByRole("img").elements().map((i) => i.getAttribute("alt"))).toEqual(["Tess, qa, shipped", "Budget, stuck", "Retro"]);
 });
 
 test("one speech bubble per pod, from its crew's latest log line", async () => {
@@ -172,13 +172,13 @@ test("with reduced motion every character holds its pose; with motion an arrivin
   const { screen } = await office([weekly], [agent("worker-1", "worker", "run_14", 6)]);
   const pod = crewOf(screen, "Weekly explainer #14");
   const worker = pod.getByRole("img", { name: "Worker 1, working" });
-  await expect.element(worker).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/work0.png");
+  await expect.element(worker).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/work0.png");
   await new Promise((done) => setTimeout(done, 400));
-  await expect.element(worker).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/work0.png");
+  await expect.element(worker).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/work0.png");
 
   vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
   FakeEventSource.emit("agent.updated", { payload: agent("worker-2", "worker", "run_14", 6) });
-  await expect.element(pod.getByRole("img", { name: "Worker 2, walking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/walk0.png");
+  await expect.element(pod.getByRole("img", { name: "Worker 2, walking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/walk0.png");
   await expect.element(pod.getByRole("img", { name: "Worker 2, working" }), { timeout: 3000 }).toBeVisible();
 });
 
@@ -228,4 +228,28 @@ test("updates in one batch are told once, and a bubble leaves with its speaker",
   FakeEventSource.emit("agent.updated", { payload: { ...worker, status: "working" } });
   await expect.element(pod.getByRole("img", { name: "Worker 1, working" })).toBeVisible();
   expect(pod.getByText("Reading the brief").elements()).toHaveLength(0);
+});
+
+test("a pod's crew stands under its whiteboard, never over it", async () => {
+  const { screen } = await office([weekly], [agent("planner", "planner", "run_14", 6), agent("worker-1", "worker", "run_14", 6), agent("worker-2", "worker", "run_14", 6)]);
+  const crew = crewOf(screen, "Weekly explainer #14");
+  await expect.element(crew.getByRole("img", { name: "Worker 2, working" })).toBeVisible();
+  const board = screen.getByRole("list", { name: "Pods" }).getByRole("button", { name: /^Weekly explainer #14/ }).element().getBoundingClientRect();
+  const actors = [...crew.element().querySelectorAll(".office-actor")].map((a) => a.getBoundingClientRect());
+  expect(actors).toHaveLength(3);
+  for (const a of actors) expect(a.top).toBeGreaterThanOrEqual(board.bottom);
+});
+
+test("the line at Your office keeps clear of the idle cast; each alert is over its asker's tag", async () => {
+  const { screen } = await office([gated], [agent("judge", "judge", "run_19", 1, "done")], [gate("pick", { run_id: "run_19", run_name: "Pick a topic", stage_id: "run_19_s2", stage_index: 2 })]);
+  const line = screen.getByRole("list", { name: "Line at Your office" });
+  const asker = line.getByRole("button", { name: /^Rex asks/ });
+  await expect.element(asker).toBeVisible();
+  const tag = asker.element().querySelector(".office-tag")!.getBoundingClientRect();
+  expect(asker.element().querySelector(".office-alert")!.getBoundingClientRect().bottom).toBeLessThanOrEqual(tag.top);
+  const cast = screen.getByRole("list", { name: "The cast" }).element().getBoundingClientRect();
+  expect(cast.right).toBeLessThanOrEqual(line.element().getBoundingClientRect().left);
+  // Your office says how many wait on a line of its own, under its name.
+  const mine = screen.getByRole("button", { name: "Your office, 1 waiting" }).element();
+  expect(mine.querySelector("small")!.getBoundingClientRect().top).toBeGreaterThanOrEqual(mine.querySelector("b")!.getBoundingClientRect().bottom);
 });

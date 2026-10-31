@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
+import { scaleFor } from "./pixel";
 
 const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 const world = (pack: string) => ({ id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00", run_cap: 2, skin: { view: "office", pack } });
@@ -92,7 +93,8 @@ test("the pack's own props replace the room's; the ones it leaves out are drawn 
   const pod = screen.getByRole("list", { name: "Pods" }).getByRole("listitem").filter({ hasText: "Weekly explainer #14" });
   await expect.element(pod).toBeVisible();
   const art = [...pod.element().querySelectorAll("img:not([alt]), img[alt='']")].map((i) => i.getAttribute("src"));
-  expect(art).toEqual(["/api/sprite-packs/tiny/props/table.png", expect.stringMatching(/^data:image\/png/), "/api/sprite-packs/tiny/props/cup.png"]);
+  const drawn = expect.stringMatching(/^data:image\/png/);
+  expect(art).toEqual(["/api/sprite-packs/tiny/props/table.png", drawn, "/api/sprite-packs/tiny/props/cup.png", drawn]);
 });
 
 test("each agent at a pod has a laptop in front of them", async () => {
@@ -101,6 +103,34 @@ test("each agent at a pod has a laptop in front of them", async () => {
   const pod = screen.getByRole("list", { name: "Pods" }).getByRole("listitem").filter({ hasText: "Weekly explainer #14" });
   await expect.element(pod.getByRole("img", { name: "Worker 3, working" })).toBeVisible();
   expect(pod.element().querySelectorAll(".office-prop-laptop_on")).toHaveLength(3);
+});
+
+test("a table has at least two laptops, standing on its top and clear of the whiteboard", async () => {
+  // The free pod: the room draws its table and laptops, so they have their art sizes.
+  const { screen } = await office("tiny");
+  await expect.element(board(screen)).toBeVisible();
+  const pod = document.querySelector(".office-spare")!;
+  const art = [...pod.querySelectorAll<HTMLImageElement>("img[src^='data:']")];
+  await vi.waitFor(() => expect(art.every((i) => i.complete && i.naturalWidth)).toBe(true));
+  const table = pod.querySelector(".office-table")!.getBoundingClientRect();
+  const wb = pod.querySelector(".office-board")!.getBoundingClientRect();
+  const laptops = [...pod.querySelectorAll(".office-prop-laptop_off")].map((l) => l.getBoundingClientRect());
+  expect(laptops).toHaveLength(2);
+  for (const l of laptops) {
+    expect(l.bottom).toBeGreaterThan(table.top);
+    expect(l.bottom).toBeLessThan(table.bottom);
+    expect(l.top).toBeGreaterThanOrEqual(wb.bottom);
+  }
+});
+
+test("the room's scale is whole device pixels: 2x on a 1280 by 720 screen, 4/3 on a 3x phone, 1.5 on a 1x one", async () => {
+  expect(scaleFor(985, 630, 1)).toBe(2);
+  expect(scaleFor(808, 674, 1)).toBe(1);
+  expect(scaleFor(985, 630, 2)).toBe(2);
+  await page.viewport(390, 844);
+  expect(scaleFor(374, 560, 3)).toBe(4 / 3);
+  expect(scaleFor(359, 383, 1)).toBe(1.5);
+  await page.viewport(1280, 800);
 });
 
 test("on a mid-size screen the room keeps the art size it is laid out for, nothing overlapping", async () => {
@@ -112,7 +142,7 @@ test("on a mid-size screen the room keeps the art size it is laid out for, nothi
   const room = screen.getByRole("region", { name: "The office" }).element().getBoundingClientRect();
   const k = scaleOf(screen.getByRole("img", { name: "Worker 1, working" }).element());
   expect(room.width / k).toBeGreaterThanOrEqual(430);
-  expect(room.height / k).toBeGreaterThanOrEqual(400);
+  expect(room.height / k).toBeGreaterThanOrEqual(280);
   const apart = (a: DOMRect, b: DOMRect) => a.left >= b.right || b.left >= a.right || a.top >= b.bottom || b.top >= a.bottom;
   const yours = mine.element().getBoundingClientRect();
   expect(apart(yours, screen.getByRole("group", { name: "Lobby sofa" }).element().getBoundingClientRect())).toBe(true);
