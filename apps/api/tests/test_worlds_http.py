@@ -131,6 +131,7 @@ def test_room_prop_problems_are_listed_with_the_pack(client: TestClient, tmp_pat
     install_pack(tmp_path, "tiny", broken, {"ana": ["idle.png"]})
     (tiny,) = [p for p in client.get("/api/sprite-packs").json() if p["id"] == "tiny"]
     assert tiny["room"]["style"] == "cartoon"
+    assert tiny["room"]["props"] == {}
     assert tiny["problems"] == [
         "room style 'voxel' is not cartoon or pixel, drawn as cartoon",
         "room prop sofa: no such prop, one of table_on, table_off, laptop_on, laptop_off, cup, "

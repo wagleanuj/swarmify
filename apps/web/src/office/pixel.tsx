@@ -147,27 +147,33 @@ export function Prop({ name, className = "" }: { name: string; className?: strin
   return <img className={`office-prop office-prop-${name} ${className}`} src={pack && own ? packUrl(pack, own) : builtIn(name)} alt="" />;
 }
 
-/** A pod's table, its laptops open and glowing while the crew works, shut otherwise, and a cup. */
-export const Table = ({ on }: { on: boolean }) => (
-  <div className="office-table" aria-hidden="true">
-    <Prop name={on ? "table_on" : "table_off"} />
-    <span className="office-laptops">
-      <Prop name={on ? "laptop_on" : "laptop_off"} />
-      <Prop name="cup" />
-      <Prop name={on ? "laptop_on" : "laptop_off"} />
-    </span>
-  </div>
-);
+/** A pod's table with a laptop for each seat (at least one), open and glowing while the crew
+ * works, shut otherwise, and a cup after the first. */
+export function Table({ on, seats }: { on: boolean; seats: number }) {
+  const laptop = on ? "laptop_on" : "laptop_off";
+  return (
+    <div className="office-table" aria-hidden="true">
+      <Prop name={on ? "table_on" : "table_off"} />
+      <span className="office-laptops">
+        <Prop name={laptop} />
+        <Prop name="cup" />
+        {Array.from({ length: seats - 1 }, (_, i) => (
+          <Prop key={i} name={laptop} />
+        ))}
+      </span>
+    </div>
+  );
+}
 
-/** One art pixel in screen pixels: a whole number, the largest that keeps about a 430 by 400 art
- * pixel room on screen (rounded, so a slightly smaller screen still gets the bigger pixels). */
-const scaleFor = (w: number, h: number) => Math.max(1, Math.round(Math.min(w / 430, h / 400)));
+/** One art pixel in screen pixels: a whole number, the largest that keeps at least a 430 by 400
+ * art pixel room on screen, the size the room's pieces are laid out for. */
+const scaleFor = (w: number, h: number) => Math.max(1, Math.floor(Math.min(w / 430, h / 400)));
 
 const WALL = 84;
 
 /** The room's layer in art pixels, scaled by one whole number to fill the room: the floor, the
- * wall with its windows, door, kitchen, bookshelf and clock, the plants, the world's sign and Your
- * office, all under the pods and the cast it holds. */
+ * wall with its windows, door, kitchen, bookshelf and clock, the plants and the world's sign, all
+ * under the pods, Your office and the cast it holds. */
 export function PixelRoom({ pack, name, children }: { pack: Pack; name: string; children: ReactNode }) {
   const outer = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -209,10 +215,6 @@ export function PixelRoom({ pack, name, children }: { pack: Pack; name: string; 
               <Prop name="plant" className="office-at-plant-l" />
               <Prop name="plant" className="office-at-plant-r" />
               <div className="office-neon">{name}</div>
-              <span className="office-your-office">
-                <Prop name="office" />
-                <b>Your office</b>
-              </span>
             </div>
             {children}
           </div>

@@ -394,8 +394,14 @@
 .office-at-plant-l { left: 100px; bottom: 4px; }
 .office-at-plant-r { right: 100px; bottom: 4px; }
 .office-pixel .office-neon { top: 47px; bottom: auto; padding: 1px 6px; border-radius: 0; font: 700 8px "Pixelify Sans", monospace; text-shadow: 0 0 2px var(--sun); box-shadow: 0 0 0 1px var(--sun) inset; }
-.office-your-office { right: 4px; bottom: 4px; }
-.office-your-office b { position: absolute; left: 6px; top: 6px; font: 700 7px "Pixelify Sans", monospace; }
+.office-pixel .office-mine { right: 4px; bottom: 4px; gap: 2px; }
+.office-app .office-pixel button.office-glass { width: 92px; height: 62px; padding: 6px; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.office-app .office-pixel button.office-glass::after { display: none; }
+.office-pixel .office-glass .office-prop-office { position: absolute; inset: 0; }
+.office-pixel .office-glass b, .office-pixel .office-glass small { position: relative; font: 700 7px "Pixelify Sans", monospace; }
+.office-pixel .office-glass small { font-size: 6px; }
+.office-pixel .office-line { gap: 2px; padding-top: 8px; }
+.office-app .office-pixel button.office-asker { width: var(--frame-w); height: var(--frame-h); }
 .office-pixel .office-shelf { top: 16px; right: 72px; min-height: 8px; gap: 2px; padding: 0 2px; border-bottom-width: 2px; }
 .office-app .office-pixel button.office-cup { width: 5px; height: 6px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel button:focus-visible { outline-width: 1px; outline-offset: 1px; }
@@ -407,7 +413,7 @@
 .office-pixel .office-progress i { background: #e8546b; }
 .office-app .office-pixel button.office-board:hover, .office-app .office-pixel button.office-note-card:hover { box-shadow: 0 0 0 1px var(--sun); }
 .office-table { position: relative; z-index: 2; flex: none; }
-.office-laptops { position: absolute; left: 12%; right: 12%; bottom: calc(100% - 4px); display: flex; justify-content: space-between; align-items: flex-end; }
+.office-laptops { position: absolute; left: 4%; right: 4%; bottom: calc(100% - 4px); display: flex; justify-content: space-evenly; align-items: flex-end; }
 .office-pixel .office-prop-cart { position: absolute; z-index: 2; right: 4px; bottom: 2px; }
 .office-pixel .office-actor, .office-pixel .office-crew .office-actor { width: var(--frame-w); height: var(--frame-h); }
 .office-pixel .office-actor::before { display: none; }

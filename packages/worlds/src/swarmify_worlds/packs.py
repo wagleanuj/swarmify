@@ -129,11 +129,14 @@ def load(pack_id: str, folder: Path) -> SpritePack:
     for agent, casting in pack.casting.items():
         if casting.character is not None and casting.character not in pack.characters:
             problems.append(f"casting for {agent}: no character {casting.character}")
+    props = {}
     for prop, file in pack.room.props.items():
         path = (root / file).resolve()
-        if not (path.is_relative_to(root) and path.is_file()):
+        if path.is_relative_to(root) and path.is_file():
+            props[prop] = file
+        else:  # left out, so the built-in pixel room draws it
             problems.append(f"room prop {prop}: missing file {file}")
-    return replace(pack, problems=problems)
+    return replace(pack, room=replace(pack.room, props=props), problems=problems)
 
 
 def _parse(pack_id: str, data: dict[str, Any]) -> SpritePack:

@@ -231,7 +231,7 @@ export function Office() {
         </p>
       )}
       <div className="office-main">
-        <Room name={world?.name ?? ""} pack={pack} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
+        <Room name={world?.name ?? ""} pack={world === undefined ? undefined : pack} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
           <YourOffice waiting={waiting} talk={talk} />
           <Bench worldId={worldId} members={bench} />
         </Room>
@@ -260,6 +260,7 @@ function YourOffice({ waiting, talk }: { waiting: Asker[]; talk: (gate?: string)
   return (
     <div className="office-mine">
       <button type="button" className="office-glass" aria-label={`Your office, ${waiting.length} waiting`} onClick={() => talk()}>
+        {usePixel() && <Prop name="office" />}
         <b>Your office</b>
         <small>{waiting.length} waiting</small>
       </button>
@@ -326,7 +327,10 @@ function QuestBoard({ runs, connectors, open }: Floor) {
  * floor of pods, one per run slot, and the lobby sofa of queued runs. The cast stands on the
  * floor. A pixel pack draws it as the flat-on pixel room, a cartoon pack as the cartoon room. The
  * drawing is decorative; the whiteboards, cups and sofa notes are the controls. */
-function Room({ name, pack, ...floor }: Floor & Pods & { name: string; pack: Pack | null; slots: number; children?: ReactNode }) {
+function Room({ name, pack, ...floor }: Floor & Pods & { name: string; pack: Pack | null | undefined; slots: number; children?: ReactNode }) {
+  // Until the world and the pack list are read, the room's style is unknown: a bare room, not a
+  // cartoon room that jumps to a pixel one.
+  if (pack === undefined) return <section className="office-room" aria-label="The office" aria-busy="true" />;
   if (pack?.room?.style !== "pixel") {
     return (
       <section className="office-room" aria-label="The office">
@@ -392,7 +396,7 @@ function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor 
         {Array.from({ length: spare }, (_, i) => (
           <li key={`spare-${i}`} className="office-pod office-spare">
             <div className="office-board">Free pod</div>
-            <Desks on={false} />
+            <Desks on={false} seats={0} />
           </li>
         ))}
       </ul>
@@ -457,14 +461,14 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
           {art.name}
         </span>
       )}
-      <Desks on={kind === "swarm" || kind === "retro"} />
+      <Desks on={kind === "swarm" || kind === "retro"} seats={crew.length} />
       {kind === "connector" && <Cart />}
     </>
   );
 }
 
-function Desks({ on }: { on: boolean }) {
-  if (usePixel()) return <Table on={on} />;
+function Desks({ on, seats }: { on: boolean; seats: number }) {
+  if (usePixel()) return <Table on={on} seats={seats} />;
   return (
     <div className={`office-desks${on ? " office-on" : ""}`} aria-hidden="true">
       <i />
