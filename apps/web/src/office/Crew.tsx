@@ -6,6 +6,7 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { BUNDLED_PACK, plainRole, saveSkin, type Skin } from "../skin";
 import { type Casting, look, type Member, type Pack, packCasting, packOf, poseSrc, useCrew } from "./cast";
+import { appClass, FullScreen, Tabs, useNight } from "./chrome";
 import "./office.css";
 
 type World = components["schemas"]["World"];
@@ -40,6 +41,9 @@ export function Crew() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const { cast, packs } = useCrew(worldId, world?.agent_count);
+  const [night] = useNight();
+  // On a phone the form that dresses the agent is a sheet pulled up over the stage.
+  const [dressing, setDressing] = useState(false);
 
   useEffect(() => {
     api
@@ -84,15 +88,17 @@ export function Crew() {
   }
 
   return (
-    <div className="office-app">
+    <div className={appClass(night)}>
       <header className="office-bar" aria-label="Crew bar">
         <div className="office-chip office-world">
           <small>Crew of</small>
           <h1>{world?.name ?? "..."}</h1>
         </div>
-        <Link className="office-btn" to="/worlds/$worldId/office" params={{ worldId }}>
+        <Link className="office-btn office-wide" to="/worlds/$worldId/office" params={{ worldId }}>
           Back to the office
         </Link>
+        <FullScreen />
+        <Tabs worldId={worldId} />
       </header>
       {error && (
         <p className="office-note" role="alert">
@@ -137,6 +143,8 @@ export function Crew() {
             skin={skin}
             saved={saved}
             save={save}
+            dressing={dressing}
+            setDressing={setDressing}
           />
         )}
       </div>
@@ -152,10 +160,12 @@ type DresserProps = {
   skin: Skin;
   saved: boolean;
   save: (next: Skin) => Promise<void>;
+  dressing: boolean;
+  setDressing: (open: boolean) => void;
 };
 
 /** The selected agent on a pedestal in a chosen pose, and the form that dresses them. */
-function Dresser({ member, index, pack, packs, skin, saved, save }: DresserProps) {
+function Dresser({ member, index, pack, packs, skin, saved, save, dressing, setDressing }: DresserProps) {
   const [draft, setDraft] = useState<Casting>(own(skin.cast?.[member.name]));
   const [pose, setPose] = useState("idle");
   const seen = look(pack, member, index, draft);
@@ -185,8 +195,14 @@ function Dresser({ member, index, pack, packs, skin, saved, save }: DresserProps
             </button>
           ))}
         </div>
+        <button type="button" className="office-btn office-narrow" aria-expanded={dressing} onClick={() => setDressing(true)}>
+          Dress {seen.name}
+        </button>
       </section>
-      <form className="office-dress" aria-label={`Dress ${label}`} onSubmit={submit}>
+      <form className={`office-dress${dressing ? " office-sheet-open" : ""}`} aria-label={`Dress ${label}`} onSubmit={submit}>
+        <button type="button" className="office-btn office-narrow office-done" onClick={() => setDressing(false)}>
+          Done
+        </button>
         <h2>Dress {seen.name}</h2>
         <div role="group" aria-label="Sprite pack">
           <small>Sprite pack</small>

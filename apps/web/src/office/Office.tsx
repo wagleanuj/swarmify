@@ -9,6 +9,7 @@ import { type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs
 import type { components } from "../api/schema";
 import { cap, saveSkin } from "../skin";
 import { Actor, Bench, type Look, type Pack, still, stillFrame, useCast } from "./cast";
+import { appClass, FullScreen, Tabs, useNight } from "./chrome";
 import "./office.css";
 import { PixelRoom, Prop, Table, usePixel } from "./pixel";
 import {
@@ -58,6 +59,9 @@ export function Office() {
   const [radio, setRadio] = useState<News[]>([]);
   const { cast, look, nameOf, pack } = useCast(worldId, world?.agent_count, world?.skin);
   const gates = useOpenGates().gates;
+  const [night] = useNight();
+  // On a phone the quest board and radio are a sheet pulled up over the office.
+  const [board, setBoard] = useState(false);
   const hear = (who: string, what: string | null) =>
     what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
 
@@ -197,8 +201,9 @@ export function Office() {
   });
   const open = (runId: string) => void navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId } });
   const talk = (gate?: string) => void navigate({ to: "/worlds/$worldId/office/talk", params: { worldId }, search: gate ? { gate } : {} });
+  const first = waiting[0];
   return (
-    <div className="office-app">
+    <div className={appClass(night)}>
       <header className="office-bar" aria-label="Office">
         <div className="office-chip office-world">
           <small>World</small>
@@ -215,16 +220,27 @@ export function Office() {
           {scores.reduce((n, s) => n + s.first_try, 0)}{" "}
           <span>of {scores.reduce((n, s) => n + s.judged, 0)} kept first try</span>
         </div>
-        <button type="button" className="office-chip office-needs" data-testid="office-waiting" onClick={() => talk()}>
+        <button type="button" className="office-chip office-needs office-wide" data-testid="office-waiting" onClick={() => talk()}>
           {waiting.length} <span>{waiting.length === 1 ? "decision" : "decisions"} waiting on you</span>
         </button>
-        <Link className="office-btn" to="/worlds/$worldId/office/crew" params={{ worldId }}>
+        <Link className="office-btn office-wide" to="/worlds/$worldId/office/crew" params={{ worldId }}>
           Crew
         </Link>
+        <button type="button" className="office-btn office-narrow" aria-expanded={board} onClick={() => setBoard(!board)}>
+          Quest board
+        </button>
         <button type="button" className="office-btn" onClick={() => void plainView()}>
           Plain view
         </button>
+        <FullScreen />
+        <Tabs worldId={worldId} />
       </header>
+      {first && (
+        <button type="button" className="office-banner" onClick={() => talk(first.gate.stage_id)}>
+          <b>{first.name}</b> is waiting on you: {first.gate.ask}
+          {waiting.length > 1 && <small> and {waiting.length - 1} more</small>}
+        </button>
+      )}
       {error && (
         <p className="office-note" role="alert">
           {error}
@@ -235,7 +251,10 @@ export function Office() {
           <YourOffice waiting={waiting} talk={talk} />
           <Bench worldId={worldId} members={bench} />
         </Room>
-        <div className="office-side">
+        <div className={`office-side${board ? " office-sheet-open" : ""}`}>
+          <button type="button" className="office-btn office-narrow office-done" onClick={() => setBoard(false)}>
+            Done
+          </button>
           <QuestBoard runs={runs} connectors={connectors} open={open} />
           <Radio news={radio} nameOf={nameOf} />
         </div>
