@@ -85,7 +85,8 @@ test("each live top-level run is a pod with its stage n of m; spare pods stand e
 
 test("a pod shows the type of its current stage", async () => {
   const gated = run("waiting_gate", stages(6, 2, "gate", "waiting"), { id: "run_19", name: "Pick a topic", created_at: "2026-10-31T08:05:00Z" });
-  const { screen } = await office([sending, parent, child, retro, gated]);
+  const paused = run("paused", stages(4, 1, "swarm", "pending"), { id: "run_20", name: "On hold", created_at: "2026-10-31T08:06:00Z" });
+  const { screen } = await office([sending, parent, child, retro, gated, paused]);
   const pods = screen.getByRole("list", { name: "Pods" });
   await expect.element(pods.getByRole("button", { name: "Short #3, stage 4 of 5, Render scenes, sending to YouTube" })).toMatchTextContent(/Sending to YouTube/);
   await expect
@@ -93,19 +94,24 @@ test("a pod shows the type of its current stage", async () => {
     .toMatchTextContent(/Child run Research pack, stage 2 of 4, Render scenes/);
   await expect.element(pods.getByRole("button", { name: "Retro run, stage 3 of 3, Render scenes, retro, learning from the run" })).toBeVisible();
   await expect.element(pods.getByRole("button", { name: "Pick a topic, stage 3 of 6, Render scenes, waiting on you" })).toMatchTextContent(/Waiting on you/);
-  expect(pods.getByText("Free pod").elements()).toHaveLength(2);
+  await expect.element(pods.getByRole("button", { name: "On hold, stage 2 of 4, Render scenes, paused" })).toMatchTextContent(/Paused/);
+  expect(pods.getByText("Free pod").elements()).toHaveLength(1);
 });
 
 test("a run moving to a gate changes its pod without a reload", async () => {
-  const { screen } = await office([weekly]);
+  const { screen } = await office([weekly, queued("run_15", "Long haul", "2026-10-31T09:00:00Z")]);
+  const sofa = screen.getByRole("group", { name: "Lobby sofa" });
+  await expect.element(sofa.getByRole("button", { name: "Long haul, queued" })).toBeVisible();
   const pods = screen.getByRole("list", { name: "Pods" });
   await expect.element(pods.getByRole("button", { name: "Weekly explainer #14, stage 7 of 12, Render scenes" })).toMatchTextContent(/Working/);
   FakeEventSource.emit("run.updated", { payload: { ...weekly, status: "waiting_gate", stages: stages(12, 7, "gate", "waiting") } });
   const gated = pods.getByRole("button", { name: "Weekly explainer #14, stage 8 of 12, Render scenes, waiting on you" });
   await expect.element(gated).toMatchTextContent(/Waiting on you/);
   // A queued run that starts leaves the sofa for a free pod.
+  expect(pods.getByText("Free pod").elements()).toHaveLength(5);
   FakeEventSource.emit("run.updated", { payload: { ...long, status: "running" } });
   await expect.element(pods.getByRole("button", { name: "Long haul, stage 7 of 30, Render scenes" })).toBeVisible();
+  await expect.element(sofa.getByRole("button", { name: "Long haul, queued" })).not.toBeInTheDocument();
   expect(pods.getByText("Free pod").elements()).toHaveLength(4);
 });
 

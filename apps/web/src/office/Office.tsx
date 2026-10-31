@@ -46,7 +46,7 @@ export function Office() {
       .then(({ data }) => data && setRuns(data))
       .catch(() => undefined);
     // ponytail: first-try keeps are read when the office opens, one scorecard per workflow, as
-    // the plain overview does; a world scorecard endpoint would make it one read.
+    // the plain Scorecard page sums them; a world scorecard endpoint would make it one read.
     api
       .GET("/api/worlds/{world_id}/workflows", path)
       .then(({ data }) =>
@@ -152,6 +152,8 @@ function QuestBoard({ runs, connectors, open }: Floor) {
  * The drawing is decorative; the whiteboards, cups and sofa notes are the controls. */
 function Room({ name, runs, slots, connectors, open }: Floor & { name: string; slots: number }) {
   const { live, queued, shelf } = scene(runs);
+  // ponytail: every live run gets a pod even past the run cap (the cap was just lowered); that
+  // state is short-lived, so no overflow onto the quest board until it proves to matter.
   const spare = Math.max(0, slots - live.length);
   return (
     <section className="office-room" aria-label="The office">
@@ -198,7 +200,7 @@ function Room({ name, runs, slots, connectors, open }: Floor & { name: string; s
           {queued.map((r) => (
             <li key={r.id}>
               <button type="button" className="office-note-card office-queued" aria-label={restName(r)} onClick={() => open(r.id)}>
-                <small>Queued, next free pod</small>
+                <small>Queued, waiting for a free pod</small>
                 <b>{r.name}</b>
               </button>
             </li>
