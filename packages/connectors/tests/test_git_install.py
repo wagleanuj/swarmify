@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from swarmify_connectors import InstallError, Packages
+from swarmify_connectors import InstallError, ManifestError, Packages
 from swarmify_connectors.packages import MANIFEST, RECORD, permissions, read_manifest
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -190,3 +190,24 @@ def test_a_symlink_out_of_the_package_is_refused(
     (work / ".venv").mkdir()
     (work / ".venv/python").symlink_to(secret)  # the copy skips it
     assert packages.review(str(work), None)["version"] == "2.0.0"
+
+
+def test_a_package_in_a_subfolder_installs_from_it(packages: Packages, tmp_path: Path) -> None:
+    bare, work = tmp_path / "mono.git", tmp_path / "mono"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    shutil.copytree(FIXTURES / "packages/echo", work / "connectors/echo")
+    git(work, "init", "-q")
+    git(work, "remote", "add", "origin", str(bare))
+    commit(work, "v1.0.0")
+    review = packages.review(str(bare), "v1.0.0", "connectors/echo")
+    assert (review["name"], review["permissions"]) == ("echo", ECHO)
+    package = packages.install(str(bare), ref="v1.0.0", approved=ECHO, subfolder="connectors/echo")
+    assert package.subfolder == "connectors/echo"
+    assert (packages.root / "echo/1.0.0/installed.txt").read_text() == "ok"
+    with pytest.raises(ManifestError, match="has no swarmify-connector.toml"):
+        packages.review(str(bare), "v1.0.0")  # its root is not the package
+    with pytest.raises(InstallError, match="has no folder connectors/nope"):
+        packages.review(str(bare), "v1.0.0", "connectors/nope")
+    for bad in ("../echo", "connectors/../..", "/etc", "a//b", "./x"):
+        with pytest.raises(InstallError, match="is not a folder inside the repository"):
+            packages.review(str(bare), "v1.0.0", bad)

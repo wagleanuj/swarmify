@@ -695,6 +695,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/packages/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Index
+         * @description The curated index of known packages, read from `SWARMIFY_CONNECTOR_INDEX` (an https
+         *     URL or a local file; by default the swarmify-connectors repository's `index.toml`). 502
+         *     saying why when it cannot be fetched or read.
+         */
+        get: operations["package_index_api_packages_index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/packages/review": {
         parameters: {
             query?: never;
@@ -2268,6 +2290,25 @@ export interface components {
             message: string;
         };
         /**
+         * IndexEntry
+         * @description One package the curated index lists (issue 226). `permissions` is the index's summary,
+         *     for browsing; the review of the clone lists what the operator approves.
+         */
+        IndexEntry: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Git */
+            git: string;
+            /** Subfolder */
+            subfolder: string | null;
+            /** Ref */
+            ref: string;
+            /** Permissions */
+            permissions: string[];
+        };
+        /**
          * Judgement
          * @description The blind judge's pick between the two arms' trials `index` of one task. `winner` is
          *     the better arm, None for a tie.
@@ -2576,6 +2617,15 @@ export interface components {
             ref?: string | null;
             /** Commit */
             commit?: string | null;
+            /** Subfolder */
+            subfolder?: string | null;
+        };
+        /** PackageIndex */
+        PackageIndex: {
+            /** Url */
+            url: string;
+            /** Packages */
+            packages: components["schemas"]["IndexEntry"][];
         };
         /** PackageInstall */
         PackageInstall: {
@@ -2583,6 +2633,8 @@ export interface components {
             source: string;
             /** Ref */
             ref?: string | null;
+            /** Subfolder */
+            subfolder?: string | null;
             /** Commit */
             commit?: string | null;
             /** Approved */
@@ -2613,6 +2665,8 @@ export interface components {
             source: string;
             /** Ref */
             ref?: string | null;
+            /** Subfolder */
+            subfolder?: string | null;
         };
         /**
          * PackageSwitch
@@ -5042,6 +5096,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    package_index_api_packages_index_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageIndex"];
                 };
             };
         };
