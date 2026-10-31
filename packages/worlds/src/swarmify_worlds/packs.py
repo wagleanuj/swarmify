@@ -11,11 +11,26 @@ import re
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 BUNDLED = Path(__file__).parent / "sprite_packs"
 MANIFEST = "pack.toml"
 PACK_ID = re.compile(r"[\w-]{1,64}")
+PROPS = (
+    "table_on",
+    "table_off",
+    "laptop_on",
+    "laptop_off",
+    "cup",
+    "cooler",
+    "fridge",
+    "kitchen",
+    "bookshelf",
+    "clock",
+    "cart",
+    "floor_tile",
+)
+"""The room props a pixel pack may draw itself; the built-in pixel room draws any it leaves out."""
 
 
 @dataclass(frozen=True)
@@ -38,6 +53,18 @@ class Casting:
 
 
 @dataclass(frozen=True)
+class Room:
+    """How the office room is drawn to match the pack's characters."""
+
+    style: Literal["cartoon", "pixel"] = "cartoon"
+    """cartoon: the built-in vector room with depth; pixel: flat-on at one art pixel scale."""
+    props: dict[str, str] = field(default_factory=dict)
+    """Prop name (one of PROPS) to its file in the pack, a pixel sprite at the art scale."""
+    poses_side: bool = False
+    """Whether the characters have side-facing frames."""
+
+
+@dataclass(frozen=True)
 class SpritePack:
     id: str
     name: str
@@ -47,6 +74,7 @@ class SpritePack:
     """Width and height of every frame, feet at bottom centre."""
     characters: dict[str, Character] = field(default_factory=dict)
     casting: dict[str, Casting] = field(default_factory=dict)
+    room: Room = field(default_factory=Room)
     problems: list[str] = field(default_factory=list)
     """What is wrong with the pack: an unreadable manifest, a missing frame or idle pose."""
 
@@ -101,12 +129,17 @@ def load(pack_id: str, folder: Path) -> SpritePack:
     for agent, casting in pack.casting.items():
         if casting.character is not None and casting.character not in pack.characters:
             problems.append(f"casting for {agent}: no character {casting.character}")
-    return replace(pack, problems=problems)
+    props = {}
+    for prop, file in pack.room.props.items():
+        path = (root / file).resolve()
+        if path.is_relative_to(root) and path.is_file():
+            props[prop] = file
+        else:  # left out, so the built-in pixel room draws it
+            problems.append(f"room prop {prop}: missing file {file}")
+    return replace(pack, room=replace(pack.room, props=props), problems=problems)
 
 
 def _parse(pack_id: str, data: dict[str, Any]) -> SpritePack:
-    # ponytail: the manifest's [room] table (style, poses_side) is ignored until the room
-    # draws from it (#288).
     problems = []
     if data.get("id", pack_id) != pack_id:
         problems.append(f"the manifest says id {data['id']!r}, its folder is {pack_id!r}")
@@ -135,6 +168,20 @@ def _parse(pack_id: str, data: dict[str, Any]) -> SpritePack:
     ):
         raise ValueError("frame is [width, height] in pixels")
     author = data.get("author")
+    room = _table(data.get("room", {}))
+    style = room.get("style", "cartoon")
+    if style not in ("cartoon", "pixel"):
+        problems.append(f"room style {style!r} is not cartoon or pixel, drawn as cartoon")
+        style = "cartoon"
+    props = {}
+    for prop, file in _table(room.get("props", {})).items():
+        if prop in PROPS:
+            props[prop] = _text(file, f"room prop {prop}")
+        else:
+            problems.append(f"room prop {prop}: no such prop, one of {', '.join(PROPS)}")
+    side = room.get("poses_side", False)
+    if not isinstance(side, bool):
+        raise ValueError(f"room poses_side is true or false, got {side!r}")
     return SpritePack(
         pack_id,
         _text(data.get("name", pack_id), "name"),
@@ -143,6 +190,7 @@ def _parse(pack_id: str, data: dict[str, Any]) -> SpritePack:
         frame,
         characters,
         casting,
+        Room(style, props, side),
         problems,
     )
 

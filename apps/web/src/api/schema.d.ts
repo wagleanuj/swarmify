@@ -2969,6 +2969,27 @@ export interface components {
             /** Next Run At */
             next_run_at?: string | null;
         };
+        /**
+         * Room
+         * @description How the office room is drawn to match the pack's characters.
+         */
+        Room: {
+            /**
+             * Style
+             * @default cartoon
+             * @enum {string}
+             */
+            style: "cartoon" | "pixel";
+            /** Props */
+            props?: {
+                [key: string]: string;
+            };
+            /**
+             * Poses Side
+             * @default false
+             */
+            poses_side: boolean;
+        };
         /** Run */
         Run: {
             /** Id */
@@ -3414,6 +3435,7 @@ export interface components {
             casting?: {
                 [key: string]: components["schemas"]["Casting"];
             };
+            room?: components["schemas"]["Room"];
             /** Problems */
             problems?: string[];
         };

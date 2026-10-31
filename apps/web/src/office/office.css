@@ -377,3 +377,54 @@
 @media (max-width: 700px) and (max-height: 700px) {
   .talk-hero { display: none; }
 }
+
+/* The pixel room (a pixel pack): flat-on, laid out in art pixels and scaled by one whole number
+   (pixel.tsx), so every size below is in art pixels and comes out at the characters' pixel size. */
+.office-room.office-pixel { border-radius: 0; background: #d6a46c; perspective: none; }
+.office-pixel-fit { position: absolute; inset: 0; overflow: hidden; }
+.office-pixel-art { position: absolute; left: 0; top: 0; transform-origin: 0 0; font: 500 6px/1.2 "Pixelify Sans", monospace; image-rendering: pixelated; }
+.office-pixel-art img { display: block; image-rendering: pixelated; }
+.office-backdrop { position: absolute; inset: 0; }
+.office-pixel-wall, .office-pixel-wall > * { position: absolute; }
+.office-pixel-wall { inset: 0; pointer-events: none; }
+.office-at-clock { left: 17%; top: 14px; }
+.office-at-books { left: 44px; top: 50px; }
+.office-at-cooler { left: 80px; top: 50px; }
+.office-at-kitchen { right: 6px; top: 38px; display: flex; align-items: flex-end; }
+.office-at-plant-l { left: 100px; bottom: 4px; }
+.office-at-plant-r { right: 100px; bottom: 4px; }
+.office-pixel .office-neon { top: 47px; bottom: auto; padding: 1px 6px; border-radius: 0; font: 700 8px "Pixelify Sans", monospace; text-shadow: 0 0 2px var(--sun); box-shadow: 0 0 0 1px var(--sun) inset; }
+.office-pixel .office-mine { right: 4px; bottom: 4px; gap: 2px; }
+.office-app .office-pixel button.office-glass { width: 92px; height: 62px; padding: 6px; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.office-app .office-pixel button.office-glass::after { display: none; }
+.office-pixel .office-glass .office-prop-office { position: absolute; inset: 0; }
+.office-pixel .office-glass b, .office-pixel .office-glass small { position: relative; font: 700 7px "Pixelify Sans", monospace; }
+.office-pixel .office-glass small { font-size: 6px; }
+.office-pixel .office-line { gap: 2px; padding-top: 8px; }
+.office-app .office-pixel button.office-asker { width: var(--frame-w); height: var(--frame-h); }
+.office-pixel .office-shelf { top: 16px; right: 72px; min-height: 8px; gap: 2px; padding: 0 2px; border-bottom-width: 2px; }
+.office-app .office-pixel button.office-cup { width: 5px; height: 6px; border-width: 1px; border-radius: 0; }
+.office-app .office-pixel button:focus-visible { outline-width: 1px; outline-offset: 1px; }
+.office-pixel .office-pods { inset: 92px 6px 80px; gap: 4px 8px; }
+.office-pixel .office-pod { padding: 2px; gap: 1px; border-width: 1px; border-radius: 0; }
+.office-app .office-pixel .office-board { width: min(100%, 104px); padding: 2px 3px; gap: 1px; border-width: 2px; outline-width: 1px; border-radius: 0; font-size: 6px; line-height: 1.15; }
+.office-pixel .office-board b { font-size: 7px; }
+.office-pixel .office-progress { height: 3px; border-width: 1px; border-radius: 0; }
+.office-pixel .office-progress i { background: #e8546b; }
+.office-app .office-pixel button.office-board:hover, .office-app .office-pixel button.office-note-card:hover { box-shadow: 0 0 0 1px var(--sun); }
+.office-table { position: relative; z-index: 2; flex: none; }
+.office-laptops { position: absolute; left: 4%; right: 4%; bottom: calc(100% - 4px); display: flex; justify-content: space-evenly; align-items: flex-end; }
+.office-pixel .office-prop-cart { position: absolute; z-index: 2; right: 4px; bottom: 2px; }
+.office-pixel .office-actor, .office-pixel .office-crew .office-actor { width: var(--frame-w); height: var(--frame-h); }
+.office-pixel .office-actor::before { display: none; }
+.office-pixel .office-crew { bottom: 10px; gap: 0; }
+.office-pixel .office-crew .office-actor.office-away { transform: translateY(-20px); }
+.office-pixel .office-tag { padding: 0 2px; border-radius: 0; font-size: 6px; transform: translate(-50%, -1px); }
+.office-pixel .office-bubble { max-width: 80px; padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
+.office-pixel .office-alert { font-size: 7px; }
+.office-pixel .office-pop { bottom: 30px; padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
+.office-pixel .office-lobby { left: 6px; bottom: 4px; width: 90px; gap: 2px; }
+.office-pixel .office-lobby ol { gap: 2px; }
+.office-app .office-pixel .office-note-card { padding: 1px 3px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2); }
+.office-pixel .office-note-card small { font-size: 6px; }
+.office-pixel .office-cast { left: 124px; right: 124px; bottom: 4px; gap: 2px; padding: 0; }

@@ -60,6 +60,8 @@ export type Look = { pack: string; agent: string; id: string; character: Charact
 export function useCrew(worldId: string, agentCount?: number) {
   const [cast, setCast] = useState<Member[]>([]);
   const [packs, setPacks] = useState<Pack[]>([]);
+  // Whether the pack list has answered (or failed), so a room is not drawn in the wrong style.
+  const [read, setRead] = useState(false);
 
   useEffect(() => {
     api
@@ -72,15 +74,16 @@ export function useCrew(worldId: string, agentCount?: number) {
     api
       .GET("/api/sprite-packs")
       .then(({ data }) => data && setPacks(data))
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setRead(true));
   }, []);
 
-  return { cast, packs };
+  return { cast, packs, read };
 }
 
 /** The world's cast drawn from its skin: its pack, with each agent's own casting over the pack's. */
 export function useCast(worldId: string, agentCount?: number, skin?: Skin) {
-  const { cast, packs } = useCrew(worldId, agentCount);
+  const { cast, packs, read } = useCrew(worldId, agentCount);
   const pack = packOf(packs, skin);
 
   /** How the agent named `name` looks: the pack's casting by agent name, else by role, else a
@@ -98,7 +101,8 @@ export function useCast(worldId: string, agentCount?: number, skin?: Skin) {
   /** The name the office calls an agent by: their casting's name, else the plain role label. */
   const nameOf = (name: string) => lookOf(name)?.name ?? plainRole(name);
 
-  return { cast, look: lookOf, nameOf };
+  /** The world's pack, null when there is none, undefined until the pack list answers. */
+  return { cast, look: lookOf, nameOf, pack: read ? pack : undefined };
 }
 
 /** The first frame of `pose` (idle when the character lacks it): someone standing still in it. */

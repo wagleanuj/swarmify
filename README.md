@@ -1048,8 +1048,17 @@ one folder of transparent PNG frames per character. Swarmify ships one,
 install another by copying its folder into `<data dir>/sprite-packs/`, where a pack of the same
 id wins over the bundled one. Packs with art you may not redistribute stay there, never in this
 repo. `GET /api/sprite-packs` lists them with any `problems` (an unreadable manifest, a missing
-frame or idle pose) and `GET /api/sprite-packs/<id>/<path>` serves one file of a pack, never one
-outside its folder.
+frame or idle pose, an unknown room style or prop, a missing prop file) and
+`GET /api/sprite-packs/<id>/<path>` serves one file of a pack, never one outside its folder.
+
+A pack's `[room]` says how the office room is drawn to match its characters: `style = "cartoon"`
+(the default, the flat vector room with depth) or `"pixel"`, a flat-on room laid out in art
+pixels and scaled by one whole number to fit the screen, so characters (at `frame` size), props
+and text (Pixelify Sans) share one pixel size. The pixel room draws everything it needs in code,
+so a pack only needs characters; `[room.props]` may give its own file for any of `table_on`,
+`table_off`, `laptop_on`, `laptop_off`, `cup`, `cooler`, `fridge`, `kitchen`, `bookshelf`,
+`clock`, `cart` and `floor_tile` (a path in the pack, drawn at one art pixel per pixel).
+`poses_side` says whether the characters have side-facing frames.
 
 ## Notifications
 
