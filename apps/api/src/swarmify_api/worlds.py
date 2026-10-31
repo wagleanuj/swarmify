@@ -8,7 +8,7 @@ from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from swarmify_worlds import (
@@ -18,6 +18,8 @@ from swarmify_worlds import (
     MAX_RUN_CAP,
     CastEdit,
     CastMember,
+    SpritePack,
+    SpritePacks,
     View,
     World,
     Worlds,
@@ -191,6 +193,26 @@ def events_router(worlds: Worlds) -> APIRouter:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    return api
+
+
+def packs_router(packs: SpritePacks) -> APIRouter:
+    api = APIRouter(prefix="/api/sprite-packs", tags=["worlds"])
+
+    @api.get("")
+    def list_packs() -> list[SpritePack]:
+        """The installed sprite packs, the bundled one first, each with its manifest and what is
+        wrong with it (an unreadable manifest, a missing frame or idle pose)."""
+        return packs.list_all()
+
+    @api.get("/{pack_id}/{path:path}", response_class=FileResponse, responses={404: {}})
+    def pack_file(pack_id: str, path: str) -> FileResponse:
+        """One file of a pack, such as a frame `<character>/<file>`; never outside its folder."""
+        file = packs.file(pack_id, path)
+        if file is None:
+            raise HTTPException(404, "no such file in this pack")
+        return FileResponse(file)
 
     return api
 

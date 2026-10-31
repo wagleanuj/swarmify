@@ -234,3 +234,14 @@
   .office-windows { left: 30%; right: 30%; }
   .office-neon { font-size: 13px; }
 }
+
+/* The cast standing idle on the floor, feet on a ring of their colour. */
+.office-cast { position: absolute; left: 33%; right: 0; pointer-events: none; bottom: 8%; z-index: 2; display: flex; justify-content: center; gap: 4px; margin: 0; padding: 0 16px; list-style: none; }
+.office-actor { --accent: var(--sun); position: relative; width: 66px; height: 88px; }
+.office-actor img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
+.office-actor::before { content: ""; position: absolute; left: 14px; right: 14px; bottom: -3px; height: 9px; border: 2px solid var(--ink); border-radius: 50%; background: var(--accent); opacity: 0.85; }
+.office-tag { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -2px); padding: 0 6px; border-radius: 6px; background: var(--ink); color: #fff; font-size: 11px; white-space: nowrap; }
+@media (max-width: 700px) {
+  .office-actor { width: 44px; height: 59px; }
+  .office-tag { font-size: 9px; }
+}

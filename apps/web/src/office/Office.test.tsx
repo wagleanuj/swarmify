@@ -15,6 +15,7 @@ const spend = { month: "2026-10", spent_usd: 3.5, monthly_budget_usd: 20 };
 
 beforeEach(() => FakeEventSource.install());
 afterEach(() => {
+  localStorage.removeItem("swarmify.skin");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -117,4 +118,58 @@ test("an unknown world says so in the office", async () => {
   fakeFetch({});
   const { screen } = await mountAt("/worlds/world_1/office");
   await expect.element(screen.getByRole("alert")).toHaveTextContent("No such world. Back to your worlds.");
+});
+
+const member = (name: string, role: string) => ({ name, role, version: 1, prompt: "", tools: null, updated_at: null });
+const idle = (name: string) => ({ name, poses: { idle: ["idle.png"], work: ["work0.png"] } });
+/** The bundled pack as `GET /api/sprite-packs` lists it, cut down, beside an installed one. */
+const packs = [
+  {
+    id: "kenney-toon",
+    name: "Toon Characters",
+    licence: "CC0",
+    characters: { ada: idle("Ada"), bo: idle("Bo"), blank: { name: "Blank", poses: { work: ["work0.png"] } } },
+    casting: {
+      planner: { character: "ada", name: "Mira" },
+      judge: { character: "gone", name: "Rex" },
+      tester: { character: "bo", name: "Tess" },
+    },
+    problems: ["blank has no idle pose"],
+  },
+  { id: "mine", name: "Mine", licence: "", characters: { zed: idle("Zed") }, casting: { planner: { character: "zed" } } },
+];
+
+test("the cast stands in the office in their pack characters", async () => {
+  let cast = [member("planner", "planner"), member("worker-1", "worker"), member("judge", "judge"), member("qa", "tester")];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json({ ...video, agent_count: 1 }),
+    "GET /api/worlds/world_1/cast": () => Response.json(cast),
+    "GET /api/sprite-packs": () => Response.json(packs),
+  });
+  const { screen } = await mountAt("/worlds/world_1/office");
+  const standing = screen.getByRole("list", { name: "The cast" });
+  // The pack's casting by agent name; no casting gets a default character with the plain name;
+  // a cast character the pack lacks falls back to a default one, keeping the cast name.
+  await expect.element(standing.getByRole("img", { name: "Mira, Planner" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
+  await expect.element(standing.getByRole("img", { name: "Worker 1" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
+  await expect.element(standing.getByRole("img", { name: "Rex, Judge" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
+  // The pack's casting by role when none names the agent.
+  await expect.element(standing.getByRole("img", { name: "Tess, qa" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
+  expect(standing.getByRole("img").elements()).toHaveLength(4);
+
+  // A worker added in Settings joins the cast without a reload.
+  cast = [member("planner", "planner"), member("worker-1", "worker"), member("worker-2", "worker"), member("judge", "judge"), member("qa", "tester")];
+  FakeEventSource.emit("world.updated", { payload: { id: "world_1", agent_count: 2 } });
+  await expect.element(standing.getByRole("img", { name: "Worker 2" })).toBeVisible();
+});
+
+test("the office ignores the plain pages' Pied Piper names", async () => {
+  localStorage.setItem("swarmify.skin", "pied-piper");
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/cast": () => Response.json([member("worker-1", "worker")]),
+    "GET /api/sprite-packs": () => Response.json(packs),
+  });
+  const { screen } = await mountAt("/worlds/world_1/office");
+  await expect.element(screen.getByRole("img", { name: "Worker 1" })).toBeVisible();
 });
