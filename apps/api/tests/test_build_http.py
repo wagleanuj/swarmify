@@ -21,6 +21,9 @@ from swarmify_api.main import create_app
 from swarmify_swarm import AgentRuntime, SdkRuntime
 from swarmify_swarm.fake import Answer, Call, Say, Script
 
+# These tests start a default package's real `.venv` process, so its install step runs.
+real_default_installs = True
+
 HERE = Path(__file__).parent
 FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
 SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")

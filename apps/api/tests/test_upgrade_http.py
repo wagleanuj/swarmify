@@ -28,6 +28,9 @@ from swarmify_kernel import Event, new_id
 from swarmify_workflows import Workflow
 from swarmify_workflows.sqlite import SqliteStorage as WorkflowStorage
 
+# These tests start a default package's real `.venv` process, so its install step runs.
+real_default_installs = True
+
 V1_WORKFLOW = """name: Bedtime
 stages:
   - connector: write

@@ -17,6 +17,9 @@ from swarmify_api.main import create_app, with_files
 from swarmify_connectors import ConnectorError
 from swarmify_runs import Run, RunStageView
 
+# These tests start a default package's real `.venv` process, so its install step runs.
+real_default_installs = True
+
 HERE = Path(__file__).parent
 FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
 

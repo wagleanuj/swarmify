@@ -16,6 +16,9 @@ from swarmify_api.main import create_app
 from swarmify_swarm import tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Script
 
+# These tests start a default package's real `.venv` process, so its install step runs.
+real_default_installs = True
+
 GRAPH = Call(tool_id("query_graph"), {"question": "What did we reject before?"})
 
 WEEKLY = """name: Weekly short
