@@ -1,4 +1,5 @@
 import { type Connectors, labelOf } from "../api/connectors";
+import type { Agent, ArtifactCreated, LogEntry } from "../api/events";
 import { current, holdsSlot, type Run, STATUS_LABEL } from "../api/runs";
 
 /** How a pod looks: the type of its run's current stage, or the gate it waits at. */
@@ -68,3 +69,80 @@ const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** A run off the floor, as the sofa, shelf and quest board name it: "Weekly #9, queued". */
 export const restName = (run: Run) => `${run.name}, ${STATUS_LABEL[run.status]}`;
+
+/** The poses a sprite pack can draw; any it lacks falls back to idle. */
+export type Pose = "idle" | "think" | "work" | "walk" | "talk" | "cheer" | "stuck" | "hold" | "back";
+
+/** A pose in words, for the character's accessible name; idle says nothing. */
+export const POSE_WORDS: Record<Pose, string> = {
+  idle: "",
+  think: "thinking",
+  work: "working",
+  walk: "walking",
+  talk: "asking",
+  cheer: "shipped",
+  stuck: "stuck",
+  hold: "carrying",
+  back: "at the whiteboard",
+};
+
+export type Seat = { agent: Agent; pose: Pose };
+
+/** Who is in a live run's pod and how they stand, from the data alone. On a swarm stage the
+ * run's agents on it sit at the desks working, the planner thinking; on the retro stage they
+ * work at the whiteboard; a failed agent, or any in a paused run, is stuck. At a gate the desks
+ * empty and one agent asks: the judge of the stage before when it was judged, else the planner. */
+export function crew(run: Run, agents: Agent[]): Seat[] {
+  const at = current(run);
+  if (!at) return [];
+  const mine = agents.filter((a) => a.run_id === run.id);
+  const kind = kindOf(run);
+  if (kind === "gate") {
+    const before = run.stages[at.index - 1]?.id;
+    const asker = mine.filter((a) => a.role === "judge" && a.stage_id === before).at(-1) ?? mine.filter((a) => a.role === "planner").at(-1);
+    return asker ? [{ agent: asker, pose: "talk" }] : [];
+  }
+  return mine
+    .filter((a) => a.stage_id === at.id && a.status !== "done")
+    .map((agent) => ({
+      agent,
+      pose: agent.status === "failed" || kind === "paused" ? "stuck" : kind === "retro" ? "back" : agent.role === "planner" ? "think" : "work",
+    }));
+}
+
+/** How a cast member off the floor stands: shipped when their latest run is done, stuck when it
+ * (or they) failed, else idle. */
+export function benchPose(name: string, agents: Agent[], runs: Run[]): Pose {
+  const last = agents.filter((a) => a.name === name).sort((a, b) => a.updated_at.localeCompare(b.updated_at)).at(-1);
+  if (!last) return "idle";
+  const status = runs.find((r) => r.id === last.run_id)?.status;
+  if (last.status === "failed" || status === "failed" || status === "aborted") return "stuck";
+  return status === "done" ? "cheer" : "idle";
+}
+
+/** The top-level run a stage belongs to: a child run's stages show on its parent's pod. */
+export function podOf(stageId: string, runs: Run[]): Run | undefined {
+  const run = runs.find((r) => r.stages.some((s) => s.id === stageId));
+  return run?.parent_run_id ? runs.find((r) => r.id === run.parent_run_id) : run;
+}
+
+const stageName = (stageId: string, runs: Run[]) => runs.flatMap((r) => r.stages).find((s) => s.id === stageId)?.name ?? "a stage";
+
+/** A log line as a speech bubble: its first line, cut short; nothing for session bookkeeping. */
+export function bubble(entry: LogEntry): string | null {
+  const line = entry.detail.split("\n")[0]?.trim() ?? "";
+  if (entry.kind === "session" || !line) return null;
+  return line.length > 48 ? `${line.slice(0, 47)}\u2026` : line;
+}
+
+/** What the radio says about an agent whose status changed: "started Render scenes". */
+export function agentNews(agent: Agent, was: Agent | undefined, runs: Run[]): string | null {
+  if (was?.status === agent.status && was.stage_id === agent.stage_id) return null;
+  const stage = stageName(agent.stage_id, runs);
+  if (agent.status === "working") return `started ${stage}`;
+  return agent.status === "done" ? `finished ${stage}` : `got stuck on ${stage}`;
+}
+
+export const artifactNews = (made: ArtifactCreated) => `made ${fileName(made.path)}`;
+
+export const fileName = (path: string) => path.split("/").at(-1) ?? path;
