@@ -17,8 +17,8 @@ workspace), one monorepo. Domain docs live in the Obsidian vault, see `CONTEXT.m
 3. `mise run install` installs Python and web dependencies (the connector sandbox's launcher
    among them) and Playwright's Chromium.
 4. On Linux, install bubblewrap, socat and ripgrep for the connector sandbox
-   (`apt install bubblewrap socat ripgrep`); Ubuntu 24.04 and later also need
-   `sysctl kernel.apparmor_restrict_unprivileged_userns=0`. macOS has what it needs.
+   (`apt install bubblewrap socat ripgrep`); Ubuntu 23.10 and later also need
+   `sudo tools/allow-bwrap-userns.sh` (see The connector sandbox). macOS has what it needs.
 
 Run pnpm through mise (`mise run ...` or `mise x -- pnpm ...`). A bare `pnpm` may resolve to
 corepack, which cannot download the pinned pnpm and exits with an error that is easy to miss
@@ -589,6 +589,20 @@ bubblewrap, socat and a seccomp filter on Linux, where `bwrap`, `socat` and `rg`
 (the image has them). `packages/connectors/sandbox/launcher.mjs` starts it with what Swarmify
 grants (`swarmify_connectors/sandbox.py`), and Swarmify refuses to start a connector it cannot
 sandbox.
+
+On Ubuntu 23.10 and later the host must also let bubblewrap make user namespaces with
+capabilities, which bubblewrap and the seccomp helper inside it each do. Ubuntu strips them
+(`kernel.apparmor_restrict_unprivileged_userns=1`), and from 25.04 its `bwrap-userns-restrict`
+profile strips them from the helper's nested namespace even with that sysctl off, so every
+install step fails with `apply-seccomp: write /proc/self/setgroups (nested userns is
+capability-restricted ...)` or `bwrap: setting up uid map: Permission denied`. Run
+`sudo tools/allow-bwrap-userns.sh` once: it replaces `bwrap-userns-restrict` with an AppArmor
+profile granting `userns` to `/usr/bin/bwrap` alone (it persists across reboots) and leaves the
+restriction on for every other program. A Docker host on such an Ubuntu needs it too: the
+`sandbox` service's bwrap takes the host's profile for `/usr/bin/bwrap` (its own
+`apparmor=unconfined` and seccomp profile do not lift the host's restriction). CI runs it on
+GitHub's Ubuntu runners. Inside the sandbox nothing changes: the seccomp helper still refuses a
+sandboxed command any user namespace of its own.
 
 - Files: nothing of the data directory, the home folders or the temp folders is readable but its
   package folder (read only); for a stage's call, the run's other stage folders (read) and its own
@@ -1332,7 +1346,8 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   the folders of `data` the sandboxed processes use (`packages`, `worlds`, `remotion`,
   `npm-cache` and `sandbox`, which the one-shot `folders` service makes first), each process
   bringing the values it is given. A folder a `path` Setting names must be one of those to exist
-  there. It needs Docker Engine 26 or later for volume subpaths.
+  there. It needs Docker Engine 26 or later for volume subpaths, and on an Ubuntu 23.10 or later
+  host `sudo tools/allow-bwrap-userns.sh` once (see The connector sandbox).
 - A file a package reads from the data directory (a template, say) must be inside the container:
   copy it into the volume (`docker compose cp ./shorts api:/data/remotion/shorts`), as its README
   says.

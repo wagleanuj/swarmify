@@ -28,11 +28,10 @@ jobs:
       - run: uv run pyright
       - run: uv run python tools/check_imports.py packages
       # bubblewrap, socat and ripgrep for the OS sandbox every connector process and a Build
-      # Session's Bash run in; Ubuntu keeps unprivileged user namespaces, which it needs, behind
-      # AppArmor by default.
+      # Session's Bash run in, and the AppArmor profile that lets bubblewrap make user namespaces.
       - run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo tools/allow-bwrap-userns.sh
       - run: uv run pytest
 
   web:
@@ -73,9 +72,10 @@ jobs:
       - run: uv sync --locked --all-packages
       - run: pnpm install --frozen-lockfile
       - run: uv run playwright install --with-deps chromium
-      - run: mise run gen-client && git diff --exit-code apps/web/src/api/schema.d.ts
-      # The connector sandbox, as above: the app installs its default packages and runs in it.
+      # The connector sandbox, as above: the app installs its default packages and runs in it,
+      # gen-client's start of it too.
       - run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo tools/allow-bwrap-userns.sh
+      - run: mise run gen-client && git diff --exit-code apps/web/src/api/schema.d.ts
       - run: mise run e2e
