@@ -129,7 +129,7 @@ export function Crew() {
         {pack && member && (
           <Dresser
             // A save or another tab's change starts the form again from what the world holds.
-            key={`${member.name} ${pack.id} ${JSON.stringify(skin.cast?.[member.name] ?? {})}`}
+            key={`${member.name} ${pack.id} ${JSON.stringify(own(skin.cast?.[member.name]))}`}
             member={member}
             index={index}
             pack={pack}
@@ -191,7 +191,7 @@ function Dresser({ member, index, pack, packs, skin, saved, save }: DresserProps
         <div role="group" aria-label="Sprite pack">
           <small>Sprite pack</small>
           {packs.map((p) => (
-            <button key={p.id} type="button" className="office-btn" aria-pressed={p.id === pack.id} onClick={() => void save({ ...skin, pack: p.id })}>
+            <button key={p.id} type="button" className="office-btn" aria-pressed={p.id === pack.id} onClick={() => void save({ ...skin, pack: p.id, cast: { ...skin.cast, [member.name]: draft } })}>
               {p.name}
             </button>
           ))}

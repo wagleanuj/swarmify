@@ -102,6 +102,8 @@ test("choosing a pack applies its casting, a per-agent change wins and reset res
   const { screen } = await mountAt("/worlds/world_1/office/crew?agent=judge");
   const roster = screen.getByRole("complementary", { name: "Crew" });
   await expect.element(roster.getByRole("button", { name: "Erin Judge" })).toBeVisible();
+  // A draft not yet saved goes with the pack switch instead of being thrown away.
+  await screen.getByLabelText("Catchphrase, said when a run ships, up to 80 characters").fill("Order.");
 
   await screen.getByRole("group", { name: "Sprite pack" }).getByRole("button", { name: "My pack" }).click();
   // The pack dresses the cast; the operator's own name for the judge stays.
@@ -109,7 +111,7 @@ test("choosing a pack applies its casting, a per-agent change wins and reset res
   await expect.element(roster.getByRole("button", { name: "Yan Worker 1" })).toBeVisible();
   await expect.element(roster.getByRole("button", { name: "Erin Judge" })).toBeVisible();
   await expect.element(screen.getByText("Licence: Mine only, do not share")).toBeVisible();
-  expect(saved.at(-1)).toEqual({ skin: { ...plain, pack: "mine", cast: { judge: { name: "Erin" } } } });
+  expect(saved.at(-1)).toEqual({ skin: { ...plain, pack: "mine", cast: { judge: { name: "Erin", catchphrase: "Order." } } } });
 
   await screen.getByRole("button", { name: "Reset to the pack's casting" }).click();
   await expect.element(roster.getByRole("button", { name: "Judy Judge" })).toBeVisible();
@@ -124,8 +126,7 @@ test("a character missing from the chosen pack is reported", async () => {
     .toHaveTextContent("Toon Characters has no character robot, so Worker 1 wears Bo. Pick another.");
 });
 
-test("over-long text the API refuses says so and keeps the form", async () => {
-  crew();
+test("a save the API refuses says so and keeps the form", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/cast": () => Response.json(cast),

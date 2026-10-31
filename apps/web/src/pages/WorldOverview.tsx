@@ -89,6 +89,11 @@ export function WorldOverview() {
       if (!run) return;
       setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
     });
+    // A setting changed elsewhere (Crew in another tab): switching views sends the skin as it is now.
+    source.addEventListener("world.updated", (e) => {
+      const changes = (JSON.parse((e as MessageEvent<string>).data) as { payload?: Partial<World> }).payload;
+      if (changes) setWorld((prev) => prev && { ...prev, ...changes });
+    });
     source.addEventListener("workflow.saved", () => {
       void api
         .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })

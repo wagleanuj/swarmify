@@ -92,6 +92,18 @@ def test_the_skin_starts_plain_and_is_saved_whole_as_an_event(worlds: Worlds) ->
     assert dressed.skin == Skin("plain", "mine", {"worker-1": Casting(**look)})
 
 
+def test_shrinking_the_cast_drops_the_looks_of_agents_left_out(worlds: Worlds) -> None:
+    world = worlds.create("Video")
+    looks = {"worker-1": {"name": "Bolt"}, "worker-4": {"name": "Gone"}}
+    worlds.configure(world.id, {"skin": {"view": "office", "pack": "mine", "cast": looks}})
+    shrunk = worlds.configure(world.id, {"agent_count": 1})
+    assert shrunk is not None
+    assert shrunk.skin == Skin("office", "mine", {"worker-1": Casting(name="Bolt")})
+    kept = {"view": "plain", "pack": "mine", "cast": {"worker-1": {"name": "Bolt"}}}
+    switched = worlds.configure(world.id, {"skin": kept})
+    assert switched is not None and switched.skin.view == "plain"
+
+
 def test_the_model_for_a_role_is_its_override_then_the_world_default_then_none(
     worlds: Worlds,
 ) -> None:

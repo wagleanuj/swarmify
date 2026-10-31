@@ -177,12 +177,22 @@ class Worlds:
     def configure(self, world_id: str, changes: dict[str, Any]) -> World | None:
         """Change the given settings (`monthly_budget_usd`, `run_cap`, `retention_days`,
         `agent_count`, `model`, the per-role `<role>_model` and `skin`, replaced whole). Raises
-        ValueError for a value out of range; None for an unknown world."""
+        ValueError for a value out of range; None for an unknown world. Shrinking the cast drops
+        the looks of the agents it leaves out of the skin."""
         check_settings(changes)
-        if "skin" in changes and (world := self.get(world_id)) is not None:
+        if {"skin", "agent_count"} & set(changes) and (world := self.get(world_id)) is not None:
             agents = dict(cast.names(changes.get("agent_count", world.agent_count)))
-            if strangers := sorted(set(changes["skin"].get("cast", {})) - set(agents)):
-                raise ValueError(f"not in the cast: {', '.join(strangers)}")
+            if "skin" in changes:
+                if strangers := sorted(set(changes["skin"].get("cast", {})) - set(agents)):
+                    raise ValueError(f"not in the cast: {', '.join(strangers)}")
+            elif set(world.skin.cast) - set(agents):
+                looks = {
+                    agent: {k: v for k, v in asdict(look).items() if v is not None}
+                    for agent, look in world.skin.cast.items()
+                    if agent in agents
+                }
+                skin = {"view": world.skin.view, "pack": world.skin.pack, "cast": looks}
+                changes = {**changes, "skin": skin}
         event = Event.new("world.updated", world_id=world_id, payload={"id": world_id, **changes})
         return self.storage.update_settings(world_id, changes, event)
 
