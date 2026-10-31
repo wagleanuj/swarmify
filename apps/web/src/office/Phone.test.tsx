@@ -61,15 +61,19 @@ afterEach(async () => {
   await page.viewport(1280, 800);
 });
 
-/** The page itself never scrolls, and the box sits wholly on screen. */
+/** The box sits wholly on screen, and on a phone wholly above the bottom tab bar. */
 function fits(box: Element) {
-  const root = document.documentElement;
-  expect(root.scrollHeight).toBeLessThanOrEqual(innerHeight);
-  expect(root.scrollWidth).toBeLessThanOrEqual(innerWidth);
+  const tabs = document.querySelector('nav[aria-label="Office tabs"]');
+  const floor = tabs && getComputedStyle(tabs).position === "fixed" ? tabs.getBoundingClientRect().top : innerHeight;
   const r = box.getBoundingClientRect();
   expect(r.top).toBeGreaterThanOrEqual(0);
-  expect(r.bottom).toBeLessThanOrEqual(innerHeight);
+  expect(r.bottom).toBeLessThanOrEqual(floor);
+  expect(r.left).toBeGreaterThanOrEqual(0);
+  expect(r.right).toBeLessThanOrEqual(innerWidth);
 }
+
+/** What the sky is painted with right now. */
+const sky = () => getComputedStyle(document.querySelector(".office-app")!).getPropertyValue("--sky1").trim();
 
 const SIZES: [number, number][] = [
   [375, 667],
@@ -77,12 +81,23 @@ const SIZES: [number, number][] = [
   [1280, 720],
 ];
 
-test.each(SIZES)("at %i by %i no office screen scrolls the page", async (w, h) => {
+test.each(SIZES)("at %i by %i every office screen fits on screen", async (w, h) => {
   await page.viewport(w, h);
   office();
   const { screen, router } = await mountAt("/worlds/world_1/office");
   await expect.element(screen.getByRole("region", { name: "The office" })).toBeVisible();
-  fits(screen.getByRole("region", { name: "The office" }).element());
+  const room = screen.getByRole("region", { name: "The office" }).element();
+  fits(room);
+  // Every pod, all three rows of them, sits inside the room.
+  await expect.poll(() => room.querySelectorAll(".office-pod").length).toBe(6);
+  const walls = room.getBoundingClientRect();
+  const pods = [...room.querySelectorAll(".office-pod")].map((p) => p.getBoundingClientRect());
+  for (const p of pods) {
+    expect(p.top).toBeGreaterThanOrEqual(walls.top);
+    expect(p.bottom).toBeLessThanOrEqual(walls.bottom);
+    expect(p.left).toBeGreaterThanOrEqual(walls.left);
+    expect(p.right).toBeLessThanOrEqual(walls.right);
+  }
 
   await router.navigate({ to: "/worlds/$worldId/office/talk", params: { worldId: "world_1" } });
   const choices = screen.getByRole("list", { name: "Choices" });
@@ -95,7 +110,7 @@ test.each(SIZES)("at %i by %i no office screen scrolls the page", async (w, h) =
 });
 
 test("on a phone the office has a bottom tab bar, a banner of who needs you, and the quest board as a sheet", async () => {
-  await page.viewport(390, 844);
+  await page.viewport(375, 667);
   office();
   const { screen, router } = await mountAt("/worlds/world_1/office");
   const tabs = screen.getByRole("navigation", { name: "Office tabs" });
@@ -103,7 +118,7 @@ test("on a phone the office has a bottom tab bar, a banner of who needs you, and
   expect(tabs.getByRole("link").elements().map((a) => a.textContent)).toEqual(["Office", "Needs you 2", "Crew"]);
   await expect.element(tabs.getByRole("link", { name: "Office" })).toHaveAttribute("aria-current", "page");
   await expect.element(tabs.getByRole("button", { name: "Night" })).toBeVisible();
-  expect(tabs.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(844);
+  expect(tabs.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(667);
 
   // The oldest decision is pinned over the office.
   const banner = screen.getByRole("button", { name: /is waiting on you/ });
@@ -112,7 +127,10 @@ test("on a phone the office has a bottom tab bar, a banner of who needs you, and
   // The quest board waits in a sheet.
   const board = screen.getByRole("complementary", { name: "Quest board" });
   await expect.element(board).not.toBeInTheDocument();
-  await screen.getByRole("button", { name: "Quest board" }).click();
+  const opener = screen.getByRole("button", { name: "Quest board" });
+  await expect.element(opener).toBeVisible();
+  fits(opener.element());
+  await opener.click();
   await expect.element(board.getByRole("button", { name: /^Weekly explainer/ })).toBeVisible();
   fits(board.element());
   await screen.getByRole("button", { name: "Done" }).click();
@@ -144,6 +162,17 @@ test("on a phone the Crew form is a sheet over the stage", async () => {
   const form = screen.getByRole("form", { name: "Dress Judge" });
   await expect.element(screen.getByRole("region", { name: "Stage" })).toBeVisible();
   await expect.element(form).not.toBeInTheDocument();
+  // The roster is a strip of agents side by side, above the stage.
+  const roster = screen.getByRole("complementary", { name: "Crew" }).getByRole("button");
+  await expect.element(roster.first()).toBeVisible();
+  const [a0, a1, ...rest] = roster.elements().map((b) => b.getBoundingClientRect());
+  expect(rest).toHaveLength(1);
+  const agents = [a0!, a1!, ...rest];
+  for (const a of agents) expect(a.top).toBe(a0!.top);
+  expect(a1!.left).toBeGreaterThan(a0!.left);
+  const stageTop = screen.getByRole("region", { name: "Stage" }).element().getBoundingClientRect().top;
+  for (const a of agents) expect(a.bottom).toBeLessThanOrEqual(stageTop);
+  fits(roster.first().element());
   await screen.getByRole("button", { name: "Dress Rex" }).click();
   await expect.element(form).toBeVisible();
   fits(form.element());
@@ -160,8 +189,12 @@ test("day and night and full screen are this browser's, never the world's", asyn
   const { screen, router } = await mountAt("/worlds/world_1/office");
   const night = screen.getByRole("button", { name: "Night" });
   await expect.element(night).toHaveAttribute("aria-pressed", "false");
+  const day = sky();
   await night.click();
   await expect.element(night).toHaveAttribute("aria-pressed", "true");
+  expect(sky()).toBe("#141a45");
+  expect(sky()).not.toBe(day);
+  expect(localStorage.getItem("swarmify.office.night")).toBe("1");
   await screen.getByRole("button", { name: "Full screen" }).click();
   expect(full).toHaveBeenCalledOnce();
 
@@ -169,8 +202,30 @@ test("day and night and full screen are this browser's, never the world's", asyn
   await router.navigate({ to: "/worlds/$worldId/office/crew", params: { worldId: "world_1" } });
   await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
   await expect.element(screen.getByRole("button", { name: "Night" })).toHaveAttribute("aria-pressed", "true");
+  expect(sky()).toBe("#141a45");
   expect(calls.filter((c) => !c.startsWith("GET"))).toEqual([]);
 
   await screen.getByRole("button", { name: "Night" }).click();
   await expect.element(screen.getByRole("button", { name: "Night" })).toHaveAttribute("aria-pressed", "false");
+  expect(sky()).toBe(day);
+  expect(localStorage.getItem("swarmify.office.night")).toBeNull();
+});
+
+test("night set in another tab reaches this one", async () => {
+  office();
+  const { screen } = await mountAt("/worlds/world_1/office");
+  const night = screen.getByRole("button", { name: "Night" });
+  await expect.element(night).toHaveAttribute("aria-pressed", "false");
+  localStorage.setItem("swarmify.office.night", "1");
+  dispatchEvent(new StorageEvent("storage", { key: "swarmify.office.night", newValue: "1" }));
+  await expect.element(night).toHaveAttribute("aria-pressed", "true");
+  expect(sky()).toBe("#141a45");
+});
+
+test("a browser without full screen, like iPhone Safari, gets no Full screen button", async () => {
+  vi.spyOn(document, "fullscreenEnabled", "get").mockReturnValue(false);
+  office();
+  const { screen } = await mountAt("/worlds/world_1/office");
+  await expect.element(screen.getByRole("button", { name: "Night" })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Full screen" })).not.toBeInTheDocument();
 });

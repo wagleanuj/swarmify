@@ -450,7 +450,7 @@
 /* A phone: a bottom tab bar, a pinned banner of who needs you, sheets for the quest board and
    the Crew form. Nothing scrolls the page from 375 x 667 up. */
 @media (max-width: 700px) {
-  .office-app { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .office-app { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
   .office-app .office-wide { display: none; }
   .office-app .office-narrow { display: inline-block; }
   .office-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }

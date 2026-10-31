@@ -209,6 +209,10 @@ export function Office() {
           <small>World</small>
           <h1>{world?.name ?? "..."}</h1>
         </div>
+        {/* First after the name, so a phone's sideways-scrolling bar always shows it. */}
+        <button type="button" className="office-btn office-narrow" aria-expanded={board} onClick={() => setBoard(!board)}>
+          Quest board
+        </button>
         <div className="office-chip" data-testid="office-spend">
           {spend ? money(spend.spent_usd) : "..."}{" "}
           <span>{budget == null ? "spent, no monthly budget" : `of ${money(budget)} this month`}</span>
@@ -226,9 +230,6 @@ export function Office() {
         <Link className="office-btn office-wide" to="/worlds/$worldId/office/crew" params={{ worldId }}>
           Crew
         </Link>
-        <button type="button" className="office-btn office-narrow" aria-expanded={board} onClick={() => setBoard(!board)}>
-          Quest board
-        </button>
         <button type="button" className="office-btn" onClick={() => void plainView()}>
           Plain view
         </button>
