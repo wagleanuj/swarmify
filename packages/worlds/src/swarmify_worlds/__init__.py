@@ -21,6 +21,7 @@ from swarmify_worlds import cast
 from swarmify_worlds.cast import JUDGE, MAX_AGENTS, MAX_PROMPT, PLANNER, worker
 from swarmify_worlds.model import (
     AGENT_COUNT,
+    DEFAULT_PACK,
     MODEL_ROLES,
     RETENTION_DAYS,
     RUN_CAP,
@@ -32,13 +33,14 @@ from swarmify_worlds.model import (
     View,
     World,
 )
-from swarmify_worlds.packs import BUNDLED, Casting, Character, SpritePack, SpritePacks
+from swarmify_worlds.packs import BUNDLED, PACK_ID, Casting, Character, SpritePack, SpritePacks
 from swarmify_worlds.ports import Storage
 from swarmify_worlds.sqlite import MIGRATIONS, SETTINGS, SqliteStorage
 
 __all__ = [
     "AGENT_COUNT",
     "BUNDLED",
+    "DEFAULT_PACK",
     "JUDGE",
     "MAX_AGENTS",
     "MAX_PROMPT",
@@ -93,15 +95,39 @@ def check_settings(changes: dict[str, Any]) -> None:
             if not (isinstance(value, int) and 1 <= value <= MAX_AGENTS):
                 raise ValueError(f"the agent count is 1 to {MAX_AGENTS}, got {value}")
         elif key == "skin":
-            if not (isinstance(value, dict) and set(value) <= {"view"}):
-                raise ValueError("a skin has only a view")
-            if value.get("view", "plain") not in VIEWS:
-                raise ValueError(f"a view is {' or '.join(VIEWS)}, got {value['view']!r}")
+            check_skin(value)
         elif key in SETTINGS[4:]:
             if value is not None and not (isinstance(value, str) and MODEL_ID.fullmatch(value)):
                 raise ValueError(f"a model is a model id such as claude-opus-5-5, got {value!r}")
         else:
             raise ValueError(f"not a setting: {key}")
+
+
+LOOK_LIMITS = {"character": 64, "name": 24, "colour": 7, "catchphrase": 80}
+"""The most characters each field of an agent's look in a skin may have."""
+COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def check_skin(skin: object) -> None:
+    """Raise ValueError for a skin with unknown keys, a bad view or pack id, or an agent's look
+    with unknown keys, empty or over-long text or a colour that is not #rrggbb."""
+    if not (isinstance(skin, dict) and set(skin) <= {"view", "pack", "cast"}):
+        raise ValueError("a skin has only a view, a pack and a cast")
+    if skin.get("view", "plain") not in VIEWS:
+        raise ValueError(f"a view is {' or '.join(VIEWS)}, got {skin['view']!r}")
+    if not (isinstance(pack := skin.get("pack", DEFAULT_PACK), str) and PACK_ID.fullmatch(pack)):
+        raise ValueError(f"a pack is a sprite pack id, got {pack!r}")
+    looks = skin.get("cast", {})
+    if not isinstance(looks, dict):
+        raise ValueError("a skin's cast is keyed by agent name")
+    for agent, look in looks.items():
+        if not (isinstance(look, dict) and set(look) <= set(LOOK_LIMITS)):
+            raise ValueError(f"{agent}'s look has only {', '.join(LOOK_LIMITS)}")
+        for field, text in look.items():
+            if not (isinstance(text, str) and 0 < len(text) <= LOOK_LIMITS[field]):
+                raise ValueError(f"{agent}'s {field} is 1 to {LOOK_LIMITS[field]} characters")
+        if "colour" in look and not COLOUR.fullmatch(look["colour"]):
+            raise ValueError(f"{agent}'s colour is #rrggbb, got {look['colour']!r}")
 
 
 class Worlds:
@@ -153,6 +179,10 @@ class Worlds:
         `agent_count`, `model`, the per-role `<role>_model` and `skin`, replaced whole). Raises
         ValueError for a value out of range; None for an unknown world."""
         check_settings(changes)
+        if "skin" in changes and (world := self.get(world_id)) is not None:
+            agents = dict(cast.names(changes.get("agent_count", world.agent_count)))
+            if strangers := sorted(set(changes["skin"].get("cast", {})) - set(agents)):
+                raise ValueError(f"not in the cast: {', '.join(strangers)}")
         event = Event.new("world.updated", world_id=world_id, payload={"id": world_id, **changes})
         return self.storage.update_settings(world_id, changes, event)
 

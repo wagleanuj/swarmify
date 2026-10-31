@@ -1936,7 +1936,8 @@ export interface components {
         };
         /**
          * Casting
-         * @description A pack's default look for an agent, keyed by agent name or role.
+         * @description An agent's look: a pack's default, keyed by agent name or role, or a world's own in its
+         *     skin, keyed by agent name.
          */
         Casting: {
             /** Character */
@@ -2485,6 +2486,20 @@ export interface components {
              * @default
              */
             detail: string;
+        };
+        /**
+         * LookSetting
+         * @description An agent's look in the skin only: code and logs keep the plain agent name (ADR 0004).
+         */
+        LookSetting: {
+            /** Character */
+            character?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Colour */
+            colour?: string | null;
+            /** Catchphrase */
+            catchphrase?: string | null;
         };
         /**
          * MediaFile
@@ -3307,7 +3322,9 @@ export interface components {
         };
         /**
          * Skin
-         * @description How the web app draws a world. Only the view so far; the Office adds its pack and cast.
+         * @description How the web app draws a world: its view, its sprite pack and the operator's own casting of
+         *     each agent by name, which wins over the pack's. Skin names never reach code or logs (ADR
+         *     0004).
          */
         Skin: {
             /**
@@ -3316,6 +3333,15 @@ export interface components {
              * @enum {string}
              */
             view: "plain" | "office";
+            /**
+             * Pack
+             * @default kenney-toon
+             */
+            pack: string;
+            /** Cast */
+            cast?: {
+                [key: string]: components["schemas"]["Casting"];
+            };
         };
         /**
          * SkinSetting
@@ -3328,6 +3354,18 @@ export interface components {
              * @enum {string}
              */
             view: "plain" | "office";
+            /**
+             * Pack
+             * @default kenney-toon
+             */
+            pack: string;
+            /**
+             * Cast
+             * @default {}
+             */
+            cast: {
+                [key: string]: components["schemas"]["LookSetting"];
+            };
         };
         /**
          * Spend

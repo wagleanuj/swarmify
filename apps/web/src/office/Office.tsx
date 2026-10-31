@@ -6,7 +6,7 @@ import { type Connectors, useConnectors } from "../api/connectors";
 import { type Agent, useWorldEvents } from "../api/events";
 import { holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
-import { cap, saveView } from "../skin";
+import { cap, saveSkin } from "../skin";
 import { Actor, Bench, type Look, still, useCast } from "./cast";
 import "./office.css";
 import {
@@ -52,7 +52,7 @@ export function Office() {
   const [lines, setLines] = useState<Record<string, { agent: string; text: string }>>({});
   const [made, setMade] = useState<Record<string, { name: string; n: number }>>({});
   const [radio, setRadio] = useState<News[]>([]);
-  const { cast, look, nameOf } = useCast(worldId, world?.agent_count);
+  const { cast, look, nameOf } = useCast(worldId, world?.agent_count, world?.skin);
   const hear = (who: string, what: string | null) =>
     what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
 
@@ -141,7 +141,7 @@ export function Office() {
   });
 
   async function plainView() {
-    if (await saveView(worldId, "plain")) void navigate({ to: "/worlds/$worldId", params: { worldId } });
+    if (world && (await saveSkin(worldId, { ...world.skin, view: "plain" }))) void navigate({ to: "/worlds/$worldId", params: { worldId } });
     else setError("Could not switch to the plain view. Try again.");
   }
 
@@ -186,6 +186,9 @@ export function Office() {
           {scores.reduce((n, s) => n + s.first_try, 0)}{" "}
           <span>of {scores.reduce((n, s) => n + s.judged, 0)} kept first try</span>
         </div>
+        <Link className="office-btn" to="/worlds/$worldId/office/crew" params={{ worldId }}>
+          Crew
+        </Link>
         <button type="button" className="office-btn" onClick={() => void plainView()}>
           Plain view
         </button>
@@ -197,7 +200,7 @@ export function Office() {
       )}
       <div className="office-main">
         <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
-          <Bench members={bench} />
+          <Bench worldId={worldId} members={bench} />
         </Room>
         <div className="office-side">
           <QuestBoard runs={runs} connectors={connectors} open={open} />

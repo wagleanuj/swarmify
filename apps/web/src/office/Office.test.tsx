@@ -75,7 +75,8 @@ test("Plain view saves the setting and opens the plain overview in the sidebar s
   const { screen, router } = await mountAt("/worlds/world_1/office");
   await screen.getByRole("button", { name: "Plain view" }).click();
   await expect.element(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
-  expect(saved).toEqual([{ skin: { view: "plain" } }]);
+  // The rest of the skin goes back as it was, so the cast keeps its looks.
+  expect(saved).toEqual([{ skin: { view: "plain", pack: "kenney-toon", cast: {} } }]);
   expect(router.state.location.pathname).toBe("/worlds/world_1");
   await expect.element(screen.getByRole("button", { name: "Office" })).toBeVisible();
 });
@@ -85,7 +86,7 @@ test("Office on the plain overview saves the setting and opens the office", asyn
   const { screen, router } = await mountAt("/worlds/world_1");
   await screen.getByRole("button", { name: "Office" }).click();
   await expect.element(screen.getByRole("button", { name: "Plain view" })).toBeVisible();
-  expect(saved).toEqual([{ skin: { view: "office" } }]);
+  expect(saved).toEqual([{ skin: { view: "office", pack: "kenney-toon", cast: {} } }]);
   expect(router.state.location.pathname).toBe("/worlds/world_1/office");
   expect(screen.getByRole("navigation", { name: "Main" }).elements()).toHaveLength(0);
 });

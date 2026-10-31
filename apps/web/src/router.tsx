@@ -66,6 +66,15 @@ export const officeRoute = createRoute({
   component: lazyRouteComponent(() => import("./office/Office"), "Office"),
 });
 
+// Crew dresses the cast; the agent being dressed lives in the address.
+export const crewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/office/crew",
+  component: lazyRouteComponent(() => import("./office/Crew"), "Crew"),
+  validateSearch: (search: Record<string, unknown>): { agent?: string } =>
+    typeof search.agent === "string" ? { agent: search.agent } : {},
+});
+
 export const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/workflows",
@@ -177,6 +186,7 @@ const routeTree = rootRoute.addChildren([
   evalsRoute,
   worldRoute,
   officeRoute,
+  crewRoute,
   workflowsRoute,
   newWorkflowRoute,
   workflowRoute,

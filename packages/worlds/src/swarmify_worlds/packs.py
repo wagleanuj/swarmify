@@ -28,7 +28,8 @@ class Character:
 
 @dataclass(frozen=True)
 class Casting:
-    """A pack's default look for an agent, keyed by agent name or role."""
+    """An agent's look: a pack's default, keyed by agent name or role, or a world's own in its
+    skin, keyed by agent name."""
 
     character: str | None = None
     name: str | None = None

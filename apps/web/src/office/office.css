@@ -41,7 +41,8 @@
 .office-world { flex-direction: column; gap: 0; padding: 4px 14px; }
 .office-world h1 { margin: 0; font-size: 20px; line-height: 1.1; }
 .office-world small { line-height: 1; }
-.office-app button.office-btn {
+.office-app .office-btn {
+  text-decoration: none;
   margin-left: auto;
   min-height: 0;
   padding: 8px 14px;
@@ -54,8 +55,8 @@
   font-size: 15px;
   transition: transform 60ms, box-shadow 60ms;
 }
-.office-app button.office-btn:hover { background: var(--sun); }
-.office-app button.office-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.office-app .office-btn:hover, .office-app .office-btn[aria-pressed="true"] { background: var(--sun); }
+.office-app .office-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
 .office-note { margin: 0; padding: 6px 12px; background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; align-self: flex-start; }
 
 /* The room: a back wall over a plank floor seen at a slight angle. */
@@ -276,4 +277,39 @@
 @media (prefers-reduced-motion: reduce) {
   .office-alert { animation: none; }
   .office-crew .office-actor { transition: none; }
+}
+.office-actor a { pointer-events: auto; display: block; height: 100%; }
+.office-bar .office-btn + .office-btn { margin-left: 0; }
+
+/* Crew: the roster, the agent on a pedestal in a pose, and the form that dresses them. */
+.office-dressing { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px 1fr 340px; gap: 14px; }
+.office-dressing > * { min-height: 0; overflow: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 4px 0 var(--ink); padding: 12px; }
+.office-dressing h2 { margin: 0 0 8px; font-size: 18px; }
+.office-dressing p { margin: 6px 0; }
+.office-dressing small, .office-role, .office-licence, .office-roster p { color: var(--muted); font-size: 12px; }
+.office-roster ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.office-roster button { display: grid; grid-template-columns: 40px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; width: 100%; padding: 6px 8px; text-align: left; color: var(--ink); background: none; border: 3px solid transparent; border-radius: 12px; }
+.office-roster button[aria-pressed="true"] { border-color: var(--ink); background: #fff; }
+.office-roster b, .office-roster small { grid-column: 2; }
+.office-roster img { grid-row: 1 / span 2; width: 40px; height: 40px; object-fit: cover; object-position: top; }
+.office-stage { --accent: var(--sun); position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; background: linear-gradient(#c6d0e6 60%, #e8e2d0 60%); }
+.office-stage h2 { font-size: 30px; }
+.office-big { flex: 1 1 0; min-height: 120px; width: 100%; max-height: 360px; object-fit: contain; object-position: bottom; filter: drop-shadow(0 10px 0 var(--accent)); }
+.office-catch { padding: 6px 12px; background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; }
+.office-poses { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
+.office-app .office-poses .office-btn, .office-dress [role="group"] .office-btn { margin: 0; padding: 4px 10px; font-size: 13px; }
+.office-dress { display: grid; gap: 10px; align-content: start; }
+.office-dress [role="group"] { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.office-looks button { width: 54px; height: 54px; padding: 2px; background: #fff; border: 3px solid var(--ink); border-radius: 12px; }
+.office-looks button[aria-pressed="true"] { background: var(--sun); }
+.office-looks img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.office-dress label { display: grid; gap: 4px; font-size: 13px; }
+.office-dress input { padding: 6px 8px; border: 3px solid var(--ink); border-radius: 10px; font: inherit; }
+.office-dress input[type="color"] { width: 64px; height: 36px; padding: 2px; }
+.office-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.office-app .office-actions .office-btn { margin: 0; }
+@media (max-width: 48rem) {
+  .office-dressing { display: flex; flex-direction: column; overflow: auto; }
+  .office-dressing > * { flex: none; overflow: visible; }
+  .office-stage { height: 420px; }
 }

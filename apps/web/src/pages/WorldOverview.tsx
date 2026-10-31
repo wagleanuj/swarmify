@@ -6,7 +6,7 @@ import { useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
-import { baseline, saveView } from "../skin";
+import { baseline, saveSkin } from "../skin";
 
 type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["ListedWorkflow"];
@@ -139,7 +139,7 @@ export function WorldOverview() {
   }
 
   async function officeView() {
-    if (await saveView(worldId, "office")) void router.navigate({ to: "/worlds/$worldId/office", params: { worldId } });
+    if (world && (await saveSkin(worldId, { ...world.skin, view: "office" }))) void router.navigate({ to: "/worlds/$worldId/office", params: { worldId } });
     else setError("Could not switch to the office. Try again.");
   }
 
