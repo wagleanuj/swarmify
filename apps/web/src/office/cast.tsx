@@ -98,7 +98,7 @@ export function useCast(worldId: string, agentCount?: number, skin?: Skin) {
   /** The name the office calls an agent by: their casting's name, else the plain role label. */
   const nameOf = (name: string) => lookOf(name)?.name ?? plainRole(name);
 
-  return { cast, look: lookOf, nameOf };
+  return { cast, look: lookOf, nameOf, pack };
 }
 
 /** The first frame of `pose` (idle when the character lacks it): someone standing still in it. */

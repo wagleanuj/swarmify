@@ -88,8 +88,56 @@ def test_the_pack_list_has_the_bundled_pack_and_one_copied_into_the_install(
         "casting": {
             "planner": {"character": "ana", "name": "Ana", "colour": None, "catchphrase": None}
         },
+        "room": {"style": "cartoon", "props": {}, "poses_side": False},
         "problems": [],
     }
+    assert kenney["room"] == {"style": "cartoon", "props": {}, "poses_side": False}
+
+
+PIXEL = """name = "Tiny pixels"
+frame = [16, 16]
+[room]
+style = "pixel"
+poses_side = true
+[room.props]
+table_on = "props/table.png"
+cup = "props/cup.png"
+[characters.ana]
+name = "Ana"
+[characters.ana.poses]
+idle = ["idle.png"]
+"""
+
+
+def test_a_pixel_pack_says_its_room_is_pixel_and_which_props_it_draws(
+    client: TestClient, tmp_path: Path
+) -> None:
+    folder = install_pack(tmp_path, "tiny", PIXEL, {"ana": ["idle.png"], "props": ["table.png"]})
+    (folder / "props" / "cup.png").write_bytes(PNG)
+    (tiny,) = [p for p in client.get("/api/sprite-packs").json() if p["id"] == "tiny"]
+    assert tiny["room"] == {
+        "style": "pixel",
+        "props": {"table_on": "props/table.png", "cup": "props/cup.png"},
+        "poses_side": True,
+    }
+    assert tiny["problems"] == []
+    assert client.get("/api/sprite-packs/tiny/props/table.png").content == PNG
+
+
+def test_room_prop_problems_are_listed_with_the_pack(client: TestClient, tmp_path: Path) -> None:
+    broken = PIXEL.replace('style = "pixel"', 'style = "voxel"').replace(
+        'cup = "props/cup.png"', 'cup = "../cup.png"\nsofa = "props/sofa.png"'
+    )
+    install_pack(tmp_path, "tiny", broken, {"ana": ["idle.png"]})
+    (tiny,) = [p for p in client.get("/api/sprite-packs").json() if p["id"] == "tiny"]
+    assert tiny["room"]["style"] == "cartoon"
+    assert tiny["problems"] == [
+        "room style 'voxel' is not cartoon or pixel, drawn as cartoon",
+        "room prop sofa: no such prop, one of table_on, table_off, laptop_on, laptop_off, cup, "
+        "cooler, fridge, kitchen, bookshelf, clock, cart, floor_tile",
+        "room prop table_on: missing file props/table.png",
+        "room prop cup: missing file ../cup.png",
+    ]
 
 
 def test_a_pack_copied_into_the_install_wins_over_the_bundled_one(

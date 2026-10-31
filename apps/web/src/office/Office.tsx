@@ -8,8 +8,9 @@ import { useOpenGates } from "../api/gates";
 import { type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
 import { cap, saveSkin } from "../skin";
-import { Actor, Bench, type Look, still, stillFrame, useCast } from "./cast";
+import { Actor, Bench, type Look, type Pack, still, stillFrame, useCast } from "./cast";
 import "./office.css";
+import { PixelRoom, Prop, Table, usePixel } from "./pixel";
 import {
   agentNews,
   artifactNews,
@@ -55,7 +56,7 @@ export function Office() {
   const [lines, setLines] = useState<Record<string, { agent: string; text: string }>>({});
   const [made, setMade] = useState<Record<string, { name: string; n: number }>>({});
   const [radio, setRadio] = useState<News[]>([]);
-  const { cast, look, nameOf } = useCast(worldId, world?.agent_count, world?.skin);
+  const { cast, look, nameOf, pack } = useCast(worldId, world?.agent_count, world?.skin);
   const gates = useOpenGates().gates;
   const hear = (who: string, what: string | null) =>
     what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
@@ -230,7 +231,7 @@ export function Office() {
         </p>
       )}
       <div className="office-main">
-        <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
+        <Room name={world?.name ?? ""} pack={pack} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
           <YourOffice waiting={waiting} talk={talk} />
           <Bench worldId={worldId} members={bench} />
         </Room>
@@ -321,35 +322,60 @@ function QuestBoard({ runs, connectors, open }: Floor) {
   );
 }
 
-/** The office in the cartoon style: a back wall with windows, the world's sign and a shelf of
- * finished runs over a plank floor of pods, one per run slot, and the lobby sofa of queued runs.
- * The cast stands on the floor. The drawing is decorative; the whiteboards, cups and sofa notes
- * are the controls. */
-function Room({ name, runs, slots, connectors, open, children, ...pods }: Floor & Pods & { name: string; slots: number; children?: ReactNode }) {
+/** The office: a back wall with windows, the world's sign and a shelf of finished runs over a
+ * floor of pods, one per run slot, and the lobby sofa of queued runs. The cast stands on the
+ * floor. A pixel pack draws it as the flat-on pixel room, a cartoon pack as the cartoon room. The
+ * drawing is decorative; the whiteboards, cups and sofa notes are the controls. */
+function Room({ name, pack, ...floor }: Floor & Pods & { name: string; pack: Pack | null; slots: number; children?: ReactNode }) {
+  if (pack?.room?.style !== "pixel") {
+    return (
+      <section className="office-room" aria-label="The office">
+        <CartoonBackdrop name={name} />
+        <OnTheFloor {...floor} />
+      </section>
+    );
+  }
+  return (
+    <section className="office-room office-pixel" aria-label="The office">
+      <PixelRoom pack={pack} name={name}>
+        <OnTheFloor {...floor} />
+      </PixelRoom>
+    </section>
+  );
+}
+
+/** The cartoon room's back wall and plank floor, seen at a slight angle. */
+const CartoonBackdrop = ({ name }: { name: string }) => (
+  <>
+    <div className="office-wall" aria-hidden="true">
+      <div className="office-windows">
+        {Array.from({ length: 5 }, (_, i) => (
+          <i key={i} />
+        ))}
+      </div>
+      <div className="office-neon">{name}</div>
+      <div className="office-entry">
+        <span>IN</span>
+        <i />
+        <i />
+      </div>
+      <div className="office-kitchen">
+        <div className="office-fridge" />
+        <div className="office-counter" />
+      </div>
+    </div>
+    <div className="office-floor" aria-hidden="true" />
+  </>
+);
+
+/** What stands in the room in either style: the shelf, the pods, the lobby sofa and the cast. */
+function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor & Pods & { slots: number; children?: ReactNode }) {
   const { live, queued, shelf } = scene(runs);
   // ponytail: every live run gets a pod even past the run cap (the cap was just lowered); that
   // state is short-lived, so no overflow onto the quest board until it proves to matter.
   const spare = Math.max(0, slots - live.length);
   return (
-    <section className="office-room" aria-label="The office">
-      <div className="office-wall" aria-hidden="true">
-        <div className="office-windows">
-          {Array.from({ length: 5 }, (_, i) => (
-            <i key={i} />
-          ))}
-        </div>
-        <div className="office-neon">{name}</div>
-        <div className="office-entry">
-          <span>IN</span>
-          <i />
-          <i />
-        </div>
-        <div className="office-kitchen">
-          <div className="office-fridge" />
-          <div className="office-counter" />
-        </div>
-      </div>
-      <div className="office-floor" aria-hidden="true" />
+    <>
       <ul className="office-shelf" aria-label="Shelf">
         {shelf.map((r) => (
           <li key={r.id}>
@@ -381,12 +407,14 @@ function Room({ name, runs, slots, connectors, open, children, ...pods }: Floor 
             </li>
           ))}
         </ol>
-        <div className="office-sofa" aria-hidden="true" />
+        <Sofa />
       </div>
       {children}
-    </section>
+    </>
   );
 }
+
+const Sofa = () => (usePixel() ? <Prop name="sofa" /> : <div className="office-sofa" aria-hidden="true" />);
 
 /** One live run's pod: its whiteboard opens the run's plain page; its crew sits at the desks,
  * which glow while a swarm works and shut when the run waits elsewhere. One bubble per pod, from
@@ -430,14 +458,19 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
         </span>
       )}
       <Desks on={kind === "swarm" || kind === "retro"} />
-      {kind === "connector" && <div className="office-cart" aria-hidden="true" />}
+      {kind === "connector" && <Cart />}
     </>
   );
 }
 
-const Desks = ({ on }: { on: boolean }) => (
-  <div className={`office-desks${on ? " office-on" : ""}`} aria-hidden="true">
-    <i />
-    <i />
-  </div>
-);
+function Desks({ on }: { on: boolean }) {
+  if (usePixel()) return <Table on={on} />;
+  return (
+    <div className={`office-desks${on ? " office-on" : ""}`} aria-hidden="true">
+      <i />
+      <i />
+    </div>
+  );
+}
+
+const Cart = () => (usePixel() ? <Prop name="cart" /> : <div className="office-cart" aria-hidden="true" />);
