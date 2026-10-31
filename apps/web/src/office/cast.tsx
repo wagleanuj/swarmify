@@ -101,6 +101,12 @@ export function useCast(worldId: string, agentCount?: number, skin?: Skin) {
   return { cast, look: lookOf, nameOf };
 }
 
+/** The first frame of `pose` (idle when the character lacks it): someone standing still in it. */
+export function stillFrame(look: Look, pose: Pose) {
+  const poses = look.character.poses;
+  return frameUrl(look.pack, look.id, (poses[pose]?.length ? poses[pose] : poses.idle)?.[0] ?? "");
+}
+
 export const still = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** A frame counter for the cosmetic motion; it stands at 0 with reduced motion. */

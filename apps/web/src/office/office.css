@@ -42,8 +42,9 @@
 .office-world h1 { margin: 0; font-size: 20px; line-height: 1.1; }
 .office-world small { line-height: 1; }
 .office-app .office-btn {
-  text-decoration: none;
   margin-left: auto;
+  display: inline-block;
+  text-decoration: none;
   min-height: 0;
   padding: 8px 14px;
   color: var(--ink);
@@ -273,6 +274,25 @@
 .office-pop { position: absolute; z-index: 3; left: 50%; bottom: 34px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 6px; font-size: 10px; transform: translateX(-50%); animation: office-rise 2.4s ease-out forwards; }
 @keyframes office-rise { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -24px); } }
 
+/* Your office, front right, glass with a door; the askers wait in line to its left. */
+.office-mine { position: absolute; z-index: 3; right: 3%; bottom: 3%; display: flex; flex-direction: row-reverse; align-items: flex-end; gap: 6px; max-width: 60%; }
+.office-app button.office-glass { position: relative; flex: none; width: 150px; height: 110px; padding: 8px 10px; text-align: left; background: linear-gradient(135deg, rgba(214, 240, 255, 0.9), rgba(170, 214, 245, 0.65)); border: 4px solid var(--ink); border-bottom: 0; border-radius: 10px 10px 0 0; box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.5); }
+.office-app button.office-glass::after { content: ""; position: absolute; right: 12px; bottom: 0; width: 30%; height: 50%; background: #b98257; border: 3px solid var(--ink); border-bottom: 0; border-radius: 6px 6px 0 0; }
+.office-glass b { display: block; font-size: 15px; }
+.office-glass small { color: var(--muted); font-weight: 800; }
+.office-line { display: flex; flex-direction: row-reverse; gap: 6px; min-width: 0; padding-top: 24px; }
+.office-app button.office-asker { position: relative; display: block; width: 52px; height: 70px; padding: 0; background: none; border: 0; }
+.office-asker img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
+.office-asker .office-bubble { left: 85%; bottom: 70%; }
+.office-app button.office-asker:hover img { filter: drop-shadow(0 0 4px var(--sun)); }
+.office-app button.office-needs { gap: 6px; }
+.office-app button.office-needs:hover { background: var(--sun); }
+.office-cast { right: 34%; }
+@media (max-width: 700px) {
+  .office-app button.office-glass { width: 96px; height: 76px; font-size: 12px; }
+  .office-app button.office-asker { width: 36px; height: 48px; }
+}
+
 /* Reduced motion: every character holds its state's pose; no pops (Pod skips them). */
 @media (prefers-reduced-motion: reduce) {
   .office-alert { animation: none; }
@@ -312,4 +332,46 @@
   .office-dressing { display: flex; flex-direction: column; overflow: auto; }
   .office-dressing > * { flex: none; overflow: visible; }
   .office-stage { height: 420px; }
+}
+
+/* Talk: the asker large on the left, their line in a speech box with the run and the choices. */
+.talk-app .office-back { margin-left: 0; }
+.talk-room { position: relative; flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 16px; border: 3px solid var(--ink); border-radius: 22px; background: linear-gradient(#cdebd6 0 78%, var(--wood) 78%); box-shadow: 0 4px 0 var(--ink); }
+.talk-scene { --accent: var(--sun); width: 100%; max-width: 1100px; max-height: 100%; display: flex; align-items: flex-end; gap: 24px; }
+.talk-hero { flex: none; width: min(28vw, 300px); align-self: flex-end; }
+.talk-hero img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: contain; object-position: bottom; }
+.talk-box { position: relative; flex: 1; min-width: 0; max-height: 100%; overflow: auto; align-self: center; padding: 14px 24px 18px; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); }
+.talk-name { display: inline-block; margin: 0 0 8px; padding: 2px 16px; background: var(--accent); border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); font-size: 18px; }
+.talk-name small { margin-left: 6px; font-size: 12px; opacity: 0.75; }
+.talk-line { margin: 0 0 8px; font-size: 20px; line-height: 1.4; font-weight: 700; }
+.talk-ctx { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 13px; }
+.talk-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.talk-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.talk-form input, .talk-form textarea { font: inherit; color: var(--ink); padding: 4px 8px; background: #fff; border: 2px solid var(--ink); border-radius: 8px; resize: vertical; }
+.talk-review { margin: 0; font-size: 13px; }
+.talk-publish { padding: 8px 10px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 10px; font-size: 13px; }
+.talk-publish dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0; }
+.talk-publish dl > div { display: contents; }
+.talk-publish dt { color: var(--muted); }
+.talk-publish dd { margin: 0; overflow-wrap: anywhere; }
+.talk-publish [role="alert"] { margin-top: 6px; color: #b3261e; }
+.talk-publish [role="alert"] p { margin: 0; }
+.talk-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.talk-choices .office-btn { margin-left: 0; }
+.office-app .talk-yes { background: var(--sun); }
+.office-app .office-btn:disabled { opacity: 0.5; cursor: default; }
+.talk-choices kbd { padding: 0 4px; margin-right: 4px; background: #fff; border: 2px solid var(--ink); border-radius: 5px; font: 700 11px inherit; }
+.talk-said { display: flex; align-items: center; gap: 8px; }
+.talk-said img { width: 30px; height: 40px; object-fit: contain; }
+.talk-clear { max-width: 520px; padding: 24px 30px; text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); }
+.talk-clear h2 { margin: 0 0 6px; font-size: 28px; }
+.talk-clear .office-btn { margin: 8px auto 0; }
+@media (max-width: 700px) {
+  .talk-scene { flex-direction: column; align-items: stretch; gap: 8px; }
+  .talk-hero { width: 120px; }
+  .talk-line { font-size: 16px; }
+}
+/* On a short phone the character goes, so every choice fits. */
+@media (max-width: 700px) and (max-height: 700px) {
+  .talk-hero { display: none; }
 }

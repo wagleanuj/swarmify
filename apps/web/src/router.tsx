@@ -75,6 +75,14 @@ export const crewRoute = createRoute({
     typeof search.agent === "string" ? { agent: search.agent } : {},
 });
 
+// Talk: the askers at Your office, one at a time; `?gate=<stage id>` is the one asking.
+export const talkRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/worlds/$worldId/office/talk",
+  component: lazyRouteComponent(() => import("./office/Talk"), "Talk"),
+  validateSearch: (search: Record<string, unknown>): { gate?: string } => (typeof search.gate === "string" ? { gate: search.gate } : {}),
+});
+
 export const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/workflows",
@@ -187,6 +195,7 @@ const routeTree = rootRoute.addChildren([
   worldRoute,
   officeRoute,
   crewRoute,
+  talkRoute,
   workflowsRoute,
   newWorkflowRoute,
   workflowRoute,

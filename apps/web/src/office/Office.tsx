@@ -4,20 +4,23 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
 import { type Agent, useWorldEvents } from "../api/events";
-import { holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
+import { useOpenGates } from "../api/gates";
+import { type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
 import { cap, saveSkin } from "../skin";
-import { Actor, Bench, type Look, still, useCast } from "./cast";
+import { Actor, Bench, type Look, still, stillFrame, useCast } from "./cast";
 import "./office.css";
 import {
   agentNews,
   artifactNews,
+  asker,
   benchPose,
   bubble,
   crew,
   fileName,
   kindLine,
   kindOf,
+  line as lineAt,
   podName,
   podOf,
   restName,
@@ -53,6 +56,7 @@ export function Office() {
   const [made, setMade] = useState<Record<string, { name: string; n: number }>>({});
   const [radio, setRadio] = useState<News[]>([]);
   const { cast, look, nameOf } = useCast(worldId, world?.agent_count, world?.skin);
+  const gates = useOpenGates().gates;
   const hear = (who: string, what: string | null) =>
     what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
 
@@ -158,16 +162,24 @@ export function Office() {
   const budget = spend?.monthly_budget_usd;
   const planner = cast.find((m) => m.role === "planner")?.name;
   const seats = (run: Run) =>
-    crew(run, agents, planner).flatMap((seat) => {
+    crew(run, agents).flatMap((seat) => {
       const seen = look(seat.agent.name);
       return seen ? [{ ...seat, look: seen }] : [];
     });
-  const busy = new Set(scene(runs).live.flatMap((r) => crew(r, agents, planner).map((s) => s.agent.name)));
+  const waiting = lineAt(gates, worldId).map((gate) => {
+    const who = asker(gate, runs, agents, planner);
+    return { gate, name: who ? nameOf(who) : "Someone", look: who ? look(who) : null, who };
+  });
+  const busy = new Set([
+    ...scene(runs).live.flatMap((r) => crew(r, agents).map((s) => s.agent.name)),
+    ...waiting.flatMap((w) => (w.who ? [w.who] : [])),
+  ]);
   const bench = cast.flatMap((m) => {
     const seen = busy.has(m.name) ? null : look(m.name);
     return seen ? [{ name: m.name, look: seen, pose: benchPose(m.name, agents, runs) }] : [];
   });
   const open = (runId: string) => void navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId } });
+  const talk = (gate?: string) => void navigate({ to: "/worlds/$worldId/office/talk", params: { worldId }, search: gate ? { gate } : {} });
   return (
     <div className="office-app">
       <header className="office-bar" aria-label="Office">
@@ -186,6 +198,9 @@ export function Office() {
           {scores.reduce((n, s) => n + s.first_try, 0)}{" "}
           <span>of {scores.reduce((n, s) => n + s.judged, 0)} kept first try</span>
         </div>
+        <button type="button" className="office-chip office-needs" data-testid="office-waiting" onClick={() => talk()}>
+          {waiting.length} <span>{waiting.length === 1 ? "decision" : "decisions"} waiting on you</span>
+        </button>
         <Link className="office-btn" to="/worlds/$worldId/office/crew" params={{ worldId }}>
           Crew
         </Link>
@@ -200,6 +215,7 @@ export function Office() {
       )}
       <div className="office-main">
         <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
+          <YourOffice waiting={waiting} talk={talk} />
           <Bench worldId={worldId} members={bench} />
         </Room>
         <div className="office-side">
@@ -218,6 +234,32 @@ type Pods = {
   lines: Record<string, { agent: string; text: string }>;
   made: Record<string, { name: string; n: number }>;
 };
+
+type Asker = { gate: Gate; name: string; look: Look | null };
+
+/** Your office, with the askers of the open gates lined up at its door, oldest first. The office
+ * and each asker open Talk. */
+function YourOffice({ waiting, talk }: { waiting: Asker[]; talk: (gate?: string) => void }) {
+  return (
+    <div className="office-mine">
+      <button type="button" className="office-glass" aria-label={`Your office, ${waiting.length} waiting`} onClick={() => talk()}>
+        <b>Your office</b>
+        <small>{waiting.length} waiting</small>
+      </button>
+      <ol className="office-line" aria-label="Line at Your office">
+        {waiting.map(({ gate, name, look }) => (
+          <li key={gate.stage_id}>
+            <button type="button" className="office-asker" aria-label={`${name} asks about ${gate.run_name}: ${gate.ask}`} onClick={() => talk(gate.stage_id)}>
+              {look && <img src={stillFrame(look, "talk")} alt="" />}
+              <span className="office-tag">{name}</span>
+              <q className="office-bubble office-alert">!</q>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 /** The radio: what just happened, newest first, in the cast's names. */
 function Radio({ news, nameOf }: { news: News[]; nameOf: (name: string) => string }) {
