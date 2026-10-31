@@ -96,10 +96,15 @@ def test_an_install_step_runs_in_the_sandbox_and_its_error_says_what_it_blocked(
     step = json.dumps(
         ["python3", "-c", "import sys; print(open(sys.argv[1]).read())", str(secrets)]
     )
-    with pytest.raises(InstallError) as failed:
-        packages.install(str(copy_echo(tmp_path, step)))
-    assert "s3cret" not in str(failed.value)
-    assert f"The sandbox blocked: read {secrets.resolve()}" in str(failed.value)
+    source, said = str(copy_echo(tmp_path, step)), ""
+    for _ in range(3):  # macOS's log may drop Seatbelt's report under load; never the refusal
+        with pytest.raises(InstallError) as failed:
+            packages.install(source)
+        said = str(failed.value)
+        assert "s3cret" not in said
+        if "The sandbox blocked: " in said:
+            break
+    assert f"The sandbox blocked: read {secrets.resolve()}" in said
 
 
 def test_an_install_step_that_cannot_start_leaves_nothing_behind(
