@@ -328,10 +328,16 @@
 .office-dress input[type="color"] { width: 64px; height: 36px; padding: 2px; }
 .office-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .office-app .office-actions .office-btn { margin: 0; }
-@media (max-width: 48rem) {
-  .office-dressing { display: flex; flex-direction: column; overflow: auto; }
-  .office-dressing > * { flex: none; overflow: visible; }
-  .office-stage { height: 420px; }
+@media (max-width: 700px) {
+  /* The roster is a strip over the stage; the form is a sheet (below). */
+  .office-dressing { display: flex; flex-direction: column; gap: 8px; }
+  .office-dressing > * { padding: 8px; }
+  .office-roster { flex: none; }
+  .office-roster h2, .office-roster p { display: none; }
+  .office-roster ul { display: flex; overflow-x: auto; }
+  .office-roster li { flex: none; }
+  .office-stage { flex: 1; }
+  .office-stage h2 { font-size: 22px; }
 }
 
 /* Talk: the asker large on the left, their line in a speech box with the run and the choices. */
@@ -428,3 +434,83 @@
 .office-app .office-pixel .office-note-card { padding: 1px 3px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2); }
 .office-pixel .office-note-card small { font-size: 6px; }
 .office-pixel .office-cast { left: 124px; right: 124px; bottom: 4px; gap: 2px; padding: 0; }
+
+/* Day and night, this browser's choice: the sky darkens and the room dims. */
+.office-app.office-night { --sky1: #141a45; --sky2: #40306e; }
+.office-night .office-room, .office-night .talk-room, .office-night .office-stage { filter: brightness(0.8) saturate(0.9); }
+.office-night .office-windows i { background: linear-gradient(#141a45, #40306e); }
+.office-night .office-room::after { background: radial-gradient(ellipse at 50% 55%, rgba(20, 16, 50, 0.05) 40%, rgba(20, 16, 50, 0.5) 100%); }
+
+/* The tabs: on a wide screen only day and night show in the top bar. */
+.office-tabs { display: flex; gap: 8px; }
+.office-app .office-tabs .office-btn { margin-left: 0; }
+.office-app .office-tab, .office-app .office-narrow, .office-app .office-banner { display: none; }
+.office-count { display: inline-block; min-width: 20px; padding: 0 5px; border: 2px solid var(--ink); border-radius: 10px; background: var(--sun); font-size: 12px; text-align: center; }
+
+/* A phone: a bottom tab bar, a pinned banner of who needs you, sheets for the quest board and
+   the Crew form. Nothing scrolls the page from 375 x 667 up. */
+@media (max-width: 700px) {
+  .office-app { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+  .office-app .office-wide { display: none; }
+  .office-app .office-narrow { display: inline-block; }
+  .office-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .office-bar > * { flex: none; }
+  .office-app .office-bar .office-btn { margin-left: 0; padding: 6px 10px; font-size: 13px; }
+  .office-tabs {
+    position: fixed;
+    z-index: 40;
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: 1fr 1.5fr 1fr auto;
+    gap: 6px;
+    padding: 6px;
+    background: var(--paper);
+    border: 3px solid var(--ink);
+    border-radius: 18px;
+    box-shadow: 0 4px 0 var(--ink);
+  }
+  .office-app .office-tabs .office-tab { display: block; text-align: center; }
+  .office-app .office-tab[aria-current="page"] { background: var(--sun); }
+  .office-app .office-banner {
+    display: block;
+    flex: none;
+    padding: 6px 12px;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--sun);
+    border: 3px solid var(--ink);
+    border-radius: 14px;
+    box-shadow: 0 4px 0 var(--ink);
+  }
+  .office-app .office-side, .office-app .office-dress { display: none; }
+  .office-app .office-side.office-sheet-open, .office-app .office-dress.office-sheet-open {
+    position: fixed;
+    z-index: 45;
+    left: 8px;
+    right: 8px;
+    bottom: calc(88px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 70svh;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .office-app .office-dress.office-sheet-open { display: grid; padding: 12px; background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 4px 0 var(--ink); }
+  .office-app .office-side.office-sheet-open .office-quests { flex: none; }
+  .office-app .office-side.office-sheet-open .office-radio { width: auto; }
+  .office-app .office-done { align-self: flex-end; justify-self: end; }
+  /* Three rows of pods share a short room: smaller desks, the whiteboard keeps name and stage. */
+  .office-pods { inset: 27% 2% 22% 2%; gap: 6px; }
+  .office-pod { padding: 3px; gap: 2px; }
+  .office-app .office-board { padding: 2px 6px; font-size: 10px; border-width: 2px; }
+  .office-board b { font-size: 11px; }
+  .office-pod .office-kind { display: none; }
+  .office-progress { height: 6px; }
+  .office-desks i { width: 30px; height: 12px; }
+  /* Talk: the choices stay in sight even when the ask is long. */
+  .talk-choices { position: sticky; bottom: -18px; padding: 6px 0 2px; background: var(--paper); }
+}

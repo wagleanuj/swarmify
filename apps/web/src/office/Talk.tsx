@@ -23,6 +23,7 @@ import { type Gate, money, type Run, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import type { Skin } from "../skin";
 import { type Look, stillFrame, useCast } from "./cast";
+import { appClass, FullScreen, Tabs, useNight } from "./chrome";
 import "./office.css";
 import { asker, line } from "./scene";
 
@@ -103,11 +104,12 @@ export function Talk() {
     void navigate({ to: "/worlds/$worldId/office/talk", params: { worldId }, search: next ? { gate: next.stage_id } : {} });
   }
 
+  const [night] = useNight();
   const moving = runs.filter((r) => !r.parent_run_id && r.status === "running").length;
   return (
-    <div className="office-app talk-app">
+    <div className={appClass(night, "talk-app")}>
       <header className="office-bar" aria-label="Talk">
-        <Link className="office-btn office-back" to="/worlds/$worldId/office" params={{ worldId }} activeOptions={{ exact: true }}>
+        <Link className="office-btn office-back office-wide" to="/worlds/$worldId/office" params={{ worldId }} activeOptions={{ exact: true }}>
           Back to the office
         </Link>
         {gate && (
@@ -115,6 +117,8 @@ export function Talk() {
             {waiting.indexOf(gate) + 1} <span>of {waiting.length} waiting at Your office</span>
           </div>
         )}
+        <FullScreen />
+        <Tabs worldId={worldId} />
       </header>
       {(refused ?? (open.failed && "Could not load the gates. Is the API running?")) && (
         <p className="office-note" role="alert">
