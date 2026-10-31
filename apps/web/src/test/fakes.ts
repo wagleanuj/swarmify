@@ -1,6 +1,7 @@
 /** Test doubles for the browser APIs the pages use: fetch routing and EventSource. */
 import { vi } from "vitest";
 
+import type { ArtifactFile } from "../api/events";
 import type { Gate, Run } from "../api/runs";
 import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
@@ -177,3 +178,19 @@ export function gate(kind: "pick" | "approve" | "confirm" | "budget" | "skill", 
     ...over,
   };
 }
+
+/** An artifact as `GET /api/runs/run_1/artifacts` lists it. */
+export const artifact = (over: Partial<ArtifactFile>): ArtifactFile => ({
+  name: "idea-x.md",
+  path: "runs/run_1/stage_0/artifacts/idea-x.md",
+  type: "idea",
+  author: "judge",
+  title: "X",
+  fields: {},
+  body: "",
+  run_id: "run_1",
+  stage: "stage_0",
+  created: "2026-10-26T10:00:00+00:00",
+  pinned: false,
+  ...over,
+});

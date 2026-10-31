@@ -148,7 +148,7 @@ export async function decide(runId: string, body: Decide): Promise<string | null
 }
 
 /** The API's refusal detail, or `fallback (status).`; null when there was no error. */
-function refusal(error: unknown, response: Response, fallback: string): string | null {
+export function refusal(error: unknown, response: Response, fallback: string): string | null {
   if (!error) return null;
   const detail = (error as { detail?: unknown }).detail;
   return typeof detail === "string" ? detail : `${fallback} (${response.status}).`;
