@@ -27,6 +27,9 @@ from swarmify_connectors import ConnectorError, FakeTransport
 from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
 
+# These tests start a default package's real `.venv` process, so its install step runs.
+real_default_installs = True
+
 RECIPE = {
     "type": "object",
     "properties": {"steps": {"type": "array", "minItems": 1, "items": {"type": "string"}}},

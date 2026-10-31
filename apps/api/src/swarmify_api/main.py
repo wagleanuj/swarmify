@@ -770,6 +770,7 @@ def create_app(
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
         retro=run_retro,
         worlds=lambda: [w.id for w in world_svc.list_all()],
+        poll_seconds=max(0.05, min(poll_seconds, 1.0)),
     )
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
