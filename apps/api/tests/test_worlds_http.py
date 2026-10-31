@@ -92,6 +92,14 @@ def test_the_pack_list_has_the_bundled_pack_and_one_copied_into_the_install(
     }
 
 
+def test_a_pack_copied_into_the_install_wins_over_the_bundled_one(
+    client: TestClient, tmp_path: Path
+) -> None:
+    install_pack(tmp_path, "kenney-toon", OFFICE, {"ana": ["idle.png", "work0.png", "work1.png"]})
+    packs = client.get("/api/sprite-packs").json()
+    assert [(p["id"], p["name"]) for p in packs] == [("kenney-toon", "Office folk")]
+
+
 def test_a_broken_pack_is_listed_with_what_is_wrong(client: TestClient, tmp_path: Path) -> None:
     install_pack(tmp_path, "garbled", "name = [", {})
     install_pack(
@@ -100,8 +108,10 @@ def test_a_broken_pack_is_listed_with_what_is_wrong(client: TestClient, tmp_path
     install_pack(
         tmp_path, "wrong", OFFICE.replace('"ana"\nname', '"bob"\nname'), {"ana": ["idle.png"]}
     )
+    (tmp_path / "sprite-packs" / "empty").mkdir()
     problems = {p["id"]: p["problems"] for p in client.get("/api/sprite-packs").json()}
     assert problems["kenney-toon"] == []
+    assert problems["empty"] == ["unreadable manifest: no pack.toml"]
     assert len(problems["garbled"]) == 1 and problems["garbled"][0].startswith(
         "unreadable manifest"
     )

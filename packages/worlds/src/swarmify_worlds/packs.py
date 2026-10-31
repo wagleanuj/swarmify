@@ -80,9 +80,12 @@ class SpritePacks:
 def load(pack_id: str, folder: Path) -> SpritePack:
     """Read a pack's manifest and check its frames are there."""
     try:
-        manifest = tomllib.loads((folder / MANIFEST).read_text())
-        pack = _parse(pack_id, manifest)
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, ValueError) as exc:
+        raw = (folder / MANIFEST).read_bytes()
+    except OSError:
+        return SpritePack(pack_id, pack_id, problems=[f"unreadable manifest: no {MANIFEST}"])
+    try:
+        pack = _parse(pack_id, tomllib.loads(raw.decode()))
+    except ValueError as exc:  # bad UTF-8, TOML or values
         return SpritePack(pack_id, pack_id, problems=[f"unreadable manifest: {exc}"])
     problems = list(pack.problems)
     root = folder.resolve()
@@ -101,6 +104,8 @@ def load(pack_id: str, folder: Path) -> SpritePack:
 
 
 def _parse(pack_id: str, data: dict[str, Any]) -> SpritePack:
+    # ponytail: the manifest's [room] table (style, poses_side) is ignored until the room
+    # draws from it (#288).
     problems = []
     if data.get("id", pack_id) != pack_id:
         problems.append(f"the manifest says id {data['id']!r}, its folder is {pack_id!r}")

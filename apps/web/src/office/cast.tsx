@@ -5,29 +5,25 @@ import type { components } from "../api/schema";
 import { plainRole } from "../skin";
 
 type Pack = components["schemas"]["SpritePack"];
-type Character = components["schemas"]["Character"];
 type Member = components["schemas"]["CastMember"];
 
 /** The pack shipped with Swarmify, which a world draws with until it picks its own.
  * ponytail: every world uses it until the skin setting gains `pack` (Crew, #287). */
-export const BUNDLED_PACK = "kenney-toon";
+const BUNDLED_PACK = "kenney-toon";
 
-/** A pose's frames in order, or idle's when the character lacks the pose. */
-export const frames = (character: Character, pose: string) =>
-  character.poses[pose]?.length ? character.poses[pose] : (character.poses.idle ?? []);
-
-export const frameUrl = (pack: string, character: string, frame: string) =>
+const frameUrl = (pack: string, character: string, frame: string) =>
   `/api/sprite-packs/${[pack, character, frame].map(encodeURIComponent).join("/")}`;
 
 /** How an agent looks: the pack's casting by agent name, else by role, else a default character
  * picked by their place in the cast. Only characters with an idle frame are drawn. */
-export function look(pack: Pack, member: Member, index: number) {
+function look(pack: Pack, member: Member, index: number) {
   const casting = pack.casting?.[member.name] ?? pack.casting?.[member.role];
   const drawable = Object.entries(pack.characters ?? {}).filter(([, c]) => c.poses.idle?.length);
   const [id, character] =
     drawable.find(([cid]) => cid === casting?.character) ?? drawable[index % drawable.length] ?? [];
   if (!id || !character) return null;
-  const [idle = ""] = frames(character, "idle");
+  // ponytail: idle only; other poses (falling back to idle when a character lacks one) come with #285.
+  const [idle = ""] = character.poses.idle ?? [];
   return { src: frameUrl(pack.id, id, idle), name: casting?.name ?? plainRole(member.name), colour: casting?.colour };
 }
 

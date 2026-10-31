@@ -129,14 +129,18 @@ const packs = [
     name: "Toon Characters",
     licence: "CC0",
     characters: { ada: idle("Ada"), bo: idle("Bo"), blank: { name: "Blank", poses: { work: ["work0.png"] } } },
-    casting: { planner: { character: "ada", name: "Mira" }, judge: { character: "gone", name: "Rex" } },
+    casting: {
+      planner: { character: "ada", name: "Mira" },
+      judge: { character: "gone", name: "Rex" },
+      tester: { character: "bo", name: "Tess" },
+    },
     problems: ["blank has no idle pose"],
   },
   { id: "mine", name: "Mine", licence: "", characters: { zed: idle("Zed") }, casting: { planner: { character: "zed" } } },
 ];
 
 test("the cast stands in the office in their pack characters", async () => {
-  let cast = [member("planner", "planner"), member("worker-1", "worker"), member("judge", "judge")];
+  let cast = [member("planner", "planner"), member("worker-1", "worker"), member("judge", "judge"), member("qa", "tester")];
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json({ ...video, agent_count: 1 }),
     "GET /api/worlds/world_1/cast": () => Response.json(cast),
@@ -149,10 +153,12 @@ test("the cast stands in the office in their pack characters", async () => {
   await expect.element(standing.getByRole("img", { name: "Mira, Planner" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
   await expect.element(standing.getByRole("img", { name: "Worker 1" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
   await expect.element(standing.getByRole("img", { name: "Rex, Judge" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
-  expect(standing.getByRole("img").elements()).toHaveLength(3);
+  // The pack's casting by role when none names the agent.
+  await expect.element(standing.getByRole("img", { name: "Tess, qa" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
+  expect(standing.getByRole("img").elements()).toHaveLength(4);
 
   // A worker added in Settings joins the cast without a reload.
-  cast = [member("planner", "planner"), member("worker-1", "worker"), member("worker-2", "worker"), member("judge", "judge")];
+  cast = [member("planner", "planner"), member("worker-1", "worker"), member("worker-2", "worker"), member("judge", "judge"), member("qa", "tester")];
   FakeEventSource.emit("world.updated", { payload: { id: "world_1", agent_count: 2 } });
   await expect.element(standing.getByRole("img", { name: "Worker 2" })).toBeVisible();
 });
