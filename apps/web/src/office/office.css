@@ -272,8 +272,8 @@
 .office-pop { position: absolute; z-index: 3; left: 50%; bottom: 34px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 6px; font-size: 10px; transform: translateX(-50%); animation: office-rise 2.4s ease-out forwards; }
 @keyframes office-rise { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -24px); } }
 
-/* Reduced motion: every character holds its state's pose; marks of work stay put. */
+/* Reduced motion: every character holds its state's pose; no pops (Pod skips them). */
 @media (prefers-reduced-motion: reduce) {
-  .office-alert, .office-pop { animation: none; }
+  .office-alert { animation: none; }
   .office-crew .office-actor { transition: none; }
 }

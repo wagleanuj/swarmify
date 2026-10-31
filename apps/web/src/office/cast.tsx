@@ -39,12 +39,14 @@ export function useCast(worldId: string, agentCount?: number) {
   }, []);
 
   /** How the agent named `name` looks: the pack's casting by agent name, else by role, else a
-   * default character picked by their place in the cast. Only characters with an idle frame are
-   * drawn. */
+   * default character picked by their place in the cast. A name not in the cast (a connector
+   * that made an artifact, an agent the cast read has not caught up with) has no role of its
+   * own. Only characters with an idle frame are drawn. */
   function look(name: string): Look | null {
     if (!pack) return null;
-    const index = Math.max(0, cast.findIndex((m) => m.name === name));
-    const role = cast[index]?.role ?? name;
+    const at = cast.findIndex((m) => m.name === name);
+    const index = Math.max(0, at);
+    const role = cast[at]?.role ?? name;
     const casting = pack.casting?.[name] ?? pack.casting?.[role];
     const drawable = Object.entries(pack.characters ?? {}).filter(([, c]) => c.poses.idle?.length);
     const [id, character] = drawable.find(([cid]) => cid === casting?.character) ?? drawable[index % drawable.length] ?? [];
@@ -59,7 +61,7 @@ export function useCast(worldId: string, agentCount?: number) {
   return { cast, look, nameOf };
 }
 
-const still = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+export const still = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** A frame counter for the cosmetic motion; it stands at 0 with reduced motion. */
 function useTick(moving: boolean) {

@@ -91,15 +91,19 @@ export type Seat = { agent: Agent; pose: Pose };
 /** Who is in a live run's pod and how they stand, from the data alone. On a swarm stage the
  * run's agents on it sit at the desks working, the planner thinking; on the retro stage they
  * work at the whiteboard; a failed agent, or any in a paused run, is stuck. At a gate the desks
- * empty and one agent asks: the judge of the stage before when it was judged, else the planner. */
-export function crew(run: Run, agents: Agent[]): Seat[] {
+ * empty and one agent asks: the judge of the stage before when it was judged, else the run's
+ * planner, else the cast's planner (named `planner`) stands in. */
+export function crew(run: Run, agents: Agent[], planner?: string): Seat[] {
   const at = current(run);
   if (!at) return [];
   const mine = agents.filter((a) => a.run_id === run.id);
   const kind = kindOf(run);
   if (kind === "gate") {
     const before = run.stages[at.index - 1]?.id;
-    const asker = mine.filter((a) => a.role === "judge" && a.stage_id === before).at(-1) ?? mine.filter((a) => a.role === "planner").at(-1);
+    const asker =
+      mine.filter((a) => a.role === "judge" && a.stage_id === before).at(-1) ??
+      mine.filter((a) => a.role === "planner").at(-1) ??
+      (planner ? standIn(run, at.id, planner) : undefined);
     return asker ? [{ agent: asker, pose: "talk" }] : [];
   }
   return mine
@@ -109,6 +113,21 @@ export function crew(run: Run, agents: Agent[]): Seat[] {
       pose: agent.status === "failed" || kind === "paused" ? "stuck" : kind === "retro" ? "back" : agent.role === "planner" ? "think" : "work",
     }));
 }
+
+/** The cast's planner standing in at a gate of a run with no agent of its own. */
+const standIn = (run: Run, stageId: string, name: string): Agent => ({
+  id: `${run.id}/stand-in`,
+  world_id: run.world_id,
+  run_id: run.id,
+  stage_id: stageId,
+  name,
+  role: "planner",
+  status: "working",
+  session_id: null,
+  cost_usd: 0,
+  created_at: run.updated_at,
+  updated_at: run.updated_at,
+});
 
 /** How a cast member off the floor stands: shipped when their latest run is done, stuck when it
  * (or they) failed, else idle. */

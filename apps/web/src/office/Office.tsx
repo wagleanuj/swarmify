@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
@@ -7,7 +7,7 @@ import { type Agent, useWorldEvents } from "../api/events";
 import { holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
 import { cap, saveView } from "../skin";
-import { Actor, Bench, type Look, useCast } from "./cast";
+import { Actor, Bench, type Look, still, useCast } from "./cast";
 import "./office.css";
 import {
   agentNews,
@@ -42,6 +42,12 @@ export function Office() {
   const [error, setError] = useState<string | null>(null);
   const connectors = useConnectors(worldId);
   const [agents, setAgents] = useState<Agent[]>([]);
+  // The agents as of the latest event, so two updates in one batch compare against each other.
+  const latest = useRef<Agent[]>([]);
+  const putAgents = (next: Agent[]) => {
+    latest.current = next;
+    setAgents(next);
+  };
   // Per pod (by run id): the latest log line, one bubble per pod, and the latest artifact made.
   const [lines, setLines] = useState<Record<string, { agent: string; text: string }>>({});
   const [made, setMade] = useState<Record<string, { name: string; n: number }>>({});
@@ -77,7 +83,10 @@ export function Office() {
           [...live, ...shelf].map((r) =>
             api.GET("/api/runs/{run_id}/agents", { params: { path: { run_id: r.id } } }).then(({ data }) => data ?? []),
           ),
-        ).then((all) => setAgents((prev) => [...prev, ...all.flat().filter((a) => !prev.some((p) => p.id === a.id))]));
+        ).then((all) => {
+          const prev = latest.current;
+          putAgents([...prev, ...all.flat().filter((a) => !prev.some((p) => p.id === a.id))]);
+        });
       })
       .catch(() => undefined);
     // ponytail: first-try keeps are read when the office opens, one scorecard per workflow, as
@@ -101,12 +110,24 @@ export function Office() {
     "run.updated": (run) =>
       setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev])),
     "agent.updated": (agent) => {
-      const was = agents.find((a) => a.id === agent.id);
-      setAgents((prev) => (prev.some((a) => a.id === agent.id) ? prev.map((a) => (a.id === agent.id ? agent : a)) : [...prev, agent]));
-      hear(agent.name, agentNews(agent, was, runs));
+      const prev = latest.current;
+      const was = prev.find((a) => a.id === agent.id);
+      putAgents(was ? prev.map((a) => (a.id === agent.id ? agent : a)) : [...prev, agent]);
+      const news = agentNews(agent, was, runs);
+      if (!news) return;
+      hear(agent.name, news);
+      // The agent moved: their line leaves the pod with them.
+      setLines((lines) => {
+        if (lines[agent.run_id]?.agent !== agent.name) return lines;
+        const rest = { ...lines };
+        delete rest[agent.run_id];
+        return rest;
+      });
     },
+    // A bubble is for someone seated in the pod, so a line counts only at its own top-level run;
+    // child run agents are not seated on the parent's pod.
     "agent.logged": (entry) => {
-      const pod = podOf(entry.stage_id, runs);
+      const pod = runs.find((r) => !r.parent_run_id && r.stages.some((s) => s.id === entry.stage_id));
       const text = bubble(entry);
       if (pod && text) setLines((prev) => ({ ...prev, [pod.id]: { agent: entry.agent, text } }));
     },
@@ -135,12 +156,13 @@ export function Office() {
   }
 
   const budget = spend?.monthly_budget_usd;
+  const planner = cast.find((m) => m.role === "planner")?.name;
   const seats = (run: Run) =>
-    crew(run, agents).flatMap((seat) => {
+    crew(run, agents, planner).flatMap((seat) => {
       const seen = look(seat.agent.name);
       return seen ? [{ ...seat, look: seen }] : [];
     });
-  const busy = new Set(scene(runs).live.flatMap((r) => crew(r, agents).map((s) => s.agent.name)));
+  const busy = new Set(scene(runs).live.flatMap((r) => crew(r, agents, planner).map((s) => s.agent.name)));
   const bench = cast.flatMap((m) => {
     const seen = busy.has(m.name) ? null : look(m.name);
     return seen ? [{ name: m.name, look: seen, pose: benchPose(m.name, agents, runs) }] : [];
@@ -340,7 +362,8 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
           ))}
         </ul>
       )}
-      {art && (
+      {/* With reduced motion there is no pop; the radio carries the news. */}
+      {art && !still() && (
         <span key={art.n} className="office-pop">
           {art.name}
         </span>
