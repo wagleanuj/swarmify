@@ -1,8 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { fakeFetch, gate } from "../test/fakes";
+import { artifact, fakeFetch, gate } from "../test/fakes";
 import { blocked, decision, type Proposal, sendBackTargets, staysOpen, topUpSuggestion } from "./answer";
-import type { ArtifactFile } from "./events";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -25,7 +24,7 @@ async function post(...args: Parameters<typeof decision>) {
   return { said, ...sent[0]! };
 }
 
-const piece = (path: string): ArtifactFile => ({ path, name: path, stage: "s0", type: "idea", title: path, fields: {} }) as unknown as ArtifactFile;
+const piece = (path: string) => artifact({ path, name: path });
 
 test("a pick posts the card it chose, or the typed name", async () => {
   expect(await post(gate("pick"), { kind: "pick", choice: "Hook first", artifact: "a/idea-1.md" }, { note: "go" })).toEqual({
@@ -58,10 +57,14 @@ test("a confirm before a publish posts what goes out, edited or as shown", async
   const g = gate("confirm", {
     publish: { connector: "youtube", fields: [field("title", "Five hooks", true), field("description", "Ranked.", true), field("visibility", "public", false)], problems: [] },
   });
-  expect(await post(g, { kind: "confirm" }, { edits: { title: "Six hooks" } })).toEqual({
+  expect(await post(g, { kind: "confirm" }, { edits: { title: "Six hooks", description: "Ranked best first." } })).toEqual({
     said: "You confirmed it",
     key: "POST /api/runs/run_1/decision",
-    body: { note: "", edits: { title: "Six hooks", description: "Ranked." }, seen: { visibility: "public" } },
+    body: { note: "", edits: { title: "Six hooks", description: "Ranked best first." }, seen: { visibility: "public" } },
+  });
+  // An editable field left out goes as shown.
+  expect((await post(g, { kind: "confirm" }, { edits: { title: "Six hooks" } })).body).toMatchObject({
+    edits: { title: "Six hooks", description: "Ranked." },
   });
   expect(blocked(g)).toBe(false);
   expect(blocked({ ...g, publish: { ...g.publish!, problems: ["needs a title"] } })).toBe(true);
@@ -81,11 +84,18 @@ test("a budget gate tops up on what it had, or aborts, and stays open", async ()
 });
 
 test("a skill gate approves the edited skill with its workflow, or rejects it", async () => {
-  const proposal = {
+  const proposal: Proposal = {
     id: "prop_1",
+    world_id: "world_1",
+    run_id: "run_1",
+    stage_id: "stage_1",
     skill: { action: "new", name: "hooks", content: "old", summary: "", evidence: [] },
     workflow: { summary: "", yaml: "", evidence: [] },
-  } as unknown as Proposal;
+    status: "pending",
+    note: "",
+    path: "proposals/prop_1.json",
+    created_at: "2026-10-26T10:00:00+00:00",
+  };
   const g = gate("skill");
   expect(await post(g, { kind: "skill", proposal, approve: true, content: "new", applyWorkflow: true }, { note: "ok" })).toEqual({
     said: "You approved the proposal",

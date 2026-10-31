@@ -2,11 +2,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import {
-  blocked as isBlocked,
+  blocked,
   choosable,
   decision,
   editable,
-  GATE_KIND as KIND,
+  GATE_KIND,
   gateArtifacts,
   gateProposal,
   type Choice,
@@ -152,7 +152,7 @@ export function Gates() {
                 </span>
                 <b>
                   {phone && g === selected && `${i + 1} of ${waiting.length} · `}
-                  {KIND[g.kind]}
+                  {GATE_KIND[g.kind]}
                 </b>
                 <span className="muted">{g.run_name}</span>
               </Link>
@@ -168,7 +168,7 @@ export function Gates() {
                   <span>{worldName(a.gate.world_id)}</span>
                   <span>Answered</span>
                 </span>
-                <b>{KIND[a.gate.kind]}</b>
+                <b>{GATE_KIND[a.gate.kind]}</b>
                 <span className="muted">{a.gate.run_name}</span>
               </Link>
             ))}
@@ -305,8 +305,6 @@ export function GateCard({
     setBusy(false);
   }
 
-  // A post that cannot go out would fail the run; say why instead of letting it.
-  const blocked = isBlocked(gate);
   const since = new Date(gate.opened_at).toLocaleTimeString([], { timeStyle: "short" });
   return (
     <li className="gate" data-kind={gate.kind} data-testid={`gate-${gate.run_id}`}>
@@ -402,7 +400,7 @@ export function GateCard({
           )}
           {gate.kind === "confirm" && (
             <>
-              <button type="submit" className="primary" disabled={busy || blocked}>
+              <button type="submit" className="primary" disabled={busy || blocked(gate)}>
                 {gate.publish ? "Confirm and post" : "Confirm"}
               </button>
               <span className="faint">
@@ -414,7 +412,7 @@ export function GateCard({
           )}
           {gate.kind === "approve" && (
             <>
-              <button type="submit" className="primary" disabled={busy || blocked}>
+              <button type="submit" className="primary" disabled={busy || blocked(gate)}>
                 Approve
               </button>
               {sendBackTargets(gate).length > 0 ? (
