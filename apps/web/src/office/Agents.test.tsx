@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { Agent } from "../api/events";
-import type { Run } from "../api/runs";
-import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
+import type { Gate, Run } from "../api/runs";
+import { FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const world = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00", run_cap: 6, skin: { view: "office" } };
@@ -50,9 +50,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** The office over `runs`, with the agents each run's agents read answers. */
-function office(runs: Run[], agents: Agent[]) {
+/** The office over `runs`, with the agents each run's agents read answers and `gates` open. */
+function office(runs: Run[], agents: Agent[], gates: Gate[] = []) {
   const routes: Record<string, () => Response> = {
+    "GET /api/gates": () => Response.json(gates),
     "GET /api/worlds/world_1": () => Response.json(world),
     "GET /api/worlds/world_1/runs": () => Response.json(runs),
     "GET /api/worlds/world_1/cast": () => Response.json(cast),
@@ -84,6 +85,7 @@ test("each pod's crew stands in the pose its data says; the rest of the cast wai
       agent("qa", "worker", "run_d1", 2, "done"),
       agent("budget", "worker", "run_d2", 2, "failed"),
     ],
+    [gate("pick", { run_id: "run_19", run_name: "Pick a topic", stage_id: "run_19_s2", stage_index: 2 })],
   );
   const weeklyCrew = crewOf(screen, "Weekly explainer #14");
   await expect.element(weeklyCrew.getByRole("img", { name: "Mira, Planner, thinking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/think.png");
@@ -92,10 +94,10 @@ test("each pod's crew stands in the pose its data says; the rest of the cast wai
   expect(weeklyCrew.getByRole("img").elements()).toHaveLength(3);
   await expect.element(crewOf(screen, "Long haul").getByRole("img", { name: "Worker 1, working" })).toBeVisible();
 
-  const asking = crewOf(screen, "Pick a topic");
-  await expect.element(asking.getByRole("img", { name: "Rex, Judge, asking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/talk.png");
-  expect(asking.getByRole("img").elements()).toHaveLength(1);
-  await expect.element(asking.getByText("!")).toBeVisible();
+  // At a gate the desks empty; the judge of the stage before waits at Your office to ask.
+  const line = screen.getByRole("list", { name: "Line at Your office" });
+  await expect.element(line.getByRole("button", { name: "Rex asks about Pick a topic: Pick one idea." })).toBeVisible();
+  expect(crewOf(screen, "Pick a topic").elements()).toHaveLength(0);
   await expect.element(crewOf(screen, "On hold").getByRole("img", { name: "Worker 1, stuck" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/stuck.png");
   await expect
     .element(crewOf(screen, "Wrap up").getByRole("img", { name: "Worker 2, at the whiteboard" }))
@@ -142,7 +144,8 @@ test("an artifact made pops up at its own pod and is called out on the radio", a
 test("an agent.updated event moves the agent, and the radio says so in the cast's names", async () => {
   const worker = agent("worker-1", "worker", "run_14", 6);
   const planner = agent("planner", "planner", "run_14", 6);
-  const { screen } = await office([weekly], [worker, planner]);
+  const gates: Gate[] = [];
+  const { screen } = await office([weekly], [worker, planner], gates);
   const radio = screen.getByRole("region", { name: "Radio" });
   await expect.element(radio).toMatchTextContent(/Quiet for now\./);
   const pod = crewOf(screen, "Weekly explainer #14");
@@ -154,11 +157,14 @@ test("an agent.updated event moves the agent, and the radio says so in the cast'
   expect(pod.getByRole("img", { name: "Worker 1, working" }).elements()).toHaveLength(0);
   await expect.element(radio).toMatchTextContent(/Worker 1 finished Render scenes/);
 
-  // The run moves on to a gate: the desks empty and the planner stands up to ask.
+  // The run moves on to a gate: the desks empty and the planner joins the line to ask.
   FakeEventSource.emit("agent.updated", { payload: { ...planner, status: "done" } });
+  gates.push(gate("approve", { run_id: "run_14", run_name: "Weekly explainer #14", stage_id: "run_14_s7", stage_index: 7 }));
   FakeEventSource.emit("run.updated", { payload: { ...weekly, status: "waiting_gate", stages: stages("run_14", 12, 7, "gate", "waiting") } });
-  await expect.element(pod.getByRole("img", { name: "Mira, Planner, asking" })).toBeVisible();
-  expect(pod.getByRole("img").elements()).toHaveLength(1);
+  const line = screen.getByRole("list", { name: "Line at Your office" });
+  await expect.element(line.getByRole("button", { name: /^Mira asks about Weekly explainer #14/ })).toBeVisible();
+  expect(pod.elements()).toHaveLength(0);
+  await expect.element(screen.getByRole("button", { name: "Your office, 1 waiting" })).toBeVisible();
   expect(radio.getByRole("listitem").elements().map((li) => li.textContent?.slice(6))).toEqual(["Mira finished Render scenes", "Worker 1 finished Render scenes"]);
 });
 
@@ -199,9 +205,9 @@ test("with reduced motion an artifact made does not pop up; the radio still says
 });
 
 test("at a gate of a run with no agents the cast's planner stands in to ask", async () => {
-  const { screen } = await office([gated], []);
-  const asking = crewOf(screen, "Pick a topic");
-  await expect.element(asking.getByRole("img", { name: "Mira, Planner, asking" })).toBeVisible();
+  const { screen } = await office([gated], [], [gate("pick", { run_id: "run_19", run_name: "Pick a topic", stage_index: 2 })]);
+  const line = screen.getByRole("list", { name: "Line at Your office" });
+  await expect.element(line.getByRole("button", { name: /^Mira asks about Pick a topic/ })).toBeVisible();
   expect(screen.getByRole("list", { name: "The cast" }).getByRole("img", { name: /Mira/ }).elements()).toHaveLength(0);
 });
 

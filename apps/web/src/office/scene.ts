@@ -1,6 +1,6 @@
 import { type Connectors, labelOf } from "../api/connectors";
 import type { Agent, ArtifactCreated, LogEntry } from "../api/events";
-import { current, holdsSlot, type Run, STATUS_LABEL } from "../api/runs";
+import { current, type Gate, holdsSlot, type Run, STATUS_LABEL } from "../api/runs";
 
 /** How a pod looks: the type of its run's current stage, or the gate it waits at. */
 export type Kind = "swarm" | "connector" | "workflow" | "gate" | "retro" | "paused";
@@ -91,43 +91,34 @@ export type Seat = { agent: Agent; pose: Pose };
 /** Who is in a live run's pod and how they stand, from the data alone. On a swarm stage the
  * run's agents on it sit at the desks working, the planner thinking; on the retro stage they
  * work at the whiteboard; a failed agent, or any in a paused run, is stuck. At a gate the desks
- * empty and one agent asks: the judge of the stage before when it was judged, else the run's
- * planner, else the cast's planner (named `planner`) stands in. */
-export function crew(run: Run, agents: Agent[], planner?: string): Seat[] {
+ * empty: the one who asks stands in line at Your office (`asker`). */
+export function crew(run: Run, agents: Agent[]): Seat[] {
   const at = current(run);
-  if (!at) return [];
-  const mine = agents.filter((a) => a.run_id === run.id);
   const kind = kindOf(run);
-  if (kind === "gate") {
-    const before = run.stages[at.index - 1]?.id;
-    const asker =
-      mine.filter((a) => a.role === "judge" && a.stage_id === before).at(-1) ??
-      mine.filter((a) => a.role === "planner").at(-1) ??
-      (planner ? standIn(run, at.id, planner) : undefined);
-    return asker ? [{ agent: asker, pose: "talk" }] : [];
-  }
-  return mine
-    .filter((a) => a.stage_id === at.id && a.status !== "done")
+  if (!at || kind === "gate") return [];
+  return agents
+    .filter((a) => a.run_id === run.id && a.stage_id === at.id && a.status !== "done")
     .map((agent) => ({
       agent,
       pose: agent.status === "failed" || kind === "paused" ? "stuck" : kind === "retro" ? "back" : agent.role === "planner" ? "think" : "work",
     }));
 }
 
-/** The cast's planner standing in at a gate of a run with no agent of its own. */
-const standIn = (run: Run, stageId: string, name: string): Agent => ({
-  id: `${run.id}/stand-in`,
-  world_id: run.world_id,
-  run_id: run.id,
-  stage_id: stageId,
-  name,
-  role: "planner",
-  status: "working",
-  session_id: null,
-  cost_usd: 0,
-  created_at: run.updated_at,
-  updated_at: run.updated_at,
-});
+/** Who asks at a gate, by agent name: the judge of the stage before when it was judged, else
+ * the run's planner, else the cast's planner stands in. */
+export function asker(gate: Gate, runs: Run[], agents: Agent[], planner?: string): string | undefined {
+  const before = runs.find((r) => r.id === gate.run_id)?.stages[gate.stage_index - 1]?.id;
+  const mine = agents.filter((a) => a.run_id === gate.run_id);
+  return (
+    mine.filter((a) => a.role === "judge" && a.stage_id === before).at(-1)?.name ??
+    mine.filter((a) => a.role === "planner").at(-1)?.name ??
+    planner
+  );
+}
+
+/** The world's open gates, oldest first: the line at Your office. */
+export const line = (gates: Gate[] | null, worldId: string) =>
+  (gates ?? []).filter((g) => g.world_id === worldId).sort((a, b) => a.opened_at.localeCompare(b.opened_at));
 
 /** How a cast member off the floor stands: shipped when their latest run is done, stuck when it
  * (or they) failed, else idle. */
