@@ -26,10 +26,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function office(pack: string, { crew = [worker], packs = async () => Response.json([toon, tiny]) } = {}) {
+async function office(pack: string, { crew = [worker], packs = async () => Response.json([toon, tiny]), runs = [weekly], cap = 2 } = {}) {
   fakeFetch({
-    "GET /api/worlds/world_1": () => Response.json(world(pack)),
-    "GET /api/worlds/world_1/runs": () => Response.json([weekly]),
+    "GET /api/worlds/world_1": () => Response.json({ ...world(pack), run_cap: cap }),
+    "GET /api/worlds/world_1/runs": () => Response.json(runs),
     "GET /api/runs/run_14/agents": () => Response.json(crew),
     "GET /api/worlds/world_1/cast": () =>
       Response.json(crew.map((a) => ({ name: a.name, role: "worker", version: 1, prompt: "", tools: null, updated_at: null }))),
@@ -147,4 +147,24 @@ test("on a mid-size screen the room keeps the art size it is laid out for, nothi
   const yours = mine.element().getBoundingClientRect();
   expect(apart(yours, screen.getByRole("group", { name: "Lobby sofa" }).element().getBoundingClientRect())).toBe(true);
   expect(apart(yours, screen.getByRole("list", { name: "Pods" }).element().getBoundingClientRect())).toBe(true);
+});
+
+test("on a 375 by 667 phone six live runs each have a pod in the pixel room, at a smaller scale, and nothing scrolls", async () => {
+  await page.viewport(375, 667);
+  try {
+    const six = [weekly, ...[1, 2, 3, 4, 5].map((n) => run("running", [stage(0, "Draft", "swarm", "running", { id: `run_${n}_s0` })], { id: `run_${n}`, name: `Run ${n}` }))];
+    const { screen } = await office("tiny", { runs: six, cap: 8 });
+    const pods = screen.getByRole("list", { name: "Pods" });
+    await expect.element(screen.getByRole("img", { name: "Worker 1, working" })).toBeVisible();
+    expect(pods.getByRole("button").elements()).toHaveLength(6);
+    const box = pods.element().getBoundingClientRect();
+    for (const pod of pods.element().children) {
+      const r = pod.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(box.top);
+      expect(r.bottom).toBeLessThanOrEqual(box.bottom + 1);
+    }
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(innerHeight);
+  } finally {
+    await page.viewport(1280, 800);
+  }
 });

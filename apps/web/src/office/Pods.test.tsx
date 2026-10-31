@@ -64,9 +64,10 @@ test("each live top-level run is a pod with its stage n of m; spare pods stand e
   await expect.element(pod).toMatchTextContent(/Weekly explainer #14\s*Stage 7 of 12, Render scenes\s*Working/);
   // A 30-stage run reads the same as a 12-stage one: progress lives on the whiteboard.
   await expect.element(pods.getByRole("button", { name: "Long haul, stage 7 of 30, Render scenes" })).toBeVisible();
-  // The child run shows on its parent's pod, not its own; the cap of 6 leaves four free.
+  // The child run shows on its parent's pod, not its own; of the four the cap of 6 leaves free,
+  // two fill out the row of four.
   expect(pods.getByRole("button").elements()).toHaveLength(2);
-  expect(pods.getByText("Free pod").elements()).toHaveLength(4);
+  expect(pods.getByText("Free pod").elements()).toHaveLength(2);
 
   const sofa = screen.getByRole("group", { name: "Lobby sofa" }).getByRole("button");
   expect(sofa.elements().map((b) => b.getAttribute("aria-label"))).toEqual(["Changelog #10, queued", "Changelog #11, queued"]);
@@ -109,11 +110,11 @@ test("a run moving to a gate changes its pod without a reload", async () => {
   const gated = pods.getByRole("button", { name: "Weekly explainer #14, stage 8 of 12, Render scenes, waiting on you" });
   await expect.element(gated).toMatchTextContent(/Waiting on you/);
   // A queued run that starts leaves the sofa for a free pod.
-  expect(pods.getByText("Free pod").elements()).toHaveLength(5);
+  expect(pods.getByText("Free pod").elements()).toHaveLength(3);
   FakeEventSource.emit("run.updated", { payload: { ...long, status: "running" } });
   await expect.element(pods.getByRole("button", { name: "Long haul, stage 7 of 30, Render scenes" })).toBeVisible();
   await expect.element(sofa.getByRole("button", { name: "Long haul, queued" })).not.toBeInTheDocument();
-  expect(pods.getByText("Free pod").elements()).toHaveLength(4);
+  expect(pods.getByText("Free pod").elements()).toHaveLength(2);
 });
 
 const done = finished("run_d1", "Weekly explainer #13", "done", recent);

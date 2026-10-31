@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import type { Agent } from "../api/events";
 import type { Gate, Run } from "../api/runs";
@@ -136,9 +137,14 @@ test("an artifact made pops up at its own pod and is called out on the radio", a
   const pods = screen.getByRole("list", { name: "Pods" });
   await expect.element(crewOf(screen, "Long haul")).toBeVisible();
   FakeEventSource.emit("artifact.created", { payload: { type: "script", path: "scripts/script.md", author: "worker-1", stage_id: "run_15_s2" } });
-  await expect.element(pods.getByRole("listitem").filter({ hasText: "Long haul" }).getByText("script.md")).toBeVisible();
+  const pod = pods.getByRole("listitem").filter({ hasText: "Long haul" });
+  await expect.element(pod.getByText("script.md")).toBeVisible();
   expect(pods.getByRole("listitem").filter({ hasText: "Weekly explainer #14" }).getByText("script.md").elements()).toHaveLength(0);
   await expect.element(screen.getByRole("region", { name: "Radio" })).toMatchTextContent(/\d\d:\d\d Worker 1 made script\.md/);
+  // It rises over its pod, never over the whiteboard's text, and is gone once it has risen.
+  const board = pods.getByRole("button", { name: /^Long haul/ }).element().getBoundingClientRect();
+  expect(pod.getByText("script.md").element().getBoundingClientRect().bottom).toBeLessThanOrEqual(board.top);
+  await expect.poll(() => pod.getByText("script.md").elements(), { timeout: 5000 }).toHaveLength(0);
 });
 
 test("an agent.updated event moves the agent, and the radio says so in the cast's names", async () => {
@@ -231,13 +237,86 @@ test("updates in one batch are told once, and a bubble leaves with its speaker",
 });
 
 test("a pod's crew stands under its whiteboard, never over it", async () => {
+  // Only the empty top of a frame (about a quarter of it) reaches over the board.
   const { screen } = await office([weekly], [agent("planner", "planner", "run_14", 6), agent("worker-1", "worker", "run_14", 6), agent("worker-2", "worker", "run_14", 6)]);
   const crew = crewOf(screen, "Weekly explainer #14");
   await expect.element(crew.getByRole("img", { name: "Worker 2, working" })).toBeVisible();
   const board = screen.getByRole("list", { name: "Pods" }).getByRole("button", { name: /^Weekly explainer #14/ }).element().getBoundingClientRect();
   const actors = [...crew.element().querySelectorAll(".office-actor")].map((a) => a.getBoundingClientRect());
   expect(actors).toHaveLength(3);
-  for (const a of actors) expect(a.top).toBeGreaterThanOrEqual(board.bottom);
+  for (const a of actors) expect(a.top + a.height / 4).toBeGreaterThanOrEqual(board.bottom);
+});
+
+test("in the cartoon room at 1440 by 900 the crew is plain to see: each over half as tall as the whiteboard is wide", async () => {
+  await page.viewport(1440, 900);
+  try {
+    const { screen } = await office([weekly], [agent("planner", "planner", "run_14", 6), agent("worker-1", "worker", "run_14", 6)]);
+    const crew = crewOf(screen, "Weekly explainer #14");
+    await expect.element(crew.getByRole("img", { name: "Worker 1, working" })).toBeVisible();
+    const board = screen.getByRole("list", { name: "Pods" }).getByRole("button", { name: /^Weekly explainer #14/ }).element().getBoundingClientRect();
+    for (const a of crew.element().querySelectorAll(".office-actor")) {
+      expect(a.getBoundingClientRect().height).toBeGreaterThan(board.width / 2);
+      expect(a.getBoundingClientRect().height).toBeLessThan(board.width);
+    }
+  } finally {
+    await page.viewport(1280, 800);
+  }
+});
+
+const more = (n: number) =>
+  Array.from({ length: n }, (_, i) => run("running", stages(`run_m${i}`, 3, 1), { id: `run_m${i}`, name: `More #${i + 1}`, created_at: `2026-10-31T09:${10 + i}:00Z` }));
+const crews = [
+  agent("planner", "planner", "run_14", 6),
+  agent("worker-1", "worker", "run_14", 6),
+  agent("worker-2", "worker", "run_14", 6),
+  agent("worker-1", "worker", "run_15", 2),
+  agent("worker-2", "worker", "run_m0", 1),
+];
+
+test.each([
+  [1280, 720],
+  [390, 844],
+  [375, 667],
+])("at %i by %i six live runs each have a pod on screen, and neither the page nor the pods scroll", async (w, h) => {
+  await page.viewport(w, h);
+  try {
+    const { screen } = await office([weekly, long, gated, paused, retro, ...more(1)], crews);
+    const pods = screen.getByRole("list", { name: "Pods" });
+    await expect.element(crewOf(screen, "More #1")).toBeVisible();
+    expect(pods.getByRole("button").elements()).toHaveLength(6);
+    const floor = pods.element();
+    const box = floor.getBoundingClientRect();
+    for (const pod of floor.children) {
+      const r = pod.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(box.top);
+      expect(r.bottom).toBeLessThanOrEqual(box.bottom + 1);
+      expect(r.right).toBeLessThanOrEqual(box.right + 1);
+    }
+    expect(getComputedStyle(floor).overflowY).not.toMatch(/auto|scroll/);
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(innerHeight);
+  } finally {
+    await page.viewport(1280, 800);
+  }
+});
+
+test("live runs past what a phone's floor holds wait behind a chip that opens the quest board", async () => {
+  await page.viewport(375, 667);
+  try {
+    const { screen } = await office([weekly, long, ...more(10)], crews);
+    const pods = screen.getByRole("list", { name: "Pods" });
+    const chip = pods.getByRole("button", { name: /^\+\d+ more$/ });
+    await expect.element(chip).toBeVisible();
+    const hidden = Number(/\d+/.exec(chip.element().textContent ?? "")![0]);
+    expect(pods.getByRole("button", { name: /stage/ }).elements().length + hidden).toBe(12);
+    const box = pods.element().getBoundingClientRect();
+    for (const pod of pods.element().children) expect(pod.getBoundingClientRect().bottom).toBeLessThanOrEqual(box.bottom + 1);
+    await chip.click();
+    const board = screen.getByRole("complementary", { name: "Quest board" });
+    await expect.element(board).toBeVisible();
+    await expect.element(board.getByRole("button", { name: /^More #10/ })).toBeVisible();
+  } finally {
+    await page.viewport(1280, 800);
+  }
 });
 
 test("the line at Your office keeps clear of the idle cast; each alert is over its asker's tag", async () => {
