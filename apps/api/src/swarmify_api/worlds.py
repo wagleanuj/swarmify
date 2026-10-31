@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from swarmify_worlds import (
+    DEFAULT_PACK,
     MAX_AGENTS,
     MAX_PROMPT,
     MAX_RETENTION_DAYS,
@@ -34,12 +35,34 @@ class NewWorld(BaseModel):
     purpose: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
 
 
+class LookSetting(BaseModel):
+    """An agent's look in the skin only: code and logs keep the plain agent name (ADR 0004)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    character: str | None = None
+    """A character id in the world's pack."""
+    name: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=24)] | None
+    ) = None
+    colour: Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")] | None = None
+    catchphrase: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)] | None
+    ) = None
+    """Said when a run ships."""
+
+
 class SkinSetting(BaseModel):
     """How the web app draws the world; unknown keys are refused."""
 
     model_config = ConfigDict(extra="forbid")
 
     view: View = "plain"
+    pack: str = DEFAULT_PACK
+    """The installed sprite pack the world draws its cast with (`GET /api/sprite-packs`)."""
+    cast: dict[str, LookSetting] = {}
+    """Each agent's look by agent name, over the pack's casting; an agent left out wears the
+    pack's. A character the pack lacks is kept and reported by the skin."""
 
 
 class WorldSettings(BaseModel):
@@ -107,7 +130,7 @@ def router(
         """Change the settings given; `monthly_budget_usd: null` removes the ceiling."""
         changes = {k: getattr(body, k) for k in body.model_fields_set}
         if body.skin is not None:
-            changes["skin"] = body.skin.model_dump()
+            changes["skin"] = body.skin.model_dump(exclude_none=True)
         try:
             world = worlds.configure(world_id, changes)
         except ValueError as exc:

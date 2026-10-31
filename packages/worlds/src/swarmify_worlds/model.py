@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, get_args
 
+from swarmify_worlds.packs import Casting
+
 RETENTION_DAYS = 90
 """How long a new world keeps run binaries. 0 keeps them forever."""
 RUN_CAP = 2
@@ -12,13 +14,19 @@ MODEL_ROLES = ("planner", "worker", "judge", "retro")
 View = Literal["plain", "office"]
 """How a world's page looks: the plain lists or the Office skin."""
 VIEWS: tuple[View, ...] = get_args(View)
+DEFAULT_PACK = "kenney-toon"
+"""The bundled sprite pack, which a world draws with until it picks its own."""
 
 
 @dataclass(frozen=True)
 class Skin:
-    """How the web app draws a world. Only the view so far; the Office adds its pack and cast."""
+    """How the web app draws a world: its view, its sprite pack and the operator's own casting of
+    each agent by name, which wins over the pack's. Skin names never reach code or logs (ADR
+    0004)."""
 
     view: View = "plain"
+    pack: str = DEFAULT_PACK
+    cast: dict[str, Casting] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

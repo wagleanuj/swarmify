@@ -1,4 +1,5 @@
 import { api } from "./api/client";
+import type { components } from "./api/schema";
 
 /** Role names on the page (ADR 0004, amended): code says planner and worker-1, the plain skin
  * says Planner and Worker 1. The Pied Piper names are an opt-in local skin, turned on in
@@ -57,13 +58,15 @@ export type View = "plain" | "office";
 export const worldHome = (world?: { skin?: { view: View } }) =>
   world?.skin?.view === "office" ? ("/worlds/$worldId/office" as const) : ("/worlds/$worldId" as const);
 
-/** Save the world's view; false when the API refused it.
- * ponytail: the API replaces the skin whole, so once the skin also holds pack and cast this must
- * send the world's current skin with the new view (or the API must merge skin keys). */
-export async function saveView(worldId: string, view: View): Promise<boolean> {
-  const { error } = await api.PATCH("/api/worlds/{world_id}", {
-    params: { path: { world_id: worldId } },
-    body: { skin: { view } },
+export type Skin = components["schemas"]["Skin"];
+
+/** The sprite pack shipped with Swarmify, which a world draws with until it picks its own. */
+export const BUNDLED_PACK = "kenney-toon";
+
+/** Save the world's skin, replaced whole, so a caller changing one part sends the rest as it is.
+ * The world as saved, or null when the API refused it. */
+export async function saveSkin(worldId: string, skin: Omit<Skin, "pack"> & { pack?: string }) {
+  const { data } = await api.PATCH("/api/worlds/{world_id}", { params: { path: { world_id: worldId } }, body: { skin: { ...skin, pack: skin.pack ?? BUNDLED_PACK, cast: skin.cast ?? {} } },
   });
-  return !error;
+  return data ?? null;
 }

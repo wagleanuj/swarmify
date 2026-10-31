@@ -11,6 +11,8 @@ const video = {
   run_cap: 3,
   skin: { view: "office" },
 };
+/** A world dressed in Crew: a pack of its own and an agent's own look. */
+const dressed = { ...video, skin: { view: "office", pack: "mine", cast: { judge: { name: "Rex" } } } };
 const spend = { month: "2026-10", spent_usd: 3.5, monthly_budget_usd: 20 };
 
 beforeEach(() => FakeEventSource.install());
@@ -71,21 +73,24 @@ test("a world with no budget says so instead of a bare figure", async () => {
 });
 
 test("Plain view saves the setting and opens the plain overview in the sidebar shell", async () => {
-  const { saved } = office();
+  const { saved } = office(dressed);
   const { screen, router } = await mountAt("/worlds/world_1/office");
   await screen.getByRole("button", { name: "Plain view" }).click();
   await expect.element(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
-  expect(saved).toEqual([{ skin: { view: "plain" } }]);
+  // The rest of the skin goes back as it was, so the cast keeps its looks.
+  expect(saved).toEqual([{ skin: { view: "plain", pack: "mine", cast: { judge: { name: "Rex" } } } }]);
   expect(router.state.location.pathname).toBe("/worlds/world_1");
   await expect.element(screen.getByRole("button", { name: "Office" })).toBeVisible();
 });
 
 test("Office on the plain overview saves the setting and opens the office", async () => {
-  const { saved } = office({ ...video, skin: { view: "plain" } });
+  const { saved } = office({ ...dressed, skin: { ...dressed.skin, view: "plain" } });
   const { screen, router } = await mountAt("/worlds/world_1");
+  // Crew dresses the cast in another tab; the switch sends that, not the skin the page loaded.
+  FakeEventSource.emit("world.updated", { payload: { id: "world_1", skin: { view: "plain", pack: "mine", cast: { judge: { name: "Erin" } } } } });
   await screen.getByRole("button", { name: "Office" }).click();
   await expect.element(screen.getByRole("button", { name: "Plain view" })).toBeVisible();
-  expect(saved).toEqual([{ skin: { view: "office" } }]);
+  expect(saved).toEqual([{ skin: { view: "office", pack: "mine", cast: { judge: { name: "Erin" } } } }]);
   expect(router.state.location.pathname).toBe("/worlds/world_1/office");
   expect(screen.getByRole("navigation", { name: "Main" }).elements()).toHaveLength(0);
 });

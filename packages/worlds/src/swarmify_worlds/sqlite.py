@@ -14,6 +14,7 @@ from swarmify_kernel import Event
 from swarmify_kernel.events import append, last_seq, read_after
 from swarmify_kernel.sqlite import connect
 from swarmify_worlds.model import MODEL_ROLES, CastEdit, Skin, World
+from swarmify_worlds.packs import Casting
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 SETTINGS = (
@@ -39,8 +40,13 @@ def _world(row: sqlite3.Row) -> World:
         row["run_cap"],
         row["agent_count"],
         *(row[k] for k in SETTINGS[4:-1]),
-        skin=Skin(**json.loads(row["skin"])) if row["skin"] else Skin(),
+        skin=_skin(json.loads(row["skin"])) if row["skin"] else Skin(),
     )
+
+
+def _skin(data: dict[str, Any]) -> Skin:
+    cast = {name: Casting(**look) for name, look in data.pop("cast", {}).items()}
+    return Skin(**data, cast=cast)
 
 
 def _edit(row: sqlite3.Row) -> CastEdit:
