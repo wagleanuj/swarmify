@@ -1,36 +1,40 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
+import {
+  blocked as isBlocked,
+  choosable,
+  decision,
+  editable,
+  GATE_KIND as KIND,
+  gateArtifacts,
+  gateProposal,
+  type Choice,
+  type Proposal,
+  sendBackTargets,
+  staysOpen,
+  topUpSuggestion,
+  underReview,
+} from "../api/answer";
 import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
 import { dropGate, reloadGates, useOpenGates } from "../api/gates";
 import type { ArtifactFile } from "../api/events";
-import { actOn, decide, type Gate, money, type Run, setBudget, STATUS_LABEL, took } from "../api/runs";
+import { type Gate, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { gatesRoute } from "../router";
 import { piedPiper } from "../skin";
-import { ArtifactCards, ArtifactView, choosable, underReview } from "./Artifacts";
+import { ArtifactCards, ArtifactView } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { PublishValue } from "./Connectors";
 import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
-type PublishField = components["schemas"]["PublishField"];
-type Proposal = components["schemas"]["Proposal"];
 
 /** What `GateCard` hands back with an answer: `said` is the decision in plain words, for the
  * line that confirms it. */
 export type Answer = (gate: Gate, send: () => Promise<string | null>, said?: string) => Promise<void>;
-
-/** The kind of decision, as the queue names it. */
-const KIND: Record<Gate["kind"], string> = {
-  pick: "Pick an idea",
-  approve: "Review and approve",
-  confirm: "Confirm before it goes out",
-  budget: "Budget ran out",
-  skill: "Review a skill change",
-};
 
 /** Below the web skin's 48rem breakpoint, where a gate's answer sits in a bar above the tab bar. */
 const PHONE = "(max-width: 48rem)";
@@ -87,8 +91,7 @@ export function Gates() {
   const answer: Answer = async (gate, send, said = "You answered it") => {
     setRefused(null);
     const why = await send();
-    // A budget gate stays until the run resumes and can still be aborted, so it stays open.
-    if (why || gate.kind === "budget") {
+    if (why || staysOpen(gate)) {
       if (why) setRefused(why);
       reloadGates();
       return;
@@ -253,11 +256,8 @@ export function GateCard({
 
   useEffect(() => {
     if (!shows) return;
-    api
-      .GET("/api/runs/{run_id}/artifacts", {
-        params: { path: { run_id: gate.run_id }, query: { before: gate.stage_index } },
-      })
-      .then(({ data }) => setArtifacts(data ?? []))
+    gateArtifacts(gate)
+      .then(setArtifacts)
       .catch(() => setArtifacts([]));
   }, [shows, gate.run_id, gate.stage_index, gate.send_backs_left]);
 
@@ -275,54 +275,38 @@ export function GateCard({
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fields = new FormData(e.currentTarget);
-    if (gate.kind === "budget") {
-      const total = (gate.budget_usd ?? 0) + Number(fields.get("add"));
-      setBusy(true);
-      const budget = Math.round(total * 100) / 100;
-      await onAnswer(gate, () => setBudget(gate.run_id, budget), `You raised the budget to ${money(budget)}`);
-      setBusy(false);
-      return;
-    }
-    const note = String(fields.get("note") ?? "").trim();
-    const body: Parameters<typeof decide>[1] = { note };
-    if (gate.kind === "pick") {
-      const picked = cards.find((c) => c.path === fields.get("artifact"));
-      body.choice = picked ? picked.title : String(fields.get("choice") ?? "").trim();
-      if (picked) body.artifact = picked.path;
-    }
-    // An approval or send-back of one piece names it, so the record says which.
-    if (gate.kind === "approve" && reviewed.length === 1) body.artifact = reviewed[0]!.path;
     const target = sendBack.current;
     sendBack.current = null;
-    if (target) body.send_back_to = target;
-    // What goes out is what the form holds, edited or not; the decision records it.
-    if (gate.publish && !target) {
-      const shown = gate.publish.fields ?? [];
-      body.edits = Object.fromEntries(shown.filter(editable).map((f) => [f.key, String(fields.get(`edit:${f.key}`) ?? "")]));
-      // The rest as shown; one that moved since (a relative schedule) is refused and shown again.
-      body.seen = Object.fromEntries(shown.filter((f) => !editable(f)).map((f) => [f.key, f.value ?? null]));
-    }
-    const said = body.send_back_to
-      ? `You sent it back to ${body.send_back_to}`
-      : gate.kind === "pick"
-        ? `You picked "${body.choice}"`
-        : gate.kind === "confirm"
-          ? "You confirmed it"
-          : "You approved it";
+    const picked = cards.find((c) => c.path === fields.get("artifact"));
+    const choice: Choice =
+      gate.kind === "budget"
+        ? { kind: "budget", add: Number(fields.get("add")) }
+        : target
+          ? { kind: "send_back", to: target }
+          : gate.kind === "pick"
+            ? picked
+              ? { kind: "pick", choice: picked.title, artifact: picked.path }
+              : { kind: "pick", choice: String(fields.get("choice") ?? "").trim() }
+            : { kind: gate.kind === "confirm" ? "confirm" : "approve" };
+    const edits = Object.fromEntries(
+      [...fields].flatMap(([k, v]) => (k.startsWith("edit:") ? [[k.slice(5), String(v)]] : [])),
+    );
+    const { send, said } = decision(gate, choice, { note: String(fields.get("note") ?? "").trim(), edits, reviewed });
     setBusy(true);
-    await onAnswer(gate, () => decide(gate.run_id, body), said);
+    await onAnswer(gate, send, said);
     setBusy(false);
   }
 
   async function abort() {
     if (!window.confirm(`Abort ${gate.run_name}? Finished stages keep their artifacts.`)) return;
     setBusy(true);
-    await onAnswer(gate, () => actOn(gate.run_id, "abort"), "You aborted the run");
+    const { send, said } = decision(gate, { kind: "abort" });
+    await onAnswer(gate, send, said);
     setBusy(false);
   }
 
   // A post that cannot go out would fail the run; say why instead of letting it.
-  const blocked = (gate.publish?.problems ?? []).length > 0;
+  const blocked = isBlocked(gate);
   const since = new Date(gate.opened_at).toLocaleTimeString([], { timeStyle: "short" });
   return (
     <li className="gate" data-kind={gate.kind} data-testid={`gate-${gate.run_id}`}>
@@ -370,7 +354,7 @@ export function GateCard({
                 min="0.01"
                 step="0.01"
                 required
-                defaultValue={(gate.budget_usd ?? 1).toFixed(2)}
+                defaultValue={topUpSuggestion(gate).toFixed(2)}
               />
             </label>
             <span className="faint">
@@ -433,12 +417,12 @@ export function GateCard({
               <button type="submit" className="primary" disabled={busy || blocked}>
                 Approve
               </button>
-              {gate.send_backs_left > 0 && gate.earlier_stages.length > 0 ? (
+              {sendBackTargets(gate).length > 0 ? (
                 <>
                   <Menu
                     label="Send back to..."
                     button={phone ? "Send back…" : "Send back to..."}
-                    items={[...gate.earlier_stages].reverse().map((name) => ({
+                    items={sendBackTargets(gate).map((name) => ({
                       label: name,
                       note: `Redo ${name} with your notes`,
                       disabled: busy,
@@ -481,35 +465,22 @@ function SkillGate({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api
-      .GET("/api/runs/{run_id}/proposal", { params: { path: { run_id: gate.run_id } } })
-      .then(({ data }) => {
-        setProposal(data ?? null);
+    gateProposal(gate)
+      .then((data) => {
+        setProposal(data);
         setContent(data?.skill?.content ?? "");
       })
       .catch(() => setProposal(null));
   }, [gate.run_id]);
 
-  async function decide(e: FormEvent<HTMLFormElement>, approve: boolean) {
+  async function answer(e: FormEvent<HTMLFormElement>, approve: boolean) {
     e.preventDefault();
     if (!proposal) return;
     const note = String(new FormData(e.currentTarget).get("note") ?? "").trim();
     if (!approve && !note && !window.confirm("Reject without saying why? The retro learns from the reason.")) return;
+    const { send, said } = decision(gate, { kind: "skill", proposal, approve, content, applyWorkflow }, { note });
     setBusy(true);
-    await onAnswer(gate, async () => {
-      const { error, response } = await api.POST("/api/proposals/{proposal_id}/decide", {
-        params: { path: { proposal_id: proposal.id } },
-        body: {
-          approve,
-          content: proposal.skill && proposal.skill.action !== "retired" ? content : null,
-          apply_workflow: approve && applyWorkflow && proposal.workflow !== null,
-          note,
-        },
-      });
-      if (!error) return null;
-      const detail = (error as { detail?: unknown }).detail;
-      return typeof detail === "string" ? detail : `The decision was refused (${response.status}).`;
-    }, approve ? "You approved the proposal" : "You rejected the proposal");
+    await onAnswer(gate, send, said);
     setBusy(false);
   }
 
@@ -519,7 +490,7 @@ function SkillGate({
   }
   const skill = proposal.skill;
   return (
-    <form className="gate-form proposal" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => void decide(e, true)}>
+    <form className="gate-form proposal" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => void answer(e, true)}>
       {skill && (
         <section data-testid="skill-change">
           <b>
@@ -565,7 +536,7 @@ function SkillGate({
         <button type="submit" className="primary" disabled={busy}>
           Approve
         </button>
-        <RejectButton busy={busy} onReject={(e) => void decide(e, false)} />
+        <RejectButton busy={busy} onReject={(e) => void answer(e, false)} />
         <span className="faint">
           {skill ? "Approving writes the skill as a new version every later stage loads." : "Nothing changes until you approve."}
         </span>
@@ -591,9 +562,6 @@ function RejectButton({ busy, onReject }: { busy: boolean; onReject: (e: FormEve
     </button>
   );
 }
-
-/** A field the gate lets the person change: the connector marks it editable and it is text. */
-const editable = (f: PublishField) => f.editable && (typeof f.value === "string" || f.value == null);
 
 /** What the publish stage after this gate sends out: exactly these values, as its connector
  * describes them (ADR 0007). Fields it marks editable are fields of the gate's form. */

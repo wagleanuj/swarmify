@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
+import { staysOpen } from "../api/answer";
 import { dropGate, useOpenGates } from "../api/gates";
 import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
 import { actOn, type Call, current, duration, type Gate, money, type Run, STATUS_LABEL, statusLine, took } from "../api/runs";
@@ -262,7 +263,7 @@ export function RunTimeline() {
     setError(null);
     const refused = await send();
     if (refused) return setError(refused);
-    if (g.kind === "budget") return;
+    if (staysOpen(g)) return;
     setGate(null);
     dropGate(g.stage_id);
     setAnswered({ stageId: g.stage_id, said, at: new Date().toISOString() });

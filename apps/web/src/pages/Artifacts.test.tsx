@@ -2,7 +2,8 @@ import { expect, test } from "vitest";
 import { render } from "vitest-browser-react";
 
 import type { ArtifactFile } from "../api/events";
-import { ArtifactCards, ArtifactView, choosable, imageSrc, Markdown, underReview } from "./Artifacts";
+import { choosable, underReview } from "../api/answer";
+import { ArtifactCards, ArtifactView, imageSrc, Markdown } from "./Artifacts";
 
 const artifact = (over: Partial<ArtifactFile>): ArtifactFile => ({
   name: "idea-x.md",
