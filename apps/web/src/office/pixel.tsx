@@ -167,21 +167,30 @@ export function Table({ on, seats }: { on: boolean; seats: number }) {
 
 /** One art pixel in screen pixels: a whole number of device pixels, the most that keeps at
  * least a 430 by 280 art pixel room on screen (230 by 240 on a phone), the size the room's pieces
- * are laid out for. Pods that do not fit scroll. A phone takes half steps even on a 1x screen
+ * are laid out for; on a phone also tall enough for `pods` pods two across between the wall and
+ * the front of the room. A wide screen keeps its scale for reading: pods past what fits go behind
+ * the front or the "more" chip (Office.tsx). A phone takes half steps even on a 1x screen
  * (ponytail: uneven pixels there, which only an old phone or an emulator shows). */
-export function scaleFor(w: number, h: number, dpr = window.devicePixelRatio || 1) {
+export function scaleFor(w: number, h: number, dpr = window.devicePixelRatio || 1, pods = 0) {
   const phone = window.matchMedia("(max-width: 700px)").matches;
+  const rows = phone ? Math.ceil(pods / 2) : 0;
   const [minW, minH] = phone ? [230, 240] : [430, 280];
+  const tall = Math.max(minH, FLOOR_PHONE + rows * (POD_PHONE + 2));
   const device = Math.max(phone ? 2 : 1, Math.round(dpr));
-  return Math.max(device, Math.floor(Math.min(w / minW, h / minH) * device)) / device;
+  return Math.max(device, Math.floor(Math.min(w / minW, h / tall) * device)) / device;
 }
+
+/** The art pixels a phone's pixel room keeps off the pods, the wall over them and the front under
+ * them, and a pod's height with a crew and a pack's table (office.css). */
+const FLOOR_PHONE = 76 + 74;
+const POD_PHONE = 110;
 
 const WALL = 84;
 
 /** The room's layer in art pixels, scaled by one whole number to fill the room: the floor, the
  * wall with its windows, door, kitchen, bookshelf and clock, the plants and the world's sign, all
  * under the pods, Your office and the cast it holds. */
-export function PixelRoom({ pack, name, children }: { pack: Pack; name: string; children: ReactNode }) {
+export function PixelRoom({ pack, name, pods, children }: { pack: Pack; name: string; pods: number; children: ReactNode }) {
   const outer = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
@@ -193,7 +202,7 @@ export function PixelRoom({ pack, name, children }: { pack: Pack; name: string; 
     watch.observe(el);
     return () => watch.disconnect();
   }, []);
-  const k = size ? scaleFor(size.w, size.h) : 1;
+  const k = size ? scaleFor(size.w, size.h, undefined, pods) : 1;
   const art = size && { w: Math.floor(size.w / k), h: Math.floor(size.h / k) };
   const [fw, fh] = pack.frame ?? [64, 64];
   const tile = pack.room?.props?.floor_tile;

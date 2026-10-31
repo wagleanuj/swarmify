@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
@@ -248,7 +248,7 @@ export function Office() {
         </p>
       )}
       <div className="office-main">
-        <Room name={world?.name ?? ""} pack={world === undefined ? undefined : pack} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
+        <Room name={world?.name ?? ""} pack={world === undefined ? undefined : pack} more={() => setBoard(true)} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
           <Bench worldId={worldId} members={bench} />
           <YourOffice waiting={waiting} talk={talk} />
         </Room>
@@ -347,7 +347,7 @@ function QuestBoard({ runs, connectors, open }: Floor) {
  * floor of pods, one per run slot, and the lobby sofa of queued runs. The cast stands on the
  * floor. A pixel pack draws it as the flat-on pixel room, a cartoon pack as the cartoon room. The
  * drawing is decorative; the whiteboards, cups and sofa notes are the controls. */
-function Room({ name, pack, ...floor }: Floor & Pods & { name: string; pack: Pack | null | undefined; slots: number; children?: ReactNode }) {
+function Room({ name, pack, ...floor }: Floor & Pods & More & { name: string; pack: Pack | null | undefined; slots: number; children?: ReactNode }) {
   // Until the world and the pack list are read, the room's style is unknown: a bare room, not a
   // cartoon room that jumps to a pixel one.
   if (pack === undefined) return <section className="office-room" aria-label="The office" aria-busy="true" />;
@@ -361,7 +361,7 @@ function Room({ name, pack, ...floor }: Floor & Pods & { name: string; pack: Pac
   }
   return (
     <section className="office-room office-pixel" aria-label="The office">
-      <PixelRoom pack={pack} name={name}>
+      <PixelRoom pack={pack} name={name} pods={scene(floor.runs).live.length}>
         <OnTheFloor {...floor} />
       </PixelRoom>
     </section>
@@ -392,12 +392,58 @@ const CartoonBackdrop = ({ name }: { name: string }) => (
   </>
 );
 
+type More = { more: () => void };
+
+/** How many pods the floor holds without scrolling, and how many go across: measured from the
+ * pods' grid and the tallest pod yet, again whenever the floor, the front of the room or a pod
+ * changes size. The floor ends at the front's lobby when its queued notes pile up over it, or,
+ * with `--office-tuck`, that much past its bottom: how far a last row may stand behind the front
+ * with its whiteboard still in sight. The tallest yet, not now, so dropping a pod with a crew cannot make room for it again and
+ * loop. The rows spread over the floor clear of the front (`pad` keeps them off the rest), or pack
+ * from the top when one stands behind the front (`tight`).
+ * ponytail: rows stay sized for a crew after it leaves, until the office opens again. */
+function useFit() {
+  const ref = useRef<HTMLUListElement>(null);
+  const tallest = useRef(0);
+  const [fit, setFit] = useState({ cols: 1, cells: Infinity, pad: 0, tight: false });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const front = el.parentElement?.querySelector<HTMLElement>(":scope > .office-front");
+    const lobby = front?.querySelector<HTMLElement>(":scope > .office-lobby");
+    const measure = () => {
+      const style = getComputedStyle(el);
+      const cols = style.gridTemplateColumns.split(" ").length;
+      const gap = parseFloat(style.rowGap) || 0;
+      const tuck = parseFloat(style.getPropertyValue("--office-tuck")) || 0;
+      const clear = Math.min(el.clientHeight, front && lobby && !tuck ? front.offsetTop + lobby.offsetTop - el.offsetTop - gap : Infinity);
+      const tall = (tallest.current = Math.max(tallest.current, ...[...el.children].map((c) => (c as HTMLElement).offsetHeight)));
+      const rows = tall ? Math.max(1, Math.floor((clear + tuck + gap) / (tall + gap))) : Infinity;
+      const cells = rows * cols;
+      const pad = Math.max(0, Math.floor(el.clientHeight - clear));
+      const tight = rows * (tall + gap) - gap > clear;
+      setFit((was) => (was.cols === cols && was.cells === cells && was.pad === pad && was.tight === tight ? was : { cols, cells, pad, tight }));
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    if (lobby) watch.observe(lobby);
+    for (const c of el.children) watch.observe(c);
+    return () => watch.disconnect();
+  });
+  return { ref, ...fit };
+}
+
 /** What stands in the room in either style: the shelf, the pods, the lobby sofa and the cast. */
-function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor & Pods & { slots: number; children?: ReactNode }) {
+function OnTheFloor({ runs, slots, connectors, open, more, children, ...pods }: Floor & Pods & More & { slots: number; children?: ReactNode }) {
   const { live, queued, shelf } = scene(runs);
-  // ponytail: every live run gets a pod even past the run cap (the cap was just lowered); that
-  // state is short-lived, so no overflow onto the quest board until it proves to matter.
-  const spare = Math.max(0, slots - live.length);
+  // The pods never scroll: free pods fill out only the rows of busy ones and go first when the
+  // floor is short; live runs past what fits wait behind a chip that opens the quest board.
+  const { ref, cols, cells, pad, tight } = useFit();
+  const sofa = queued.length > 2 ? 1 : 2;
+  const over = live.length > cells;
+  const shown = over ? live.slice(0, cells - 1) : live;
+  const spare = Math.max(0, Math.min(slots, Math.max(cols, Math.ceil(live.length / cols) * cols), cells) - live.length);
   return (
     <>
       <ul className="office-shelf" aria-label="Shelf">
@@ -407,8 +453,8 @@ function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor 
           </li>
         ))}
       </ul>
-      <ul className="office-pods" aria-label="Pods">
-        {live.map((r) => (
+      <ul ref={ref} className={`office-pods${tight ? " office-tight" : ""}`} style={{ paddingBottom: pad }} aria-label="Pods">
+        {shown.map((r) => (
           <li key={r.id} className={`office-pod office-${kindOf(r)}`}>
             <Pod run={r} runs={runs} connectors={connectors} open={open} {...pods} />
           </li>
@@ -419,13 +465,22 @@ function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor 
             <Desks on={false} seats={0} />
           </li>
         ))}
+        {over && (
+          <li className="office-pod office-more">
+            <button type="button" className="office-btn" onClick={more}>
+              +{live.length - shown.length} more
+            </button>
+          </li>
+        )}
       </ul>
       {/* The front of the room, left to right: the lobby sofa, the idle cast, the line at Your
           office. Each keeps its own floor; a cast too big for the rest of it stands out of sight. */}
       <div className="office-front">
         <div className="office-lobby" aria-label="Lobby sofa" role="group">
+          {/* Two things on the sofa at most, so the pile never climbs over the pods: two notes, or
+              one and a chip for the rest that opens the quest board. */}
           <ol>
-            {queued.map((r) => (
+            {queued.slice(0, sofa).map((r) => (
               <li key={r.id}>
                 <button type="button" className="office-note-card office-queued" aria-label={restName(r)} onClick={() => open(r.id)}>
                   <small>Queued, waiting for a free pod</small>
@@ -433,6 +488,13 @@ function OnTheFloor({ runs, slots, connectors, open, children, ...pods }: Floor 
                 </button>
               </li>
             ))}
+            {queued.length > sofa && (
+              <li>
+                <button type="button" className="office-btn office-queued-more" onClick={more}>
+                  +{queued.length - sofa} queued
+                </button>
+              </li>
+            )}
           </ol>
           <Sofa />
         </div>
@@ -451,7 +513,9 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
   const kind = kindOf(run);
   const crew = seats(run);
   const line = lines[run.id];
-  const art = made[run.id];
+  // The latest artifact made, until its pop has risen and gone.
+  const [gone, setGone] = useState(0);
+  const art = made[run.id]?.n === gone ? undefined : made[run.id];
   // The last of two or more workers roams to the whiteboard and back.
   const roamer = crew.filter((s) => s.pose === "work").at(1)?.agent.id;
   const done = run.stages.filter((s) => s.status === "done").length;
@@ -481,7 +545,7 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
       )}
       {/* With reduced motion there is no pop; the radio carries the news. */}
       {art && !still() && (
-        <span key={art.n} className="office-pop">
+        <span key={art.n} className="office-pop" onAnimationEnd={() => setGone(art.n)}>
           {art.name}
         </span>
       )}
@@ -495,8 +559,9 @@ function Desks({ on, seats }: { on: boolean; seats: number }) {
   if (usePixel()) return <Table on={on} seats={seats} />;
   return (
     <div className={`office-desks${on ? " office-on" : ""}`} aria-hidden="true">
-      <i />
-      <i />
+      {Array.from({ length: Math.max(2, seats) }, (_, i) => (
+        <i key={i} />
+      ))}
     </div>
   );
 }

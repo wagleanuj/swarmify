@@ -26,10 +26,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function office(pack: string, { crew = [worker], packs = async () => Response.json([toon, tiny]) } = {}) {
+async function office(pack: string, { crew = [worker], packs = async () => Response.json([toon, tiny]), runs = [weekly], cap = 2 } = {}) {
   fakeFetch({
-    "GET /api/worlds/world_1": () => Response.json(world(pack)),
-    "GET /api/worlds/world_1/runs": () => Response.json([weekly]),
+    "GET /api/worlds/world_1": () => Response.json({ ...world(pack), run_cap: cap }),
+    "GET /api/worlds/world_1/runs": () => Response.json(runs),
     "GET /api/runs/run_14/agents": () => Response.json(crew),
     "GET /api/worlds/world_1/cast": () =>
       Response.json(crew.map((a) => ({ name: a.name, role: "worker", version: 1, prompt: "", tools: null, updated_at: null }))),
@@ -127,6 +127,8 @@ test("the room's scale is whole device pixels: 2x on a 1280 by 720 screen, 4/3 o
   expect(scaleFor(985, 630, 1)).toBe(2);
   expect(scaleFor(808, 674, 1)).toBe(1);
   expect(scaleFor(985, 630, 2)).toBe(2);
+  // Pods never shrink a wide screen's room: it keeps its scale for reading.
+  expect(scaleFor(985, 630, 1, 8)).toBe(2);
   await page.viewport(390, 844);
   expect(scaleFor(374, 560, 3)).toBe(4 / 3);
   expect(scaleFor(359, 383, 1)).toBe(1.5);
@@ -147,4 +149,40 @@ test("on a mid-size screen the room keeps the art size it is laid out for, nothi
   const yours = mine.element().getBoundingClientRect();
   expect(apart(yours, screen.getByRole("group", { name: "Lobby sofa" }).element().getBoundingClientRect())).toBe(true);
   expect(apart(yours, screen.getByRole("list", { name: "Pods" }).element().getBoundingClientRect())).toBe(true);
+});
+
+test("on a 375 by 667 phone six live runs each have a pod in the pixel room, at a smaller scale, and nothing scrolls", async () => {
+  await page.viewport(375, 667);
+  try {
+    const six = [weekly, ...[1, 2, 3, 4, 5].map((n) => run("running", [stage(0, "Draft", "swarm", "running", { id: `run_${n}_s0` })], { id: `run_${n}`, name: `Run ${n}` }))];
+    const { screen } = await office("tiny", { runs: six, cap: 8 });
+    const pods = screen.getByRole("list", { name: "Pods" });
+    await expect.element(screen.getByRole("img", { name: "Worker 1, working" })).toBeVisible();
+    expect(pods.getByRole("button").elements()).toHaveLength(6);
+    const box = pods.element().getBoundingClientRect();
+    for (const pod of pods.element().children) {
+      const r = pod.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(box.top);
+      expect(r.bottom).toBeLessThanOrEqual(box.bottom + 1);
+    }
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(innerHeight);
+  } finally {
+    await page.viewport(1280, 800);
+  }
+});
+
+test("at 1280 by 720 six live runs keep the 2x room: every whiteboard in sight over the front of the room", async () => {
+  await page.viewport(1280, 720);
+  try {
+    const six = [weekly, ...[1, 2, 3, 4, 5].map((n) => run("running", [stage(0, "Draft", "swarm", "running", { id: `run_${n}_s0` })], { id: `run_${n}`, name: `Run ${n}` }))];
+    const { screen } = await office("tiny", { runs: six, cap: 8 });
+    await expect.element(screen.getByRole("img", { name: "Worker 1, working" })).toBeVisible();
+    expect(scaleOf(screen.getByRole("img", { name: "Worker 1, working" }).element())).toBe(2);
+    const boards = screen.getByRole("list", { name: "Pods" }).getByRole("button").elements();
+    expect(boards).toHaveLength(6);
+    const front = screen.getByRole("group", { name: "Lobby sofa" }).element().parentElement!.getBoundingClientRect();
+    for (const b of boards) expect(b.getBoundingClientRect().bottom).toBeLessThanOrEqual(front.top);
+  } finally {
+    await page.viewport(1280, 800);
+  }
 });

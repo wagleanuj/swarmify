@@ -132,33 +132,31 @@
 /* And its fields: paper with ink, day and night. */
 .office-app input, .office-app textarea, .office-app select { color: var(--ink); background: var(--paper); }
 
-/* Pods: one per run slot, three across, on tinted rugs that say the stage type. */
+/* Pods: one per run slot, as many across as the floor takes, on small tinted rugs that say the
+   stage type. Rows as tall as their pods, spread over the floor; the floor shows only the pods
+   that fit (Office.tsx), so it never scrolls. */
 .office-pods {
   position: absolute;
   z-index: 2;
-  inset: 29% 3% 23% 3%;
+  inset: 23% 3% 21% 3%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  /* Rows as tall as their pods, spread over the floor; when they do not fit, the pods scroll. */
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   grid-auto-rows: min-content;
   align-content: space-evenly;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  gap: 12px 18px;
+  gap: 8px 18px;
 }
-/* Free pods fill out the rows of busy ones; a row of only free pods stays off the floor. */
-@media (min-width: 701px) {
-  .office-spare:nth-child(3n + 4), .office-spare:nth-child(3n + 4) ~ li { display: none; }
-}
+/* Rows that reach behind the front of the room pack from the top (Office.tsx). */
+.office-pods.office-tight { align-content: start; }
 .office-pod {
+  justify-self: center;
   --rug: #bfe3ff;
   --edge: #5aa9ff;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px;
+  gap: 2px;
+  padding: 4px 14px;
   border: 3px solid var(--edge);
   border-radius: 16px;
   background: color-mix(in srgb, var(--rug) 85%, transparent);
@@ -168,37 +166,41 @@
 .office-pod.office-workflow { --rug: #e1d4ff; --edge: #9a7bff; }
 .office-pod.office-retro { --rug: #fff1b8; --edge: #e0a800; }
 .office-pod.office-paused { --rug: #e4e2ec; --edge: #8b88a3; }
+/* Live runs past what the floor holds: a chip that opens the quest board. */
+.office-pod.office-more { align-self: center; border: 0; background: none; }
+.office-app .office-more .office-btn { margin: 0; }
 .office-pod.office-spare { --rug: transparent; --edge: rgba(43, 40, 64, 0.35); border-style: dashed; }
 .office-app .office-board {
-  width: min(100%, 230px);
+  width: 150px;
+  max-width: 100%;
   flex: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
-  padding: 5px 9px;
+  padding: 2px 8px;
   overflow: hidden;
   text-align: left;
   background: linear-gradient(#ffffff, #f4f6fb);
   border: 4px solid #a7b0c2;
   outline: 3px solid var(--ink);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.2;
 }
 .office-board > * { flex: none; }
 .office-spare .office-board { align-items: center; justify-content: center; color: var(--muted); background: rgba(255, 255, 255, 0.45); outline-style: dashed; }
 .office-board b, .office-board small, .office-kind { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.office-board b { color: #2446a8; font-size: 14px; }
+.office-board b { color: #2446a8; font-size: 13px; }
 .office-board small { color: #4b4867; }
 .office-progress { display: block; flex: none; height: 9px; border: 2px solid #2446a8; border-radius: 3px; overflow: hidden; }
 .office-progress i { display: block; height: 100%; background: repeating-linear-gradient(-45deg, #e8546b 0 4px, #f27d90 4px 8px); }
 .office-kind { font-weight: 800; color: var(--edge); filter: brightness(0.7); }
-.office-desks { flex: none; display: flex; gap: 14px; }
-.office-desks i { position: relative; width: 58px; height: 22px; background: #e0a774; border: 3px solid var(--ink); border-radius: 4px; }
-.office-desks i::before { content: ""; position: absolute; left: 16px; bottom: 100%; width: 20px; height: 4px; background: #c9cfdb; border: 2px solid var(--ink); }
+.office-desks { flex: none; display: flex; gap: 8px; }
+.office-desks i { position: relative; width: 60px; height: 18px; background: #e0a774; border: 3px solid var(--ink); border-radius: 4px; }
+.office-desks i::before { content: ""; position: absolute; left: 17px; bottom: 100%; width: 22px; height: 4px; background: #c9cfdb; border: 2px solid var(--ink); }
 .office-app button.office-board:hover, .office-app button.office-note-card:hover { filter: brightness(1.04); box-shadow: 0 0 0 3px var(--sun); }
-.office-desks.office-on i::before { height: 14px; background: #86d3ff; box-shadow: 0 -4px 12px rgba(155, 232, 255, 0.9); }
+.office-desks.office-on i::before { height: 15px; background: #86d3ff; box-shadow: 0 -4px 14px rgba(155, 232, 255, 0.95); }
 .office-cart { flex: none; width: 54px; height: 20px; margin-top: -2px; background: #d79a66; border: 3px solid var(--ink); border-radius: 4px; box-shadow: inset 0 -5px 0 #b77b4c; }
 
 /* The shelf of runs finished in the last day, on the back wall. */
@@ -208,6 +210,9 @@
 
 /* The front of the room: the lobby sofa, the idle cast, then the line at Your office. */
 .office-front { position: absolute; z-index: 3; left: 3%; right: 3%; bottom: 3%; display: flex; align-items: flex-end; gap: 12px; }
+/* Its boxes reach up over the pods' last row; only what is in them takes a click. */
+.office-front, .office-front * { pointer-events: none; }
+.office-app .office-front button, .office-app .office-front a { pointer-events: auto; }
 /* The lobby: queued runs wait on the sofa in order, front left. */
 .office-lobby { flex: none; width: min(30%, 220px); display: flex; flex-direction: column; gap: 4px; }
 .office-lobby ol { display: flex; flex-direction: column; gap: 4px; }
@@ -225,6 +230,7 @@
 }
 .office-note-card b, .office-note-card small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .office-note-card small { color: var(--muted); font-size: 12px; }
+.office-app .office-lobby .office-queued-more { margin: 0; white-space: nowrap; }
 .office-note-card.office-gate { background: #ffe3c2; }
 .office-note-card.office-done { background: #dff5e3; }
 .office-note-card.office-failed, .office-note-card.office-aborted { background: #ece9f3; }
@@ -257,7 +263,7 @@
   .office-side { width: auto; max-height: 30%; flex-direction: row; }
   .office-quests { flex: 1; }
   .office-radio { width: 40%; max-height: none; }
-  .office-pods { grid-template-columns: repeat(2, minmax(0, 1fr)); inset: 30% 2% 26% 2%; gap: 8px; }
+  .office-pods { grid-template-columns: repeat(2, minmax(0, 1fr)); inset: 21% 2% 21% 2%; gap: 8px; }
   .office-desks i { width: 40px; }
   .office-chip { font-size: 14px; padding: 4px 10px; }
   .office-windows { left: 30%; right: 30%; }
@@ -267,6 +273,10 @@
 /* The cast standing idle on the floor, feet on a ring of their colour. */
 /* One row that takes the floor the line leaves: whoever does not fit wraps out of sight. */
 .office-app .office-cast { flex: 1 1 0; min-width: 0; height: 110px; overflow: hidden; pointer-events: none; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 24px 8px; margin: 0; padding: 20px 0 0; list-style: none; }
+/* An idle actor the cast's floor cannot hold whole (a pixel sprite is 64 wide) stands out of
+   sight, not half behind the line at Your office. */
+.office-app .office-cast { container-type: inline-size; }
+@container (max-width: 63px) { .office-cast > * { visibility: hidden; } }
 .office-actor { --accent: var(--sun); position: relative; width: 66px; height: 88px; }
 .office-actor img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
 .office-actor::before { content: ""; position: absolute; left: 14px; right: 14px; bottom: -3px; height: 9px; border: 2px solid var(--ink); border-radius: 50%; background: var(--accent); opacity: 0.85; }
@@ -278,20 +288,23 @@
 
 /* A pod's crew at the desks, the planner thinking, a worker roaming to the whiteboard. */
 .office-pod { position: relative; justify-content: space-between; }
-/* The crew stands behind the desks, in a strip of its own under the whiteboard: only their
-   lower part goes behind the desks, never their heads over the board. */
-.office-crew { position: relative; z-index: 1; flex: none; width: 100%; height: 36px; display: flex; justify-content: center; align-items: flex-end; gap: 2px; pointer-events: none; }
-.office-crew .office-actor { flex: none; width: 44px; height: 59px; margin-bottom: -23px; transition: transform 1s ease-in-out; }
-.office-crew .office-actor.office-away { transform: translateY(-46px); }
+/* The crew stands behind the desks, in a strip of its own under the whiteboard: their legs go
+   behind the desks, and only the empty top of a frame (about a quarter) reaches over the board,
+   never their heads. */
+.office-crew { position: relative; z-index: 1; flex: none; width: 100%; height: 50px; display: flex; justify-content: center; align-items: flex-end; gap: 8px; pointer-events: none; }
+/* Each agent behind their own desk: as wide as a desk, as far apart. */
+.office-crew .office-actor { flex: none; width: 60px; height: 96px; margin-bottom: -20px; transition: transform 1s ease-in-out; }
+.office-crew .office-actor.office-away { transform: translateY(-50px); }
+.office-crew .office-actor::before { display: none; }
 .office-crew .office-tag { display: none; }
 .office-crew .office-actor:hover .office-tag { display: block; }
 .office-desks { position: relative; z-index: 2; }
 .office-bubble { position: absolute; z-index: 3; left: 50%; bottom: 100%; transform: translate(-50%, -2px); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; background: var(--paper); border: 2px solid var(--ink); border-radius: 10px; font-size: 11px; quotes: none; }
 .office-alert { background: var(--sun); font-size: 15px; font-weight: 800; animation: office-hop 0.9s ease-in-out infinite; }
 @keyframes office-hop { 50% { transform: translate(-50%, -8px); } }
-/* A mark of work rising from the desks when an artifact is made. */
-.office-pop { position: absolute; z-index: 3; left: 50%; bottom: 34px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 6px; font-size: 10px; transform: translateX(-50%); animation: office-rise 2.4s ease-out forwards; }
-@keyframes office-rise { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -24px); } }
+/* A mark of work rising over its pod when an artifact is made, gone once it has risen (Office.tsx). */
+.office-pop { position: absolute; z-index: 3; left: 50%; bottom: 100%; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 6px; font-size: 10px; transform: translateX(-50%); animation: office-rise 2.4s ease-out forwards; }
+@keyframes office-rise { 0% { opacity: 0; transform: translate(-50%, 0); } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -24px); } }
 
 /* Your office, front right, glass with a door; the askers wait in line to its left. */
 .office-mine { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: row-reverse; align-items: flex-end; gap: 6px; }
@@ -440,8 +453,10 @@
 .office-pixel .office-shelf { top: 16px; right: 72px; min-height: 8px; gap: 2px; padding: 0 2px; border-bottom-width: 2px; }
 .office-app .office-pixel button.office-cup { width: 5px; height: 6px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel button:focus-visible { outline-width: 1px; outline-offset: 1px; }
-.office-pixel .office-pods { inset: 88px 6px 74px; gap: 4px 8px; }
-.office-pixel .office-pod { padding: 2px; gap: 1px; border-width: 1px; border-radius: 0; }
+/* A last row may stand behind the front with its whiteboard in sight, as the room's scale is
+   kept for reading, not shrunk for pods (pixel.tsx). */
+.office-pixel .office-pods { --office-tuck: 80px; inset: 88px 6px 74px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; }
+.office-pixel .office-pod { justify-self: stretch; padding: 2px; gap: 1px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel .office-board { width: min(100%, 104px); padding: 2px 3px; gap: 1px; border-width: 2px; outline-width: 1px; border-radius: 0; font-size: 6px; line-height: 1.15; }
 .office-pixel .office-board b { font-size: 7px; }
 .office-pixel .office-progress { height: 3px; border-width: 1px; border-radius: 0; }
@@ -461,11 +476,12 @@
 .office-pixel .office-asker .office-bubble { bottom: calc(100% - 2px); }
 .office-pixel .office-bubble { max-width: 80px; padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
 .office-pixel .office-alert { font-size: 7px; }
-.office-pixel .office-pop { bottom: 30px; padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
+.office-pixel .office-pop { padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
 .office-pixel .office-lobby { width: 90px; gap: 2px; }
 .office-pixel .office-lobby ol { gap: 2px; }
 .office-app .office-pixel .office-note-card { padding: 1px 3px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2); }
 .office-pixel .office-note-card small { font-size: 6px; }
+.office-app .office-pixel .office-queued-more, .office-app .office-pixel .office-more .office-btn { padding: 1px 4px; border-width: 1px; border-radius: 0; box-shadow: none; font-size: 7px; }
 .office-pixel .office-cast { height: var(--frame-h); gap: 10px 4px; padding: 0; }
 /* A phone: a narrower room at a larger scale, so the wall's corners go and the text grows. */
 @media (max-width: 700px) {
@@ -495,7 +511,6 @@
   .office-app .office-narrow { display: inline-block; }
   .office-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .office-bar > *, .office-bar > .office-chip { flex: none; }
-  .office-spare:nth-child(2n + 3), .office-spare:nth-child(2n + 3) ~ li { display: none; }
   .office-app .office-bar .office-btn { margin-left: 0; padding: 6px 10px; font-size: 13px; }
   .office-tabs {
     position: fixed;
@@ -545,13 +560,34 @@
   .office-app .office-side.office-sheet-open .office-radio { width: auto; }
   .office-app .office-done { align-self: flex-end; justify-self: end; }
   /* Three rows of pods share a short room: smaller desks, the whiteboard keeps name and stage. */
-  .office-pods { inset: 27% 2% 22% 2%; gap: 6px; }
-  .office-pod { padding: 3px; gap: 2px; }
+  .office-pods { gap: 6px; }
+  /* The pixel room's whiteboards stand over the wall's baseboard (pixel.tsx counts on it). */
+  .office-pixel .office-pods { --office-tuck: 0px; grid-template-columns: repeat(2, minmax(0, 1fr)); top: 76px; gap: 2px 6px; }
+  .office-pod { justify-self: stretch; padding: 3px; gap: 2px; }
+  .office-app .office-board { width: 100%; }
+  .office-crew { height: 33px; gap: 6px; }
+  .office-crew .office-actor { width: 40px; height: 53px; margin-bottom: -14px; }
+  .office-desks { gap: 6px; }
   .office-app .office-board { padding: 2px 6px; font-size: 10px; border-width: 2px; }
   .office-board b { font-size: 11px; }
   .office-pod .office-kind { display: none; }
+  /* The sofa's notes keep only the run's name, so they stay low. */
+  .office-lobby .office-note-card small { display: none; }
   .office-progress { height: 6px; }
-  .office-desks i { width: 30px; height: 12px; }
+  .office-desks i { width: 40px; height: 12px; }
+  .office-desks i::before { left: 9px; }
   /* Talk: the choices stay in sight even when the ask is long. */
   .talk-choices { position: sticky; bottom: -18px; padding: 6px 0 2px; background: var(--paper); }
+}
+
+/* A short phone: smaller art and only the run's name on its whiteboard, so three rows of pods fit. */
+@media (max-width: 700px) and (max-height: 700px) {
+  .office-pods { gap: 4px; }
+  .office-pod .office-board small { display: none; }
+  .office-crew { height: 24px; gap: 4px; }
+  .office-crew .office-actor { width: 30px; height: 40px; margin-bottom: -12px; }
+  .office-desks { gap: 4px; }
+  .office-desks i { width: 30px; height: 10px; }
+  .office-desks i::before { left: 5px; width: 18px; }
+  .office-desks.office-on i::before { height: 11px; }
 }

@@ -88,12 +88,11 @@ test.each(SIZES)("at %i by %i every office screen fits on screen", async (w, h) 
   await expect.element(screen.getByRole("region", { name: "The office" })).toBeVisible();
   const room = screen.getByRole("region", { name: "The office" }).element();
   fits(room);
-  // A pod per run slot, but free pods only fill out the row of the busy ones (three across, two
-  // on a phone); every pod on the floor sits inside the room.
-  await expect.poll(() => room.querySelectorAll(".office-pod").length).toBe(6);
+  // A pod per run slot, but free pods only fill out the row of the busy ones (four across here,
+  // two on a phone); every pod on the floor sits inside the room.
+  await expect.poll(() => room.querySelectorAll(".office-pod").length).toBe(w > 700 ? 4 : 2);
   const walls = room.getBoundingClientRect();
-  const shown = [...room.querySelectorAll(".office-pod")].filter((p) => p.getClientRects().length);
-  expect(shown).toHaveLength(w > 700 ? 3 : 2);
+  const shown = [...room.querySelectorAll(".office-pod")];
   const pods = shown.map((p) => p.getBoundingClientRect());
   for (const p of pods) {
     expect(p.top).toBeGreaterThanOrEqual(walls.top);
