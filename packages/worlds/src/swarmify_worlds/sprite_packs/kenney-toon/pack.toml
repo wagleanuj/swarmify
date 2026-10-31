@@ -1,0 +1,126 @@
+# The bundled sprite pack: Kenney Toon Characters (CC0, KENNEY-LICENSE.txt beside this file).
+# Frames are 192 x 256 transparent PNGs, feet at bottom centre, one folder per character.
+id = "kenney-toon"
+name = "Toon Characters"
+licence = "Creative Commons Zero (CC0 1.0): free to use in personal, educational and commercial projects. Crediting Kenney is welcome, not required."
+author = "Kenney (www.kenney.nl)"
+frame = [192, 256]
+
+[room]
+style = "cartoon"
+poses_side = false
+
+[characters.femaleAdventurer]
+name = "Adventurer (she)"
+[characters.femaleAdventurer.poses]
+idle = ["idle.png"]
+think = ["think.png"]
+work = ["interact.png", "switch0.png", "switch1.png", "switch0.png"]
+walk = ["walk0.png", "walk1.png", "walk2.png", "walk3.png", "walk4.png", "walk5.png", "walk6.png", "walk7.png"]
+talk = ["talk.png", "show.png"]
+cheer = ["cheer0.png", "cheer1.png"]
+stuck = ["hurt.png"]
+hold = ["hold.png"]
+back = ["back.png"]
+
+[characters.maleAdventurer]
+name = "Adventurer (he)"
+[characters.maleAdventurer.poses]
+idle = ["idle.png"]
+think = ["think.png"]
+work = ["interact.png", "switch0.png", "switch1.png", "switch0.png"]
+walk = ["walk0.png", "walk1.png", "walk2.png", "walk3.png", "walk4.png", "walk5.png", "walk6.png", "walk7.png"]
+talk = ["talk.png", "show.png"]
+cheer = ["cheer0.png", "cheer1.png"]
+stuck = ["hurt.png"]
+hold = ["hold.png"]
+back = ["back.png"]
+
+[characters.femalePerson]
+name = "Person (she)"
+[characters.femalePerson.poses]
+idle = ["idle.png"]
+think = ["think.png"]
+work = ["interact.png", "switch0.png", "switch1.png", "switch0.png"]
+walk = ["walk0.png", "walk1.png", "walk2.png", "walk3.png", "walk4.png", "walk5.png", "walk6.png", "walk7.png"]
+talk = ["talk.png", "show.png"]
+cheer = ["cheer0.png", "cheer1.png"]
+stuck = ["hurt.png"]
+hold = ["hold.png"]
+back = ["back.png"]
+
+[characters.malePerson]
+name = "Person (he)"
+[characters.malePerson.poses]
+idle = ["idle.png"]
+think = ["think.png"]
+work = ["interact.png", "switch0.png", "switch1.png", "switch0.png"]
+walk = ["walk0.png", "walk1.png", "walk2.png", "walk3.png", "walk4.png", "walk5.png", "walk6.png", "walk7.png"]
+talk = ["talk.png", "show.png"]
+cheer = ["cheer0.png", "cheer1.png"]
+stuck = ["hurt.png"]
+hold = ["hold.png"]
+back = ["back.png"]
+
+[characters.robot]
+name = "Robot"
+[characters.robot.poses]
+idle = ["idle.png"]
+think = ["think.png"]
+work = ["interact.png", "switch0.png", "switch1.png", "switch0.png"]
+walk = ["walk0.png", "walk1.png", "walk2.png", "walk3.png", "walk4.png", "walk5.png", "walk6.png", "walk7.png"]
+talk = ["talk.png", "show.png"]
+cheer = ["cheer0.png", "cheer1.png"]
+stuck = ["hurt.png"]
+hold = ["hold.png"]
+back = ["back.png"]
+
+[characters.zombie]
+name = "Zombie"
+[characters.zombie.poses]
+idle = ["idle.png"]
+think = ["think.png"]
+work = ["interact.png", "switch0.png", "switch1.png", "switch0.png"]
+walk = ["walk0.png", "walk1.png", "walk2.png", "walk3.png", "walk4.png", "walk5.png", "walk6.png", "walk7.png"]
+talk = ["talk.png", "show.png"]
+cheer = ["cheer0.png", "cheer1.png"]
+stuck = ["hurt.png"]
+hold = ["hold.png"]
+back = ["back.png"]
+
+# The default casting, by agent name or role. Invented names, no theme.
+[casting.planner]
+character = "femaleAdventurer"
+name = "Mira"
+colour = "#ffc93c"
+catchphrase = "I have a plan. It has steps."
+
+[casting."worker-1"]
+character = "malePerson"
+name = "Jun"
+colour = "#7fd6ff"
+catchphrase = "Rendered it twice for luck."
+
+[casting."worker-2"]
+character = "femalePerson"
+name = "Priya"
+colour = "#ff9ec7"
+catchphrase = "Captions timed to the frame."
+
+[casting."worker-3"]
+character = "robot"
+name = "Bolt"
+colour = "#c6a8ff"
+catchphrase = "BEEP. SOURCES ACQUIRED."
+
+[casting.judge]
+character = "maleAdventurer"
+name = "Rex"
+colour = "#ffa66b"
+catchphrase = "Order! That one is an 8.4."
+
+[casting.retro]
+character = "zombie"
+name = "Grave"
+colour = "#9be38a"
+catchphrase = "I dig up old runs so you don't repeat them."

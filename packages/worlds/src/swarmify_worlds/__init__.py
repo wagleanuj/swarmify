@@ -4,7 +4,8 @@ Each world owns a folder under `<data_dir>/worlds/<id>` (files are memory, ADR 0
 empty `assets/` for the operator's reusable files, and a row plus an event stream in SQLite
 (state). Deleting a world removes both. Its settings (monthly budget, run cap, retention, agent
 count, models, skin) and the edits to its Cast live on the row and in `cast_edits`; every change
-is an event on the world's stream.
+is an event on the world's stream. Sprite packs, the art skins draw the cast with, are
+installed once per install (`packs`).
 """
 
 import re
@@ -31,11 +32,13 @@ from swarmify_worlds.model import (
     View,
     World,
 )
+from swarmify_worlds.packs import BUNDLED, Casting, Character, SpritePack, SpritePacks
 from swarmify_worlds.ports import Storage
 from swarmify_worlds.sqlite import MIGRATIONS, SETTINGS, SqliteStorage
 
 __all__ = [
     "AGENT_COUNT",
+    "BUNDLED",
     "JUDGE",
     "MAX_AGENTS",
     "MAX_PROMPT",
@@ -50,9 +53,13 @@ __all__ = [
     "View",
     "SETTINGS",
     "CastEdit",
+    "Casting",
+    "Character",
     "CastMember",
     "Record",
     "Skin",
+    "SpritePack",
+    "SpritePacks",
     "SqliteStorage",
     "Storage",
     "World",

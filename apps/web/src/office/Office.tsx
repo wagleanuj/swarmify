@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
@@ -7,6 +7,7 @@ import { useWorldEvents } from "../api/events";
 import { holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
 import { cap, saveView } from "../skin";
+import { StandingCast } from "./cast";
 import "./office.css";
 import { kindLine, kindOf, podName, restName, scene, stageLine } from "./scene";
 
@@ -114,7 +115,9 @@ export function Office() {
         </p>
       )}
       <div className="office-main">
-        <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} />
+        <Room name={world?.name ?? ""} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open}>
+          {world && <StandingCast worldId={worldId} agentCount={world.agent_count} />}
+        </Room>
         <QuestBoard runs={runs} connectors={connectors} open={open} />
       </div>
     </div>
@@ -149,8 +152,9 @@ function QuestBoard({ runs, connectors, open }: Floor) {
 
 /** The office in the cartoon style: a back wall with windows, the world's sign and a shelf of
  * finished runs over a plank floor of pods, one per run slot, and the lobby sofa of queued runs.
- * The drawing is decorative; the whiteboards, cups and sofa notes are the controls. */
-function Room({ name, runs, slots, connectors, open }: Floor & { name: string; slots: number }) {
+ * The cast stands on the floor. The drawing is decorative; the whiteboards, cups and sofa notes
+ * are the controls. */
+function Room({ name, runs, slots, connectors, open, children }: Floor & { name: string; slots: number; children?: ReactNode }) {
   const { live, queued, shelf } = scene(runs);
   // ponytail: every live run gets a pod even past the run cap (the cap was just lowered); that
   // state is short-lived, so no overflow onto the quest board until it proves to matter.
@@ -208,6 +212,7 @@ function Room({ name, runs, slots, connectors, open }: Floor & { name: string; s
         </ol>
         <div className="office-sofa" aria-hidden="true" />
       </div>
+      {children}
     </section>
   );
 }

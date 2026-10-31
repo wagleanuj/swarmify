@@ -32,7 +32,12 @@ export function setPiedPiper(on: boolean) {
 
 /** A role or agent as a label: Planner, Worker 2, Judge (or Richard, Dinesh, Erlich). */
 export function role(name: string): string {
-  if (piedPiper() && PIED_PIPER[name]) return PIED_PIPER[name];
+  return piedPiper() && PIED_PIPER[name] ? PIED_PIPER[name] : plainRole(name);
+}
+
+/** A role or agent as its plain label whatever the Pied Piper toggle says: the Office names
+ * its cast from the world's skin and pack instead. */
+export function plainRole(name: string): string {
   const worker = /^worker-(\d+)$/.exec(name);
   return worker ? `Worker ${worker[1]}` : (PLAIN[name] ?? name);
 }

@@ -192,6 +192,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sprite-packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Packs
+         * @description The installed sprite packs, the bundled one first, each with its manifest and what is
+         *     wrong with it (an unreadable manifest, a missing frame or idle pose).
+         */
+        get: operations["list_packs_api_sprite_packs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sprite-packs/{pack_id}/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pack File
+         * @description One file of a pack, such as a frame `<character>/<file>`; never outside its folder.
+         */
+        get: operations["pack_file_api_sprite_packs__pack_id___path__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows/starters": {
         parameters: {
             query?: never;
@@ -1893,6 +1934,20 @@ export interface components {
             updated_at: string | null;
             record?: components["schemas"]["Record"];
         };
+        /**
+         * Casting
+         * @description A pack's default look for an agent, keyed by agent name or role.
+         */
+        Casting: {
+            /** Character */
+            character?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Colour */
+            colour?: string | null;
+            /** Catchphrase */
+            catchphrase?: string | null;
+        };
         /** Changes */
         Changes: {
             /** Added */
@@ -1914,6 +1969,15 @@ export interface components {
         ChannelView: {
             /** Slack Webhook */
             slack_webhook: string | null;
+        };
+        /** Character */
+        Character: {
+            /** Name */
+            name: string;
+            /** Poses */
+            poses: {
+                [key: string]: string[];
+            };
         };
         /** CheckBody */
         CheckBody: {
@@ -3289,6 +3353,32 @@ export interface components {
             /** Cost Usd */
             cost_usd: number;
         };
+        /** SpritePack */
+        SpritePack: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Licence
+             * @default
+             */
+            licence: string;
+            /** Author */
+            author?: string | null;
+            /** Frame */
+            frame?: number[] | null;
+            /** Characters */
+            characters?: {
+                [key: string]: components["schemas"]["Character"];
+            };
+            /** Casting */
+            casting?: {
+                [key: string]: components["schemas"]["Casting"];
+            };
+            /** Problems */
+            problems?: string[];
+        };
         /** StartRun */
         StartRun: {
             /** Version */
@@ -4019,6 +4109,63 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_packs_api_sprite_packs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpritePack"][];
+                };
+            };
+        };
+    };
+    pack_file_api_sprite_packs__pack_id___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_id: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

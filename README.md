@@ -1037,6 +1037,20 @@ version 1 being the default. The page is `/worlds/<id>/cast`: each edit asks for
 naming the version it becomes, and applies to every stage that starts from then on. The page also
 picks a model per role (planner, worker, judge, retro), over the world's (see Agents).
 
+### Sprite packs
+
+The Office skin draws the cast from a sprite pack: a folder named by the pack's id holding a
+`pack.toml` manifest (`name`, `licence`, `author`, `frame = [w, h]`, `[characters.<id>]` with a
+`name` and `[characters.<id>.poses]` listing frame files per pose, idle required, and an
+optional `[casting.<agent name or role>]` of `character`, `name`, `colour`, `catchphrase`) and
+one folder of transparent PNG frames per character. Swarmify ships one,
+`packages/worlds/src/swarmify_worlds/sprite_packs/kenney-toon` (Kenney Toon Characters, CC0);
+install another by copying its folder into `<data dir>/sprite-packs/`, where a pack of the same
+id wins over the bundled one. Packs with art you may not redistribute stay there, never in this
+repo. `GET /api/sprite-packs` lists them with any `problems` (an unreadable manifest, a missing
+frame or idle pose) and `GET /api/sprite-packs/<id>/<path>` serves one file of a pack, never one
+outside its folder.
+
 ## Notifications
 
 Each world has at most one Channel: a Slack incoming webhook, set on the world's settings page
