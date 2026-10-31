@@ -246,12 +246,29 @@ function Ask({
         <form ref={form} className="talk-form" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => e.preventDefault()}>
           {gate.publish && <WhatGoesOut preview={gate.publish} worldId={gate.world_id} />}
           {reviewed.length > 0 && <p className="talk-review">Under review: {reviewed.map((a) => a.name).join(", ")}</p>}
-          {gate.kind === "skill" && proposal && (
-            <p className="talk-review">
-              {[proposal.skill && `${proposal.skill.action} skill ${proposal.skill.name}: ${proposal.skill.summary}`, proposal.workflow && `Workflow change: ${proposal.workflow.summary}`]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
+          {gate.kind === "skill" && proposal?.skill && (
+            <section className="talk-review" aria-label="Skill change">
+              <p>
+                {proposal.skill.action} skill {proposal.skill.name}: {proposal.skill.summary}
+              </p>
+              {(proposal.skill.evidence ?? []).length > 0 && <p>Evidence: {(proposal.skill.evidence ?? []).join("; ")}</p>}
+              {proposal.skill.action !== "retired" && (
+                <label>
+                  SKILL.md (edit before approving)
+                  <textarea name="skill" rows={4} defaultValue={proposal.skill.content ?? ""} />
+                </label>
+              )}
+            </section>
+          )}
+          {gate.kind === "skill" && proposal?.workflow && (
+            <section className="talk-review" aria-label="Workflow change">
+              <p>Workflow change: {proposal.workflow.summary}</p>
+              {(proposal.workflow.evidence ?? []).length > 0 && <p>Evidence: {(proposal.workflow.evidence ?? []).join("; ")}</p>}
+              <pre>{proposal.workflow.yaml}</pre>
+              <label>
+                <input type="checkbox" name="apply" defaultChecked /> Save it as the workflow's next version when approving
+              </label>
+            </section>
           )}
           {gate.kind === "skill" && proposal === null && <p className="talk-review">The proposal could not be loaded; the run keeps waiting.</p>}
           {gate.kind === "pick" && artifacts && cards.length === 0 && (
@@ -330,15 +347,19 @@ function choices(gate: Gate, artifacts: ArtifactFile[] | null, cards: ArtifactFi
       ];
     case "skill": {
       if (!proposal) return [];
-      const content = proposal.skill?.content ?? "";
+      const content = (f: FormData) => String(f.get("skill") ?? proposal.skill?.content ?? "");
       return [
-        { label: "Approve", cheer: true, choose: () => ({ kind: "skill", proposal, approve: true, content, applyWorkflow: true }) },
+        {
+          label: "Approve",
+          cheer: true,
+          choose: (f) => ({ kind: "skill", proposal, approve: true, content: content(f), applyWorkflow: f.get("apply") !== null }),
+        },
         {
           label: "Reject",
           cheer: false,
           choose: (f) =>
             String(f.get("note") ?? "").trim() || window.confirm("Reject without saying why? The retro learns from the reason.")
-              ? { kind: "skill", proposal, approve: false, content, applyWorkflow: false }
+              ? { kind: "skill", proposal, approve: false, content: content(f), applyWorkflow: false }
               : null,
         },
       ];

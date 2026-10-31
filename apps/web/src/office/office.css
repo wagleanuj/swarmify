@@ -349,6 +349,8 @@
 .talk-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 .talk-form input, .talk-form textarea { font: inherit; color: var(--ink); padding: 4px 8px; background: #fff; border: 2px solid var(--ink); border-radius: 8px; resize: vertical; }
 .talk-review { margin: 0; font-size: 13px; }
+.talk-review p { margin: 0 0 4px; }
+.talk-review pre { max-height: 8em; overflow: auto; margin: 0 0 4px; font-size: 12px; }
 .talk-publish { padding: 8px 10px; background: #fff8d6; border: 2px solid var(--ink); border-radius: 10px; font-size: 13px; }
 .talk-publish dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0; }
 .talk-publish dl > div { display: contents; }

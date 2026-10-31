@@ -41,12 +41,14 @@ afterEach(() => {
 
 type Posted = { key: string; body: unknown };
 
-/** The world's runs, agents and open gates; every answer posted is recorded and closes its gate. */
+/** The world's runs, agents and open gates; every answer posted is recorded and closes its gate,
+ * except a budget top-up: that gate stays until the run resumes. */
 function world1(runs: Run[], agents: Agent[], gates: Gate[], extra: Record<string, (req: Request) => Response | Promise<Response>> = {}) {
   const posted: Posted[] = [];
-  const close = (runId: string) => async (req: Request) => {
+  const close = (runId: string, keep = false) => async (req: Request) => {
     posted.push({ key: `${req.method} ${new URL(req.url).pathname}`, body: req.headers.get("content-type") ? await req.json() : null });
-    gates.splice(gates.findIndex((g) => g.run_id === runId), 1);
+    const at = gates.findIndex((g) => g.run_id === runId);
+    if (at >= 0 && !keep) gates.splice(at, 1);
     return Response.json({});
   };
   const routes: Record<string, (req: Request) => Response | Promise<Response>> = {
@@ -60,9 +62,9 @@ function world1(runs: Run[], agents: Agent[], gates: Gate[], extra: Record<strin
   for (const r of runs) {
     routes[`GET /api/runs/${r.id}/agents`] = () => Response.json(agents.filter((a) => a.run_id === r.id));
     routes[`GET /api/runs/${r.id}/artifacts`] = () => Response.json([]);
-    for (const what of ["decision", "budget", "abort"]) routes[`POST /api/runs/${r.id}/${what}`] = close(r.id);
+    for (const what of ["decision", "budget", "abort"]) routes[`POST /api/runs/${r.id}/${what}`] = close(r.id, what === "budget");
   }
-  routes["POST /api/proposals/prop_1/decide"] ??= close("run_1");
+  routes["POST /api/proposals/prop_1/decide"] ??= close("run_a");
   fakeFetch({ ...routes, ...extra });
   return posted;
 }
@@ -113,6 +115,19 @@ test("the askers line up at Your office oldest first, the right one per gate, wi
   const ctx = screen.getByRole("list", { name: "The run" });
   await expect.element(ctx).toMatchTextContent(/Launch thread.*stage 3 of 6, approve.*Spent \$1\.25 of \$5\.00/);
   await expect.element(ctx.getByRole("link", { name: "Launch thread" })).toHaveAttribute("href", "/worlds/world_1/runs/run_a?stage=run_a_s2");
+});
+
+test("a gate in a child run is asked by that run's agents, at the door as in Talk", async () => {
+  const child = gatedRun("run_k", "Launch thread, cut 2", 6, { parent_run_id: "run_a", status: "waiting_gate" });
+  const parent = run("running", stages("run_a", 6, 2), { id: "run_a", name: "Launch thread" });
+  world1([parent, child], [agent("judge", "judge", "run_k", 1)], [
+    gate("approve", { run_id: "run_k", run_name: "Launch thread, cut 2", stage_id: "run_k_s2", stage_index: 2, ask: "Keep cut 2?" }),
+  ]);
+  const { screen } = await mountAt("/worlds/world_1/office");
+  const line = screen.getByRole("list", { name: "Line at Your office" });
+  await expect.element(line.getByRole("button", { name: "Rex asks about Launch thread, cut 2: Keep cut 2?" })).toBeVisible();
+  await line.getByRole("button", { name: /^Rex asks/ }).click();
+  await expect.element(screen.getByRole("heading", { name: "Rex Judge", level: 1 })).toBeVisible();
 });
 
 test("an answer posts the gate's decision, the asker reacts and the next steps up; then All clear", async () => {
@@ -185,7 +200,8 @@ test("a pick posts the card chosen, or the typed name when no cards reached the 
 test("a budget gate tops up or aborts, as the plain page does", async () => {
   const budget = (runId: string, at: string) =>
     gate("budget", { run_id: runId, stage_id: `${runId}_s2`, stage_index: 2, budget_usd: 5, spent_usd: 5.2, opened_at: at });
-  const posted = world1([judged, bare], [], [budget("run_a", "2026-10-31T09:01:00Z"), budget("run_c", "2026-10-31T09:02:00Z")]);
+  const open = [budget("run_a", "2026-10-31T09:01:00Z"), budget("run_c", "2026-10-31T09:02:00Z")];
+  const posted = world1([judged, bare], [], open);
   vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/office/talk");
   await expect.element(screen.getByRole("list", { name: "The run" })).toMatchTextContent(/Spent \$5\.20 of \$5\.00/);
@@ -193,7 +209,12 @@ test("a budget gate tops up or aborts, as the plain page does", async () => {
   await screen.getByRole("button", { name: "1 Add money and go on" }).click();
   await expect.element(screen.getByRole("status")).toHaveTextContent("You raised the budget to $7.00.");
   expect(posted[0]).toEqual({ key: "POST /api/runs/run_a/budget", body: { budget_usd: 7 } });
-  // The budget gate stays until the run resumes; the next reload no longer lists it.
+  // The budget gate stays until the run resumes: its ask is still up after the top-up.
+  await expect.element(screen.getByTestId("talk-place")).toHaveTextContent("1 of 2 waiting at Your office");
+  await expect.element(screen.getByRole("heading", { name: "Mira Planner", level: 1 })).toBeVisible();
+  await expect.element(screen.getByRole("list", { name: "The run" }).getByRole("link")).toHaveAttribute("href", "/worlds/world_1/runs/run_a?stage=run_a_s2");
+  // The run resumes: the next reload no longer lists it.
+  open.splice(0, 1);
   FakeEventSource.emit("run.updated", { payload: { ...judged, status: "running" } });
   await expect.element(screen.getByTestId("talk-place")).toHaveTextContent("1 of 1 waiting at Your office");
   await screen.getByRole("button", { name: "2 Abort the run" }).click();
@@ -201,21 +222,27 @@ test("a budget gate tops up or aborts, as the plain page does", async () => {
   expect(posted[1]).toEqual({ key: "POST /api/runs/run_c/abort", body: null });
 });
 
-test("a skill gate approves or rejects the retro's proposal", async () => {
+test("a skill gate shows the proposal, approves it as edited, and saving the workflow is a choice", async () => {
   const proposal = {
     id: "prop_1", world_id: "world_1", run_id: "run_a", stage_id: "run_a_s2", status: "open",
-    skill: { action: "new", name: "hooks", content: "# Hooks", summary: "Hook first", evidence: [] },
-    workflow: { summary: "Ask for hooks up front", evidence: [], yaml: "name: x" },
+    skill: { action: "new", name: "hooks", content: "# Hooks", summary: "Hook first", evidence: ["3 of 4 kept"] },
+    workflow: { summary: "Ask for hooks up front", evidence: [], yaml: "name: hooks-first" },
   };
   const posted = world1([judged], [], [gate("skill", { run_id: "run_a", stage_index: 2 })], {
     "GET /api/runs/run_a/proposal": () => Response.json(proposal),
   });
   const { screen } = await mountAt("/worlds/world_1/office/talk");
-  await expect.element(screen.getByText(/new skill hooks: Hook first · Workflow change: Ask for hooks up front/)).toBeVisible();
+  const skill = screen.getByRole("region", { name: "Skill change" });
+  await expect.element(skill).toMatchTextContent(/new skill hooks: Hook first.*Evidence: 3 of 4 kept/);
+  const flow = screen.getByRole("region", { name: "Workflow change" });
+  await expect.element(flow).toMatchTextContent(/Workflow change: Ask for hooks up front.*name: hooks-first/);
+  await expect.element(flow.getByLabelText("Save it as the workflow's next version when approving")).toBeChecked();
+  await screen.getByLabelText(/^SKILL\.md \(edit before approving\)/).fill("# Hooks, first");
+  await flow.getByLabelText("Save it as the workflow's next version when approving").click();
   await screen.getByRole("button", { name: "1 Approve" }).click();
   await expect.element(screen.getByRole("heading", { name: "All clear" })).toBeVisible();
   expect(posted).toEqual([
-    { key: "POST /api/proposals/prop_1/decide", body: { approve: true, content: "# Hooks", apply_workflow: true, note: "" } },
+    { key: "POST /api/proposals/prop_1/decide", body: { approve: true, content: "# Hooks, first", apply_workflow: false, note: "" } },
   ]);
 });
 

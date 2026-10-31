@@ -144,6 +144,22 @@ export function Office() {
     "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
   });
 
+  // A gate in a child run is asked by that run's agents, as Talk shows: read each gate run's once.
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    for (const runId of new Set(lineAt(gates, worldId).map((g) => g.run_id))) {
+      if (asked.current.has(runId)) continue;
+      asked.current.add(runId);
+      api
+        .GET("/api/runs/{run_id}/agents", { params: { path: { run_id: runId } } })
+        .then(({ data }) => {
+          const prev = latest.current;
+          putAgents([...prev, ...(data ?? []).filter((a) => !prev.some((p) => p.id === a.id))]);
+        })
+        .catch(() => undefined);
+    }
+  }, [gates, worldId]);
+
   async function plainView() {
     if (world && (await saveSkin(worldId, { ...world.skin, view: "plain" }))) void navigate({ to: "/worlds/$worldId", params: { worldId } });
     else setError("Could not switch to the plain view. Try again.");
