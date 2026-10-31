@@ -23,7 +23,9 @@
 }
 .office-app a { color: inherit; }
 
-.office-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* One row: the chips' secondary text gives way before anything wraps. */
+.office-bar { display: flex; align-items: center; gap: 10px; }
+.office-bar > * { flex: none; }
 .office-chip {
   display: flex;
   align-items: baseline;
@@ -38,6 +40,8 @@
   white-space: nowrap;
 }
 .office-chip span, .office-chip small { color: var(--muted); font-size: 12px; font-weight: 700; }
+.office-bar > .office-chip { flex: 0 1 auto; min-width: 0; }
+.office-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .office-world { flex-direction: column; gap: 0; padding: 4px 14px; }
 .office-world h1 { margin: 0; font-size: 20px; line-height: 1.1; }
 .office-world small { line-height: 1; }
@@ -125,6 +129,8 @@
 /* The plain skin styles every button; the office takes them back. */
 .office-app button { font: inherit; color: inherit; cursor: pointer; min-height: 0; gap: 0; transition: none; }
 .office-app button:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+/* And its fields: paper with ink, day and night. */
+.office-app input, .office-app textarea, .office-app select { color: var(--ink); background: var(--paper); }
 
 /* Pods: one per run slot, three across, on tinted rugs that say the stage type. */
 .office-pods {
@@ -133,8 +139,16 @@
   inset: 29% 3% 23% 3%;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
+  /* Rows as tall as their pods, spread over the floor; when they do not fit, the pods scroll. */
+  grid-auto-rows: min-content;
+  align-content: space-evenly;
+  overflow-y: auto;
+  scrollbar-width: thin;
   gap: 12px 18px;
+}
+/* Free pods fill out the rows of busy ones; a row of only free pods stays off the floor. */
+@media (min-width: 701px) {
+  .office-spare:nth-child(3n + 4), .office-spare:nth-child(3n + 4) ~ li { display: none; }
 }
 .office-pod {
   --rug: #bfe3ff;
@@ -157,10 +171,10 @@
 .office-pod.office-spare { --rug: transparent; --edge: rgba(43, 40, 64, 0.35); border-style: dashed; }
 .office-app .office-board {
   width: min(100%, 230px);
-  min-height: 0;
-  flex: 1 1 auto;
+  flex: none;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 2px;
   padding: 5px 9px;
   overflow: hidden;
@@ -172,6 +186,7 @@
   font-size: 12px;
   line-height: 1.2;
 }
+.office-board > * { flex: none; }
 .office-spare .office-board { align-items: center; justify-content: center; color: var(--muted); background: rgba(255, 255, 255, 0.45); outline-style: dashed; }
 .office-board b, .office-board small, .office-kind { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .office-board b { color: #2446a8; font-size: 14px; }
@@ -191,8 +206,10 @@
 .office-app button.office-cup { width: 18px; height: 22px; padding: 0; background: var(--sun); border: 3px solid var(--ink); border-radius: 3px 3px 8px 8px; }
 .office-app button.office-cup.office-failed, .office-app button.office-cup.office-aborted { background: #c9c6d6; }
 
+/* The front of the room: the lobby sofa, the idle cast, then the line at Your office. */
+.office-front { position: absolute; z-index: 3; left: 3%; right: 3%; bottom: 3%; display: flex; align-items: flex-end; gap: 12px; }
 /* The lobby: queued runs wait on the sofa in order, front left. */
-.office-lobby { position: absolute; z-index: 2; left: 3%; bottom: 3%; width: min(30%, 220px); display: flex; flex-direction: column; gap: 4px; }
+.office-lobby { flex: none; width: min(30%, 220px); display: flex; flex-direction: column; gap: 4px; }
 .office-lobby ol { display: flex; flex-direction: column; gap: 4px; }
 .office-sofa { height: 44px; background: #6f93db; border: 3px solid var(--ink); border-radius: 14px; box-shadow: inset 0 14px 0 #5b7fc7; }
 
@@ -248,11 +265,12 @@
 }
 
 /* The cast standing idle on the floor, feet on a ring of their colour. */
-.office-cast { position: absolute; left: 33%; right: 0; pointer-events: none; bottom: 8%; z-index: 2; display: flex; justify-content: center; gap: 4px; margin: 0; padding: 0 16px; list-style: none; }
+/* One row that takes the floor the line leaves: whoever does not fit wraps out of sight. */
+.office-app .office-cast { flex: 1 1 0; min-width: 0; height: 110px; overflow: hidden; pointer-events: none; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 24px 8px; margin: 0; padding: 20px 0 0; list-style: none; }
 .office-actor { --accent: var(--sun); position: relative; width: 66px; height: 88px; }
 .office-actor img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
 .office-actor::before { content: ""; position: absolute; left: 14px; right: 14px; bottom: -3px; height: 9px; border: 2px solid var(--ink); border-radius: 50%; background: var(--accent); opacity: 0.85; }
-.office-tag { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -2px); padding: 0 6px; border-radius: 6px; background: var(--ink); color: #fff; font-size: 11px; white-space: nowrap; }
+.office-tag { position: absolute; left: 50%; bottom: 100%; max-width: calc(100% + 8px); overflow: hidden; text-overflow: ellipsis; transform: translate(-50%, -2px); padding: 0 6px; border-radius: 6px; background: var(--ink); color: #fff; font-size: 11px; white-space: nowrap; }
 @media (max-width: 700px) {
   .office-actor { width: 44px; height: 59px; }
   .office-tag { font-size: 9px; }
@@ -260,9 +278,10 @@
 
 /* A pod's crew at the desks, the planner thinking, a worker roaming to the whiteboard. */
 .office-pod { position: relative; justify-content: space-between; }
-.office-app .office-pod:not(.office-spare) .office-board { flex: 0 1 auto; }
-.office-crew { position: absolute; left: 0; right: 0; bottom: 20px; z-index: 1; display: flex; justify-content: center; gap: 2px; pointer-events: none; }
-.office-crew .office-actor { width: 44px; height: 59px; transition: transform 1s ease-in-out; }
+/* The crew stands behind the desks, in a strip of its own under the whiteboard: only their
+   lower part goes behind the desks, never their heads over the board. */
+.office-crew { position: relative; z-index: 1; flex: none; width: 100%; height: 36px; display: flex; justify-content: center; align-items: flex-end; gap: 2px; pointer-events: none; }
+.office-crew .office-actor { flex: none; width: 44px; height: 59px; margin-bottom: -23px; transition: transform 1s ease-in-out; }
 .office-crew .office-actor.office-away { transform: translateY(-46px); }
 .office-crew .office-tag { display: none; }
 .office-crew .office-actor:hover .office-tag { display: block; }
@@ -275,22 +294,29 @@
 @keyframes office-rise { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -24px); } }
 
 /* Your office, front right, glass with a door; the askers wait in line to its left. */
-.office-mine { position: absolute; z-index: 3; right: 3%; bottom: 3%; display: flex; flex-direction: row-reverse; align-items: flex-end; gap: 6px; max-width: 60%; }
-.office-app button.office-glass { position: relative; flex: none; width: 150px; height: 110px; padding: 8px 10px; text-align: left; background: linear-gradient(135deg, rgba(214, 240, 255, 0.9), rgba(170, 214, 245, 0.65)); border: 4px solid var(--ink); border-bottom: 0; border-radius: 10px 10px 0 0; box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.5); }
+.office-mine { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: row-reverse; align-items: flex-end; gap: 6px; }
+.office-app button.office-glass { position: relative; flex: none; width: 150px; height: 110px; padding: 8px 10px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; text-align: left; background: linear-gradient(135deg, rgba(214, 240, 255, 0.9), rgba(170, 214, 245, 0.65)); border: 4px solid var(--ink); border-bottom: 0; border-radius: 10px 10px 0 0; box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.5); }
 .office-app button.office-glass::after { content: ""; position: absolute; right: 12px; bottom: 0; width: 30%; height: 50%; background: #b98257; border: 3px solid var(--ink); border-bottom: 0; border-radius: 6px 6px 0 0; }
 .office-glass b { display: block; font-size: 15px; }
-.office-glass small { color: var(--muted); font-weight: 800; }
-.office-line { display: flex; flex-direction: row-reverse; gap: 6px; min-width: 0; padding-top: 24px; }
-.office-app button.office-asker { position: relative; display: block; width: 52px; height: 70px; padding: 0; background: none; border: 0; }
+.office-glass small { display: block; color: var(--muted); font-weight: 800; }
+/* The line hugs the door; askers who do not fit wrap out of sight (the count says how many). */
+.office-app .office-line { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 80px 8px; min-width: 0; height: 120px; overflow: hidden; padding-top: 50px; }
+.office-app button.office-asker { position: relative; display: block; width: 60px; height: 70px; padding: 0; background: none; border: 0; }
 .office-asker img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
-.office-asker .office-bubble { left: 85%; bottom: 70%; }
+/* The alert over the tag, never on it. */
+.office-asker .office-bubble { bottom: calc(100% + 20px); }
 .office-app button.office-asker:hover img { filter: drop-shadow(0 0 4px var(--sun)); }
 .office-app button.office-needs { gap: 6px; }
 .office-app button.office-needs:hover { background: var(--sun); }
-.office-cast { right: 34%; }
 @media (max-width: 700px) {
   .office-app button.office-glass { width: 96px; height: 76px; font-size: 12px; }
-  .office-app button.office-asker { width: 36px; height: 48px; }
+  .office-app button.office-asker { width: 40px; height: 48px; }
+  .office-glass b { font-size: 12px; }
+  .office-app button.office-glass::after { height: 38%; }
+  .office-glass small { font-size: 11px; }
+  /* One row each: the line's padding and askers, the cast's tags and actors. */
+  .office-app .office-line { height: 98px; }
+  .office-app .office-cast { height: 79px; }
 }
 
 /* Reduced motion: every character holds its state's pose; no pops (Pod skips them). */
@@ -342,7 +368,7 @@
 
 /* Talk: the asker large on the left, their line in a speech box with the run and the choices. */
 .talk-app .office-back { margin-left: 0; }
-.talk-room { position: relative; flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 16px; border: 3px solid var(--ink); border-radius: 22px; background: linear-gradient(#cdebd6 0 78%, var(--wood) 78%); box-shadow: 0 4px 0 var(--ink); }
+.talk-room { position: relative; flex: 1; max-width: none; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 16px; border: 3px solid var(--ink); border-radius: 22px; background: linear-gradient(#cdebd6 0 78%, var(--wood) 78%); box-shadow: 0 4px 0 var(--ink); }
 .talk-scene { --accent: var(--sun); width: 100%; max-width: 1100px; max-height: 100%; display: flex; align-items: flex-end; gap: 24px; }
 .talk-hero { flex: none; width: min(28vw, 300px); align-self: flex-end; }
 .talk-hero img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: contain; object-position: bottom; }
@@ -400,18 +426,21 @@
 .office-at-plant-l { left: 100px; bottom: 4px; }
 .office-at-plant-r { right: 100px; bottom: 4px; }
 .office-pixel .office-neon { top: 47px; bottom: auto; padding: 1px 6px; border-radius: 0; font: 700 8px "Pixelify Sans", monospace; text-shadow: 0 0 2px var(--sun); box-shadow: 0 0 0 1px var(--sun) inset; }
-.office-pixel .office-mine { right: 4px; bottom: 4px; gap: 2px; }
+.office-pixel .office-front { left: 6px; right: 4px; bottom: 4px; gap: 6px; }
+.office-pixel .office-mine { gap: 2px; }
 .office-app .office-pixel button.office-glass { width: 92px; height: 62px; padding: 6px; background: none; border: 0; border-radius: 0; box-shadow: none; }
 .office-app .office-pixel button.office-glass::after { display: none; }
 .office-pixel .office-glass .office-prop-office { position: absolute; inset: 0; }
 .office-pixel .office-glass b, .office-pixel .office-glass small { position: relative; font: 700 7px "Pixelify Sans", monospace; }
 .office-pixel .office-glass small { font-size: 6px; }
-.office-pixel .office-line { gap: 2px; padding-top: 8px; }
-.office-app .office-pixel button.office-asker { width: var(--frame-w); height: var(--frame-h); }
+.office-pixel .office-line { gap: 40px 4px; height: calc(var(--frame-h) + 20px); padding-top: 20px; }
+/* In the front of the pixel room each character keeps a 40 art pixel slot, its frame centred on it. */
+.office-app .office-pixel button.office-asker, .office-pixel .office-cast .office-actor { width: 40px; height: var(--frame-h); }
+.office-pixel .office-asker img, .office-pixel .office-cast .office-actor img { width: var(--frame-w); max-width: none; margin: 0 calc((40px - var(--frame-w)) / 2); }
 .office-pixel .office-shelf { top: 16px; right: 72px; min-height: 8px; gap: 2px; padding: 0 2px; border-bottom-width: 2px; }
 .office-app .office-pixel button.office-cup { width: 5px; height: 6px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel button:focus-visible { outline-width: 1px; outline-offset: 1px; }
-.office-pixel .office-pods { inset: 92px 6px 80px; gap: 4px 8px; }
+.office-pixel .office-pods { inset: 88px 6px 74px; gap: 4px 8px; }
 .office-pixel .office-pod { padding: 2px; gap: 1px; border-width: 1px; border-radius: 0; }
 .office-app .office-pixel .office-board { width: min(100%, 104px); padding: 2px 3px; gap: 1px; border-width: 2px; outline-width: 1px; border-radius: 0; font-size: 6px; line-height: 1.15; }
 .office-pixel .office-board b { font-size: 7px; }
@@ -419,21 +448,32 @@
 .office-pixel .office-progress i { background: #e8546b; }
 .office-app .office-pixel button.office-board:hover, .office-app .office-pixel button.office-note-card:hover { box-shadow: 0 0 0 1px var(--sun); }
 .office-table { position: relative; z-index: 2; flex: none; }
-.office-laptops { position: absolute; left: 4%; right: 4%; bottom: calc(100% - 4px); display: flex; justify-content: space-evenly; align-items: flex-end; }
+/* The laptops stand on the table's top: the lower 40% of a table's art is its front and legs. */
+.office-laptops { position: absolute; left: 4%; right: 4%; bottom: 60%; display: flex; justify-content: space-evenly; align-items: flex-end; }
 .office-pixel .office-prop-cart { position: absolute; z-index: 2; right: 4px; bottom: 2px; }
 .office-pixel .office-actor, .office-pixel .office-crew .office-actor { width: var(--frame-w); height: var(--frame-h); }
 .office-pixel .office-actor::before { display: none; }
-.office-pixel .office-crew { bottom: 10px; gap: 0; }
+.office-pixel .office-crew { height: 34px; gap: 0; }
+.office-pixel .office-crew .office-actor { margin-bottom: -17px; }
 .office-pixel .office-crew .office-actor.office-away { transform: translateY(-20px); }
-.office-pixel .office-tag { padding: 0 2px; border-radius: 0; font-size: 6px; transform: translate(-50%, -1px); }
+/* A pixel frame's top is empty: the tag sits in it, the alert over the tag. */
+.office-pixel .office-tag { bottom: calc(100% - 12px); padding: 0 2px; border-radius: 0; font-size: 6px; transform: translate(-50%, -1px); }
+.office-pixel .office-asker .office-bubble { bottom: calc(100% - 2px); }
 .office-pixel .office-bubble { max-width: 80px; padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
 .office-pixel .office-alert { font-size: 7px; }
 .office-pixel .office-pop { bottom: 30px; padding: 0 2px; border-width: 1px; border-radius: 0; font-size: 6px; }
-.office-pixel .office-lobby { left: 6px; bottom: 4px; width: 90px; gap: 2px; }
+.office-pixel .office-lobby { width: 90px; gap: 2px; }
 .office-pixel .office-lobby ol { gap: 2px; }
 .office-app .office-pixel .office-note-card { padding: 1px 3px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2); }
 .office-pixel .office-note-card small { font-size: 6px; }
-.office-pixel .office-cast { left: 124px; right: 124px; bottom: 4px; gap: 2px; padding: 0; }
+.office-pixel .office-cast { height: var(--frame-h); gap: 10px 4px; padding: 0; }
+/* A phone: a narrower room at a larger scale, so the wall's corners go and the text grows. */
+@media (max-width: 700px) {
+  .office-pixel .office-at-cooler, .office-pixel .office-at-plant-l, .office-pixel .office-at-plant-r { display: none; }
+  .office-app .office-pixel .office-board { font-size: 8px; }
+  .office-pixel .office-board b { font-size: 9px; }
+  .office-pixel .office-tag, .office-pixel .office-note-card small { font-size: 7px; }
+}
 
 /* Day and night, this browser's choice: the sky darkens and the room dims. */
 .office-app.office-night { --sky1: #141a45; --sky2: #40306e; }
@@ -454,7 +494,8 @@
   .office-app .office-wide { display: none; }
   .office-app .office-narrow { display: inline-block; }
   .office-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .office-bar > * { flex: none; }
+  .office-bar > *, .office-bar > .office-chip { flex: none; }
+  .office-spare:nth-child(2n + 3), .office-spare:nth-child(2n + 3) ~ li { display: none; }
   .office-app .office-bar .office-btn { margin-left: 0; padding: 6px 10px; font-size: 13px; }
   .office-tabs {
     position: fixed;

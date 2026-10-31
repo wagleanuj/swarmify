@@ -110,8 +110,8 @@ export function Crew() {
           <h2>Crew</h2>
           <ul>
             {pack &&
-              cast.map((m, i) => {
-                const seen = look(pack, m, i, skin.cast?.[m.name]);
+              cast.map((m) => {
+                const seen = look(pack, m, cast, skin.cast?.[m.name]);
                 return (
                   <li key={m.name}>
                     <button
@@ -137,7 +137,7 @@ export function Crew() {
             // A save or another tab's change starts the form again from what the world holds.
             key={`${member.name} ${pack.id} ${JSON.stringify(own(skin.cast?.[member.name]))}`}
             member={member}
-            index={index}
+            cast={cast}
             pack={pack}
             packs={packs}
             skin={skin}
@@ -154,7 +154,7 @@ export function Crew() {
 
 type DresserProps = {
   member: Member;
-  index: number;
+  cast: Member[];
   pack: Pack;
   packs: Pack[];
   skin: Skin;
@@ -165,10 +165,10 @@ type DresserProps = {
 };
 
 /** The selected agent on a pedestal in a chosen pose, and the form that dresses them. */
-function Dresser({ member, index, pack, packs, skin, saved, save, dressing, setDressing }: DresserProps) {
+function Dresser({ member, cast, pack, packs, skin, saved, save, dressing, setDressing }: DresserProps) {
   const [draft, setDraft] = useState<Casting>(own(skin.cast?.[member.name]));
   const [pose, setPose] = useState("idle");
-  const seen = look(pack, member, index, draft);
+  const seen = look(pack, member, cast, draft);
   if (!seen) return <p className="office-note">{pack.name} has no character to draw.</p>;
   const base = packCasting(pack, member);
   const label = plainRole(member.name);

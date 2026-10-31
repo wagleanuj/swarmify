@@ -26,15 +26,20 @@ type Named = Pick<Member, "name" | "role">;
 export const packCasting = (pack: Pack, member: Named): Casting => pack.casting?.[member.name] ?? pack.casting?.[member.role] ?? {};
 
 /** How an agent looks: the world's own casting field by field, over the pack's casting, else a
- * default character picked by their place in the cast and the plain name. Only characters with
- * an idle frame are drawn; a wanted character the pack lacks is `missing`. */
-export function look(pack: Pack, member: Named, index: number, own: Casting = {}) {
+ * spare character and the plain name. An agent the pack does not cast wears a character no one
+ * in the `cast` is cast as, in turn, else any in turn. Only characters with an idle frame are
+ * drawn; a wanted character the pack lacks is `missing`. */
+export function look(pack: Pack, member: Named, cast: Named[], own: Casting = {}) {
   const base = packCasting(pack, member);
   const field = (k: keyof Casting) => own[k] ?? base[k] ?? null;
   const drawable = Object.entries(pack.characters ?? {}).filter(([, c]) => c.poses.idle?.length);
+  const worn = new Set(cast.map((m) => packCasting(pack, m).character));
+  const free = drawable.filter(([cid]) => !worn.has(cid));
+  const spares = free.length ? free : drawable;
+  const turn = Math.max(0, cast.filter((m) => !packCasting(pack, m).character).findIndex((m) => m.name === member.name));
   const wanted = field("character");
   const [id, character] =
-    drawable.find(([cid]) => cid === wanted) ?? drawable.find(([cid]) => cid === base.character) ?? drawable[index % drawable.length] ?? [];
+    drawable.find(([cid]) => cid === wanted) ?? drawable.find(([cid]) => cid === base.character) ?? spares[turn % spares.length] ?? [];
   if (!id || !character) return null;
   return {
     id,
@@ -55,7 +60,11 @@ export const packOf = (packs: Pack[], skin?: Skin) =>
  * agent name and label. */
 export type Look = { pack: string; agent: string; id: string; character: Character; name: string; label: string; colour?: string | null };
 
-/** The world's cast and sprite packs, read when the office opens; the cast again when the
+/** The retro agent: in the skin's cast though not in the world's Cast (its prompt is not
+ * edited there), so Crew dresses it and the office draws it like the rest. */
+const RETRO: Member = { name: "retro", role: "retro", version: 1, prompt: "", tools: null, updated_at: null };
+
+/** The world's cast (with the retro agent) and sprite packs, read when the office opens; the cast again when the
  * world's agent count changes, as it grows and shrinks with it. */
 export function useCrew(worldId: string, agentCount?: number) {
   const [cast, setCast] = useState<Member[]>([]);
@@ -66,7 +75,7 @@ export function useCrew(worldId: string, agentCount?: number) {
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}/cast", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setCast(data))
+      .then(({ data }) => data && setCast([...data, RETRO]))
       .catch(() => undefined);
   }, [worldId, agentCount]);
 
@@ -92,8 +101,7 @@ export function useCast(worldId: string, agentCount?: number, skin?: Skin) {
    * own. Only characters with an idle frame are drawn. */
   function lookOf(name: string): Look | null {
     if (!pack) return null;
-    const at = cast.findIndex((m) => m.name === name);
-    const seen = look(pack, cast[at] ?? { name, role: name }, Math.max(0, at), skin?.cast?.[name]);
+    const seen = look(pack, cast.find((m) => m.name === name) ?? { name, role: name }, cast, skin?.cast?.[name]);
     if (!seen) return null;
     return { pack: pack.id, agent: name, id: seen.id, character: seen.character, name: seen.name, label: plainRole(name), colour: seen.colour };
   }

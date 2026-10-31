@@ -106,6 +106,8 @@ test("the askers line up at Your office oldest first, the right one per gate, wi
   await expect.element(screen.getByText("Top it up?")).toBeVisible();
   expect(router.state.location.pathname).toBe("/worlds/world_1/office/talk");
   expect(screen.getByRole("navigation", { name: "Main" }).elements()).toHaveLength(0);
+  // Talk's top bar leads to Crew as the office's does.
+  await expect.element(screen.getByRole("banner", { name: "Talk" }).getByRole("link", { name: "Crew" })).toBeVisible();
   await screen.getByRole("link", { name: "Back to the office" }).click();
   await screen.getByRole("button", { name: "Your office, 3 waiting" }).click();
   await expect.element(screen.getByText("Ship it to Publish?")).toBeVisible();

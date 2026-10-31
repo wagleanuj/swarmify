@@ -153,14 +153,16 @@ test("the cast stands in the office in their pack characters", async () => {
   });
   const { screen } = await mountAt("/worlds/world_1/office");
   const standing = screen.getByRole("list", { name: "The cast" });
-  // The pack's casting by agent name; no casting gets a default character with the plain name;
-  // a cast character the pack lacks falls back to a default one, keeping the cast name.
+  // The pack's casting by agent name; no casting gets a spare character in turn with the plain
+  // name; a cast character the pack lacks falls back to a spare one, keeping the cast name.
   await expect.element(standing.getByRole("img", { name: "Mira, Planner" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
-  await expect.element(standing.getByRole("img", { name: "Worker 1" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
+  await expect.element(standing.getByRole("img", { name: "Worker 1" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
   await expect.element(standing.getByRole("img", { name: "Rex, Judge" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
   // The pack's casting by role when none names the agent.
   await expect.element(standing.getByRole("img", { name: "Tess, qa" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
-  expect(standing.getByRole("img").elements()).toHaveLength(4);
+  // The retro agent is in the skin's cast too, in the next spare character.
+  await expect.element(standing.getByRole("img", { name: "Retro" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/idle.png");
+  expect(standing.getByRole("img").elements()).toHaveLength(5);
 
   // A worker added in Settings joins the cast without a reload.
   cast = [member("planner", "planner"), member("worker-1", "worker"), member("worker-2", "worker"), member("judge", "judge"), member("qa", "tester")];

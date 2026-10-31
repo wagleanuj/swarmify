@@ -62,11 +62,16 @@ test("Crew lists the cast with face, name and role, and dresses the agent in one
   await expect.element(roster.getByRole("button", { name: "Mira Planner" })).toBeVisible();
   await expect.element(roster.getByRole("button", { name: "Worker 1 Worker 1" })).toHaveAttribute("aria-pressed", "true");
   await expect.element(roster.getByRole("button", { name: "Rex Judge" })).toBeVisible();
+  // The retro agent is dressed here too, though the Cast does not list it.
+  await expect.element(roster.getByRole("button", { name: "Retro Retro" })).toBeVisible();
   expect(screen.getByRole("navigation", { name: "Main" }).elements()).toHaveLength(0);
 
   const form = screen.getByRole("form", { name: "Dress Worker 1" });
   await expect.element(form.getByText("Licence: CC0, free for any use · by Kenney")).toBeVisible();
   await form.getByRole("button", { name: "Ada" }).click();
+  // The fields are paper with ink, not the plain skin's dark wells.
+  const name = form.getByLabelText("Name, up to 24 characters").element();
+  expect([getComputedStyle(name).backgroundColor, getComputedStyle(name).color]).toEqual(["rgb(255, 253, 246)", "rgb(43, 40, 64)"]);
   await form.getByLabelText("Name, up to 24 characters").fill("Jun");
   await form.getByLabelText("Colour").fill("#7fd6ff");
   await form.getByLabelText("Catchphrase, said when a run ships, up to 80 characters").fill("Rendered it twice.");
@@ -123,7 +128,7 @@ test("a character missing from the chosen pack is reported", async () => {
   const { screen } = await mountAt("/worlds/world_1/office/crew?agent=worker-1");
   await expect
     .element(screen.getByRole("status"))
-    .toHaveTextContent("Toon Characters has no character robot, so Worker 1 wears Bo. Pick another.");
+    .toHaveTextContent("Toon Characters has no character robot, so Worker 1 wears Ada. Pick another.");
 });
 
 test("a save the API refuses says so and keeps the form", async () => {

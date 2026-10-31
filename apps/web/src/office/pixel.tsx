@@ -147,8 +147,8 @@ export function Prop({ name, className = "" }: { name: string; className?: strin
   return <img className={`office-prop office-prop-${name} ${className}`} src={pack && own ? packUrl(pack, own) : builtIn(name)} alt="" />;
 }
 
-/** A pod's table with a laptop for each seat (at least one), open and glowing while the crew
- * works, shut otherwise, and a cup after the first. */
+/** A pod's table with a laptop on its top for each seat (at least two), open and glowing while
+ * the crew works, shut otherwise, and a cup after the first. */
 export function Table({ on, seats }: { on: boolean; seats: number }) {
   const laptop = on ? "laptop_on" : "laptop_off";
   return (
@@ -157,7 +157,7 @@ export function Table({ on, seats }: { on: boolean; seats: number }) {
       <span className="office-laptops">
         <Prop name={laptop} />
         <Prop name="cup" />
-        {Array.from({ length: seats - 1 }, (_, i) => (
+        {Array.from({ length: Math.max(2, seats) - 1 }, (_, i) => (
           <Prop key={i} name={laptop} />
         ))}
       </span>
@@ -165,9 +165,16 @@ export function Table({ on, seats }: { on: boolean; seats: number }) {
   );
 }
 
-/** One art pixel in screen pixels: a whole number, the largest that keeps at least a 430 by 400
- * art pixel room on screen, the size the room's pieces are laid out for. */
-const scaleFor = (w: number, h: number) => Math.max(1, Math.floor(Math.min(w / 430, h / 400)));
+/** One art pixel in screen pixels: a whole number of device pixels, the most that keeps at
+ * least a 430 by 280 art pixel room on screen (230 by 240 on a phone), the size the room's pieces
+ * are laid out for. Pods that do not fit scroll. A phone takes half steps even on a 1x screen
+ * (ponytail: uneven pixels there, which only an old phone or an emulator shows). */
+export function scaleFor(w: number, h: number, dpr = window.devicePixelRatio || 1) {
+  const phone = window.matchMedia("(max-width: 700px)").matches;
+  const [minW, minH] = phone ? [230, 240] : [430, 280];
+  const device = Math.max(phone ? 2 : 1, Math.round(dpr));
+  return Math.max(device, Math.floor(Math.min(w / minW, h / minH) * device)) / device;
+}
 
 const WALL = 84;
 
