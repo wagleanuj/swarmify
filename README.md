@@ -611,17 +611,22 @@ sandbox.
 - Every blocked attempt (a read, a write, a connection) is reported with the connector's name:
   for a stage's call in the step's live log on the run page (`Blocked by the sandbox: read
   /data/setup.json`), for a Setup test in the message the Connectors page shows, for an install
-  step in its error there, and in the API's log always. macOS reports what Seatbelt denies; on
-  Linux the proxy reports connections by name and `observe.py`, a seccomp tripwire the command runs
-  under, reports reads and writes outside the grants and connections past the proxy (bubblewrap's
-  mounts and network namespace are the wall; the tripwire only tells).
+  step in its error there, and in the API's log always. The proxy reports connections by name
+  everywhere. On Linux `observe.py`, a seccomp tripwire the command runs under, reports reads and
+  writes outside the grants and connections past the proxy before the call goes on, so each is
+  reported by the time the session ends (bubblewrap's mounts and network namespace are the wall;
+  the tripwire only tells). On macOS what Seatbelt denies is reported through the system log,
+  which drops some of its reports when the machine is busy or a process floods it: those attempts
+  are blocked all the same, and what is reported is right, but a read, a write or a connection
+  past the proxy may go unreported.
 - A stage keeps one sandboxed process for its call and polls. A process it leaves running for a
   long job stays in the sandbox until it ends, without network once its session closes.
 
 The fixture `packages/connectors/tests/fixtures/packages/intruder` tries to list another world's
 folder, read `setup.json`, find another package's key in its environment and `/proc`, and reach a
 host by name and an address directly; `packages/connectors/tests/test_sandbox.py` holds each one
-refused and reported, on macOS locally and on Linux in CI. On macOS it also looks for the API's
+refused, on macOS locally and on Linux in CI, and reported as each platform guarantees: every one
+on Linux; on macOS the proxy's, and of Seatbelt's only that what it reports is right. On macOS it also looks for the API's
 and a running connector's secrets in every process's arguments and environment (`sysctl`
 `KERN_PROCARGS2` and `KERN_PROCARGS` for every PID, and `ps axeww`), with and without a
 `localhost` grant, and finds none, where the same routes outside the sandbox find both.
