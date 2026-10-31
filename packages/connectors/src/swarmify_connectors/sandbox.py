@@ -19,10 +19,12 @@ sandbox runner container instead (`runner.py`), so the API container keeps Docke
 seccomp and AppArmor profiles (issue 109).
 """
 
+import functools
 import json
 import os
 import secrets
 import shutil
+import subprocess
 import sys
 import sysconfig
 import tempfile
@@ -52,6 +54,10 @@ QUIET += ("/var/cache/fontconfig/",)
 """What system libraries probe in every process that uses them: macOS's own and its developer
 tools' shims (git, python3) the home folder's preferences and Apple's caches, fontconfig (a
 browser's fonts) its system cache. Their denial says nothing."""
+PROXIED_NODE = ((22, 21), (23,), (24, 5))
+"""The Node versions that send a process's own connections through the sandbox's proxy when told
+to (`NODE_USE_ENV_PROXY`): 22.21 up to 23, and 24.5 on. An older one dials every host itself,
+which the sandbox refuses (`ENOTFOUND`, `EPERM`), so a Node install step or connector would fail."""
 KEEP_SECONDS = 24 * 3600
 """How long a process's scratch folder outlives it, as a long job may still use it."""
 
@@ -108,6 +114,16 @@ class Confined:
         if len(out) > SHOWN:
             out = [*out[:SHOWN], f"and {len(out) - SHOWN} more"]
         return out
+
+
+@functools.cache
+def _version(node: str) -> tuple[int, ...]:
+    """The version of the Node at `node`, as (22, 23, 4); () when it does not say."""
+    try:
+        said = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=30)
+        return tuple(int(n) for n in said.stdout.strip().removeprefix("v").split("."))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ()
 
 
 def _said(line: str) -> str | None:
@@ -175,6 +191,15 @@ class Sandbox:
         node = shutil.which("node")
         if node is None:
             raise SandboxUnavailable("the connector sandbox needs Node (node on PATH)")
+        # the Node the command finds, whose network goes through the proxy only from 22.21
+        theirs = shutil.which("node", path=path or os.environ.get("PATH", ""))
+        version = _version(theirs) if theirs else PROXIED_NODE[0]
+        low, high, again = PROXIED_NODE
+        if not (low <= version < high or version >= again):
+            raise SandboxUnavailable(
+                f"the connector sandbox needs Node 22.21 or later ({theirs} is"
+                f" {'.'.join(map(str, version))}): older Node ignores the sandbox's proxy"
+            )
         if not (LAUNCHER.parent / "node_modules" / "@anthropic-ai").is_dir():
             raise SandboxUnavailable(
                 f"the connector sandbox is not installed: run pnpm install ({LAUNCHER.parent})"

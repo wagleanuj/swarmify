@@ -10,14 +10,16 @@ import socket
 import struct
 import subprocess
 import sys
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from typing import Any
 
 import pytest
 
 from swarmify_connectors import Connectors, Credentials, McpTransport, SqliteStorage, observe
 from swarmify_connectors.packages import MANIFEST
-from swarmify_connectors.sandbox import LAUNCHER, Confined, Grants, Sandbox
+from swarmify_connectors.sandbox import LAUNCHER, Confined, Grants, Sandbox, SandboxUnavailable
 
 FIXTURES = Path(__file__).parent / "fixtures/packages"
 ADDRESS = "203.0.113.7:80"
@@ -249,6 +251,68 @@ def test_what_a_process_may_use(tmp_path: Path) -> None:
     }
     assert plan["pass"] == ["KEY"] and plan["session"] is True and plan["cwd"] == str(package)
     assert plan["env"]["HOME"] == home and plan["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
+NODE_FETCHES = """
+const http = require("node:http");
+const [declared, undeclared] = process.argv.slice(1);
+const said = (how, url, what) =>
+  console.log(`${how} ${url === declared ? "declared" : "undeclared"} ${what}`);
+for (const url of [declared, undeclared]) {
+  fetch(url).then(
+    (r) => r.text().then((t) => said("fetch", url, `${r.status} ${t}`)),
+    (e) => said("fetch", url, e.cause?.code ?? e.message),
+  );
+  http.get(url, (r) => {
+    let t = "";
+    r.on("data", (d) => (t += d));
+    r.on("end", () => said("http", url, `${r.statusCode} ${t}`));
+  }).on("error", (e) => said("http", url, e.code));
+}
+"""
+
+
+def test_node_reaches_a_declared_host_through_the_proxy_and_no_other(tmp_path: Path) -> None:
+    """Node's fetch and http, as an install step's downloads use them (Remotion's browser), go
+    through the sandbox's proxy, which lets the declared host through: no network needed, the
+    hosts are two local servers, one declared."""
+
+    class Hello(SimpleHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"hello")
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    servers = [ThreadingHTTPServer(("127.0.0.1", 0), Hello) for _ in range(2)]
+    for server in servers:
+        Thread(target=server.serve_forever, daemon=True).start()
+    declared, undeclared = (f"localhost:{s.server_address[1]}" for s in servers)
+    try:
+        argv = ["node", "-e", NODE_FETCHES, f"http://{declared}/", f"http://{undeclared}/"]
+        confined = Sandbox(tmp_path).wrap(argv, None, Grants(domains=[declared]))
+        done = subprocess.run(confined.argv, capture_output=True, text=True, timeout=60)
+    finally:
+        for server in servers:
+            server.shutdown()
+    said = done.stdout.splitlines()
+    assert {"fetch declared 200 hello", "http declared 200 hello"} <= set(said), done
+    refused = [line for line in said if line.startswith(("fetch undeclared", "http undeclared"))]
+    assert len(refused) == 2 and not any("hello" in line for line in refused), said
+    assert f"connect {undeclared} " in " ".join(confined.blocked()) + " "
+
+
+def test_a_node_that_ignores_the_proxy_is_refused(tmp_path: Path) -> None:
+    """Node before 22.21 ignores `NODE_USE_ENV_PROXY` and dials hosts itself, which the sandbox
+    refuses (`ENOTFOUND`): the sandbox says so instead of starting it."""
+    old = tmp_path / "bin"
+    old.mkdir()
+    (old / "node").write_text("#!/bin/sh\necho v22.16.0\n")
+    (old / "node").chmod(0o755)
+    with pytest.raises(SandboxUnavailable, match=r"Node 22\.21 or later .* is 22\.16\.0"):
+        Sandbox(tmp_path).wrap(["npx", "x"], None, Grants(), path=f"{old}{os.pathsep}/usr/bin")
 
 
 def test_a_runtime_folder_holding_a_denied_one_is_never_granted(tmp_path: Path) -> None:

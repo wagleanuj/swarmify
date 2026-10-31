@@ -1,6 +1,6 @@
 # The web skin, built and served by Caddy in the `web` service (compose.yaml), so a UI-only
 # change rebuilds only that image and never restarts the api and its runs.
-FROM node:22-bookworm-slim AS web-build
+FROM node:22.23.4-bookworm-slim AS web-build
 RUN corepack enable && corepack prepare pnpm@12.15.0 --activate
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -11,7 +11,7 @@ COPY apps/web apps/web
 RUN pnpm --filter web build
 
 # The connector sandbox's launcher and Anthropic's sandbox-runtime it runs on (ADR 0021), alone.
-FROM node:22-bookworm-slim AS sandbox-build
+FROM node:22.23.4-bookworm-slim AS sandbox-build
 RUN corepack enable && corepack prepare pnpm@12.15.0 --activate
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -44,8 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* \
   && fc-cache -f
 # Node and npm, for the packages that install with them (ADR 0026)
-COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+COPY --from=node:22.23.4-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22.23.4-bookworm-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
   && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
   && node --version && npm --version

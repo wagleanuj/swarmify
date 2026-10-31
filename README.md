@@ -615,7 +615,10 @@ sandboxed command any user namespace of its own.
   the sandbox's proxy, which also decides localhost and private addresses (a Service on
   `localhost:8881` is reached through it when the Setting names it). `localhost` alone in
   `network` lets it bind and reach its own loopback servers, as Remotion's server and the browser
-  rendering it. A remote approver's listener also reaches Swarmify's `/mcp/remote_approvals` (at
+  rendering it. A Node command reaches the network through the proxy too, which Node does
+  only from 22.21 (`NODE_USE_ENV_PROXY`): the sandbox refuses to start a command whose PATH
+  holds an older Node, which would fail every download with `ENOTFOUND`. A remote approver's
+  listener also reaches Swarmify's `/mcp/remote_approvals` (at
   `SWARMIFY_INTERNAL_URL`, else `SWARMIFY_BASE_URL`).
 - Environment: its own Setup values and the few variables every process needs, never another
   package's nor the API's own (the sign-in password, the Claude token), whatever starts it. Nor
