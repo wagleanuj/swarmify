@@ -1,5 +1,5 @@
 .git
-.venv
+**/.venv
 node_modules
 **/node_modules
 **/dist

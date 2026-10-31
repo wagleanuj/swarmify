@@ -1,4 +1,4 @@
-"""Russ, the Budget, as the operator meets it: the monthly ceiling and the Slack hook on the
+"""The Budget, as the operator meets it: the monthly ceiling and the Slack hook on the
 settings page, a run started with a tiny budget that warns past 80 percent, stops at 100 at a
 budget gate offering add money or abort, and Slack hearing of each with a deep link.
 
@@ -62,18 +62,18 @@ def test_a_run_warns_at_80_percent_and_waits_at_100_for_money_or_an_abort(
         expect(page.get_by_test_id("budget-line")).to_contain_text("Every agent stopped")
         card = page.get_by_test_id(f"gate-{run}")
         expect(card).to_have_attribute("data-kind", "budget")
-        expect(card).to_contain_text("Russ has spent")
+        expect(card).to_contain_text("This run has spent")
         card.get_by_role("button", name="Add money and go on").click()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_test_id("budget-line")).to_contain_text(
-            "left before Russ pauses the run"
+            "left before the budget pauses the run"
         )
 
         # A second one is stopped the same way and aborted from the gate.
         second = api.post(start, json={"budget_usd": 0.005}).json()["id"]
         page.goto(f"{base_url}/gates")
         card = page.get_by_test_id(f"gate-{second}")
-        expect(card).to_contain_text("Russ has spent", timeout=20_000)
+        expect(card).to_contain_text("This run has spent", timeout=20_000)
         page.once("dialog", lambda dialog: dialog.accept())
         card.get_by_role("button", name="Abort the run").click()
         expect(page.get_by_test_id("no-gates")).to_be_visible(timeout=20_000)

@@ -6,6 +6,7 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { piedPiper, the } from "../skin";
 import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
 
 type Workflow = components["schemas"]["Workflow"];
@@ -247,7 +248,7 @@ export function Library() {
             ) : (
               <section className="panel lib-detail">
                 <p className="faint">
-                  Choose an item to read it. Pin one and Richard and Gilfoyle read it before every later stage;
+                  Choose an item to read it. Pin one and {the("planner")} and the workers read it before every later stage;
                   start a run from one to skip the stages that made it.
                 </p>
               </section>
@@ -256,7 +257,7 @@ export function Library() {
         </>
       )}
       <p className="faint assets-link">
-        Voices and files for your builds live on <Link to="/worlds/$worldId/assets" params={{ worldId }}>Assets</Link>.
+        Files for your builds and connectors live on <Link to="/worlds/$worldId/assets" params={{ worldId }}>Assets</Link>.
       </p>
     </main>
   );
@@ -467,7 +468,7 @@ function SkillDraftForm({ item, worldId, onSaved }: { item: Item; worldId: strin
       </label>
       <span className="faint">
         Saved as a version of this world's skills, with {item.run_name || "its run"} as where it came from.
-        Gilfoyle and the others load it from the next stage on.
+        {piedPiper() ? "Gilfoyle and the others load" : "Every agent loads"} it from the next stage on.
       </span>
       <button type="submit" disabled={busy}>
         {busy ? "Saving..." : "Save skill"}

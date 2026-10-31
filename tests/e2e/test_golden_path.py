@@ -1,4 +1,4 @@
-"""The golden path, through the UI only where a person would act: create a world, have Richard
+"""The golden path, through the UI only where a person would act: create a world, have the planner
 draft the workflow, run it through a pick gate, a render, a review gate and a publish confirm
 gate, then find the artifacts on the timeline and in the library and the files on disk; then
 upkeep writes the views back and retention prunes the video.
@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 from playwright.sync_api import Page, expect
 
-KEYS = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
+from swarmify_connectors.setup import SetupStore
 
 
 def test_draft_with_the_planner_run_every_gate_and_publish(
@@ -32,19 +32,22 @@ def test_draft_with_the_planner_run_every_gate_and_publish(
 
 
 def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[..., None]) -> None:
-    httpx.put(
-        f"{base_url}/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS}
-    ).raise_for_status()
+    # YouTube's account, as signing in on the Connectors page leaves it (Google is not reachable)
+    store = SetupStore(data_dir / "setup.json")
+    store.put_value("youtube", None, "youtube_client_id", "id")
+    store.put_value("youtube", None, "youtube_client_secret", "s")
+    tokens = {"access_token": "at", "refresh_token": "rt", "expires_at": time.time() + 3600}
+    store.put_value("youtube", None, "youtube", tokens)
 
-    # Richard drafts it from plain words; the stage rail and the check follow the draft.
+    # The planner drafts it from plain words; the stage rail and the check follow the draft.
     page.get_by_role("link", name="New workflow").click()
-    page.get_by_role("tab", name="Richard").click()
-    page.get_by_label("Message to Richard").fill(
+    page.get_by_role("tab", name="Planner").click()
+    page.get_by_label("Message to Planner").fill(
         "A weekly short: research ideas, I pick one, render it, I review it, then post it."
     )
-    page.get_by_role("button", name="Send").click()
+    page.get_by_role("button", name="Send", exact=True).click()
     expect(page.get_by_test_id("chat-log")).to_contain_text("post after you confirm")
-    expect(page.get_by_test_id("check-status")).to_contain_text("Richard updated the draft")
+    expect(page.get_by_test_id("check-status")).to_contain_text("Planner updated the draft")
     page.get_by_role("tab", name="Stages").click()
     rail = page.get_by_test_id("stage-rows")
     for name in ("research", "pick", "render", "review", "confirm", "publish"):
@@ -132,7 +135,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
 
     # Upkeep writes the video's views into the publish record and onto the scorecard (84, 85).
     until(lambda: "1,234 views" in publish.read_text())
-    assert "e2e-video: 1,234 views" in publish.read_text()  # in the body, where the graph reads
+    assert "## Outcome\n\n1,234 views as of " in publish.read_text()  # the body, read by the graph
     page.goto(f"{base_url}/worlds/{world}")
     page.get_by_role("link", name="Scorecard of Weekly short").click()
     expect(page.get_by_test_id("score")).to_contain_text("1,234 views")

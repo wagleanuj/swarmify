@@ -8,6 +8,7 @@ const shown = "https://hooks.slack.com/...abcd";
 
 beforeEach(() => FakeEventSource.install());
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -103,7 +104,7 @@ test("each panel saves only its own settings, stays on the page and stamps the s
 
   const runs = screen.getByRole("form", { name: "Runs at once" });
   await runs.getByRole("spinbutton", { name: "Run cap" }).fill("1");
-  await runs.getByRole("spinbutton", { name: "Workers per stage" }).fill("2");
+  await runs.getByRole("spinbutton", { name: "Workers in the cast" }).fill("2");
   await runs.getByRole("button", { name: "Save" }).click();
   await expect.element(runs.getByRole("status")).toMatchTextContent(/^Saved at \d/);
   expect(bodies[1]).toEqual({ run_cap: 1, agent_count: 2 });
@@ -165,4 +166,42 @@ test("delete sits last, says what goes and asks by the world's name before delet
   await expect.element(screen.getByRole("heading", { name: "Your worlds" })).toBeVisible();
   expect(calls).toContain("DELETE /api/worlds/world_1");
   expect(router.state.location.pathname).toBe("/");
+});
+
+test("role names are neutral until the Pied Piper skin is turned on, in this browser only", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  const names = screen.getByRole("checkbox", { name: "Pied Piper names" });
+  await expect.element(names).not.toBeChecked();
+  await expect.element(screen.getByText(/The planner and the judge always come along/)).toBeVisible();
+
+  await names.click();
+  await expect.element(screen.getByText(/Richard and Erlich always come along/)).toBeVisible();
+  expect(localStorage.getItem("swarmify.skin")).toBe("pied-piper");
+  await names.click();
+  await expect.element(screen.getByText(/The planner and the judge always come along/)).toBeVisible();
+  expect(localStorage.getItem("swarmify.skin")).toBeNull();
+});
+
+test("the world's panels wait for the world, so a slow load cannot wipe what was typed", async () => {
+  let loaded!: () => void;
+  const ready = new Promise<void>((resolve) => (loaded = resolve));
+  fakeFetch({
+    "GET /api/worlds/world_1": async () => {
+      await ready;
+      return Response.json({ ...video, monthly_budget_usd: null, retention_days: 90, run_cap: 2, agent_count: 4 });
+    },
+    "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  const budget = screen.getByRole("spinbutton", { name: "Monthly budget, dollars" });
+  await expect.element(budget).toBeDisabled();
+  await expect.element(screen.getByRole("spinbutton", { name: "Run cap" })).toBeDisabled();
+  loaded();
+  await expect.element(budget).toBeEnabled();
+  await budget.fill("50");
+  await expect.element(budget).toHaveValue(50);
 });

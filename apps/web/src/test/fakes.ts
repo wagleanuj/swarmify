@@ -2,12 +2,57 @@
 import { vi } from "vitest";
 
 import type { Gate, Run } from "../api/runs";
+import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 
 type Handler = (req: Request) => Response | Promise<Response>;
 
+type Connector = components["schemas"]["ConnectorView"];
+/** A Connector Package the world enables, as `GET /api/worlds/world_1/connectors` lists it. */
+const pkg = (name: string, label: string, kind: Connector["kind"], over: Partial<Connector> = {}): Connector => ({
+  id: `package_${name}`,
+  world_id: "world_1",
+  name,
+  kind,
+  command: [".venv/bin/python", `${name}.py`],
+  url: null,
+  credentials: [],
+  stage_types: ["connector"],
+  about: "",
+  created_at: null,
+  health: null,
+  services: [],
+  types: {},
+  input_types: [],
+  world_types: null,
+  label,
+  capabilities: [],
+  outputs: [],
+  missing: [],
+  sign_in: [],
+  version: "1.0.0",
+  ...over,
+});
+const video = [{ description: "the video", media_type: "video/mp4" }];
+/** The default packages as `GET /api/worlds/world_1/connectors` describes them, which every
+ * fakeFetch answers unless a test routes it itself. */
+export const CONNECTORS: Connector[] = [
+  pkg("remotion_render", "Remotion render", "stage", { outputs: video }),
+  pkg("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
+  pkg("youtube", "YouTube", "publish", { capabilities: ["publish"] }),
+  pkg("upload_post", "Upload-Post", "publish", { capabilities: ["publish"] }),
+  pkg("speech", "Speech", "stage", {
+    services: ["engines"],
+    outputs: [
+      { description: "timings.json, with the takes in narration/ beside it", media_type: "application/json" },
+      { description: "the takes, one per scene, in narration/", media_type: "audio/wav" },
+    ],
+  }),
+];
+
 /** Route fetch calls by `METHOD /path`; unmatched calls return 404. Returns the call log. */
-export function fakeFetch(routes: Record<string, Handler>) {
+export function fakeFetch(given: Record<string, Handler>) {
+  const routes: Record<string, Handler> = { "GET /api/worlds/world_1/connectors": () => Response.json(CONNECTORS), ...given };
   const calls: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const req = new Request(input, init);

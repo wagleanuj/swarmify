@@ -1,20 +1,24 @@
-"""Publishing over HTTP (ADR 0007): keys for the built-in publish connectors, the confirm gate
-that shows exactly what goes out, the call that sends it, the publish artifact with its link,
-and the editor and runner refusing a publish stage no gate precedes. The fake ConnectorTransport
-stands in for YouTube and Upload-Post; DBOS runs for real on SQLite."""
+"""Publishing over HTTP (ADR 0007): the youtube package's Google sign-in, the confirm gate that
+shows exactly what goes out, the call that sends it, the publish artifact with its link, and the
+editor and runner refusing a publish stage no gate precedes. The fake ConnectorTransport stands in
+for the connector processes, answering `preview` as the youtube package's own does; DBOS runs for
+real on SQLite."""
 
 import json
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
+from api_fakes import YOUTUBE_ENV, sign_in_youtube
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from swarmify_connectors import ConnectorError, FakeTransport
+from swarmify_connectors import FakeTransport, oauth
+from swarmify_connectors.fake_oauth import FakeProvider
 
-KEYS = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
 MAKER = {
     "name": "maker",
     "kind": "stage",
@@ -79,44 +83,58 @@ def at_gate(client: TestClient, tmp_path: Path, world: str, workflow: str) -> di
     return client.get(f"/api/runs/{run['id']}").json()
 
 
-def test_built_in_publish_connectors_take_their_keys_and_never_return_them(
-    client: TestClient, tmp_path: Path
+def test_youtube_is_a_package_whose_account_is_signed_in_from_the_connectors_page(
+    running: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
-    listed = {c["name"]: c for c in client.get(f"/api/worlds/{world}/connectors").json()}
-    assert listed["youtube"]["missing"] == list(KEYS)
-    assert listed["upload_post"]["missing"] == ["UPLOAD_POST_API_KEY"]
-    assert listed["upload_post"]["command"][:2] == ["npx", "-y"]
+    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    listed = {c["name"]: c for c in running.get(f"/api/worlds/{world}/connectors").json()}
+    assert listed["youtube"]["version"] == "1.0.0"
+    assert listed["youtube"]["missing"] == ["youtube"]  # the account, not keys
+    assert listed["upload_post"]["missing"] == ["api_key"]
 
-    url = "/api/connectors/builtin_youtube/credentials"
-    saved = client.put(url, json={"credentials": KEYS})
-    assert saved.status_code == 200 and saved.json()["missing"] == []
-    assert set(saved.json()) == {*listed["youtube"], "check"}  # names and status, never values
-    assert "YOUTUBE_REFRESH_TOKEN=r" in (tmp_path / ".env").read_text()
-    foreign = client.put(url, json={"credentials": {"FAL_KEY": "k"}})
-    assert foreign.status_code == 422 and "does not use FAL_KEY" in foreign.json()["detail"]
-    unknown = client.put("/api/connectors/nope/credentials", json={"credentials": KEYS})
-    assert unknown.status_code == 404
+    url = f"/api/worlds/{world}/packages/youtube/setup"
+    form = running.get(url).json()
+    assert [(f["key"], f["type"]) for f in form["fields"]] == [
+        ("youtube_client_id", "string"),
+        ("youtube_client_secret", "string"),
+        ("youtube", "oauth"),
+    ]
+    body = {"shared": {"youtube_client_id": "app", "youtube_client_secret": "shh"}}
+    assert running.put(url, json=body).status_code == 200
+    started = running.post(f"{url}/oauth/youtube").json()
+    asked = urlparse(started["url"])
+    q = {k: v[0] for k, v in parse_qs(asked.query).items()}
+    assert f"{asked.scheme}://{asked.netloc}{asked.path}" == (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+    )
+    assert q["scope"].split() == [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly",
+    ]
+    assert (q["access_type"], q["prompt"], q["code_challenge_method"]) == (
+        "offline", "consent", "S256"
+    )  # fmt: skip
+    assert q["redirect_uri"] == started["redirect_uri"]
 
-
-def test_saving_a_builtins_keys_answers_its_live_check_and_a_failure_still_saves(
-    client: TestClient, transport: FakeTransport, tmp_path: Path
-) -> None:
-    url = "/api/connectors/builtin_youtube/credentials"
-    transport.outputs["channel"] = [{"channel": "Hooks Daily"}]
-    saved = client.put(url, json={"credentials": KEYS}).json()
-    assert saved["check"] == {"ok": True, "message": "Posts to the YouTube channel Hooks Daily."}
-    transport.outputs["channel"] = [ConnectorError("refreshing the YouTube token failed (400)")]
-    bad = {**KEYS, "YOUTUBE_REFRESH_TOKEN": "stale"}
-    saved = client.put(url, json={"credentials": bad}).json()
-    assert saved["check"] == {"ok": False, "message": "refreshing the YouTube token failed (400)"}
-    assert "YOUTUBE_REFRESH_TOKEN=stale" in (tmp_path / ".env").read_text()
+    # Google, played by the fake provider: it consents, then trades the code for tokens.
+    with FakeProvider(client_id="app", client_secret="shh") as google:
+        post = httpx.post
+        monkeypatch.setattr(
+            oauth.httpx, "post", lambda _url, **kw: post(f"{google.url}/token", **kw)
+        )
+        back = urlparse(httpx.get(f"{google.url}/authorize?{asked.query}").headers["location"])
+        done = running.get(f"/api/setup/oauth/callback?{back.query}", follow_redirects=False)
+        assert done.headers["location"] == f"/worlds/{world}/connectors?sign_in=youtube"
+        assert google.grants == ["authorization_code"]
+    listed = {c["name"]: c for c in running.get(f"/api/worlds/{world}/connectors").json()}
+    assert listed["youtube"]["missing"] == [] and listed["youtube"]["sign_in"] == []
+    assert "rt-" not in running.get(url).text and "at-" not in running.get(url).text
 
 
 def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     running: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
-    running.put("/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS})
+    sign_in_youtube(tmp_path)
     world, workflow = setup(running, weekly())
     run = at_gate(running, tmp_path, world, workflow)
 
@@ -139,21 +157,19 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
         "hashtags",
         "tags",
     ]
-    assert [c[1] for c in transport.calls] == ["channel", "maker"]  # the key check, the render
+    # its own preview, over the transport: when the workflow was saved, then at the gate
+    assert [c[:2] for c in transport.calls if c[1] != "preview"] == [("maker", "maker")]
+    assert transport.calls[0][:2] == ("youtube", "preview")
 
-    transport.outputs["youtube"] = [
-        {"video_id": "vid1", "url": "https://youtu.be/vid1", "publish_at": "2099-01-01T09:00:00Z"}
+    transport.outputs["publish"] = [
+        {"id": "vid1", "url": "https://youtu.be/vid1", "status": "scheduled"}
     ]
     assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
 
     name, tool, args, env = transport.calls[-1]
-    assert (name, tool, env) == ("youtube", "youtube", KEYS)
-    assert (args["title"], args["visibility"], args["schedule"]) == (
-        "Five hooks that work",
-        "public",
-        "2099-01-01T09:00:00Z",
-    )
+    assert (name, tool, env) == ("youtube", "publish", YOUTUBE_ENV)
+    assert args["fields"] == vals(gate["publish"]) and args["idempotency_key"]
     assert args["input_path"].endswith(f"{run['id']}/01-render/short.mp4")
 
     stage_id = run["stages"][2]["id"]
@@ -166,23 +182,32 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert "- youtube: https://youtu.be/vid1\n" in text
 
 
-def test_upload_post_schedules_through_its_own_tool(
+def test_upload_post_previews_and_schedules_through_its_package(
     running: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
-    keys = {"credentials": {"UPLOAD_POST_API_KEY": "k"}}
-    running.put("/api/connectors/builtin_upload_post/credentials", json=keys)
     extra = "\n      user: me\n      platforms: [tiktok, instagram]"
     world, workflow = setup(running, weekly("upload_post", extra))
+    keys = {"shared": {"api_key": "k"}}
+    assert running.put(f"/api/worlds/{world}/packages/upload_post/setup", json=keys).is_success
+    platforms = {"key": "platforms", "label": "Platforms", "value": ["tiktok", "instagram"]}
+    title = {"key": "title", "label": "Title", "value": "Five hooks that work", "editable": True}
+    transport.outputs["preview"] = [{"fields": [title, platforms], "problems": []}]
     run = at_gate(running, tmp_path, world, workflow)
-    shown = vals(running.get("/api/gates").json()[0]["publish"])
-    assert shown["platforms"] == ["tiktok", "instagram"]
+    shown = running.get("/api/gates").json()[0]["publish"]
+    assert shown["connector"] == "upload_post" and vals(shown)["platforms"] == [
+        "tiktok",
+        "instagram",
+    ]
+    _, tool, args, env = transport.calls[-1]
+    assert (tool, args["params"]["user"], env) == ("preview", "me", {"UPLOAD_POST_API_KEY": "k"})
 
-    transport.outputs["upload_video"] = [{"result": {"success": True, "job_id": "job_9"}}]
+    transport.outputs["publish"] = [{"status": "scheduled", "id": "job_9", "links": {}}]
     running.post(f"/api/runs/{run['id']}/decision", json={})
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     _, tool, args, _ = transport.calls[-1]
-    assert tool == "upload_video" and args["scheduledDate"] == "2099-01-01T09:00:00Z"
-    assert args["platforms"] == ["tiktok", "instagram"] and args["user"] == "me"
+    assert tool == "publish" and args["fields"]["platforms"] == ["tiktok", "instagram"]
+    assert args["idempotency_key"] == run["stages"][2]["id"]
+    assert args["input_path"].endswith(f"{run['id']}/01-render/short.mp4")
     stage_id = run["stages"][2]["id"]
     folder = tmp_path / "worlds" / world / "runs" / run["id"] / stage_id / "artifacts"
     text = (folder / "publish.md").read_text()
@@ -202,7 +227,7 @@ def test_a_gate_before_a_broken_publish_stage_refuses_to_go_on(
     refused = running.post(f"/api/runs/{run['id']}/decision", json={})
     assert refused.status_code == 409 and "script.md" in refused.json()["detail"]
     assert running.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate"
-    assert [c[0] for c in transport.calls] == ["maker"]
+    assert [c[1] for c in transport.calls if c[1] != "preview"] == ["maker"]
 
 
 SCRIPT = """---
@@ -221,7 +246,7 @@ tags: [owls, owl facts]
 def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_them(
     running: TestClient, transport: FakeTransport, tmp_path: Path
 ) -> None:
-    running.put("/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS})
+    sign_in_youtube(tmp_path)
     extra = "\n      metadata: script.md\n      description: fallback\n      made_for_kids: true"
     world, workflow = setup(
         running, weekly(extra=extra).replace("2099-01-01T10:00:00+01:00", "+1d 09:00")
@@ -242,7 +267,7 @@ def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_
     assert refused.status_code == 422 and "the limit is 100" in refused.json()["detail"]
     fixed = running.post(url, json={"edits": {"visibility": "private"}})
     assert fixed.status_code == 422 and "visibility cannot be edited" in fixed.json()["detail"]
-    transport.outputs["youtube"] = [{"video_id": "v", "url": "https://youtu.be/v"}]
+    transport.outputs["publish"] = [{"id": "v", "url": "https://youtu.be/v"}]
     edited = {"title": "Owls, explained", "description": "Edited."}
     stale = {**shown, "schedule": "2099-01-01T09:00:00Z"}
     moved = running.post(url, json={"edits": edited, "seen": stale})
@@ -250,15 +275,14 @@ def test_title_and_description_come_from_an_earlier_artifact_and_the_gate_edits_
     assert running.post(url, json={"edits": edited, "seen": shown}).status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
 
-    _, _, args, _ = transport.calls[-1]
-    assert (args["title"], args["description"]) == (
-        "Owls, explained",
-        "Edited.\n\n#Owls #AnimalFacts",
-    )
-    assert args["tags"] == ["owls", "owl facts"]
-    assert (args["schedule"], args["made_for_kids"]) == (shown["schedule"], True)
+    _, tool, args, _ = transport.calls[-1]
     (decision,) = running.get(f"/api/runs/{run['id']}").json()["decisions"]
     assert decision["publish"] == {**shown, **edited}
+    assert (tool, args["fields"]) == ("publish", decision["publish"])
+    assert (args["fields"]["hashtags"], args["fields"]["tags"]) == (
+        "#Owls #AnimalFacts",
+        "owls, owl facts",
+    )
     stage_id = run["stages"][2]["id"]
     artifact = tmp_path / "worlds" / world / "runs" / run["id"] / stage_id / "artifacts"
     assert (
@@ -274,7 +298,6 @@ def test_an_emoji_in_the_metadata_title_reaches_the_gate_whole(
 ) -> None:
     """Frontmatter is written with json.dumps, which escapes an emoji as a surrogate pair; the
     gate list once answered 500 on it, so the gate had no Approve button."""
-    running.put("/api/connectors/builtin_youtube/credentials", json={"credentials": KEYS})
     world, workflow = setup(running, weekly(extra="\n      metadata: script.md"))
     run = at_gate(running, tmp_path, world, workflow)
     folder = tmp_path / "worlds" / world / "runs" / run["id"] / "01-render"
@@ -308,24 +331,27 @@ def test_the_editor_refuses_a_publish_stage_without_a_gate(client: TestClient, c
     assert saved.status_code == 422
 
 
-def test_a_start_refuses_a_connector_that_turned_publish_after_the_save(
+def test_a_run_keeps_the_version_it_was_saved_with_when_a_later_one_turned_publish(
     running: TestClient, transport: FakeTransport
 ) -> None:
-    """Today's workflow check at run start (#102) catches it before any stage runs."""
+    """The run-start check (#102) and the run itself both use the package version the workflow
+    version recorded (#223), so a later version that publishes never runs ungated."""
     yaml = "name: Sneaky\nstages:\n  - connector: post\n    calls: poster\n"
     poster = {**MAKER, "name": "poster"}
     world, workflow = setup(running, "name: x\nstages:\n  - connector: m\n    calls: maker\n")
-    added = running.post(f"/api/worlds/{world}/connectors", json=poster).json()
+    running.post(f"/api/worlds/{world}/connectors", json=poster).raise_for_status()
     saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).json()
-    running.delete(f"/api/connectors/{added['id']}")
+    running.delete(f"/api/worlds/{world}/packages/poster")
     publishing = {**poster, "kind": "publish"}
     assert running.post(f"/api/worlds/{world}/connectors", json=publishing).status_code == 201
+    assert running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml}).status_code == 422
 
-    refused = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={})
-    assert refused.status_code == 409
-    assert "publish connector 'poster' must come right after a gate" in refused.json()["detail"]
-    assert running.get(f"/api/worlds/{world}/runs").json() == []
-    assert transport.calls == []
+    run = running.post(f"/api/workflows/{saved['workflow_id']}/runs", json={})
+    assert run.status_code == 201, run.text
+    until(lambda: running.get(f"/api/runs/{run.json()['id']}").json()["status"] == "done")
+    called = [(c[1], v) for c, v in zip(transport.calls, transport.versions, strict=True)]
+    assert ("poster", saved["packages"]["poster"]) in called
+    assert not [c for c in transport.calls if c[1] == "publish"]  # previewed only by the save
 
 
 def test_a_worlds_own_publish_connector_posts_text_through_the_same_gate(
@@ -338,13 +364,13 @@ def test_a_worlds_own_publish_connector_posts_text_through_the_same_gate(
     world = running.post("/api/worlds", json={"name": "News"}).json()["id"]
     for connector in (MAKER, hook):
         assert running.post(f"/api/worlds/{world}/connectors", json=connector).status_code == 201
-    saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml})
-    assert saved.status_code == 201, saved.text
-    workflow = saved.json()["workflow_id"]
     message = {"key": "text", "label": "Message", "value": "New video is up", "editable": True}
     transport.outputs["preview"] = [
         {"fields": [{"key": "to", "label": "To", "value": "#news"}, message], "problems": []}
     ]
+    saved = running.post(f"/api/worlds/{world}/workflows", json={"yaml": yaml})
+    assert saved.status_code == 201, saved.text
+    workflow = saved.json()["workflow_id"]
     run = at_gate(running, tmp_path, world, workflow)
     shown = running.get("/api/gates").json()[0]["publish"]
     assert vals(shown) == {"to": "#news", "text": "New video is up"}

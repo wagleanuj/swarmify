@@ -3,6 +3,7 @@ name = "swarmify"
 version = "0.1.0"
 description = "A swarm of Claude Code agents sharing one graphify memory per world"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = []
 
 [dependency-groups]
@@ -47,12 +48,12 @@ known-first-party = ["swarmify_*", "check_imports", "samples", "runs_fakes", "ec
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
-include = ["packages", "apps/api", "tools", "tests"]
-exclude = ["**/node_modules", "**/.venv", "**/dist"]
+include = ["packages", "apps/api", "tools", "tests", "connectors"]
+exclude = ["**/node_modules", "**/.venv", "**/dist", "connectors/*/chatterbox"]
 typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]
-testpaths = ["packages", "apps/api", "tools", "services"]
+testpaths = ["packages", "apps/api", "tools", "connectors"]
 pythonpath = ["tools"]
 # -n 8: the suite mostly waits on polling intervals, so eight workers beat one even on a 4-core runner.
 addopts = "-n 8 --cov=swarmify_kernel --cov=swarmify_worlds --cov=swarmify_workflows --cov=swarmify_runs --cov=swarmify_connectors --cov=swarmify_swarm --cov=swarmify_memory --cov=swarmify_learning --cov=swarmify_notifications --cov=swarmify_api --cov=check_imports --cov-fail-under=85 --cov-report=term-missing"

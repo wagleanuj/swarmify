@@ -3,6 +3,7 @@ name = "swarmify-api"
 version = "0.1.0"
 description = "Swarmify HTTP API"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = [
   "fastapi>=0.162",
   "httpx2>=2.16",

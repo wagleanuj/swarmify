@@ -9,6 +9,7 @@ event on the world's stream.
 
 import re
 import shutil
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -86,9 +87,17 @@ def check_settings(changes: dict[str, Any]) -> None:
 
 
 class Worlds:
-    def __init__(self, storage: Storage, data_dir: Path) -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        data_dir: Path,
+        on_create: Callable[[str], None] = lambda _world_id: None,
+    ) -> None:
+        """`on_create` hears each new world's id once it exists, as the default packages it is
+        given (ADR 0023)."""
         self.storage = storage
         self.data_dir = data_dir
+        self.on_create = on_create
 
     def folder(self, world_id: str) -> Path:
         return self.data_dir / "worlds" / world_id
@@ -105,6 +114,7 @@ class Worlds:
         )
         self.storage.add_world(world, event)
         (self.folder(world.id) / "assets").mkdir(parents=True)  # the operator's files, empty
+        self.on_create(world.id)
         return world
 
     def list_all(self) -> list[World]:

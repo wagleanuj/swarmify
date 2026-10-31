@@ -5,7 +5,9 @@ import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
+import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { ModelSelect, useModels } from "./ModelSelect";
+import { Tokens } from "./Tokens";
 
 type World = components["schemas"]["World"];
 type Spend = components["schemas"]["Spend"];
@@ -42,6 +44,7 @@ export function Settings() {
   const [busy, setBusy] = useState<Panel | null>(null);
   const [said, setSaid] = useState<Said | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [skin, setSkin] = useState(piedPiper);
 
   useEffect(() => {
     api
@@ -98,7 +101,8 @@ export function Settings() {
     void store(draft, "Saved. Send a test message to check it reaches Slack.");
   }
 
-  // Each panel saves only its own settings; the rest of the form stays as typed.
+  // Each panel saves only its own settings; the rest of the form stays as typed. The World and
+  // Runs panels stay disabled until the world loads, so the load cannot overwrite what was typed.
   async function patch(panel: Panel, body: WorldSettings) {
     setBusy(panel);
     setSaid(null);
@@ -184,47 +188,49 @@ export function Settings() {
       {loadError && <p role="alert">{loadError}</p>}
       <Row title="World" about={`What ${name} may spend, how long it keeps files and the model it runs on.`}>
         <form className="panel set-panel" onSubmit={saveWorld} aria-label="World">
-          <div className="settings-grid">
-            <div className="field">
-              <label>
-                Monthly budget, dollars
-                <input type="number" min="0.01" step="0.01" value={form.monthly} onChange={field("monthly")} placeholder="No ceiling" />
-              </label>
-              <span className="faint" data-testid="spent">
-                {spend
-                  ? `Spent this month: ${money(spend.spent_usd)}, an estimate${spend.monthly_budget_usd !== null ? ` of ${money(spend.monthly_budget_usd)}` : ""}.`
-                  : "Loading spend..."}
-              </span>
-              <span className="faint">
-                Each run's budget is cut to what is left of the month. Once it is spent, no run starts until next month.
-              </span>
+          <fieldset className="set-body" disabled={!world}>
+            <div className="settings-grid">
+              <div className="field">
+                <label>
+                  Monthly budget, dollars
+                  <input type="number" min="0.01" step="0.01" value={form.monthly} onChange={field("monthly")} placeholder="No ceiling" />
+                </label>
+                <span className="faint" data-testid="spent">
+                  {spend
+                    ? `Spent this month: ${money(spend.spent_usd)}, an estimate${spend.monthly_budget_usd !== null ? ` of ${money(spend.monthly_budget_usd)}` : ""}.`
+                    : "Loading spend..."}
+                </span>
+                <span className="faint">
+                  Each run's budget is cut to what is left of the month. Once it is spent, no run starts until next month.
+                </span>
+              </div>
+              <div className="field">
+                <label>
+                  Keep videos and images for, days
+                  <input type="number" min="0" max="3650" step="1" required value={form.retention} onChange={field("retention")} />
+                </label>
+                <span className="faint">0 keeps them forever. Notes and markdown always stay.</span>
+              </div>
+              <div className="field">
+                <ModelSelect
+                  label="Model"
+                  value={form.model}
+                  fallback={`Default: ${models?.default ?? "the global default"}`}
+                  models={models}
+                  onChange={(model) => setForm((f) => ({ ...f, model }))}
+                />
+                <span className="faint">
+                  What every agent and the planner chat run on. The cast can choose per role, a stage per workflow. Cheaper models cost less per step.
+                </span>
+              </div>
             </div>
-            <div className="field">
-              <label>
-                Keep videos and images for, days
-                <input type="number" min="0" max="3650" step="1" required value={form.retention} onChange={field("retention")} />
-              </label>
-              <span className="faint">0 keeps them forever. Notes and markdown always stay.</span>
+            <div className="set-save">
+              {note("world")}
+              <button type="submit" disabled={busy === "world"}>
+                Save
+              </button>
             </div>
-            <div className="field">
-              <ModelSelect
-                label="Model"
-                value={form.model}
-                fallback={`Default: ${models?.default ?? "the global default"}`}
-                models={models}
-                onChange={(model) => setForm((f) => ({ ...f, model }))}
-              />
-              <span className="faint">
-                What every agent and the planner chat run on. The cast can choose per role, a stage per workflow. Cheaper models cost less per step.
-              </span>
-            </div>
-          </div>
-          <div className="set-save">
-            {note("world")}
-            <button type="submit" disabled={busy === "world"}>
-              Save
-            </button>
-          </div>
+          </fieldset>
         </form>
       </Row>
       <Row
@@ -232,35 +238,37 @@ export function Settings() {
         about="How many runs can hold a slot. A run waiting at a gate keeps its slot, so runs past the cap wait in the queue until you answer one."
       >
         <form className="panel set-panel" onSubmit={saveRuns} aria-label="Runs at once">
-          <div className="settings-grid">
-            <div className="field">
-              <label>
-                Run cap
-                <input type="number" min="1" max="8" step="1" required value={form.runCap} onChange={field("runCap")} />
-              </label>
-              <span className="faint" data-testid="run-cap-help">
-                Runs waiting at a gate hold a slot too. Takes effect at once.
-              </span>
+          <fieldset className="set-body" disabled={!world}>
+            <div className="settings-grid">
+              <div className="field">
+                <label>
+                  Run cap
+                  <input type="number" min="1" max="8" step="1" required value={form.runCap} onChange={field("runCap")} />
+                </label>
+                <span className="faint" data-testid="run-cap-help">
+                  Runs waiting at a gate hold a slot too. Takes effect at once.
+                </span>
+              </div>
+              <div className="field">
+                <label>
+                  Workers in the cast
+                  <input type="number" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
+                </label>
+                <span className="faint">
+                  {cap(the("planner"))} and {the("judge")} always come along; this is how many workers the cast has. A swarm stage runs one unless the workflow sets its agents.{" "}
+                  <Link to="/worlds/$worldId/cast" params={{ worldId }}>
+                    Meet the cast
+                  </Link>
+                </span>
+              </div>
             </div>
-            <div className="field">
-              <label>
-                Workers per stage
-                <input type="number" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
-              </label>
-              <span className="faint">
-                Richard and Erlich always come along; this is how many workers the cast has. A stage starts one per ready task, up to this.{" "}
-                <Link to="/worlds/$worldId/cast" params={{ worldId }}>
-                  Meet the cast
-                </Link>
-              </span>
+            <div className="set-save">
+              {note("runs")}
+              <button type="submit" disabled={busy === "runs"}>
+                Save
+              </button>
             </div>
-          </div>
-          <div className="set-save">
-            {note("runs")}
-            <button type="submit" disabled={busy === "runs"}>
-              Save
-            </button>
-          </div>
+          </fieldset>
         </form>
       </Row>
       <Row title="Slack" about="Gates can ask you in Slack too, and each message links straight to the run or the gate.">
@@ -311,6 +319,26 @@ export function Settings() {
           </div>
         </form>
       </Row>
+      <Row title="Names" about="What the page calls the agents. Kept in this browser, for every world.">
+        <div className="panel set-panel">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={skin}
+              onChange={(e) => {
+                setPiedPiper(e.target.checked);
+                setSkin(e.target.checked);
+              }}
+            />
+            Pied Piper names
+          </label>
+          <p className="faint">
+            Off: Planner, Worker 1 to 4 and Judge. On: Richard plans, Gilfoyle, Dinesh, Jared and Big Head work,
+            Erlich judges, Anton writes the graph and Russ keeps the budget.
+          </p>
+        </div>
+      </Row>
+      <Tokens Row={Row} />
       <Row title="Danger" about="Deleting a world cannot be undone.">
         <div className="panel set-panel">
           <p>Deleting {name} removes its folder, runs, library and memory, with every file they made.</p>

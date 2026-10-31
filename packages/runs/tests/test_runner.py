@@ -2,10 +2,12 @@
 
 from contextlib import closing
 
+from dbos import DBOS
+
 from runs_fakes import FakeConnector, wait_for
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
-from swarmify_runs import Runner, SqliteStorage, StageDef
+from swarmify_runs import Runner, SqliteStorage, StageDef, queue_name
 
 RENDER = StageDef("render", "connector", {"calls": "remotion_render"})
 PICK = StageDef("pick", "gate", {"ask": "Pick one.", "kind": "pick"})
@@ -104,6 +106,8 @@ def test_runs_list_newest_first_and_go_with_their_world(runner: Runner) -> None:
     assert runner.list_all("world_2") == []
     wait_for(lambda: status(runner, new.id) == "waiting_gate")
 
+    assert DBOS.retrieve_queue(queue_name("world_1")) is not None
     runner.delete_world("world_1")
     assert runner.list_all("world_1") == []
     assert runner.get(old.id) is None
+    assert DBOS.retrieve_queue(queue_name("world_1")) is None  # its polling thread stops

@@ -1,0 +1,4 @@
+#!/bin/sh
+# The Claude Code CLI of a Build Session (ADR 0018), run in the sandbox runner container
+# (compose.yaml), where the OS sandbox of its Bash can start; the api container cannot start one.
+exec python -m swarmify_connectors.runner "$SWARMIFY_SANDBOX_RUNNER" "$(command -v claude)" "$@"

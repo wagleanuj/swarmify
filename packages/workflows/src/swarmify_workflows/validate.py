@@ -7,6 +7,7 @@ workflow ids its current version runs. Every broken rule is returned, none raise
 from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath
 
+from swarmify_kernel import AGENT_TOOLS
 from swarmify_workflows.model import (
     ConnectorRef,
     ConnectorStage,
@@ -51,8 +52,12 @@ def validate(
 
     def check_connector(name: str, stage_type: str, stage: str) -> ConnectorRef | None:
         ref = connectors.get(name)
-        if ref is None:
-            out.append(Violation("unknown_connector", f"no connector named '{name}'", stage))
+        if name in AGENT_TOOLS:  # only a connector stage gets here with one
+            message = f"'{name}' is an Agent Tool: list it in a swarm stage's tools"
+            out.append(Violation("connector_stage_type", message, stage))
+        elif ref is None:
+            known = "connector or Agent Tool" if stage_type == "swarm" else "connector"
+            out.append(Violation("unknown_connector", f"no {known} named '{name}'", stage))
         elif stage_type not in ref.stage_types:
             out.append(
                 Violation(
@@ -66,14 +71,15 @@ def validate(
     for index, stage in enumerate(model.stages):
         if isinstance(stage, SwarmStage):
             for tool in stage.tools:
-                check_connector(tool, "swarm", stage.name)
+                if tool not in AGENT_TOOLS:  # the core gives these, no connector needed
+                    check_connector(tool, "swarm", stage.name)
             for name in filter(_binary, stage.produces):
                 out.append(
                     Violation(
                         "swarm_binary",
                         f"only a connector stage can make {name}: swarm agents write text, so"
-                        " produce a script here and build the video from it in a remotion_build"
-                        " stage",
+                        " produce a script here and make the file from it in a connector stage"
+                        " (one requesting a Build Session writes and runs code)",
                         stage.name,
                     )
                 )

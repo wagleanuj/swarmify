@@ -77,9 +77,9 @@ def base_url(data_dir: Path) -> Iterator[str]:
 
 @pytest.fixture(scope="session")
 def locked_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    """A second app behind basic auth, with its own data folder."""
+    """A second app behind the operator's sign-in, with its own data folder."""
     data = tmp_path_factory.mktemp("swarmify-locked")
-    with _serve(data, SWARMIFY_USER="erlich", SWARMIFY_PASSWORD="aviato") as url:
+    with _serve(data, SWARMIFY_PASSWORD="aviato") as url:
         yield url
 
 

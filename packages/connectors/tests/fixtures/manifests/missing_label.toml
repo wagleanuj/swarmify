@@ -1,0 +1,8 @@
+# error: label: is required
+name = "bad"
+version = "1.0.0"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]

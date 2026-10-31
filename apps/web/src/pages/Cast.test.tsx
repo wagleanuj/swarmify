@@ -41,11 +41,11 @@ test("lists the cast as a table by their skin names, each row with its record an
   await expect.element(screen.getByText(/4 agents work in Video.*\$1\.2100 so far/)).toBeVisible();
   const cells = (name: string) =>
     [...screen.getByTestId(`cast-${name}`).element().querySelectorAll("tr:first-child td")].map((td) => td.textContent?.trim());
-  await expect.element(screen.getByTestId("cast-worker-1")).toMatchTextContent(/Gilfoyle/);
+  await expect.element(screen.getByTestId("cast-worker-1")).toMatchTextContent(/Worker 1/);
   // Agent, then (past the model) tasks, judged, first try, send backs, cost
   const [agent, , ...record] = cells("worker-1");
   expect([agent, ...record.slice(0, 5)]).toEqual([
-    "Gilfoyleclaims tasks, writes notes and artifacts · v1, default",
+    "Worker 1claims tasks, writes notes and artifacts · v1, default",
     "3",
     "2",
     "1 of 2",
@@ -54,9 +54,9 @@ test("lists the cast as a table by their skin names, each row with its record an
   ]);
   expect(cells("worker-2").slice(2, 7)).toEqual(["0", "0", "-", "0", "$0.0000"]);
   expect(cells("planner")[6]).toBe("$0.5000");
-  await expect.element(screen.getByRole("combobox", { name: "Model for Gilfoyle" })).toHaveDisplayValue("claude-sonnet-5-5");
-  await expect.element(screen.getByRole("combobox", { name: "Model for Dinesh" })).toHaveDisplayValue("claude-sonnet-5-5");
-  await expect.element(screen.getByRole("combobox", { name: "Model for Richard" })).toHaveDisplayValue("World's: claude-opus-5-5");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Worker 1" })).toHaveDisplayValue("claude-sonnet-5-5");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Worker 2" })).toHaveDisplayValue("claude-sonnet-5-5");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Planner" })).toHaveDisplayValue("World's: claude-opus-5-5");
   await expect
     .element(screen.getByRole("link", { name: "Change the agent count" }))
     .toHaveAttribute("href", "/worlds/world_1/settings");
@@ -85,19 +85,19 @@ test("an edit asks for confirmation naming the version, then saves it with a sta
   });
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/cast");
-  await screen.getByRole("button", { name: "Edit Gilfoyle" }).click();
+  await screen.getByRole("button", { name: "Edit Worker 1" }).click();
   await screen.getByRole("textbox", { name: "Standing instructions" }).fill("Write hooks first.");
   await screen.getByRole("textbox", { name: /Tools/ }).fill("graph, ");
   await expect.element(screen.getByText(/Becomes version 2/)).toBeVisible();
   await screen.getByRole("button", { name: "Save as version 2" }).click();
 
-  expect(confirm.mock.calls[0]?.[0]).toContain("Save version 2 of Gilfoyle?");
+  expect(confirm.mock.calls[0]?.[0]).toContain("Save version 2 of Worker 1?");
   expect(bodies).toEqual([{ prompt: "Write hooks first.", tools: ["graph"], confirm: true }]);
   const row = screen.getByTestId("cast-worker-1");
-  await expect.element(row.getByRole("status")).toHaveTextContent("Saved version 2 of Gilfoyle. It applies from the next stage on.");
-  await expect.element(row).toMatchTextContent(/Gilfoyle.*v2/);
+  await expect.element(row.getByRole("status")).toHaveTextContent("Saved version 2 of Worker 1. It applies from the next stage on.");
+  await expect.element(row).toMatchTextContent(/Worker 1.*v2/);
 
-  await screen.getByRole("button", { name: "History of Gilfoyle" }).click();
+  await screen.getByRole("button", { name: "History of Worker 1" }).click();
   await expect.element(screen.getByTestId("history")).toMatchTextContent(/v1 default.*no instructions.*v2.*Write hooks first/);
 });
 
@@ -109,7 +109,7 @@ test("a cancelled confirmation changes nothing and a refusal is shown", async ()
   });
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const { screen } = await mountAt("/worlds/world_1/cast");
-  await screen.getByRole("button", { name: "Edit Erlich" }).click();
+  await screen.getByRole("button", { name: "Edit Judge" }).click();
   await screen.getByRole("button", { name: "Save as version 2" }).click();
   expect(calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
   confirm.mockReturnValue(true);
@@ -174,12 +174,12 @@ test("a model change saves itself from its row; the workers share one and the re
     },
   });
   const { screen } = await mountAt("/worlds/world_1/cast");
-  const judge = screen.getByRole("combobox", { name: "Model for Erlich" });
+  const judge = screen.getByRole("combobox", { name: "Model for Judge" });
   await expect.element(judge).toHaveDisplayValue("claude-opus-5-5");
   await expect.element(screen.getByRole("combobox", { name: "Retro model" })).toHaveDisplayValue("World's: claude-sonnet-5-5");
-  await screen.getByRole("combobox", { name: "Model for Gilfoyle" }).selectOptions("claude-haiku-4-5");
+  await screen.getByRole("combobox", { name: "Model for Worker 1" }).selectOptions("claude-haiku-4-5");
   await expect.element(screen.getByTestId("cast-worker-1").getByRole("status")).toHaveTextContent("Saved");
-  await expect.element(screen.getByRole("combobox", { name: "Model for Dinesh" })).toHaveDisplayValue("claude-haiku-4-5");
+  await expect.element(screen.getByRole("combobox", { name: "Model for Worker 2" })).toHaveDisplayValue("claude-haiku-4-5");
   await judge.selectOptions("World's: claude-sonnet-5-5");
   await expect.element(screen.getByTestId("cast-judge").getByRole("status")).toHaveTextContent("Saved");
   expect(bodies).toEqual([{ worker_model: "claude-haiku-4-5" }, { judge_model: null }]);

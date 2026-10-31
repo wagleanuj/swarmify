@@ -96,8 +96,8 @@ class SqliteStorage:
                     artifact = artifact and artifact.replace(old, new)
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
-                    " note, send_back_to, path, decided_at, visit, artifact, publish)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " note, send_back_to, path, decided_at, visit, artifact, publish, answered_by)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         new_id("dec"),
                         run.id,
@@ -112,6 +112,7 @@ class SqliteStorage:
                         -1 - d["visit"],
                         artifact,
                         d["publish"],
+                        d["answered_by"],
                     ),
                 )
             saved = self._read(conn, run.id)
@@ -247,8 +248,8 @@ class SqliteStorage:
             with self._conn() as conn:
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
-                    " note, send_back_to, path, decided_at, visit, artifact, publish)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " note, send_back_to, path, decided_at, visit, artifact, publish, answered_by)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         decision.id,
                         run_id,
@@ -263,6 +264,7 @@ class SqliteStorage:
                         visit,
                         decision.artifact,
                         json.dumps(decision.publish) if decision.publish else None,
+                        decision.by,
                     ),
                 )
         except sqlite3.IntegrityError as exc:
@@ -396,6 +398,7 @@ class SqliteStorage:
                 d["decided_at"],
                 d["artifact"],
                 json.loads(d["publish"]) if d["publish"] else None,
+                d["answered_by"],
             )
             for d in conn.execute(
                 "SELECT * FROM gate_decisions WHERE run_id = ? ORDER BY decided_at, id", (run_id,)

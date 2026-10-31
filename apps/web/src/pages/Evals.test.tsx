@@ -18,8 +18,10 @@ const trial = (arm: string, index: number, failed: string[] = []): Trial => ({
   duration_s: arm === "swarm" ? 240 : 600,
   failed,
 });
-const report = (id: string, created: string, verdict: string): Report => ({
+const report = (id: string, created: string, verdict: string, kind: string | null = null): Report => ({
   id,
+  kind,
+  p_value: 0.5,
   created_at: created,
   k: 2,
   tasks: 1,
@@ -54,7 +56,7 @@ test("the newest verdict is the line under the title; each eval compares the arm
   await expect.element(screen.getByRole("heading", { name: "Evals", level: 1 })).toBeVisible();
   await expect.element(screen.getByTestId("verdict")).toHaveTextContent("The swarm wins: it accepted 100% of trials.");
   const arms = screen.getByTestId("eval").first().getByTestId("arm");
-  await expect.element(arms.first()).toMatchTextContent(/Hooli baseline.*2.*50% \(1\).*100%.*0%.*\$0\.40.*10 min011no win/);
+  await expect.element(arms.first()).toMatchTextContent(/Baseline.*2.*50% \(1\).*100%.*0%.*\$0\.40.*10 min011no win/);
   await expect.element(arms.nth(1)).toMatchTextContent(/Swarm.*2.*100% \(2\).*100%.*100%.*\$1\.20.*4 min101\$2\.40/);
   const newest = screen.getByTestId("eval").first();
   await newest.getByText("The judge's picks (2)").click();
@@ -64,7 +66,7 @@ test("the newest verdict is the line under the title; each eval compares the arm
   await newest.getByText("Every trial (4)").click();
   const trials = newest.getByTestId("trial");
   expect(trials.elements()).toHaveLength(4);
-  await expect.element(trials.nth(2)).toMatchTextContent(/home-espresso.*Hooli baseline.*2.*script\.md is missing/);
+  await expect.element(trials.nth(2)).toMatchTextContent(/home-espresso.*Baseline.*2.*script\.md is missing/);
   await expect.element(trials.nth(1)).toMatchTextContent(/accepted/);
   await expect
     .element(trials.nth(1).getByRole("link"))
@@ -76,8 +78,26 @@ test("the newest verdict is the line under the title; each eval compares the arm
   expect(evals.nth(1).getByTestId("arm").elements()).toHaveLength(2);
 });
 
+test("each task kind shows the verdict of its newest report, and a kind never run says so", async () => {
+  fakeFetch({
+    "GET /api/evals": () =>
+      Response.json([
+        { ...report("eval_3", "2026-10-30T10:00:00+00:00", "The swarm wins on typed lists: 12 of 16.", "typed lists"), p_value: 0.0384 },
+        report("eval_2", "2026-10-29T10:00:00+00:00", "The swarm does not win on research briefs.", "research briefs"),
+        report("eval_1", "2026-10-28T10:00:00+00:00", "The swarm wins on research briefs: older.", "research briefs"),
+      ]),
+  });
+  const { screen } = await mountAt("/evals");
+  const kinds = screen.getByTestId("kind");
+  await expect.element(kinds.first()).toMatchTextContent(/Research briefs.*Swarm does not win.*1 of 1 \(100%\).*0\.50.*no comparison/);
+  await expect.element(kinds.nth(1)).toMatchTextContent(/Long-form writing.*Not run yet/);
+  await expect.element(kinds.nth(2)).toMatchTextContent(/Typed lists.*Swarm wins.*1 of 1.*0\.04/);
+  await expect.element(screen.getByText(/more than 60% of the decided pairs/)).toBeVisible();
+  await expect.element(screen.getByTestId("eval").first().getByRole("heading", { level: 2 })).toMatchTextContent(/^Typed lists, /);
+});
+
 test("with no eval yet the page says how to run one", async () => {
   fakeFetch({ "GET /api/evals": () => Response.json([]) });
   const { screen } = await mountAt("/evals");
-  await expect.element(screen.getByTestId("no-evals")).toMatchTextContent(/uv run swarmify-eval --k 3/);
+  await expect.element(screen.getByTestId("no-evals")).toMatchTextContent(/uv run swarmify-eval --kind research-briefs/);
 });

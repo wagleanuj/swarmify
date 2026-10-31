@@ -6,16 +6,21 @@ A publish connector answers two calls. `preview` gets `inputs` (the stage's inpu
 `{fields: [{key, label, value, editable, hint}], problems: [str]}` with the edits applied to its
 editable fields. `publish` gets `fields` (every value as confirmed, by key), `idempotency_key`
 and `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links`
-(platform to URL), and optionally `id` and `status` (published, scheduled). The core shows the
+(platform to URL), and optionally `id`, `status` (published, scheduled) and `failed` (platform to
+error; a post with failures and no links fails the stage). It may answer a long job instead
+(`job_id` and `poll`), whose last answer carries the same. The core shows the
 fields at the gate, lets the person edit the editable ones, refuses to go on while there are
-problems, and records the values confirmed. A world's own publish connector answers both as MCP
-tools; the built-ins answer in process (`builtin_publish`) until they move into packages (#111).
+problems, and records the values confirmed. Every publish connector is a Connector Package
+answering both as MCP tools, as the publish packages in `connectors/` do.
+
+A publish connector may also offer the `outcomes` Capability, naming its `primary_metric` in its
+Manifest: `outcomes` gets `posts`, every publish record of a world as `{connector, id, links}`
+(`id` the post's as its connector answered it, else the record's path), and answers
+`{post_id: {metric: number}}` for the posts it can read, whoever posted them: a package may claim
+another's posts by their links.
 """
 
-import re
 from typing import Any
-
-from swarmify_connectors import builtin_publish
 
 
 def checked_preview(raw: Any) -> dict[str, Any]:
@@ -40,17 +45,16 @@ def checked_preview(raw: Any) -> dict[str, Any]:
 
 
 def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
-    """What came back, normalized: `status` (published, scheduled or pending), `links` (platform
-    to URL), `id` (the post, scheduler job or background request) and `failed` (platform to
-    error)."""
-    if connector in builtin_publish.NAMES:
-        return builtin_publish.result(connector, response)
+    """What came back, normalized: `status` (published or scheduled), `links` (platform
+    to URL), `id` (the post or scheduler job) and `failed` (platform to error)."""
     links = response.get("links")
     links = {str(k): str(v) for k, v in links.items()} if isinstance(links, dict) else {}
     if response.get("url"):
         links.setdefault(connector, str(response["url"]))
+    failed = response.get("failed")
+    failed = {str(k): str(v) for k, v in failed.items()} if isinstance(failed, dict) else {}
     status = "scheduled" if response.get("status") == "scheduled" else "published"
-    return {"status": status, "links": links, "id": response.get("id"), "failed": {}}
+    return {"status": status, "links": links, "id": response.get("id"), "failed": failed}
 
 
 def _text(value: Any) -> str:
@@ -79,19 +83,3 @@ def markdown(connector: str, fields: list[dict[str, Any]], out: dict[str, Any]) 
         + "\n".join(landed)
         + "\n"
     )
-
-
-_YOUTUBE = re.compile(
-    r"^https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/))([\w-]{6,20})"
-)
-
-
-def youtube_ids(fields: dict[str, Any]) -> list[str]:
-    """The YouTube video ids a publish artifact names: every YouTube link, whichever connector
-    posted it, plus the video id of a `youtube` post that has no link yet."""
-    links = fields.get("links")
-    links = links if isinstance(links, dict) else {}
-    ids = [m[1] for url in links.values() if (m := _YOUTUBE.match(str(url)))]
-    if fields.get("connector") == "youtube" and fields.get("id"):
-        ids.append(str(fields["id"]))
-    return list(dict.fromkeys(ids))

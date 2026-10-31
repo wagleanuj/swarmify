@@ -29,7 +29,7 @@ test("the run page shows the spend against the budget, and the one-agent compari
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("budget")).toHaveTextContent("$1.84 of $5.00");
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$3.16 left before Russ pauses the run.");
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$3.16 left before the budget pauses the run.");
   await expect.element(screen.getByRole("meter", { name: "Budget spent" })).toHaveAttribute("value", "1.84");
   await expect.element(screen.getByTestId("baseline")).not.toBeVisible();
   await screen.getByText("Compare with one agent").click();
@@ -38,7 +38,7 @@ test("the run page shows the spend against the budget, and the one-agent compari
     .toMatchTextContent(/^One agent with no graph did this for \$2\.60 in 54 min; this run \$1\.84/);
 
   FakeEventSource.emit("run.updated", { payload: { ...researching, spent_usd: 4.2, updated_at: "2026-10-26T10:00:01+00:00" } });
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$0.80 left before Russ pauses the run.");
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$0.80 left before the budget pauses the run.");
 
   const stopped = run("waiting_gate", [stage(0, "research", "swarm", "waiting")], {
     budget_usd: 5,
@@ -85,7 +85,7 @@ test("a budget gate adds money as a new total or aborts the run", async () => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
-  await expect.element(card).toMatchTextContent(/The budget of \$5\.00 is spent.*Russ has spent \$5\.20 of \$5\.00/);
+  await expect.element(card).toMatchTextContent(/The budget of \$5\.00 is spent.*This run has spent \$5\.20 of \$5\.00/);
   expect(card.getByRole("textbox").query()).toBeNull(); // no note: money is not a decision
   await card.getByLabelText("Add (US dollars)").fill("2.5");
   await card.getByRole("button", { name: "Add money and go on" }).click();
@@ -110,7 +110,7 @@ test("a refused budget is shown as an alert", async () => {
   await expect.element(screen.getByRole("alert")).toHaveTextContent("the run has spent $5.20; set a budget above that");
 });
 
-test("a workflow starts a Hooli baseline from the world page", async () => {
+test("a workflow starts a baseline from the world page", async () => {
   const weekly = { id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: hooli.created_at };
   const bodies: unknown[] = [];
   fakeFetch({
@@ -124,7 +124,7 @@ test("a workflow starts a Hooli baseline from the world page", async () => {
     "GET /api/runs/run_0": () => Response.json(hooli),
   });
   const { screen, router } = await mountAt("/worlds/world_1");
-  await screen.getByRole("button", { name: "Start a Hooli baseline of Weekly short" }).click();
+  await screen.getByRole("button", { name: "Start a baseline of Weekly short" }).click();
   await vi.waitFor(() => expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_0"));
   expect(bodies).toEqual([{ baseline: true }]);
 });
@@ -135,5 +135,5 @@ test("the runs list tags a baseline and shows each run's cost", async () => {
     "GET /api/worlds/world_1/runs": () => Response.json([hooli]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs");
-  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Hooli baseline.*\$2\.60/);
+  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/baseline.*\$2\.60/);
 });

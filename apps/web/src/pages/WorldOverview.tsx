@@ -6,6 +6,7 @@ import { useOpenGates } from "../api/gates";
 import { duration, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
+import { baseline } from "../skin";
 
 type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["ListedWorkflow"];
@@ -104,7 +105,7 @@ export function WorldOverview() {
     setError(null);
     const { data, error, response } = await api.POST("/api/workflows/{workflow_id}/runs", {
       params: { path: { workflow_id: workflowId } },
-      // Blank fields are left out: the workflow's budget and agents, else the world's, apply.
+      // Blank fields are left out: the workflow's budget and each stage's agents apply.
       body: {
         baseline,
         ...(runBudget && { budget_usd: Number(runBudget) }),
@@ -342,7 +343,7 @@ export function WorldOverview() {
                           type="button"
                           onClick={() => start(w.id, true)}
                           disabled={starting !== null}
-                          aria-label={`Start a Hooli baseline of ${w.name}`}
+                          aria-label={`Start a ${baseline()} of ${w.name}`}
                           title="One agent and no graph, so the swarm's runs have something to beat"
                         >
                           Baseline

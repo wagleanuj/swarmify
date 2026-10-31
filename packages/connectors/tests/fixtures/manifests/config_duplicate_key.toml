@@ -1,0 +1,17 @@
+# error: config[1].key: api_key is declared twice
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+[[config]]
+key = "api_key"
+label = "Key"
+type = "string"
+[[config]]
+key = "api_key"
+label = "Other"
+type = "string"

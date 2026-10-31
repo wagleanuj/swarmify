@@ -1,0 +1,8 @@
+# error: command: give the command
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"

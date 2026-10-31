@@ -1,0 +1,12 @@
+# The Slack connector's own uv project, outside the Swarmify workspace: its install step syncs
+# these into the installed version's folder (ADR 0026).
+[project]
+name = "swarmify-slack"
+version = "1.0.0"
+description = "Remote Approvals in Slack: gates posted with buttons, answered over Socket Mode"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["mcp==2.3.0", "slack-bolt==1.30.0", "slack-sdk==3.46.0"]
+
+[tool.uv]
+package = false

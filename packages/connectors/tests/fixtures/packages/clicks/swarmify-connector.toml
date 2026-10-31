@@ -1,0 +1,19 @@
+# A fixture publish Connector Package offering Outcomes, ranked by clicks: a link shortener.
+name = "clicks"
+version = "1.0.0"
+label = "Clicks"
+about = "Posts a short link and counts its clicks. A fixture."
+kind = "publish"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["python3", "server.py"]
+capabilities = ["publish", "outcomes"]
+primary_metric = "clicks"
+
+[[config]]
+key = "token"
+label = "Token"
+type = "string"
+secret = true
+required = true
+env = "CLICKS_TOKEN"

@@ -1,0 +1,90 @@
+# The curated index of Swarmify Connector Packages. Format and how to add one: README.md.
+
+[[packages]]
+name = "remotion_build"
+description = "Writes a Remotion project from the script in a sandboxed coding session, then renders it. Needs Node."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/remotion_build"
+ref = "v2"
+permissions = [
+  "network: registry.npmjs.org",
+  "network: fonts.googleapis.com",
+  "network: fonts.gstatic.com",
+  "capabilities: build_session",
+]
+
+[[packages]]
+name = "remotion_render"
+description = "Renders a script with the Remotion CLI. Needs Node and a Remotion project."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/remotion_render"
+ref = "v2"
+permissions = [
+  "network: localhost",
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "install_network: registry.npmjs.org",
+  "install_network: remotion.media",
+  "install_network: storage.googleapis.com",
+  "capabilities: check",
+]
+
+[[packages]]
+name = "slack"
+description = "Posts each gate to a Slack channel with a button per answer, and updates the message once the gate is answered, there or in Swarmify. Needs a Slack app of your own in Socket Mode (its README)."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/slack"
+ref = "v2"
+permissions = [
+  "network: slack.com",
+  "network: *.slack.com",
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "credentials: SLACK_BOT_TOKEN",
+  "credentials: SLACK_APP_TOKEN",
+  "capabilities: remote_approvals",
+]
+
+[[packages]]
+name = "speech"
+description = "Voices a script, one take per scene, with word timings and cut points. Needs a speech engine (its README, Speech engines)."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/speech"
+ref = "v2"
+permissions = [
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "services: engines",
+  "owned_folders: voices",
+]
+
+[[packages]]
+name = "upload_post"
+description = "Posts or schedules a video to YouTube, TikTok and Instagram through Upload-Post."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/upload_post"
+ref = "v2"
+permissions = [
+  "network: api.upload-post.com",
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "credentials: UPLOAD_POST_API_KEY",
+  "capabilities: publish",
+]
+
+[[packages]]
+name = "youtube"
+description = "Uploads to YouTube through the Data API; a schedule keeps it private until then."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/youtube"
+ref = "v2"
+permissions = [
+  "network: www.googleapis.com",
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "credentials: YOUTUBE_ACCESS_TOKEN",
+  "sign_in: accounts.google.com",
+  "sign_in: oauth2.googleapis.com",
+  "capabilities: publish",
+  "capabilities: outcomes",
+]

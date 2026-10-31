@@ -18,8 +18,6 @@ def migrated_db(tmp_path: Path) -> Path:
 CONNECTORS = {
     c.name: c
     for c in [
-        ConnectorRef("web_search", "tool", frozenset({"swarm"})),
-        ConnectorRef("graph", "tool", frozenset({"swarm"})),
         ConnectorRef("remotion_render", "stage", frozenset({"connector"})),
         ConnectorRef("youtube", "publish", frozenset({"connector"})),
     ]

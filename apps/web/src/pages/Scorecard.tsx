@@ -2,8 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { outcomeLine } from "../api/events";
 import { money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
+import { baseline, the } from "../skin";
 
 type Card = components["schemas"]["Scorecard"];
 type Score = components["schemas"]["RunScore"];
@@ -65,7 +67,7 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
   return (
     <div data-testid="scorecard">
       <p className="sub trend">
-        How often Erlich passed a stage first try, how often you sent one back, what Russ counted,
+        How often {the("judge")} passed a stage first try, how often you sent one back, what {the("budget")} counted,
         how long it took, and what the published piece did. Cost is the runtime's estimate, not
         billing.
       </p>
@@ -107,7 +109,7 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
                       <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: r.run_id }}>
                         {new Date(r.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
                       </Link>
-                      {r.baseline && <span className="faint"> Hooli baseline</span>}
+                      {r.baseline && <span className="faint"> {baseline()}</span>}
                     </td>
                     <td>{r.workflow_version === null ? "ad hoc" : `v${r.workflow_version}`}</td>
                     <td>
@@ -117,7 +119,7 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
                     <td className="num">{r.send_backs}</td>
                     <td className="num">{money(r.cost_usd)}</td>
                     <td className="num">{r.duration_s === null ? "running" : took(r.duration_s)}</td>
-                    <td>{r.views === null ? "not measured" : `${r.views.toLocaleString()} views`}</td>
+                    <td>{outcomeLine(r.outcomes) ?? "not measured"}</td>
                   </tr>
                 ))}
               </tbody>

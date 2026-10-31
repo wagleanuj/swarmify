@@ -5,7 +5,33 @@ import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
-import { STARTER } from "./WorkflowEditor";
+
+const STARTER = `name: Weekly short
+budget_usd: 5
+stages:
+  - swarm: research
+    goal: Find 5 short-form video ideas trending this week. Check the graph for what we already published.
+    done_when: 5 ideas ranked, each with a hook line and a why
+    tools: [web_search, graph]
+    output_type: list[idea]
+  - gate: pick
+    ask: Pick one idea. Optional note for the script.
+    kind: pick
+`;
+const BRIEF = `name: Research brief
+stages:
+  - swarm: research
+    goal: Research <your question>.
+    done_when: brief.md cites 3 sources
+    produces: [brief.md]
+`;
+const starters = [
+  { name: "Weekly short", about: "Five ranked video ideas, then you pick one.", yaml: STARTER },
+  { name: "Research brief", about: "One swarm researches a question and writes a cited brief.", yaml: BRIEF },
+];
+/** Every route here answers the starter workflows too, as a new workflow loads them. */
+const fake = (routes: Parameters<typeof fakeFetch>[0]) =>
+  fakeFetch({ "GET /api/workflows/starters": () => Response.json(starters), ...routes });
 
 const video = {
   id: "world_1",
@@ -48,12 +74,13 @@ beforeEach(async () => {
   await page.viewport(1280, 800);
 });
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 test("a new workflow opens on Stages: each step with what it does, needs and makes, and a quiet checks line", async () => {
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": check,
   });
@@ -76,7 +103,7 @@ test("a new workflow opens on Stages: each step with what it does, needs and mak
 });
 
 test("violations appear inline as you type and block saving until fixed", async () => {
-  const calls = fakeFetch({
+  const calls = fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": check,
   });
@@ -105,7 +132,7 @@ test("violations appear inline as you type and block saving until fixed", async 
 
 test("saving a new workflow posts the YAML and stays in its editor with the version stamp", async () => {
   let posted: unknown = null;
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": check,
     "POST /api/worlds/world_1/workflows": async (req) => {
@@ -129,7 +156,7 @@ test("saving a new workflow posts the YAML and stays in its editor with the vers
 test("an existing workflow loads its latest version, saves a new one and can open old ones", async () => {
   const v2 = { ...v1, id: "wfv_2", number: 2, yaml: STARTER.replace("Weekly short", "Daily short") };
   const versions = [v1, v2];
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": check,
     "GET /api/workflows/wf_1/versions": () => Response.json(versions),
@@ -164,7 +191,7 @@ test("an existing workflow loads its latest version, saves a new one and can ope
 });
 
 test("a save the API refuses shows its violations inline", async () => {
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "POST /api/worlds/world_1/workflows/check": () => Response.json({ violations: [], model }),
     "POST /api/worlds/world_1/workflows": () =>
@@ -177,7 +204,7 @@ test("a save the API refuses shows its violations inline", async () => {
 });
 
 test("a workflow that no longer exists is an alert", async () => {
-  fakeFetch({ "GET /api/worlds/world_1": () => Response.json(video) });
+  fake({ "GET /api/worlds/world_1": () => Response.json(video) });
   const { screen } = await mountAt("/worlds/world_1/workflows/wf_gone");
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load this workflow/);
 });
@@ -194,7 +221,7 @@ stages:
 `;
 
 test("the stage list edits the same text the YAML view shows: fields, order, add, remove", async () => {
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds": () => Response.json([video]),
     "POST /api/worlds/world_1/workflows/check": check,
@@ -209,6 +236,9 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
 
   await screen.getByLabelText("Done when of research").fill("3 ideas ranked");
   await screen.getByLabelText("Tools of research").fill("web_search");
+  // ADR 0020: a swarm stage runs one agent unless it says more.
+  await expect.element(screen.getByLabelText("Agents of research")).toHaveAttribute("placeholder", "1");
+  await screen.getByLabelText("Agents of research").fill("3");
   await screen.getByTestId("stage-rows").getByRole("button", { name: /pick/ }).click();
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/pick.*gate/);
   await screen.getByLabelText("Move pick up").click();
@@ -218,22 +248,22 @@ test("the stage list edits the same text the YAML view shows: fields, order, add
   await screen.getByLabelText("Remove pick").click();
   await screen.getByLabelText("Stage type to add").selectOptions("connector");
   await screen.getByRole("button", { name: "Add stage" }).click();
-  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/render.*connector/);
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/new step.*connector/);
 
   await screen.getByRole("tab", { name: "YAML" }).click();
   const yaml = screen.getByLabelText("Workflow YAML");
   await expect.element(yaml).toHaveValue(
     `name: Weekly short
 budget_usd: 5
-agents: 4
 stages:
   - swarm: research
     goal: Find 5 short-form video ideas trending this week. Check the graph for what we already published.
     done_when: 3 ideas ranked
     tools: [ web_search ]
     output_type: list[idea]
-  - connector: render
-    calls: remotion_render
+    agents: 3
+  - connector: new step
+    calls: ""
 `,
   );
 
@@ -246,7 +276,7 @@ stages:
 });
 
 test("a schedule shows its next run from the check, in the list and the aside", async () => {
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds": () => Response.json([video]),
     "POST /api/worlds/world_1/workflows/check": async (req) => {
@@ -272,9 +302,9 @@ test("a schedule shows its next run from the check, in the list and the aside", 
   expect(yaml.value).toMatch(/schedule: ["']?0 8 \* \* 1["']?\n/);
 });
 
-test("Richard drafts through the planner endpoint and his YAML becomes the editor's text", async () => {
+test("the planner drafts through its endpoint and its YAML becomes the editor's text", async () => {
   const sent: unknown[] = [];
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds": () => Response.json([video]),
     "POST /api/worlds/world_1/workflows/check": check,
@@ -294,18 +324,18 @@ test("Richard drafts through the planner endpoint and his YAML becomes the edito
     "GET /api/workflows/wf_1/versions": () => Response.json([{ ...v1, yaml: planned }]),
   });
   const { screen, router } = await mountAt("/worlds/world_1/workflows/new");
-  await screen.getByRole("tab", { name: "Richard" }).click();
-  await screen.getByLabelText("Message to Richard").fill("A weekly short, I pick the idea.");
+  await screen.getByRole("tab", { name: "Planner" }).click();
+  await screen.getByLabelText("Message to Planner").fill("A weekly short, I pick the idea.");
   await screen.getByRole("button", { name: "Send" }).click();
-  await expect.element(screen.getByTestId("chat-log")).toMatchTextContent(/You.*A weekly short.*Richard.*Here is a draft\./);
-  await expect.element(screen.getByTestId("check-status")).toMatchTextContent(/Richard updated the draft/);
+  await expect.element(screen.getByTestId("chat-log")).toMatchTextContent(/You.*A weekly short.*Planner.*Here is a draft\./);
+  await expect.element(screen.getByTestId("check-status")).toMatchTextContent(/Planner updated the draft/);
   expect(sent[0]).toMatchObject({ message: "A weekly short, I pick the idea.", yaml: STARTER, workflow_id: null, session_id: null });
 
   await screen.getByRole("tab", { name: "YAML" }).click();
   await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(planned);
 
-  await screen.getByRole("tab", { name: "Richard" }).click();
-  await screen.getByLabelText("Message to Richard").fill("Save it.");
+  await screen.getByRole("tab", { name: "Planner" }).click();
+  await screen.getByLabelText("Message to Planner").fill("Save it.");
   await screen.getByRole("button", { name: "Send" }).click();
   await expect.element(screen.getByTestId("chat-log")).toMatchTextContent(/Saved as version 1\./);
   expect(sent[1]).toMatchObject({ message: "Save it.", yaml: planned, session_id: "session-1" });
@@ -315,7 +345,7 @@ test("Richard drafts through the planner endpoint and his YAML becomes the edito
 });
 
 test("a planner that does not answer is an alert and the message stays to resend", async () => {
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds": () => Response.json([video]),
     "POST /api/worlds/world_1/workflows/check": check,
@@ -323,17 +353,17 @@ test("a planner that does not answer is an alert and the message stays to resend
       Response.json({ detail: "The planner did not answer: the claude process died." }, { status: 502 }),
   });
   const { screen } = await mountAt("/worlds/world_1/workflows/new");
-  await screen.getByRole("tab", { name: "Richard" }).click();
-  await screen.getByLabelText("Message to Richard").fill("Hello");
+  await screen.getByRole("tab", { name: "Planner" }).click();
+  await screen.getByLabelText("Message to Planner").fill("Hello");
   await screen.getByRole("button", { name: "Send" }).click();
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/did not answer.*Send it again\./);
-  await expect.element(screen.getByLabelText("Message to Richard")).toHaveValue("Hello");
+  await expect.element(screen.getByLabelText("Message to Planner")).toHaveValue("Hello");
 });
 
 test("copying puts the workflow in another world and keeps you here, with a link to the copy", async () => {
   const other = { ...video, id: "world_2", name: "Marketing" };
   let copied: unknown = null;
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_2": () => Response.json(other),
     "GET /api/worlds": () => Response.json([video, other]),
@@ -361,7 +391,7 @@ test("copying puts the workflow in another world and keeps you here, with a link
 
 test("a copy the other world refuses names what it lacks", async () => {
   const other = { ...video, id: "world_2", name: "Marketing" };
-  fakeFetch({
+  fake({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds": () => Response.json([video, other]),
     "POST /api/worlds/world_1/workflows/check": check,
@@ -381,7 +411,7 @@ test("a copy the other world refuses names what it lacks", async () => {
 
 test("on a phone the editor shows the stages read-only and says to edit on a larger screen", async () => {
   await page.viewport(390, 844);
-  fakeFetch({
+  fake({
     "GET /api/worlds": () => Response.json([video]),
     "GET /api/gates": () => Response.json([]),
     "GET /api/worlds/world_1": () => Response.json(video),
@@ -399,4 +429,43 @@ test("on a phone the editor shows the stages read-only and says to edit on a lar
   expect(screen.getByRole("tab").elements()).toHaveLength(0);
   expect(screen.getByRole("button", { name: /^Save as version/ }).elements()).toHaveLength(0);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});
+
+test("a new workflow offers the starter workflows; picking one replaces an untouched draft, asks before an edited one", async () => {
+  fake({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "POST /api/worlds/world_1/workflows/check": check,
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows/new?tab=yaml");
+  const picker = screen.getByRole("region", { name: "Starter workflows" });
+  const weekly = picker.getByRole("button", { name: /Weekly short/ });
+  const brief = picker.getByRole("button", { name: /Research brief/ });
+  await expect.element(weekly).toHaveAttribute("aria-pressed", "true");
+  await expect.element(brief).toMatchTextContent(/Research brief.*writes a cited brief\./);
+
+  await brief.click();
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(BRIEF);
+  await expect.element(brief).toHaveAttribute("aria-pressed", "true");
+  await expect.element(screen.getByRole("heading", { name: "Research brief", level: 1 })).toBeVisible();
+
+  await screen.getByLabelText("Workflow YAML").fill(`${BRIEF}# mine\n`);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  await weekly.click();
+  expect(confirm).toHaveBeenCalledWith("Start over from Weekly short? Your changes to this draft are lost.");
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(`${BRIEF}# mine\n`);
+  confirm.mockReturnValue(true);
+  await weekly.click();
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(STARTER);
+});
+
+test("an existing workflow offers no starters, and the Pied Piper skin names the planner Richard", async () => {
+  localStorage.setItem("swarmify.skin", "pied-piper");
+  fake({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/workflows/wf_1/versions": () => Response.json([v1]),
+    "POST /api/worlds/world_1/workflows/check": check,
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
+  await expect.element(screen.getByRole("tab", { name: "Richard" })).toBeVisible();
+  expect(screen.getByRole("region", { name: "Starter workflows" }).elements()).toHaveLength(0);
 });

@@ -1,6 +1,8 @@
 """The Eval's pure parts: the task set, the output grader, pass at k and pass to the k, the blind
 judge's prompt and pick, and the report that says whether the swarm wins."""
 
+from collections import Counter
+from dataclasses import replace
 from math import comb
 
 import pytest
@@ -8,16 +10,23 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from swarmify_learning.evals import (
+    ARMS,
+    KINDS,
     TASKS,
+    WORKFLOWS,
+    EvalReport,
+    EvalTask,
     Judgement,
     Trial,
     blind_order,
     grade,
     judge_prompt,
+    made_by,
     markdown,
     parse_pick,
     pass_at_k,
     pass_pow_k,
+    sign_test,
     summarize,
     workflow_yaml,
 )
@@ -32,12 +41,36 @@ def trial(task: str, arm: str, index: int, ok: bool, cost: float, took: float | 
     return Trial(task, arm, index, "world_1", "run_1", "done", cost, took, failed)
 
 
-def test_twenty_or_more_tasks_each_with_a_unique_id_and_a_valid_workflow() -> None:
+def test_twenty_or_more_tasks_spanning_four_workflows_each_with_a_unique_id() -> None:
     assert len(TASKS) >= 20
     assert len({t.id for t in TASKS}) == len(TASKS)
     assert all(t.keywords for t in TASKS)
-    yaml = workflow_yaml(TASK, 2.5)
-    assert TASK.topic in yaml and "budget_usd: 2.5" in yaml and "produces: [script.md]" in yaml
+    by_workflow = Counter(t.workflow for t in TASKS)
+    assert (
+        set(by_workflow)
+        == set(WORKFLOWS)
+        == {
+            "Research brief",
+            "Draft with approval",
+            "Scheduled monitor",
+            "Weekly short",
+        }
+    )
+    assert by_workflow["Weekly short"] * 2 < len(TASKS), "the weekly short is not most of it"
+    for task in TASKS:
+        yaml = workflow_yaml(task, 2.5)
+        assert task.topic in yaml and "budget_usd: 2.5" in yaml and "{" not in yaml
+        assert "gate:" not in yaml and "schedule:" not in yaml and "connector:" not in yaml
+    assert "produces: [script.md]" in workflow_yaml(TASK, 2.5)
+    monitor = next(t for t in TASKS if t.workflow == "Scheduled monitor")
+    assert "output_type: list[finding]" in workflow_yaml(monitor, 1)
+
+
+def test_each_task_kind_has_eight_tasks_of_its_own_workflow() -> None:
+    assert set(KINDS) == {"research briefs", "long-form writing", "typed lists"}
+    for kind, workflow in KINDS.items():
+        assert workflow in WORKFLOWS
+        assert sum(t.workflow == workflow for t in TASKS) == 8, kind
 
 
 def test_the_grader_reads_the_outputs_only() -> None:
@@ -73,6 +106,65 @@ def test_the_grader_checks_topic_by_meaning_not_one_exact_keyword() -> None:
     assert _on("astronomy from the backyard", "Start your morning with a stretch.") == [
         "script.md never names astronomy from the backyard"
     ]
+
+
+def _first(workflow: str) -> EvalTask:
+    return next(t for t in TASKS if t.workflow == workflow)
+
+
+LINKS = " ".join(f"https://example.org/{n}" for n in range(3))
+
+
+def test_a_research_brief_is_graded_on_length_links_and_topic() -> None:
+    task = _first("Research brief")
+    brief = f"{task.keywords[0]} " + "word " * 300 + LINKS
+    assert grade(task, {"brief.md": brief}) == []
+    assert grade(task, {}) == ["brief.md is missing"]
+    assert grade(task, {"brief.md": "Too short. https://a.org https://a.org"}) == [
+        "brief.md is 4 words, not 250 to 1000",
+        "brief.md cites 1 links, not 3",
+        f"brief.md never names {task.topic}",
+    ]
+
+
+def test_a_draft_needs_its_outline_and_a_draft_of_the_right_length_on_topic() -> None:
+    task = _first("Draft with approval")
+    draft = f"# Title\n\n{task.keywords[0]} " + "word " * 600
+    assert grade(task, {"outline.md": "1. Intro", "draft.md": draft}) == []
+    assert grade(task, {}) == ["outline.md is missing", "draft.md is missing"]
+    assert grade(task, {"outline.md": "x", "draft.md": "word " * 1300}) == [
+        "draft.md is 1300 words, not 500 to 1200",
+        f"draft.md never names {task.topic}",
+    ]
+
+
+def test_a_monitor_is_graded_on_its_typed_list_of_findings() -> None:
+    task = _first("Scheduled monitor")
+    finding = f"# New rule\n\nWhat changed in {task.keywords[0]}. https://example.org/a"
+    found = {f"finding-{n}.md": finding for n in range(3)}
+    assert grade(task, {**found, "verdict-1.md": "passed"}) == []
+    assert grade(task, {"finding-a.md": finding}) == ["1 findings, not 3 to 10"]
+    many = {f"finding-{n}.md": finding for n in range(11)}
+    assert grade(task, many) == ["11 findings, not 3 to 10"]
+    bare = {f"finding-{n}.md": "Something else." for n in range(3)}
+    assert grade(task, bare) == [
+        "3 of 3 findings have no source link",
+        f"no finding names {task.topic}",
+    ]
+    assert made_by(task, "finding-new-rule.md") and not made_by(task, "verdict-1.md")
+    assert made_by(TASK, "ideas.md") and not made_by(TASK, "finding-a.md")
+
+
+def test_the_judge_reads_every_item_of_a_typed_list_and_a_missing_list_says_so() -> None:
+    task = _first("Scheduled monitor")
+    outputs = {"swarm": {"finding-b.md": "B-ITEM", "finding-a.md": "A-ITEM"}}
+    prompt = judge_prompt(task, outputs)
+    assert task.topic in prompt and "typed list" in prompt
+    swarm_label = "AB"[blind_order(task.id).index("swarm")]
+    other = "B" if swarm_label == "A" else "A"
+    assert prompt.index(f"## {swarm_label}: finding-a.md") < prompt.index("A-ITEM")
+    assert prompt.index("A-ITEM") < prompt.index("B-ITEM")
+    assert f"## {other}: finding-*\n\n(missing)" in prompt
 
 
 def test_pass_at_k_and_pass_to_the_k() -> None:
@@ -156,12 +248,13 @@ def test_the_report_keeps_acceptance_and_counts_the_judges_wins_losses_ties_and_
     assert (swarm.wins, swarm.losses, swarm.ties) == (2, 1, 1)
     assert (baseline.wins, baseline.losses, baseline.ties) == (1, 2, 1)
     assert swarm.cost_per_win == pytest.approx(2.5) and baseline.cost_per_win == pytest.approx(1.8)
-    assert report.tasks == 2 and report.swarm_wins and report.judgements == picks
+    assert report.tasks == 2 and report.judgements == picks
+    assert not report.swarm_wins and report.p_value == 0.5, "2 of 3 could be chance"
     assert report.verdict == (
-        "The swarm wins: the blind judge preferred it in 2 of 3 decided pairs (1 tied), at $2.50"
-        " a win against $1.80 a win for the baseline. It accepted 75% of trials first try"
-        " against 25%, in 4 min an accepted trial against 10 min, at $1.25 a trial against"
-        " $0.45 (estimated)."
+        "The swarm does not win: the blind judge preferred it in 2 of 3 decided pairs (1 tied,"
+        " p = 0.50), at $2.50 a win against $1.80 a win for the baseline. It accepted 75% of"
+        " trials first try against 25%, in 4 min an accepted trial against 10 min, at $1.25 a"
+        " trial against $0.45 (estimated)."
     )
     text = markdown(report)
     assert report.verdict in text
@@ -170,17 +263,49 @@ def test_the_report_keeps_acceptance_and_counts_the_judges_wins_losses_ties_and_
     assert "| b | 1 | tie | Pick 2 |" in text and "| a | 1 | swarm | Pick 0 |" in text
 
 
-def test_the_swarm_wins_only_on_more_than_half_of_the_decided_pairs() -> None:
-    def wins(*winners: str | None) -> bool:
-        return summarize(TRIALS, 2, "eval_1", "now", judged(*winners)).swarm_wins
+def pairs(wins: int, losses: int, ties: int = 0, swarm_usd: float = 1.0) -> EvalReport:
+    """A synthetic eval of one trial a task, the judge's picks given; a baseline trial costs $1."""
+    winners = ["swarm"] * wins + ["baseline"] * losses + [None] * ties
+    trials = [trial(f"t{i}", arm, 0, True, 1.0, 60) for i in range(len(winners)) for arm in ARMS]
+    trials = [replace(t, cost_usd=swarm_usd) if t.arm == "swarm" else t for t in trials]
+    picks = [Judgement(f"t{i}", 0, w, "Pick") for i, w in enumerate(winners)]
+    return summarize(trials, 1, "eval_1", "now", picks, "typed lists")
 
-    assert wins("swarm", None, None, None), "ties are left out"
-    assert not wins("swarm", "baseline", None, None), "half is not more than half"
-    assert not wins(None, None, None, None) and not wins()
-    assert not wins("baseline", "baseline", "swarm", None)
-    lost = summarize(TRIALS, 2, "eval_2", "now", judged("baseline"))
-    assert lost.verdict.startswith("The swarm does not win: the blind judge preferred it in 0 of 1")
-    assert "at no win against $1.80 a win" in lost.verdict
+
+def test_the_sign_test_is_the_one_sided_binomial_tail() -> None:
+    assert sign_test(12, 16) == pytest.approx(2517 / 2**16)
+    assert sign_test(0, 0) == 1 and sign_test(3, 3) == 1 / 8
+
+
+def test_a_kind_is_a_swarm_win_only_past_every_bar_of_the_win_rule() -> None:
+    # Significance: 12 of 16 decided pairs is p 0.038, 11 of 16 is p 0.105.
+    assert pairs(12, 4).swarm_wins and not pairs(11, 5).swarm_wins
+    # More than 60%: 60 of 100 is significant (p 0.028) but not more than 60%; 61 is.
+    assert sign_test(60, 100) < 0.05 and not pairs(60, 40).swarm_wins
+    assert pairs(61, 39).swarm_wins
+    # Ties are left out of the decided pairs.
+    assert pairs(12, 4, ties=10).swarm_wins
+    assert not pairs(0, 0, ties=4).swarm_wins
+    assert not summarize(TRIALS, 2, "eval_2", "now").swarm_wins, "no pick, no win"
+    # At most 3 times the cost a win: 12 of 16 at $9 a swarm trial is $12 a win against $4.
+    at_three = pairs(12, 4, swarm_usd=9.0)
+    assert at_three.swarm_wins
+    assert (at_three.arms[0].cost_per_win, at_three.arms[1].cost_per_win) == (4, 12)
+    assert not pairs(12, 4, swarm_usd=9.01).swarm_wins
+    # A baseline that never won has no cost a win to compare: any cost passes.
+    assert pairs(16, 0, swarm_usd=100.0).swarm_wins
+
+
+def test_the_verdict_names_the_kind_and_the_odds() -> None:
+    won, lost = pairs(12, 4), pairs(1, 0)
+    assert (won.kind, won.p_value) == ("typed lists", pytest.approx(0.0384, abs=1e-4))
+    assert won.verdict.startswith(
+        "The swarm wins on typed lists: the blind judge preferred it in 12 of 16 decided pairs"
+        " (0 tied, p = 0.04)"
+    )
+    assert lost.verdict.startswith("The swarm does not win on typed lists: the blind judge")
+    assert "at $1.00 a win against no win for the baseline" in lost.verdict
+    assert markdown(won).startswith("# Eval of typed lists: baseline against swarm, 16 tasks")
     with pytest.raises(ValueError, match="unknown arm hooli"):
         summarize(TRIALS, 2, "eval_3", "now", judged("hooli"))
 

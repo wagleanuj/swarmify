@@ -1,6 +1,6 @@
-/* Assets (#194): the voices a world's speech steps use, as cards you can play first, then the
-   files its builds read, as rows with a preview. On a phone the sections stack and Add a voice
-   sits in a bar pinned above the tab bar. */
+/* Assets (#194, #220): each Owned Folder of a package, as a folder of voices, as cards
+   you can play first, then the files its builds read, as rows with a preview. On a phone the
+   sections stack and a folder's Add button sits in a bar pinned above the tab bar. */
 .assets-page { display: grid; gap: var(--gap); max-width: 64rem; }
 .assets-page header.page { margin-bottom: 0; }
 .assets-page .panel > .empty { margin-bottom: 0; }
@@ -9,16 +9,12 @@
 button.play { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; background: var(--accent); border-color: var(--accent); color: var(--primary-ink); }
 button.play:hover { background: #3fd68f; border-color: #3fd68f; }
 button.play svg { width: 18px; height: 18px; fill: currentColor; }
+.play-open { min-height: 40px; }
 .voice-name { display: grid; min-width: 0; }
 .voice-name b { font-size: 14px; }
-.voice-card .chips { margin-top: 2px; }
-.voice-card .used-by { margin-top: 6px; }
-.voice-edit { display: grid; gap: 10px; }
-.voice-edit input, .add-voice input:not([type="checkbox"]) { width: 100%; }
+.add-voice input:not([type="checkbox"]) { width: 100%; }
 /* A card's or row's menu opens leftwards from its right-hand button, inside the screen. */
 .voice-card .menu, .file-rows .menu { left: auto; right: 0; }
-.voice-warnings { margin-top: 12px; color: var(--pill-warning-ink); font-size: 12px; }
-.voice-warnings ul { margin: 4px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
 .assets-bar { display: flex; margin-top: 16px; }
 
 .file-rows { list-style: none; margin: 0; padding: 0; }
@@ -35,17 +31,16 @@ button.play svg { width: 18px; height: 18px; fill: currentColor; }
 .file-audio { grid-row: 2; grid-column: 2 / -1; width: 100%; height: 36px; }
 .file-rename { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; grid-column: 2 / -1; }
 .file-rename input { flex: 1 1 10rem; min-width: 0; }
-.file-rows li:has(.file-rename) .file-open, .file-rows li:has(.file-rename) .menu-wrap { display: none; }
+.file-rows li:has(.file-rename) .file-open, .file-rows li:has(.file-rename) .menu-wrap, .voice-top:has(.file-rename) .menu-wrap { display: none; }
 
 .add-voice { display: grid; gap: 14px; }
 .segmented { display: flex; gap: 0; border: 1px solid var(--control); border-radius: 999px; padding: 2px; width: fit-content; }
 .segmented button { border: 0; min-height: 30px; }
 .segmented button[aria-pressed="true"] { background: var(--text); color: #000; }
-.read-this { margin: 0; padding: 10px 12px; border-left: 2px solid var(--accent); background: var(--well); font-size: 14px; line-height: 1.6; }
 .take { display: flex; gap: 12px; align-items: center; }
 .take audio { flex: 1; min-width: 0; height: 36px; }
 .assets-link { margin-top: var(--gap); }
-/* On a wide screen the Add a voice sheet is a centred dialog, not a bottom sheet. */
+/* On a wide screen an Add sheet is a centred dialog, not a bottom sheet. */
 @media (min-width: 48.01rem) {
   dialog.sheet.sheet-form { margin: auto; max-width: 34rem; border: 1px solid var(--border); border-radius: 12px; }
   dialog.sheet.sheet-form .sheet-body::before { display: none; }

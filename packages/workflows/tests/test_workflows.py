@@ -118,5 +118,5 @@ def test_stored_yaml_round_trips_through_a_fresh_adapter(
     workflows: Workflows, tmp_path: Path
 ) -> None:
     v1 = workflows.save(WORLD, WEEKLY_SHORT)
-    again = Workflows(SqliteStorage(tmp_path / "swarmify.db"), lambda _: {})
+    again = Workflows(SqliteStorage(tmp_path / "swarmify.db"), lambda *_: {})
     assert again.versions(v1.workflow_id) == [v1]

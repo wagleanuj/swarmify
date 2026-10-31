@@ -36,12 +36,28 @@ def test_unknown_connectors_and_wrong_stage_types_are_named() -> None:
         ("connector_stage_type", "research"),
         ("unknown_connector", "research"),
     ]
-    assert rules(WorkflowModel("w", [ConnectorStage("search", "web_search")])) == [
-        ("connector_stage_type", "search")
-    ]
     assert rules(WorkflowModel("w", [ConnectorStage("x", "missing")])) == [
         ("unknown_connector", "x")
     ]
+
+
+def test_agent_tools_need_no_connector_and_belong_to_swarm_stages() -> None:
+    swarm = SwarmStage("research", "g", "d", tools=["web_search", "graph"])
+    assert rules(WorkflowModel("w", [swarm])) == []
+    found = validate(
+        WorkflowModel("w", [ConnectorStage("search", "web_search")]),
+        workflow_id=None,
+        connectors=CONNECTORS,
+        references={},
+    )
+    assert [(v.rule, v.message) for v in found] == [
+        ("connector_stage_type", "'web_search' is an Agent Tool: list it in a swarm stage's tools")
+    ]
+    unknown = SwarmStage("research", "g", "d", tools=["nope"])
+    found = validate(
+        WorkflowModel("w", [unknown]), workflow_id=None, connectors=CONNECTORS, references={}
+    )
+    assert [v.message for v in found] == ["no connector or Agent Tool named 'nope'"]
 
 
 def test_connector_inputs_must_be_produced_by_an_earlier_stage() -> None:
@@ -145,7 +161,7 @@ def test_a_swarm_stage_cannot_promise_a_binary_file(name: str) -> None:
     )
     assert [(v.rule, v.stage) for v in found] == [("swarm_binary", "build")]
     assert f"only a connector stage can make {name}" in found[0].message
-    assert "remotion_build" in found[0].message
+    assert "Build Session" in found[0].message
 
 
 @pytest.mark.parametrize(

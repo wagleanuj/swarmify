@@ -1,0 +1,64 @@
+# The YouTube connector (README.md beside this file). A default package: Swarmify installs it from
+# this folder and enables it for every world that has not decided otherwise.
+name = "youtube"
+version = "1.0.0"
+label = "YouTube"
+about = "Uploads to YouTube through the Data API; a schedule keeps it private until then."
+kind = "publish"
+stage_types = ["connector"]
+capabilities = ["publish", "outcomes"]
+primary_metric = "views"
+
+runtime = "uv"
+install = ["uv", "sync", "--frozen", "--no-dev"]
+command = [".venv/bin/python", "youtube.py"]
+
+[params]
+type = "object"
+[params.properties.title]
+type = "string"
+description = "required unless metadata names a file an earlier stage produced whose frontmatter has title and description"
+[params.properties.metadata]
+type = "string"
+description = "a file an earlier stage produced; its frontmatter's title, description, hashtags and tags win over these params"
+[params.properties.description]
+type = "string"
+[params.properties.visibility]
+enum = ["public", "unlisted", "private"]
+default = "private"
+[params.properties.schedule]
+type = "string"
+description = "ISO 8601 with a timezone, or 09:00, or +1d 09:00; needs public"
+[params.properties.made_for_kids]
+type = "boolean"
+default = false
+
+[[inputs]]
+description = "the video"
+media_type = "video/mp4"
+
+[setup]
+help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/youtube#setup"
+
+# The channel's Google account. Swarmify signs in and refreshes; the connector gets a current
+# access token as YOUTUBE_ACCESS_TOKEN. The app's client ID and secret are the shared Credentials
+# youtube_client_id and youtube_client_secret, which a V1 .env's YOUTUBE_CLIENT_ID and
+# YOUTUBE_CLIENT_SECRET become, its YOUTUBE_REFRESH_TOKEN the token set.
+[[config]]
+key = "youtube"
+label = "YouTube account"
+type = "oauth"
+required = true
+env = "YOUTUBE_ACCESS_TOKEN"
+help = "The Google account of the channel to post to. Register your own Google Cloud OAuth client (Web application, YouTube Data API v3 enabled) with this page's redirect URI; see the README."
+[config.oauth]
+authorize_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly"]
+pkce = true
+authorize_params = { access_type = "offline", prompt = "consent" }
+
+# Its sandbox (ADR 0021): the YouTube Data API, uploads included. Swarmify itself signs in and
+# refreshes the token with accounts.google.com and oauth2.googleapis.com, so this never does.
+[permissions]
+network = ["www.googleapis.com"]

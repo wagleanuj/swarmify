@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { who } from "../api/tasks";
 import { castRoute } from "../router";
+import { cap, the } from "../skin";
 import { usd } from "./AgentLog";
 import { ModelSelect, useModels } from "./ModelSelect";
 
@@ -171,7 +172,7 @@ export function Cast() {
           <h1>Cast</h1>
           <p className="sub">
             {cast
-              ? `${cast.length} agents work in ${name}: Richard plans, the workers claim tasks, Erlich judges. Together they cost an estimated ${usd(total)} so far.`
+              ? `${cast.length} agents work in ${name}: ${cap(the("planner"))} plans, the workers claim tasks, ${the("judge")} judges. Together they cost an estimated ${usd(total)} so far.`
               : `Who works in ${name}.`}
           </p>
         </div>

@@ -192,6 +192,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Starters
+         * @description The starter workflows a new workflow can begin from, each passing the check.
+         */
+        get: operations["list_starters_api_workflows_starters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/workflows": {
         parameters: {
             query?: never;
@@ -592,7 +612,12 @@ export interface paths {
         /** List Connectors */
         get: operations["list_connectors_api_worlds__world_id__connectors_get"];
         put?: never;
-        /** Add Connector */
+        /**
+         * Add Connector
+         * @description Write a minimal Manifest for the server, install it as a local Connector Package,
+         *     enable it in this world and save its keys as the package's shared Credentials (issue
+         *     211). An empty key takes the value the package or the credentials file holds already.
+         */
         post: operations["add_connector_api_worlds__world_id__connectors_post"];
         delete?: never;
         options?: never;
@@ -620,7 +645,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/connectors/{connector_id}": {
+    "/api/worlds/{world_id}/packages/{name}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Health
+         * @description Whether each Service the enabled package declares answers its health path, one check
+         *     per URL its Setting holds, then what its health tool finds (ADR 0026). 404 when the
+         *     world does not enable it, 502 when the tool cannot be called.
+         */
+        get: operations["package_health_api_worlds__world_id__packages__name__health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Packages
+         * @description Every Connector Package version installed for the whole install (ADR 0023).
+         */
+        get: operations["list_packages_api_packages_get"];
+        put?: never;
+        /**
+         * Install Package
+         * @description Copy the package, from git at the reviewed commit, to
+         *     `<data dir>/packages/<name>/<version>/` and run its install step there, once every
+         *     permission it declares is in `approved`. 422 naming the field for an invalid Manifest,
+         *     or saying why it did not install (a permission not approved, that version installed
+         *     already, the step failed); nothing new is left behind.
+         */
+        post: operations["install_package_api_packages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packages/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Index
+         * @description The curated index of known packages, read from `SWARMIFY_CONNECTOR_INDEX` (an https
+         *     URL or a local file; by default the swarmify-connectors repository's `index.toml`). 502
+         *     saying why when it cannot be fetched or read.
+         */
+        get: operations["package_index_api_packages_index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packages/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review Package
+         * @description Fetch the package (a git source is cloned at its ref, running none of its code) and
+         *     say what installing it would grant, for the operator to approve. 422 naming the field
+         *     for an invalid Manifest, or saying why it cannot install (a refused URL, an unknown ref,
+         *     a symlink out of the package, that version installed already).
+         */
+        post: operations["review_package_api_packages_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packages/{name}/{version}": {
         parameters: {
             query?: never;
             header?: never;
@@ -630,14 +750,59 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Connector */
-        delete: operations["delete_connector_api_connectors__connector_id__delete"];
+        /**
+         * Uninstall Package
+         * @description Remove an installed version. 409 naming every world that pins it and every saved
+         *     workflow version that records it, while any does: those keep running it.
+         */
+        delete: operations["uninstall_package_api_packages__name___version__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/connectors/{connector_id}/credentials": {
+    "/api/worlds/{world_id}/packages/{name}/switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Switch
+         * @description What moving this world's pin of the package to `version` changes in its Manifest
+         *     (params, Setup fields, permissions), and the new required fields it waits for.
+         */
+        get: operations["package_switch_api_worlds__world_id__packages__name__switch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Enabled Packages
+         * @description The Connector Packages this world enables, each at the version it pins (ADR 0023).
+         */
+        get: operations["enabled_packages_api_worlds__world_id__packages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/packages/{name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -646,19 +811,25 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Credentials
-         * @description Store a connector's keys in the credentials file, shared by every world; how
-         *     built-ins get theirs. A built-in publish connector's keys are then checked live.
+         * Enable Package
+         * @description Enable an installed package in this world at a version, or move its pin there; its
+         *     Connector then exists in this world, called by the package's name. 422 saying why not,
+         *     as a switch to a version with a new required Setup field that has no value yet. Saved
+         *     workflow versions keep the version they recorded.
          */
-        put: operations["set_credentials_api_connectors__connector_id__credentials_put"];
+        put: operations["enable_package_api_worlds__world_id__packages__name__put"];
         post?: never;
-        delete?: never;
+        /**
+         * Disable Package
+         * @description Stop this world using the package; other worlds that enable it are untouched.
+         */
+        delete: operations["disable_package_api_worlds__world_id__packages__name__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/connectors/{connector_id}/health": {
+    "/api/worlds/{world_id}/packages/{name}/setup": {
         parameters: {
             query?: never;
             header?: never;
@@ -666,11 +837,69 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Connector Health
-         * @description What the connector depends on and whether each answers, as a speech connector's
-         *     engines. Empty for a connector without a health check.
+         * Get Setup
+         * @description The Setup form of a package this world enables, drawn from its Manifest's
+         *     `[[config]]` fields with what is saved for each (ADR 0024). Credentials are only set
+         *     or not. `version`, an installed version other than the pinned one, draws that
+         *     version's form, so the fields a pin switch waits for are filled in before it. 404 when
+         *     the world does not enable it.
          */
-        get: operations["connector_health_api_connectors__connector_id__health_get"];
+        get: operations["get_setup_api_worlds__world_id__packages__name__setup_get"];
+        /**
+         * Save Setup
+         * @description Save the package's shared values and this world's own. An empty value clears a
+         *     Setting; an empty Credential keeps the saved one, null clears it. The package's test
+         *     tool runs with the candidate values first; when it fails nothing is saved and the 422
+         *     carries its message. 422 also names a field that is invalid or required. `version` as
+         *     for the form.
+         */
+        put: operations["save_setup_api_worlds__world_id__packages__name__setup_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/packages/{name}/setup/oauth/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Sign In
+         * @description Begin signing in to the package's `oauth` field `key`: the browser goes to the
+         *     returned URL, and the provider sends it back to `/api/setup/oauth/callback` at the
+         *     origin this request came to (behind a proxy, its X-Forwarded-Proto and -Host), which
+         *     is the redirect URI to register with the provider. 422 until the field's client ID is
+         *     saved.
+         */
+        post: operations["start_sign_in_api_worlds__world_id__packages__name__setup_oauth__key__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finish Sign In
+         * @description Where the provider sends the browser back. The state must be one this session began
+         *     in the last ten minutes, once; the code is traded for the token set, stored as the
+         *     field's Credential. Redirects to the world's Connectors page with `sign_in` (the
+         *     package) or `sign_in_error` (why not) in the query. 400 for a stale or foreign state.
+         */
+        get: operations["finish_sign_in_api_setup_oauth_callback_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1006,6 +1235,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/owned_folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Owned Folders
+         * @description The Owned Folders of the packages the world enables, each a group on the Assets
+         *     page; their files are in the assets list under each one's `path`.
+         */
+        get: operations["list_owned_folders_api_worlds__world_id__owned_folders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/assets/{name}": {
         parameters: {
             query?: never;
@@ -1016,8 +1266,9 @@ export interface paths {
         get?: never;
         /**
          * Add Asset
-         * @description Upload an asset: the request body is the file, `name` a plain file name. A name
-         *     already there is replaced.
+         * @description Upload an asset: the request body is the file, `name` a plain file name, into the
+         *     assets folder or one of the world's Owned Folders, whose `accept` it must match. A
+         *     name already there is replaced.
          */
         put: operations["add_asset_api_worlds__world_id__assets__name__put"];
         post?: never;
@@ -1039,8 +1290,7 @@ export interface paths {
         post?: never;
         /**
          * Remove Asset
-         * @description Delete an asset by its path, as the list gives it. A voice's clip or voices.json is
-         *     refused: delete the voice instead.
+         * @description Delete an asset by its path, as the list gives it.
          */
         delete: operations["remove_asset_api_worlds__world_id__assets__path__delete"];
         options?: never;
@@ -1071,55 +1321,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/worlds/{world_id}/voices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Voices
-         * @description The world's voices as the speech connector reads them, in catalog order.
-         */
-        get: operations["list_voices_api_worlds__world_id__voices_get"];
-        put?: never;
-        /**
-         * Add Voice
-         * @description Add a voice: its clip saved as `<name>.wav` and its entry appended to voices.json.
-         */
-        post: operations["add_voice_api_worlds__world_id__voices_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/worlds/{world_id}/voices/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Voice
-         * @description Delete a voice's entry and its clip. A workflow still naming it hands the name to the
-         *     engines as their own voice, so the page names those workflows before it asks.
-         */
-        delete: operations["delete_voice_api_worlds__world_id__voices__name__delete"];
-        options?: never;
-        head?: never;
-        /**
-         * Edit Voice
-         * @description Change a voice's description and tags.
-         */
-        patch: operations["edit_voice_api_worlds__world_id__voices__name__patch"];
         trace?: never;
     };
     "/api/worlds/{world_id}/notifications": {
@@ -1299,7 +1500,7 @@ export interface paths {
         put?: never;
         /**
          * Judge
-         * @description One blind judge session over the pair's `ideas.md` and `script.md`: the arm labels
+         * @description One blind judge session over what the task's workflow left on each side: the arm labels
          *     removed, the order shuffled per task. 502 when the session fails or answers in another
          *     shape; post again to retry.
          */
@@ -1326,8 +1527,8 @@ export interface paths {
         /**
          * Save Eval
          * @description Summarize the trials and the judge's picks into a report (pass at k, pass to the k,
-         *     cost, duration, acceptance, wins, losses, ties and cost a win per arm) and store it as
-         *     `report.md` in the eval world's Library.
+         *     cost, duration, acceptance, wins, losses, ties and cost a win per arm, and whether the
+         *     kind is a swarm win) and store it as `report.md` in the eval world's Library.
          */
         post: operations["save_eval_api_evals_post"];
         delete?: never;
@@ -1352,6 +1553,71 @@ export interface paths {
          */
         post: operations["chat_api_worlds__world_id__planner_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session */
+        get: operations["get_session_api_session_get"];
+        put?: never;
+        /**
+         * Sign In
+         * @description Sign in with the operator password: sets the session cookie. 401 for a wrong
+         *     password, 429 with Retry-After after too many.
+         */
+        post: operations["sign_in_api_session_post"];
+        /** Sign Out */
+        delete: operations["sign_out_api_session_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tokens
+         * @description API tokens for the MCP server, oldest first. Their secrets are never returned.
+         */
+        get: operations["list_tokens_api_tokens_get"];
+        put?: never;
+        /**
+         * Create Token
+         * @description A new token for the MCP server at `/mcp`, sent as `Authorization: Bearer <token>`.
+         *     The token is in this response only.
+         */
+        post: operations["create_token_api_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Token */
+        delete: operations["revoke_token_api_tokens__token_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1513,26 +1779,6 @@ export interface components {
             /** Bytes */
             bytes: number;
         };
-        /** Body_add_voice_api_worlds__world_id__voices_post */
-        Body_add_voice_api_worlds__world_id__voices_post: {
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Consent */
-            consent: string;
-            /**
-             * Clip
-             * @description 5 to 10 s of speech, a 16-bit WAV
-             */
-            clip: string;
-            /**
-             * Tags
-             * @description comma separated
-             * @default
-             */
-            tags: string;
-        };
         /**
          * Call
          * @description One connector stage call, keyed by the stage id. `response` is the latest raw response:
@@ -1647,12 +1893,14 @@ export interface components {
             updated_at: string | null;
             record?: components["schemas"]["Record"];
         };
-        /** Catalog */
-        Catalog: {
-            /** Voices */
-            voices: components["schemas"]["Voice"][];
-            /** Warnings */
-            warnings: string[];
+        /** Changes */
+        Changes: {
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
+            /** Changed */
+            changed?: string[];
         };
         /** ChannelUpdate */
         ChannelUpdate: {
@@ -1732,7 +1980,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "tool" | "stage" | "publish";
+            kind: "tool" | "stage" | "publish" | "notify";
             /** Command */
             command: string[];
             /** Url */
@@ -1741,14 +1989,14 @@ export interface components {
             credentials: string[];
             /** Stage Types */
             stage_types: string[];
-            /** Builtin */
-            builtin: boolean;
             /** About */
             about: string;
             /** Created At */
             created_at: string | null;
             /** Health */
             health: string | null;
+            /** Services */
+            services: string[];
             /** Types */
             types: {
                 [key: string]: {
@@ -1759,20 +2007,23 @@ export interface components {
             input_types: (string | null)[];
             /** World Types */
             world_types: string | null;
+            /** Label */
+            label: string;
+            /** Capabilities */
+            capabilities: string[];
+            /** Outputs */
+            outputs: components["schemas"]["MediaFile"][];
             /** Missing */
             missing: string[];
+            /** Sign In */
+            sign_in: string[];
+            /** Version */
+            version: string;
         };
         /** CopyBody */
         CopyBody: {
             /** World Id */
             world_id: string;
-        };
-        /** CredentialValues */
-        CredentialValues: {
-            /** Credentials */
-            credentials: {
-                [key: string]: string;
-            };
         };
         /**
          * Decide
@@ -1852,16 +2103,15 @@ export interface components {
             publish?: {
                 [key: string]: unknown;
             } | null;
+            /** By */
+            by?: string | null;
         };
-        /** EditBody */
-        EditBody: {
-            /** Description */
-            description: string;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: string[];
+        /** EnabledPackage */
+        EnabledPackage: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
         };
         /** EvalReport */
         EvalReport: {
@@ -1883,6 +2133,10 @@ export interface components {
             trials: components["schemas"]["Trial"][];
             /** Judgements */
             judgements?: components["schemas"]["Judgement"][];
+            /** Kind */
+            kind?: string | null;
+            /** P Value */
+            p_value?: number | null;
         };
         /** Failure */
         Failure: {
@@ -2025,7 +2279,7 @@ export interface components {
         };
         /**
          * HealthCheck
-         * @description One thing a connector depends on, such as a speech engine, and whether it answers.
+         * @description One thing a connector depends on, such as a model server, and whether it answers.
          */
         HealthCheck: {
             /** Name */
@@ -2034,6 +2288,25 @@ export interface components {
             ok: boolean;
             /** Message */
             message: string;
+        };
+        /**
+         * IndexEntry
+         * @description One package the curated index lists (issue 226). `permissions` is the index's summary,
+         *     for browsing; the review of the clone lists what the operator approves.
+         */
+        IndexEntry: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Git */
+            git: string;
+            /** Subfolder */
+            subfolder: string | null;
+            /** Ref */
+            ref: string;
+            /** Permissions */
+            permissions: string[];
         };
         /**
          * Judgement
@@ -2052,8 +2325,8 @@ export interface components {
         };
         /**
          * KeyCheck
-         * @description What a live check of a built-in's saved keys found: the account they sign in to, or why
-         *     they did not work.
+         * @description What a package's Setup test found: the account its values sign in to, or why they did not
+         *     work.
          */
         KeyCheck: {
             /** Ok */
@@ -2149,6 +2422,16 @@ export interface components {
              */
             detail: string;
         };
+        /**
+         * MediaFile
+         * @description A file a connector makes or takes, as its Manifest declares it.
+         */
+        MediaFile: {
+            /** Description */
+            description: string;
+            /** Media Type */
+            media_type: string;
+        };
         /** Message */
         Message: {
             /** Message */
@@ -2194,11 +2477,15 @@ export interface components {
             input_types?: (string | null)[];
             /** World Types */
             world_types?: string | null;
+            /** Network */
+            network?: string[];
         };
         /** NewEval */
         NewEval: {
             /** K */
             k: number;
+            /** Kind */
+            kind?: string | null;
             /** Trials */
             trials: components["schemas"]["Trial"][];
             /**
@@ -2245,6 +2532,22 @@ export interface components {
              */
             added_by: string;
         };
+        /** NewToken */
+        NewToken: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at: string;
+            /**
+             * Scope
+             * @default mcp
+             */
+            scope: string;
+            /** Token */
+            token: string;
+        };
         /** NewWorld */
         NewWorld: {
             /** Name */
@@ -2263,6 +2566,124 @@ export interface components {
             body: string;
             /** Ts */
             ts: string;
+        };
+        /**
+         * OwnedFolder
+         * @description A folder of the world's assets a package it enables owns (Manifest `[[owned_folders]]`).
+         *     Swarmify lists, plays, uploads, renames and deletes its files; the package gives them
+         *     meaning.
+         */
+        OwnedFolder: {
+            /** Path */
+            path: string;
+            /** Folder */
+            folder: string;
+            /** Label */
+            label: string;
+            /** About */
+            about: string;
+            /** Accept */
+            accept: string[];
+            /** Confirm */
+            confirm: string;
+            /** Package */
+            package: string;
+        };
+        /**
+         * Package
+         * @description One installed version of a Connector Package. `state` is `installed`, or `invalid` with
+         *     `problem` when its Manifest no longer passes (a newer Swarmify, an edited file).
+         */
+        Package: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string;
+            /** About */
+            about: string;
+            /** State */
+            state: string;
+            /** Source */
+            source: string;
+            /** Installed At */
+            installed_at: string;
+            /** Problem */
+            problem?: string | null;
+            /** Ref */
+            ref?: string | null;
+            /** Commit */
+            commit?: string | null;
+            /** Subfolder */
+            subfolder?: string | null;
+        };
+        /** PackageIndex */
+        PackageIndex: {
+            /** Url */
+            url: string;
+            /** Packages */
+            packages: components["schemas"]["IndexEntry"][];
+        };
+        /** PackageInstall */
+        PackageInstall: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref?: string | null;
+            /** Subfolder */
+            subfolder?: string | null;
+            /** Commit */
+            commit?: string | null;
+            /** Approved */
+            approved: string[];
+        };
+        /**
+         * PackageReview
+         * @description What installing a package would grant, read without running any of it (issue 225).
+         */
+        PackageReview: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Label */
+            label: string;
+            /** About */
+            about: string;
+            /** Commit */
+            commit: string | null;
+            /** Permissions */
+            permissions: string[];
+            upgrade: components["schemas"]["Upgrade"] | null;
+        };
+        /** PackageSource */
+        PackageSource: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref?: string | null;
+            /** Subfolder */
+            subfolder?: string | null;
+        };
+        /**
+         * PackageSwitch
+         * @description What moving a world's pin to `to` changes in the package's Manifest (issue 223).
+         */
+        PackageSwitch: {
+            /** From */
+            from: string | null;
+            /** To */
+            to: string;
+            params: components["schemas"]["Changes"];
+            setup: components["schemas"]["Changes"];
+            /** Required */
+            required: string[];
+            permissions: components["schemas"]["Changes"];
+            /** Needs */
+            needs: string[];
         };
         /**
          * Pair
@@ -2288,6 +2709,11 @@ export interface components {
              * @default true
              */
             pinned: boolean;
+        };
+        /** PinnedVersion */
+        PinnedVersion: {
+            /** Version */
+            version: string;
         };
         /** Progress */
         Progress: {
@@ -2561,8 +2987,10 @@ export interface components {
             cost_usd: number;
             /** Duration S */
             duration_s: number | null;
-            /** Views */
-            views: number | null;
+            /** Outcomes */
+            outcomes: {
+                [key: string]: number;
+            };
         };
         /**
          * RunStageView
@@ -2605,45 +3033,18 @@ export interface components {
             /** Name */
             name?: string | null;
         };
-        /** SavedKeys */
-        SavedKeys: {
-            /** Id */
-            id: string;
-            /** World Id */
-            world_id: string | null;
-            /** Name */
-            name: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "tool" | "stage" | "publish";
-            /** Command */
-            command: string[];
-            /** Url */
-            url: string | null;
-            /** Credentials */
-            credentials: string[];
-            /** Stage Types */
-            stage_types: string[];
-            /** Builtin */
-            builtin: boolean;
-            /** About */
-            about: string;
-            /** Created At */
-            created_at: string | null;
-            /** Health */
-            health: string | null;
-            /** Types */
-            types: {
-                [key: string]: {
-                    [key: string]: unknown;
-                };
-            };
-            /** Input Types */
-            input_types: (string | null)[];
-            /** World Types */
-            world_types: string | null;
+        /** SavedSetup */
+        SavedSetup: {
+            /** Package */
+            package: string;
+            /** Version */
+            version: string;
+            /** Help Url */
+            help_url: string | null;
+            /** Test */
+            test: string | null;
+            /** Fields */
+            fields: components["schemas"]["SetupField"][];
             /** Missing */
             missing: string[];
             check: components["schemas"]["KeyCheck"] | null;
@@ -2663,6 +3064,13 @@ export interface components {
             /** Runs */
             runs: components["schemas"]["RunScore"][];
         };
+        /** SessionView */
+        SessionView: {
+            /** Signed In */
+            signed_in: boolean;
+            /** Sign In Required */
+            sign_in_required: boolean;
+        };
         /**
          * SetBudget
          * @description The run's new Budget in total, not an increment, so sending it twice adds nothing twice.
@@ -2672,12 +3080,99 @@ export interface components {
             /** Budget Usd */
             budget_usd: number;
         };
+        /**
+         * SetupField
+         * @description One `[[config]]` field of a package's Setup as its Manifest declares it, with what is
+         *     saved for it. A Credential's value is never returned, only whether it is set.
+         */
+        SetupField: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "string" | "text" | "number" | "integer" | "boolean" | "choice" | "url" | "path" | "oauth";
+            /** Secret */
+            secret: boolean;
+            /** Required */
+            required: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "shared" | "world";
+            /** Env */
+            env: string | null;
+            /** Help */
+            help: string | null;
+            /** Options */
+            options: string[] | null;
+            /** Default */
+            default: boolean | number | string | null;
+            /** Min */
+            min: number | null;
+            /** Max */
+            max: number | null;
+            /** Pattern */
+            pattern: string | null;
+            /** Shared */
+            shared: boolean | number | string | null;
+            /** World */
+            world: boolean | number | string | null;
+            /** Shared Set */
+            shared_set: boolean;
+            /** World Set */
+            world_set: boolean;
+            /** Needs Sign In */
+            needs_sign_in: boolean;
+        };
+        /** SetupValues */
+        SetupValues: {
+            /** Shared */
+            shared?: {
+                [key: string]: boolean | number | string | null;
+            };
+            /** World */
+            world?: {
+                [key: string]: boolean | number | string | null;
+            };
+        };
+        /** SetupView */
+        SetupView: {
+            /** Package */
+            package: string;
+            /** Version */
+            version: string;
+            /** Help Url */
+            help_url: string | null;
+            /** Test */
+            test: string | null;
+            /** Fields */
+            fields: components["schemas"]["SetupField"][];
+            /** Missing */
+            missing: string[];
+        };
         /** Side */
         Side: {
             /** World Id */
             world_id: string;
             /** Run Id */
             run_id: string;
+        };
+        /** SignIn */
+        SignIn: {
+            /** Password */
+            password: string;
+        };
+        /** SignInStart */
+        SignInStart: {
+            /** Url */
+            url: string;
+            /** Redirect Uri */
+            redirect_uri: string;
         };
         /**
          * Skill
@@ -2784,6 +3279,15 @@ export interface components {
              */
             baseline: boolean;
         };
+        /** Starter */
+        Starter: {
+            /** Name */
+            name: string;
+            /** About */
+            about: string;
+            /** Yaml */
+            yaml: string;
+        };
         /**
          * Surprise
          * @description A connection graphify finds non-obvious: across files or across communities.
@@ -2817,6 +3321,11 @@ export interface components {
             produces?: string[];
             /** Model */
             model?: string | null;
+            /**
+             * Agents
+             * @default 1
+             */
+            agents: number;
             /**
              * Type
              * @default swarm
@@ -2863,6 +3372,25 @@ export interface components {
             /** Tools */
             tools: components["schemas"]["Tool"][];
         };
+        /** Token */
+        Token: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at: string;
+            /**
+             * Scope
+             * @default mcp
+             */
+            scope: string;
+        };
+        /** TokenCreate */
+        TokenCreate: {
+            /** Name */
+            name: string;
+        };
         /**
          * Tool
          * @description One callable capability a connector exposes.
@@ -2905,12 +3433,14 @@ export interface components {
             /** Failed */
             failed?: string[];
         };
-        /** UsedBy */
-        UsedBy: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
+        /** Upgrade */
+        Upgrade: {
+            /** From */
+            from: string;
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -2968,27 +3498,6 @@ export interface components {
             message: string;
             /** Stage */
             stage?: string | null;
-        };
-        /** Voice */
-        Voice: {
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Tags */
-            tags: string[];
-            /** Engine */
-            engine: string;
-            /** Consent */
-            consent: string;
-            /** Preset */
-            preset: string | null;
-            /** Clip */
-            clip: string | null;
-            /** Seconds */
-            seconds: number | null;
-            /** Used By */
-            used_by: components["schemas"]["UsedBy"][];
         };
         /** Workflow */
         Workflow: {
@@ -3063,6 +3572,10 @@ export interface components {
             /** Created At */
             created_at: string;
             model: components["schemas"]["WorkflowModel"];
+            /** Packages */
+            packages?: {
+                [key: string]: string;
+            };
         };
         /** World */
         World: {
@@ -3492,6 +4005,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_starters_api_workflows_starters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Starter"][];
                 };
             };
         };
@@ -4482,12 +5015,151 @@ export interface operations {
             };
         };
     };
-    delete_connector_api_connectors__connector_id__delete: {
+    package_health_api_worlds__world_id__packages__name__health_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                connector_id: string;
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthCheck"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_packages_api_packages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Package"][];
+                };
+            };
+        };
+    };
+    install_package_api_packages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageInstall"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Package"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    package_index_api_packages_index_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageIndex"];
+                };
+            };
+        };
+    };
+    review_package_api_packages_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageSource"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uninstall_package_api_packages__name___version__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                version: string;
             };
             cookie?: never;
         };
@@ -4511,20 +5183,19 @@ export interface operations {
             };
         };
     };
-    set_credentials_api_connectors__connector_id__credentials_put: {
+    package_switch_api_worlds__world_id__packages__name__switch_get: {
         parameters: {
-            query?: never;
+            query: {
+                version: string;
+            };
             header?: never;
             path: {
-                connector_id: string;
+                world_id: string;
+                name: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CredentialValues"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -4532,7 +5203,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SavedKeys"];
+                    "application/json": components["schemas"]["PackageSwitch"];
                 };
             };
             /** @description Validation Error */
@@ -4546,12 +5217,12 @@ export interface operations {
             };
         };
     };
-    connector_health_api_connectors__connector_id__health_get: {
+    enabled_packages_api_worlds__world_id__packages_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                connector_id: string;
+                world_id: string;
             };
             cookie?: never;
         };
@@ -4563,8 +5234,210 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HealthCheck"][];
+                    "application/json": components["schemas"]["EnabledPackage"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_package_api_worlds__world_id__packages__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinnedVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnabledPackage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_package_api_worlds__world_id__packages__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_setup_api_worlds__world_id__packages__name__setup_get: {
+        parameters: {
+            query?: {
+                version?: string | null;
+            };
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_setup_api_worlds__world_id__packages__name__setup_put: {
+        parameters: {
+            query?: {
+                version?: string | null;
+            };
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupValues"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSetup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_sign_in_api_worlds__world_id__packages__name__setup_oauth__key__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                name: string;
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInStart"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_sign_in_api_setup_oauth_callback_get: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -5161,9 +6034,43 @@ export interface operations {
             };
         };
     };
-    add_asset_api_worlds__world_id__assets__name__put: {
+    list_owned_folders_api_worlds__world_id__owned_folders_get: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnedFolder"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_asset_api_worlds__world_id__assets__name__put: {
+        parameters: {
+            query?: {
+                /** @description an Owned Folder's `folder` */
+                folder?: string;
+            };
             header?: never;
             path: {
                 world_id: string;
@@ -5299,148 +6206,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
-            };
-        };
-    };
-    list_voices_api_worlds__world_id__voices_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Catalog"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    add_voice_api_worlds__world_id__voices_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_add_voice_api_worlds__world_id__voices_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Voice"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    delete_voice_api_worlds__world_id__voices__name__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    edit_voice_api_worlds__world_id__voices__name__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                world_id: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EditBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Voice"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -5933,6 +6698,157 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_session_api_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionView"];
+                };
+            };
+        };
+    };
+    sign_in_api_session_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sign_out_api_session_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_tokens_api_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Token"][];
+                };
+            };
+        };
+    };
+    create_token_api_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewToken"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_token_api_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

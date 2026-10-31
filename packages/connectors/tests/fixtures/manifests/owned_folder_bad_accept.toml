@@ -1,0 +1,14 @@
+# error: owned_folders[0].accept[0]: 
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+
+[[owned_folders]]
+folder = "voices"
+label = "Voices"
+accept = ["wav"]

@@ -3,6 +3,7 @@ name = "swarmify-notifications"
 version = "0.1.0"
 description = "Notifications context: a Channel per world and the Slack messages sent on run events"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = ["swarmify-kernel"]
 
 [build-system]

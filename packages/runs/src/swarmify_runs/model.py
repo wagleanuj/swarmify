@@ -59,6 +59,9 @@ class Decision:
     publish: dict[str, Any] | None = None
     """At a gate before a publish stage: every field's value as confirmed, by key, which is what
     the stage posts."""
+    by: str | None = None
+    """Who answered from outside the web UI (a Remote Approval), as its connector names them,
+    such as "anuj in chat"; None for an answer given in Swarmify."""
 
 
 @dataclass(frozen=True)

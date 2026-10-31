@@ -1,16 +1,19 @@
-"""`swarmify-eval`: run the weekly short as baseline and as swarm over the eval task set, against
-a running swarmify API (with the real model behind it), and store the report in the eval world.
+"""`swarmify-eval`: run each eval task's starter workflow as baseline and as swarm, against a
+running swarmify API (with the real model behind it), and store the report in the eval world.
 
 Each trial gets a fresh world, its own copy of the workflow and one run; the outputs it left
-(`ideas.md`, `script.md`) are graded, never the path it took, and each pair of trials (one an
-arm, same task and number) goes to the API's blind judge, which picks the better pair. A retro
-proposal is rejected so the run can end, a budget gate or the timeout aborts the trial, which
-then fails.
+(a brief, a draft, a typed list, ideas and a script) are graded, never the path it took, and
+each pair of trials (one an arm, same task and number) goes to the API's blind judge, which
+picks the better pair. A retro proposal is rejected so the run can end, a budget gate or the
+timeout aborts the trial, which then fails.
 
-    uv run swarmify-eval --k 3                  # every task, 3 trials an arm
-    uv run swarmify-eval --tasks 2 --k 1        # a smoke run
+The baseline arm runs every swarm stage with one agent, the swarm arm with `swarm_agents`
+(ADR 0020); otherwise the two runs are the same. One eval is one task kind:
 
-`SWARMIFY_PASSWORD` (and `SWARMIFY_USER`) are sent as basic auth when set.
+    uv run swarmify-eval --kind research-briefs          # its 8 tasks, 2 trials an arm
+    uv run swarmify-eval --kind typed-lists --tasks 2 --k 1   # a smoke run
+
+When `SWARMIFY_PASSWORD` is set the harness signs in with it first, as a browser does.
 """
 
 import argparse
@@ -23,7 +26,7 @@ from typing import Any
 
 import httpx2 as httpx
 
-from swarmify_learning.evals import ARMS, TASKS, EvalTask, Trial, grade, workflow_yaml
+from swarmify_learning.evals import ARMS, KINDS, TASKS, EvalTask, Trial, grade, workflow_yaml
 from swarmify_learning.scorecard import duration
 
 ENDED = ("done", "failed", "aborted")
@@ -35,6 +38,8 @@ class Settings:
     """Each trial's Budget; a trial that spends it is aborted."""
     timeout_s: float = 45 * 60
     poll_s: float = 5.0
+    swarm_agents: int = 3
+    """The swarm arm's workers a stage, as many as the V1 acceptance eval's swarm had."""
 
 
 def _ok(response: httpx.Response) -> Any:
@@ -58,7 +63,7 @@ def trial(
 ) -> Trial:
     yaml = workflow_yaml(task, s.budget_usd)
     workflow = _ok(http.post(f"/api/worlds/{world_id}/workflows", json={"yaml": yaml}))
-    start = {"baseline": arm == "baseline"}
+    start = {"agents": 1 if arm == "baseline" else s.swarm_agents}
     run = _ok(http.post(f"/api/workflows/{workflow['workflow_id']}/runs", json=start))
     deadline = time.monotonic() + s.timeout_s
     timed_out = False
@@ -127,9 +132,10 @@ def run_eval(
     settings: Settings | None = None,
     clean: bool = False,
     say: Callable[[str], None] = lambda _line: None,
+    kind: str | None = None,
 ) -> dict[str, Any]:
-    """Every task k times on each arm, each pair judged blind, then the stored report. `clean`
-    deletes trial worlds."""
+    """Every task k times on each arm, each pair judged blind, then the stored report of the
+    task `kind`. `clean` deletes trial worlds."""
     s = settings or Settings()
     jobs = [(t, arm, i) for t in tasks for i in range(k) for arm in ARMS]
 
@@ -145,7 +151,7 @@ def run_eval(
             say(f"{done.task_id} {done.index + 1} judged: {judged}")
             if pick is not None:
                 judgements.append(pick)
-    body = {"k": k, "trials": [asdict(t) for t in trials], "judgements": judgements}
+    body = {"k": k, "kind": kind, "trials": [asdict(t) for t in trials], "judgements": judgements}
     report = _ok(http.post("/api/evals", json=body))
     if clean:
         for t in trials:
@@ -154,29 +160,39 @@ def run_eval(
     return report
 
 
+def sign_in(http: httpx.Client, password: str) -> None:
+    """Sign `http` in as the operator: it keeps the session cookie for every later call."""
+    http.post("/api/session", json={"password": password}).raise_for_status()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        prog="swarmify-eval", description="Run the eval: the weekly short as baseline and as swarm."
+        prog="swarmify-eval",
+        description="Run the swarm evidence eval of one task kind: one agent against a swarm.",
     )
     p.add_argument("--api", default=os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000"))
-    p.add_argument("--k", type=int, default=3, help="trials an arm per task (default 3)")
-    p.add_argument("--tasks", type=int, default=len(TASKS), help="the first N tasks (all)")
+    kinds = {k.replace(" ", "-"): k for k in KINDS}
+    p.add_argument("--kind", required=True, choices=kinds, help="the task kind to run")
+    p.add_argument("--k", type=int, default=2, help="trials an arm per task (default 2)")
+    p.add_argument("--tasks", type=int, default=None, help="the first N tasks (all of the kind)")
     p.add_argument("--budget", type=float, default=Settings.budget_usd, help="USD a trial")
     p.add_argument("--timeout", type=float, default=Settings.timeout_s, help="seconds a trial")
     p.add_argument("--clean", action="store_true", help="delete trial worlds afterwards")
     a = p.parse_args(argv)
-    password = os.environ.get("SWARMIFY_PASSWORD")
-    auth = (os.environ.get("SWARMIFY_USER", "swarmify"), password) if password else None
     # a judge session answers within minutes; every other call within seconds
     timeout = httpx.Timeout(60, read=600)
-    with httpx.Client(base_url=a.api, auth=auth, timeout=timeout) as http:
+    with httpx.Client(base_url=a.api, timeout=timeout) as http:
+        if password := os.environ.get("SWARMIFY_PASSWORD"):
+            sign_in(http, password)
+        kind = kinds[a.kind]
         report = run_eval(
             http,
-            TASKS[: a.tasks],
+            [t for t in TASKS if t.workflow == KINDS[kind]][: a.tasks],
             a.k,
             Settings(a.budget, a.timeout),
             a.clean,
             say=lambda line: print(line, file=sys.stderr),
+            kind=kind,
         )
     print(report["verdict"])
     print(f"Stored in the {report['id']} report of the Evals world; see /evals.")

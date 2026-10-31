@@ -1,0 +1,20 @@
+# error: config[1].key: account_client_id is declared twice
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+[[config]]
+key = "account_client_id"
+label = "Client"
+type = "string"
+[[config]]
+key = "account"
+label = "Account"
+type = "oauth"
+[config.oauth]
+authorize_url = "https://auth.example.org/authorize"
+token_url = "https://auth.example.org/token"

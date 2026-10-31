@@ -7,17 +7,10 @@ import { Sheet } from "../Sheet";
 import { AUDIO, FileLink, fileUrl, IMAGE, VIDEO } from "./Artifacts";
 import { Menu } from "./Menu";
 
-type Voice = components["schemas"]["Voice"];
 type Asset = components["schemas"]["Asset"];
+type Folder = components["schemas"]["OwnedFolder"];
 
-/** What Chatterbox clones from, as the speech connector checks it (README, Voices). */
-export const CLIP = { min: 5, max: 10 };
-const VOICES = "assets/voices/";
-const NAME = /^[A-Za-z0-9_-]{1,60}$/;
-const CONSENT = "This is my voice, or I have the speaker's permission";
-/** About eight seconds read aloud, the sentence the starter voices speak. */
-const READ =
-  "On a quiet morning the town wakes slowly, the bakery opens its doors, and people stop to talk about the weather before they walk on to work.";
+const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/;
 
 export const size = (bytes: number) =>
   bytes < 1e6 ? `${Math.max(1, Math.round(bytes / 1e3))} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
@@ -31,19 +24,10 @@ const why = (error: unknown) => {
   return typeof detail === "string" ? detail : null;
 };
 
-const and = (names: string[]) =>
-  names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+const count = (n: number) => (n === 1 ? "1 file" : `${n} files`);
+const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 
-/** The confirm a delete asks: what goes, and the workflows that lose the voice. */
-export function deleteVoiceAsk(v: Pick<Voice, "name" | "used_by">) {
-  const lose = [...new Set(v.used_by.map((w) => w.name))];
-  if (!lose.length) return `Delete ${v.name}? Its clip and catalog entry go. No workflow uses it.`;
-  const one = lose.length === 1;
-  return `Delete ${v.name}? ${and(lose)} ${one ? "uses" : "use"} it, and ${one ? "its" : "their"} speech step will no longer find this voice. Its clip and catalog entry go.`;
-}
-
-/** Any audio the browser can play, as the 16-bit mono WAV the speech engines take, cut at
- * `maxSeconds`. */
+/** Any audio the browser can play, as a 16-bit mono WAV, cut at `maxSeconds`. */
 export async function toWav(blob: Blob, maxSeconds = Infinity): Promise<{ wav: Blob; seconds: number }> {
   const audio = await new OfflineAudioContext(1, 1, 24000).decodeAudioData(await blob.arrayBuffer());
   const n = Math.min(audio.length, Math.floor(maxSeconds * audio.sampleRate));
@@ -69,38 +53,31 @@ export async function toWav(blob: Blob, maxSeconds = Infinity): Promise<{ wav: B
   return { wav: new Blob([out.buffer], { type: "audio/wav" }), seconds: n / audio.sampleRate };
 }
 
-const clipProblem = (seconds: number) =>
-  seconds < CLIP.min || seconds > CLIP.max
-    ? `This clip is ${seconds.toFixed(1)} s. Chatterbox clones from ${CLIP.min} to ${CLIP.max} s of speech: trim it, or record one here.`
-    : null;
-
-/** A world's Assets: the voices its speech steps can use, then the files its builds read. */
+/** A world's Assets: the folders its packages own (ADR 0025), each a group of cards you can play
+ * first, then the files its builds read. */
 export function Assets() {
   const { worldId } = assetsRoute.useParams();
-  const [voices, setVoices] = useState<Voice[] | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [folders, setFolders] = useState<Folder[] | null>(null);
   const [files, setFiles] = useState<Asset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<Folder | null>(null);
   const [seen, setSeen] = useState(0);
   const [playing, setPlaying] = useState<string | null>(null);
   const player = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
+    const path = { params: { path: { world_id: worldId } } };
     api
-      .GET("/api/worlds/{world_id}/voices", { params: { path: { world_id: worldId } } })
+      .GET("/api/worlds/{world_id}/owned_folders", path)
       .then(({ data }) => {
         if (!data) throw new Error("load failed");
-        // The operator's own voices lead; the seeded starters follow.
-        const own = (v: Voice) => (v.consent.startsWith("synthetic") ? 1 : 0);
-        setVoices([...data.voices].sort((a, b) => own(a) - own(b)));
-        setWarnings(data.warnings);
+        setFolders(data);
       })
-      .catch(() => setError("Could not load the voices. Is the API running?"));
+      .catch(() => setError("Could not load the assets. Is the API running?"));
     api
-      .GET("/api/worlds/{world_id}/assets", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setFiles((data ?? []).filter((a) => !a.path.startsWith(VOICES))))
+      .GET("/api/worlds/{world_id}/assets", path)
+      .then(({ data }) => setFiles(data ?? []))
       .catch(() => undefined);
   }, [worldId, seen]);
 
@@ -110,203 +87,210 @@ export function Assets() {
     setSeen((n) => n + 1);
   };
 
-  function play(v: Voice) {
+  function play(a: Asset) {
     const audio = player.current;
-    if (!audio || !v.clip) return;
-    if (playing === v.name) {
+    if (!audio) return;
+    if (playing === a.path) {
       audio.pause();
       setPlaying(null);
       return;
     }
-    audio.src = fileUrl(worldId, v.clip);
-    setPlaying(v.name);
+    audio.src = fileUrl(worldId, a.path);
+    setPlaying(a.path);
     audio.play().catch(() => setPlaying(null));
   }
 
-  async function remove(v: Voice) {
-    if (!window.confirm(deleteVoiceAsk(v))) return;
-    const { error } = await api.DELETE("/api/worlds/{world_id}/voices/{name}", { params: { path: { world_id: worldId, name: v.name } } });
-    if (error) setError(`Could not delete ${v.name}. Try again.`);
-    else reload(`Deleted ${v.name}.`);
-  }
-
-  async function edit(v: Voice, description: string, tags: string[]) {
-    const { error } = await api.PATCH("/api/worlds/{world_id}/voices/{name}", {
-      params: { path: { world_id: worldId, name: v.name } },
-      body: { description, tags },
-    });
-    if (error) {
-      setError(why(error) ?? `Could not save ${v.name}.`);
-      return false;
-    }
-    reload(`Saved ${v.name}.`);
-    return true;
-  }
+  const owned = (a: Asset) => folders?.some((f) => a.path.startsWith(f.path));
+  const rest = folders && files ? files.filter((a) => !owned(a)) : null;
 
   return (
     <main className="assets-page">
       <header className="page">
         <div>
           <h1>Assets</h1>
-          <p className="sub">Voices your speech steps can use, and files your builds can read.</p>
+          <p className="sub">Folders your connectors own, and files your builds can read.</p>
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
       {said && <p role="status">{said}</p>}
       <audio ref={player} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} hidden />
 
-      <section className="panel" aria-labelledby="voices-head">
-        <div className="panel-head">
-          <h2 id="voices-head">Voices</h2>
-          {voices && voices.length > 0 && <span className="faint">{voices.length === 1 ? "1 voice" : `${voices.length} voices`}</span>}
-        </div>
-        {voices === null ? (
-          <p className="faint">Loading voices...</p>
-        ) : voices.length === 0 ? (
-          <div className="empty">
-            <p>
-              No voices yet. A voice is a 5 to 10 s clip of speech your speech steps clone. Add your own, or give the world eight starter voices with{" "}
-              <code>mise run voices:seed -- {worldId}</code>.
-            </p>
-          </div>
-        ) : (
-          <ul className="cards voice-cards">
-            {voices.map((v) => (
-              <VoiceCard key={v.name} voice={v} playing={playing === v.name} onPlay={() => play(v)} onDelete={() => remove(v)} onEdit={(d, t) => edit(v, d, t)} />
-            ))}
-          </ul>
-        )}
-        {warnings.length > 0 && (
-          <div className="voice-warnings">
-            <p className="faint">voices.json has entries the speech connector ignores:</p>
-            <ul>
-              {warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <div className="assets-bar">
-          <button type="button" className="primary" onClick={() => setAdding(true)}>
-            Add a voice
-          </button>
-        </div>
-      </section>
-
-      <Files worldId={worldId} files={files} onChanged={reload} onError={setError} />
-
-      <Sheet open={adding} onClose={() => setAdding(false)} label="Add a voice" className="sheet-form">
-        <AddVoice
+      {folders?.map((f) => (
+        <OwnedGroup
+          key={f.path}
           worldId={worldId}
-          taken={(voices ?? []).map((v) => v.name)}
-          onClose={() => setAdding(false)}
-          onAdded={(name) => {
-            setAdding(false);
-            reload(`Added ${name}. Name it in a speech step's voice, or let the script writer pick it.`);
-          }}
+          folder={f}
+          files={files && files.filter((a) => a.path.startsWith(f.path))}
+          playing={playing}
+          onPlay={play}
+          onAdd={() => setAdding(f)}
+          onChanged={reload}
+          onError={setError}
         />
+      ))}
+
+      <Files worldId={worldId} files={rest} onChanged={reload} onError={setError} />
+
+      <Sheet open={!!adding} onClose={() => setAdding(null)} label={`Add to ${adding?.label ?? ""}`} className="sheet-form">
+        {adding && (
+          <AddFile
+            worldId={worldId}
+            folder={adding}
+            taken={(files ?? []).filter((a) => a.path.startsWith(adding.path)).map((a) => stem(a.name))}
+            onClose={() => setAdding(null)}
+            onAdded={(name) => {
+              setAdding(null);
+              reload(`Added ${name} to ${adding.label}.`);
+            }}
+          />
+        )}
       </Sheet>
     </main>
   );
 }
 
-function VoiceCard({
-  voice: v,
+/** One Owned Folder: a card per file, audio playable first, renamed and deleted from its menu,
+ * with its Add button below. What the files mean is the package's business. */
+function OwnedGroup({
+  worldId,
+  folder: f,
+  files,
   playing,
   onPlay,
-  onDelete,
-  onEdit,
+  onAdd,
+  onChanged,
+  onError,
 }: {
-  voice: Voice;
-  playing: boolean;
-  onPlay: () => void;
-  onDelete: () => void;
-  onEdit: (description: string, tags: string[]) => Promise<boolean>;
+  worldId: string;
+  folder: Folder;
+  files: Asset[] | null;
+  playing: string | null;
+  onPlay: (a: Asset) => void;
+  onAdd: () => void;
+  onChanged: (said: string | null) => void;
+  onError: (e: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [description, setDescription] = useState(v.description);
-  const [tags, setTags] = useState(v.tags.join(", "));
-  const used = [...new Map(v.used_by.map((w) => [w.id, w])).values()];
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const head = `owned-${f.folder}`;
 
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    const words = tags.split(",").map((t) => t.trim()).filter(Boolean);
-    if (await onEdit(description, words)) setEditing(false);
+  async function remove(a: Asset) {
+    if (!window.confirm(`Delete ${a.name}? ${f.package} will no longer find it. This cannot be undone.`)) return;
+    const { error } = await api.DELETE("/api/worlds/{world_id}/assets/{path}", { params: { path: { world_id: worldId, path: a.path } } });
+    if (error) onError(`Could not delete ${a.name}. Try again.`);
+    else onChanged(`Deleted ${a.name}.`);
+  }
+
+  async function rename(a: Asset, name: string) {
+    const { error } = await api.PATCH("/api/worlds/{world_id}/assets/{path}", {
+      params: { path: { world_id: worldId, path: a.path } },
+      body: { name: plainName(name) },
+    });
+    if (error) return onError(why(error) ? `Not renamed: ${why(error)}.` : `Could not rename ${a.name}.`);
+    setRenaming(null);
+    onChanged(`Renamed ${a.name} to ${plainName(name)}.`);
   }
 
   return (
-    <li className="card voice-card" aria-label={v.name}>
-      <div className="voice-top">
-        <button type="button" className="play" onClick={onPlay} disabled={!v.clip} aria-label={`${playing ? "Pause" : "Play"} ${v.name}`} aria-pressed={playing}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d={playing ? "M7 5h3v14H7zM14 5h3v14h-3z" : "M8 5l11 7-11 7z"} />
-          </svg>
-        </button>
-        <div className="voice-name">
-          <b className="mono">{v.name}</b>
-          <span className="faint">
-            {v.seconds != null ? `${v.seconds.toFixed(1)} s clip` : v.preset ? `preset ${v.preset}` : "no clip"} · {v.engine}
-          </span>
-        </div>
-        <Menu
-          label={`${v.name} actions`}
-          className="icon"
-          button={<span aria-hidden="true">···</span>}
-          items={[
-            { label: "Edit", note: "description and tags", onSelect: () => setEditing(true) },
-            { label: "Delete", note: used.length ? `${used.length} workflow${used.length === 1 ? "" : "s"} use it` : "its clip and entry", onSelect: onDelete, danger: true },
-          ]}
-        />
+    <section className="panel" aria-labelledby={head}>
+      <div className="panel-head">
+        <h2 id={head}>{f.label}</h2>
+        {files && files.length > 0 && <span className="faint">{count(files.length)}</span>}
       </div>
-      {editing ? (
-        <form className="voice-edit" onSubmit={save}>
-          <label>
-            Description
-            <input value={description} onChange={(e) => setDescription(e.target.value)} required />
-          </label>
-          <label>
-            Tags
-            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="warm, calm, narrator" />
-          </label>
-          <div className="actions">
-            <button type="submit" className="primary">
-              Save
-            </button>
-            <button type="button" onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+      {files === null ? (
+        <p className="faint">Loading {f.label.toLowerCase()}...</p>
+      ) : files.length === 0 ? (
+        <div className="empty">
+          <p>
+            Nothing in {f.label} yet. {f.about}
+          </p>
+        </div>
       ) : (
-        <>
-          <p>{v.description}</p>
-          {v.tags.length > 0 && (
-            <div className="chips">
-              {v.tags.map((t) => (
-                <span key={t} className="chip">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-        </>
+        <ul className="cards voice-cards">
+          {files.map((a) => (
+            <li key={a.path} className="card voice-card" aria-label={a.path.slice(f.path.length)}>
+              <div className="voice-top">
+                {AUDIO.test(a.name) ? (
+                  <button type="button" className="play" onClick={() => onPlay(a)} aria-label={`${playing === a.path ? "Pause" : "Play"} ${stem(a.name)}`} aria-pressed={playing === a.path}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d={playing === a.path ? "M7 5h3v14H7zM14 5h3v14h-3z" : "M8 5l11 7-11 7z"} />
+                    </svg>
+                  </button>
+                ) : (
+                  <FileLink a={a} worldId={worldId} className="button play-open">
+                    Open
+                  </FileLink>
+                )}
+                {renaming === a.path ? (
+                  <form
+                    className="file-rename"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void rename(a, new FormData(e.currentTarget).get("name") as string);
+                    }}
+                  >
+                    <input name="name" defaultValue={a.name} aria-label={`New name for ${a.name}`} autoFocus />
+                    <button type="submit" className="primary">
+                      Rename
+                    </button>
+                    <button type="button" onClick={() => setRenaming(null)}>
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <div className="voice-name">
+                    <b className="mono">{a.path.slice(f.path.length).replace(/\.[^./]+$/, "")}</b>
+                    <span className="faint">
+                      <Length worldId={worldId} a={a} />
+                      {a.name.split(".").pop()?.toUpperCase()} · {size(a.bytes)}
+                    </span>
+                  </div>
+                )}
+                <Menu
+                  label={`${a.name} actions`}
+                  className="icon"
+                  button={<span aria-hidden="true">···</span>}
+                  items={[
+                    { label: "Rename", note: `keeps it in ${f.label}`, onSelect: () => setRenaming(a.path) },
+                    { label: "Delete", note: `${f.package} stops finding it`, onSelect: () => remove(a), danger: true },
+                  ]}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
-      <p className="faint used-by">{used.length ? `Used by ${and(used.map((w) => w.name))}` : "Not used by a workflow yet"}</p>
-    </li>
+      <div className="assets-bar">
+        <button type="button" className="primary" onClick={onAdd}>
+          Add to {f.label}
+        </button>
+      </div>
+    </section>
   );
 }
 
-type Take = { wav: Blob; seconds: number; url: string; how: "uploaded" | "recorded" };
+/** An audio file's length, read from its header by the browser: "6.4 s · ". */
+function Length({ worldId, a }: { worldId: string; a: Asset }) {
+  const [seconds, setSeconds] = useState<number | null>(null);
+  if (!AUDIO.test(a.name)) return null;
+  return (
+    <>
+      <audio src={fileUrl(worldId, a.path)} preload="metadata" hidden onLoadedMetadata={(e) => setSeconds(e.currentTarget.duration)} />
+      {seconds != null && Number.isFinite(seconds) && `${seconds.toFixed(1)} s · `}
+    </>
+  );
+}
 
-/** The Add a voice sheet: a clip (uploaded or recorded here), a name, what it sounds like, and
- * the consent the catalog requires. */
-function AddVoice({ worldId, taken, onAdded, onClose }: { worldId: string; taken: string[]; onAdded: (name: string) => void; onClose: () => void }) {
+type Take = { blob: Blob; seconds: number | null; url: string; ext: string; how: "uploaded" | "recorded" };
+
+/** The Add sheet of an Owned Folder: a file (for an audio folder, uploaded or recorded here,
+ * saved as WAV when the folder takes WAV), its name, and what the operator affirms first. */
+function AddFile({ worldId, folder: f, taken, onAdded, onClose }: { worldId: string; folder: Folder; taken: string[]; onAdded: (name: string) => void; onClose: () => void }) {
+  const audio = f.accept.some((t) => t.startsWith("audio/"));
+  const wavOnly = f.accept.length > 0 && f.accept.every((t) => t === "audio/wav");
   const [mode, setMode] = useState<"upload" | "record">("upload");
   const [take, setTake] = useState<Take | null>(null);
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [tags, setTags] = useState("");
-  const [consent, setConsent] = useState(false);
+  const [affirmed, setAffirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState<{ stop: () => void; seconds: number } | null>(null);
@@ -314,11 +298,12 @@ function AddVoice({ worldId, taken, onAdded, onClose }: { worldId: string; taken
   // Closing the sheet mid-take lets go of the microphone.
   useEffect(() => () => stopRef.current?.(), []);
 
-  async function use(blob: Blob, how: Take["how"]) {
+  async function use(blob: Blob, how: Take["how"], ext: string) {
     setError(null);
+    if (!audio) return setTake({ blob, seconds: null, url: "", ext, how });
     try {
-      const { wav, seconds } = await toWav(blob, how === "recorded" ? CLIP.max : Infinity);
-      setTake({ wav, seconds, url: URL.createObjectURL(wav), how });
+      const { wav, seconds } = await toWav(blob);
+      setTake(wavOnly ? { blob: wav, seconds, url: URL.createObjectURL(wav), ext: "wav", how } : { blob, seconds, url: URL.createObjectURL(blob), ext, how });
     } catch {
       setError("That file is not audio this browser can read. Try a WAV, MP3 or M4A.");
     }
@@ -328,8 +313,8 @@ function AddVoice({ worldId, taken, onAdded, onClose }: { worldId: string; taken
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (!name) setName(plainName(file.name.replace(/\.[^.]+$/, "")).replace(/\./g, "-").slice(0, 60));
-    await use(file, "uploaded");
+    if (!name) setName(plainName(stem(file.name)).replace(/\./g, "-").slice(0, 60));
+    await use(file, "uploaded", file.name.includes(".") ? (file.name.split(".").pop() ?? "").toLowerCase() : "");
   }
 
   async function record() {
@@ -338,7 +323,7 @@ function AddVoice({ worldId, taken, onAdded, onClose }: { worldId: string; taken
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      setError("The browser did not give access to the microphone. Allow it, or upload a clip.");
+      setError("The browser did not give access to the microphone. Allow it, or upload a file.");
       return;
     }
     const recorder = new MediaRecorder(stream);
@@ -349,73 +334,62 @@ function AddVoice({ worldId, taken, onAdded, onClose }: { worldId: string; taken
       stream.getTracks().forEach((t) => t.stop());
       clearInterval(tick);
       setRecording(null);
-      void use(new Blob(chunks, { type: recorder.mimeType }), "recorded");
+      void use(new Blob(chunks, { type: recorder.mimeType }), "recorded", "wav");
     };
     const stop = () => recorder.state !== "inactive" && recorder.stop();
     stopRef.current = stop;
-    const tick = setInterval(() => {
-      const seconds = (Date.now() - started) / 1000;
-      if (seconds >= CLIP.max) stop();
-      else setRecording({ stop, seconds });
-    }, 200);
+    const tick = setInterval(() => setRecording({ stop, seconds: (Date.now() - started) / 1000 }), 200);
     recorder.start();
     setTake(null);
     setRecording({ stop, seconds: 0 });
   }
 
-  const problem = take ? clipProblem(take.seconds) : null;
-  const nameProblem = !name ? null : !NAME.test(name) ? "Letters, digits, _ or - only, no spaces." : taken.includes(name) ? `A voice is already named ${name}.` : null;
-  const ready = take && !problem && name && !nameProblem && description.trim() && consent && !busy;
+  const nameProblem = !name ? null : !NAME.test(name) ? "Letters, digits, _ or - only, no spaces." : taken.includes(name) ? `${name} is already in ${f.label}.` : null;
+  const ready = take && name && !nameProblem && (affirmed || !f.confirm) && !busy;
 
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!ready || !take) return;
     setBusy(true);
     setError(null);
-    const form = new FormData();
-    form.set("name", name);
-    form.set("description", description);
-    form.set("tags", tags);
-    form.set("consent", `${CONSENT} (${take.how} in Swarmify, ${new Date().toISOString().slice(0, 10)})`);
-    form.set("clip", take.wav, `${name}.wav`);
-    // multipart with a file, which the typed client cannot send
-    const response = await globalThis
-      .fetch(`/api/worlds/${encodeURIComponent(worldId)}/voices`, { method: "POST", body: form })
-      .catch(() => null);
+    const file = take.ext ? `${name}.${take.ext}` : name;
+    // the body is the file itself, which the typed client cannot send
+    const url = `/api/worlds/${encodeURIComponent(worldId)}/assets/${encodeURIComponent(file)}?folder=${encodeURIComponent(f.folder)}`;
+    const response = await globalThis.fetch(url, { method: "PUT", body: take.blob }).catch(() => null);
     setBusy(false);
-    if (response?.ok) return onAdded(name);
+    if (response?.ok) return onAdded(file);
     const detail = await response?.json().then((b: { detail?: unknown }) => b.detail).catch(() => null);
-    setError(typeof detail === "string" ? `Not added: ${detail}.` : "Could not add the voice. Is the API running?");
+    setError(typeof detail === "string" ? `Not added: ${detail}.` : `Could not add to ${f.label}. Is the API running?`);
   }
 
   return (
     <form className="add-voice" onSubmit={save}>
-      <h2>Add a voice</h2>
-      <div className="segmented" role="group" aria-label="Clip">
-        <button type="button" aria-pressed={mode === "upload"} onClick={() => setMode("upload")}>
-          Upload clip
-        </button>
-        <button type="button" aria-pressed={mode === "record"} onClick={() => setMode("record")}>
-          Record
-        </button>
-      </div>
+      <h2>Add to {f.label}</h2>
+      {f.about && <p className="faint">{f.about}</p>}
+      {audio && (
+        <div className="segmented" role="group" aria-label="Upload or record">
+          <button type="button" aria-pressed={mode === "upload"} onClick={() => setMode("upload")}>
+            Upload
+          </button>
+          <button type="button" aria-pressed={mode === "record"} onClick={() => setMode("record")}>
+            Record
+          </button>
+        </div>
+      )}
       {mode === "upload" ? (
         <div className="field">
           <label className="button">
-            {take?.how === "uploaded" ? "Choose another clip" : "Choose a clip"}
-            <input type="file" accept="audio/*" className="visually-hidden" onChange={pick} aria-label="Clip file" />
+            {take?.how === "uploaded" ? "Choose another file" : "Choose a file"}
+            <input type="file" accept={audio ? "audio/*" : f.accept.join(",") || undefined} className="visually-hidden" onChange={pick} aria-label="File" />
           </label>
-          <p className="faint">
-            {CLIP.min} to {CLIP.max} s of clear speech, one speaker, no music. Any audio file; it is saved as WAV.
-          </p>
+          {wavOnly && <p className="faint">Any audio file; it is saved as WAV.</p>}
         </div>
       ) : (
         <div className="field">
-          <p className="read-this">{READ}</p>
-          <p className="faint">Read this in your normal voice. Recording stops at {CLIP.max} s.</p>
+          <p className="faint">Records from your microphone until you stop.</p>
           {recording ? (
             <button type="button" className="danger" onClick={recording.stop}>
-              Stop · {recording.seconds.toFixed(0)} of {CLIP.max} s
+              Stop · {recording.seconds.toFixed(0)} s
             </button>
           ) : (
             <button type="button" onClick={record}>
@@ -424,38 +398,31 @@ function AddVoice({ worldId, taken, onAdded, onClose }: { worldId: string; taken
           )}
         </div>
       )}
-      {take && (
+      {take?.url && (
         <div className="take">
-          <audio controls src={take.url} aria-label="Your clip" />
-          <span className="num">{take.seconds.toFixed(1)} s</span>
+          <audio controls src={take.url} aria-label="Your take" />
+          {take.seconds != null && <span className="num">{take.seconds.toFixed(1)} s</span>}
         </div>
       )}
-      {problem && <p role="alert">{problem}</p>}
       <div className="field">
         <label>
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="narrator" autoComplete="off" aria-invalid={!!nameProblem} aria-describedby="voice-name-hint" />
+          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" aria-invalid={!!nameProblem} aria-describedby="add-name-hint" />
         </label>
-        <small id="voice-name-hint" className="faint">
-          {nameProblem ?? "Plain and unique: what a speech step's voice says."}
+        <small id="add-name-hint" className="faint">
+          {nameProblem ?? `Plain and unique in ${f.label}.`}
         </small>
       </div>
-      <label>
-        Description
-        <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Warm and calm, for bedtime facts" />
-      </label>
-      <label>
-        Tags
-        <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="warm, calm, narrator" />
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-        {CONSENT}
-      </label>
+      {f.confirm && (
+        <label className="check">
+          <input type="checkbox" checked={affirmed} onChange={(e) => setAffirmed(e.target.checked)} />
+          {f.confirm}
+        </label>
+      )}
       {error && <p role="alert">{error}</p>}
       <div className="actions">
         <button type="submit" className="primary" disabled={!ready}>
-          {busy ? "Adding..." : "Add voice"}
+          {busy ? "Adding..." : "Add"}
         </button>
         <button type="button" onClick={onClose}>
           Cancel

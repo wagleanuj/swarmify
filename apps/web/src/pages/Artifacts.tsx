@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Fragment, type ReactNode } from "react";
 
 import type { ArtifactFile } from "../api/events";
+import { cap, the } from "../skin";
 
 /** A run file, served by the API under its path in the world folder. */
 export const fileUrl = (worldId: string, path: string) =>
@@ -90,7 +91,7 @@ export function ArtifactCards({ cards, worldId }: { cards: ArtifactFile[]; world
           <label key={a.path} className="pick-card" data-testid="pick-card">
             <input type="radio" name="artifact" value={a.path} required />
             <span className="rank">
-              {a.fields.rank != null ? `Erlich's #${String(a.fields.rank)} of ${cards.length}` : a.type}
+              {a.fields.rank != null ? `${cap(the("judge"))}'s #${String(a.fields.rank)} of ${cards.length}` : a.type}
             </span>
             <b>{a.title}</b>
             {hook && <span className="hook">{hook}</span>}

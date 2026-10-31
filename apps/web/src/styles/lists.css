@@ -19,6 +19,13 @@
 .con-row + .con-row { border-top: 1px solid var(--rule); }
 .con-main { display: grid; gap: 2px; flex: 1 1 16rem; min-width: 0; }
 .con-main b { font-weight: 500; }
+.con-switch { flex-basis: 100%; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: var(--radius-card); }
+.con-switch h3 { margin: 0; font-size: 1em; font-weight: 500; }
+.con-switch p, .con-switch dl { margin: 0; }
+.con-switch dl > div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.con-switch dt { min-width: 8rem; }
+.con-switch dd { margin: 0; }
+.con-switch .warning { color: var(--pill-warning-ink); }
 .add-connector { display: grid; gap: 12px; max-width: 44rem; margin-bottom: var(--gap); }
 .kind { flex: 1 1 11rem; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; padding: 8px 10px; cursor: pointer; font-weight: 500; }
 .kind .faint { grid-column: 2; }
@@ -26,6 +33,9 @@
 .kind input { accent-color: var(--accent); }
 .tool-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
 .set-keys { display: grid; gap: 8px; flex-basis: 100%; }
+.setup { max-width: 44rem; gap: 14px; }
+.setup-field { display: grid; gap: 4px; }
+.setup-field details summary { margin: 2px 0 6px; font-size: 12px; }
 .key-check { flex-basis: 100%; font-size: 12px; }
 .health { flex-basis: 100%; list-style: none; padding: 0 0 0 19px; margin: 0; display: grid; gap: 4px; font-size: 12px; }
 

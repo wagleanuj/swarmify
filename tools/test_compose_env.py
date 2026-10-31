@@ -42,4 +42,5 @@ def test_only_web_is_published_and_the_api_image_has_no_skin() -> None:
     api_stage = (ROOT / "Dockerfile").read_text().rsplit("\nFROM ", 1)[1]
     assert "apps/web" not in api_stage and "--from=web" not in api_stage
     caddy = (ROOT / "docker" / "Caddyfile").read_text()
-    assert "flush_interval -1" in caddy and "forward_auth api:8000" in caddy
+    assert "flush_interval -1" in caddy and "handle /mcp" in caddy
+    assert "forward_auth" not in caddy, "the skin loads unsigned so its sign-in page can show"

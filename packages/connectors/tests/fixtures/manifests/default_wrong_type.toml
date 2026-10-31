@@ -1,0 +1,14 @@
+# error: config[0].default: is not of its type, integer
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+[[config]]
+key = "seconds"
+label = "Seconds"
+type = "integer"
+default = "ten"

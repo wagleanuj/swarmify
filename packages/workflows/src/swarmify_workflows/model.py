@@ -21,6 +21,9 @@ class SwarmStage:
     produces: list[str] = field(default_factory=list)
     model: str | None = None
     """The model the stage's agents run on, over the world's and the Cast's choice."""
+    agents: int = 1
+    """How many workers run the stage (ADR 0020). One works the tasks alone, with no one to
+    contend with for a claim; several share the whiteboard as a swarm."""
     type: Literal["swarm"] = "swarm"
 
 
@@ -70,6 +73,7 @@ class WorkflowModel:
     schedule: str | None = None
     budget_usd: float | None = None
     agents: int | None = None
+    """The worker count of every swarm stage that does not set its own; one when left out."""
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,9 @@ class ConnectorRef:
     connector answers them (issue 140); the check reads only the schemas of promised types."""
     input_types: Sequence[str | None] = ()
     """The declared type of a stage's `input`, or of each of its `inputs` in order."""
+    version: str | None = None
+    """The Connector Package version the world pins; None for a connector that is no package.
+    A saved version records it for every package it calls."""
 
 
 @dataclass(frozen=True)
@@ -119,3 +126,17 @@ class WorkflowVersion:
     yaml: str
     created_at: str
     model: WorkflowModel
+    packages: dict[str, str] = field(default_factory=dict)
+    """The Connector Package version of each package it calls (issue 223), as saved: its runs
+    use these, never the world's current pin."""
+
+
+def calls(model: WorkflowModel) -> set[str]:
+    """Every connector the workflow calls: connector stages' `calls`, swarm stages' `tools`."""
+    names: set[str] = set()
+    for stage in model.stages:
+        if isinstance(stage, ConnectorStage):
+            names.add(stage.calls)
+        elif isinstance(stage, SwarmStage):
+            names.update(stage.tools)
+    return names

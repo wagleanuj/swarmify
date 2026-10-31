@@ -145,24 +145,56 @@ def test_the_planner_hears_what_a_connector_says_of_its_types_in_this_world(
     assert "- poster: This world posts to news, kids." in system
 
 
-def test_the_planner_prompt_lists_each_built_in_connector_s_params() -> None:
-    from swarmify_api.planner import SYSTEM
-    from swarmify_connectors import BUILTINS
+def test_the_planner_describes_each_connector_from_its_manifest(
+    running: TestClient, script: Script
+) -> None:
+    from swarmify_kernel import AGENT_TOOLS
 
-    params = {
-        "remotion_render": ["project", "composition", "entry", "codec", "frames", "props"],
-        "remotion_build": ["base", "composition", "brief", "model", "max_turns", "minutes"],
-        "youtube": ["title", "metadata", "description", "visibility", "schedule", "made_for_kids"],
-        "upload_post": ["same params as youtube", "user", "platforms"],
-        "speech": ["voice", "engines", "seed"],
-    }
-    stage_connectors = {c.name for c in BUILTINS if "connector" in c.stage_types}
-    assert stage_connectors == set(params)
-    for name, names in params.items():
-        entry = SYSTEM.split(f"- {name}:")[1].split("\n- ")[0]
-        for param in names:
-            assert param in entry, (name, param)
-    assert "remotion_build connector stage" in SYSTEM and "agents\nwrite text only" in SYSTEM
+    world = _world(running)
+    cook = {"name": "cook", "kind": "tool", "server": "uvx cook-mcp", "stage_types": ["swarm"]}
+    assert running.post(f"/api/worlds/{world}/connectors", json=cook).status_code == 201
+    script.scripts = [[Answer({"reply": "Hi.", "yaml": None})]]
+    assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
+    system = str(script.sessions[0].system_prompt)
+    speech = system.split("\n- speech (")[1].split("\n- ")[0]  # a default package
+    assert all(f"params.{p}" in speech for p in ("voice", "engines", "seed"))
+    posts = system.split("\n- upload_post (")[1].split("\n- ")[0]
+    assert all(f"params.{p}" in posts for p in ("title", "schedule", "user", "platforms"))
+    youtube = system.split("\n- youtube (")[1].split("\n- ")[0]
+    published = ("title", "metadata", "description", "visibility", "schedule", "made_for_kids")
+    assert all(f"params.{p}" in youtube for p in published)
+    render = system.split("\n- remotion_render (")[1].split("\n- ")[0]
+    assert "only when the operator has a finished template" in render
+    for param in ("project", "composition", "entry", "codec", "frames", "props"):
+        assert f"params.{param}" in render, param
+    built = system.split("\n- remotion_build (")[1].split("\n- ")[0]
+    for param in ("base", "composition", "brief", "model", "max_turns", "minutes"):
+        assert f"params.{param}" in built, param
+    # what the hand-written prompt said moved into each connector's own notes
+    assert "This is how a workflow makes a video" in system
+    assert "(pause 1.5s) is silence" in system and "params.user: required;" in system
+    assert "- cook (tool, in swarm stages)" in system  # a world's own, without a Manifest
+    assert "youtube, upload_post" not in system and "agents write text only" in system
+    agent_tools = system.split("The Agent Tools")[1].split("How you work")[0]
+    assert all(f"- {name}: " in agent_tools for name in AGENT_TOOLS)
+
+
+def test_a_package_s_planner_notes_and_params_reach_the_planner() -> None:
+    from pathlib import Path
+
+    from swarmify_api.planner import describe
+    from swarmify_connectors import Connector, read_manifest
+
+    echo = Path(__file__).parents[3] / "packages/connectors/tests/fixtures/packages/echo"
+    m = read_manifest(echo)
+    told = describe(Connector("p", "w", "echo", "stage", stage_types=["connector"], manifest=m))
+    assert told.splitlines() == [
+        "- echo (stage, in connector stages): Says back what it is given, as audio. A fixture.",
+        "  input: the line to say (text/markdown)",
+        "  output: the line, said (audio/wav)",
+        "  params.loud: Say it louder",
+        "  Use echo to voice a short line.",
+    ]
 
 
 def test_the_planner_starts_a_run_when_the_operator_asks(

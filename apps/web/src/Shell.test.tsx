@@ -139,7 +139,7 @@ test("on a phone the world chip opens a sheet of every world and what each waits
 test("on a phone More lists every other page with a one-line summary, and the backdrop closes it", async () => {
   await page.viewport(390, 844);
   const today = new Date().toISOString();
-  const connector = { missing: [], builtin: false, kind: "tool", command: ["x"], url: null, name: "x" };
+  const connector = { missing: [], sign_in: [], kind: "tool", command: ["x"], url: null, name: "x" };
   fakeFetch({
     "GET /api/worlds": () => Response.json(worlds),
     "GET /api/gates": () => Response.json([]),
@@ -147,7 +147,7 @@ test("on a phone More lists every other page with a one-line summary, and the ba
     "GET /api/worlds/world_1/cast": () => Response.json([{}, {}, {}, {}]),
     "GET /api/worlds/world_1/connectors": () => Response.json([connector, connector, { ...connector, missing: ["KEY"] }]),
     "GET /api/worlds/world_1/library": () => Response.json([]),
-    "GET /api/worlds/world_1/voices": () => Response.json({ voices: [{}, {}], warnings: [] }),
+    "GET /api/worlds/world_1/assets": () => Response.json([{}, {}]),
   });
   const { router, screen } = await mountAt("/worlds/world_1/library");
   const more = screen.getByRole("navigation", { name: "Tabs" }).getByRole("button", { name: "More" });
@@ -157,7 +157,7 @@ test("on a phone More lists every other page with a one-line summary, and the ba
   const rows = sheet.getByRole("link").elements().map((a) => a.textContent);
   expect(rows).toEqual([
     "Overview1 run today · $8.61",
-    "Assets2 voices and files",
+    "Assets2 files",
     "Memorygraph and notes",
     "Cast4 agents",
     "Connectors2 of 3 ready",

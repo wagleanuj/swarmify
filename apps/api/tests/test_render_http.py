@@ -18,7 +18,7 @@ from swarmify_connectors import ConnectorError
 from swarmify_runs import Run, RunStageView
 
 HERE = Path(__file__).parent
-FAKE_NPX = HERE.parents[2] / "packages/connectors/tests/fake_npx.py"
+FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
 
 
 @pytest.fixture
@@ -28,14 +28,20 @@ def app(tmp_path: Path) -> FastAPI:
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A template in the templates folder (the data directory's remotion/), its dependencies
+    installed (a fake Remotion CLI, fake_npx.py), and a Chrome Headless Shell on PATH."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    npx = bin_dir / "npx"
-    npx.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
-    npx.chmod(0o755)
+    shell = bin_dir / "chrome-headless-shell"
+    shell.write_text("#!/bin/sh\n")
+    shell.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    (tmp_path / "video" / "node_modules").mkdir(parents=True)
-    return tmp_path / "video"
+    template = tmp_path / "data" / "remotion" / "video"
+    cli = template / "node_modules" / ".bin" / "remotion"
+    cli.parent.mkdir(parents=True)
+    cli.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
+    cli.chmod(0o755)
+    return template
 
 
 @pytest.fixture
@@ -157,13 +163,11 @@ stages:
     output: short.mp4
     params: {project: /tmp, composition: Short}
 """
-    workflow = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml}).json()
-    run = running.post(f"/api/workflows/{workflow['workflow_id']}/runs", json={}).json()
-    deadline = time.monotonic() + 30
-    while (run := running.get(f"/api/runs/{run['id']}").json())["status"] != "failed":
-        assert time.monotonic() < deadline, run
-        time.sleep(0.05)
-    assert "the render stage needs an `input`" in run["stages"][0]["error"]
+    refused = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
+    assert refused.status_code == 422
+    assert [v["message"] for v in refused.json()["violations"]] == [
+        "remotion_render needs an input, the script"
+    ]
 
 
 def _run(*names: str) -> Run:

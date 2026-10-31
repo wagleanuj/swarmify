@@ -19,7 +19,7 @@ from swarmify_workflows.schedule import CRON_RULE, cron_problem
 
 TOP_FIELDS = {"name", "schedule", "budget_usd", "agents", "stages"}
 STAGE_FIELDS: dict[str, set[str]] = {
-    "swarm": {"goal", "done_when", "tools", "graphs", "output_type", "produces", "model"},
+    "swarm": {"goal", "done_when", "tools", "graphs", "output_type", "produces", "model", "agents"},
     "gate": {"ask", "kind", "max_send_backs"},
     "connector": {"calls", "input", "inputs", "output", "params"},
     "workflow": {"runs", "take"},
@@ -105,7 +105,7 @@ def parse_workflow(text: str) -> tuple[WorkflowModel | None, list[Violation]]:
     stages: list[Stage] = []
     seen: set[str] = set()
     for index, raw in enumerate(raw_stages, start=1):
-        stage_name, stage = _parse_stage(index, raw, out)
+        stage_name, stage = _parse_stage(index, raw, out, agents)
         if stage_name in seen:
             out.append(Violation("schema", f"stage name '{stage_name}' is used twice", stage_name))
         if stage_name is not None:
@@ -120,8 +120,11 @@ def parse_workflow(text: str) -> tuple[WorkflowModel | None, list[Violation]]:
     return model, out
 
 
-def _parse_stage(index: int, raw: Any, out: list[Violation]) -> tuple[str | None, Stage | None]:
-    """Return (stage name, stage). The name is known even when the stage's own fields fail."""
+def _parse_stage(
+    index: int, raw: Any, out: list[Violation], agents: float | None = None
+) -> tuple[str | None, Stage | None]:
+    """Return (stage name, stage). The name is known even when the stage's own fields fail.
+    `agents` is the workflow's worker count, for a swarm stage that does not set its own."""
     label = f"stage {index}"
     if not isinstance(raw, dict):
         out.append(Violation("schema", f"{label} must be a mapping", None))
@@ -146,9 +149,10 @@ def _parse_stage(index: int, raw: Any, out: list[Violation]) -> tuple[str | None
         goal, done_when = f.text("goal", required=True), f.text("done_when", required=True)
         tools, graphs, produces = f.names("tools"), f.names("graphs"), f.names("produces")
         output_type, model = f.text("output_type"), f.text("model")
+        count = f.number("agents", integer=True) or agents or 1
         if goal and done_when:
             stage = SwarmStage(
-                stage_name, goal, done_when, tools, graphs, output_type, produces, model
+                stage_name, goal, done_when, tools, graphs, output_type, produces, model, int(count)
             )
     elif kind == "gate":
         ask = f.text("ask", required=True)

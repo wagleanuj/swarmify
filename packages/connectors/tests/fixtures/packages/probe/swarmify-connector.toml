@@ -1,0 +1,65 @@
+# A fixture Connector Package with one Setup field of each form type (ADR 0024). Tests that start
+# it rewrite `command` to their own Python, which has the MCP SDK.
+name = "probe"
+version = "1.0.0"
+label = "Probe"
+about = "Answers with its own environment. A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["python3", "server.py"]
+
+[setup]
+test = "check_setup"
+
+[[config]]
+key = "api_key"
+label = "API key"
+type = "string"
+secret = true
+required = true
+env = "PROBE_KEY"
+help = "The check passes for good."
+
+[[config]]
+key = "notes"
+label = "Notes"
+type = "text"
+
+[[config]]
+key = "ratio"
+label = "Ratio"
+type = "number"
+min = 0
+max = 1
+
+[[config]]
+key = "retries"
+label = "Retries"
+type = "integer"
+default = 3
+
+[[config]]
+key = "loud"
+label = "Loud"
+type = "boolean"
+default = false
+
+[[config]]
+key = "voice"
+label = "Voice"
+type = "choice"
+options = ["low", "high"]
+default = "low"
+scope = "world"
+
+[[config]]
+key = "endpoint"
+label = "Service URL"
+type = "url"
+renamed_from = "server"
+
+[[config]]
+key = "cache"
+label = "Cache folder"
+type = "path"

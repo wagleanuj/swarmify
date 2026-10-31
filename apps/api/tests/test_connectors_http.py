@@ -1,19 +1,28 @@
 """Connectors over HTTP: the registry, test-and-list-tools, and a connector stage's raw call,
 with the fake ConnectorTransport and real DBOS on SQLite behind the app."""
 
+import os
+import shutil
 import stat
+import subprocess
 import time
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from sse import sse_events
+from swarmify_api.main import create_app, migrated_db, world_service
 from swarmify_connectors import ConnectorError, FakeTransport, Tool
+from swarmify_kernel.sqlite import connect
+from swarmify_workflows import ConnectorRef, Workflows
+from swarmify_workflows import SqliteStorage as WorkflowStorage
 
 FAL = {
     "name": "fal_video",
@@ -50,12 +59,19 @@ def until(check: Callable[[], bool]) -> None:
         time.sleep(0.05)
 
 
-def test_a_new_world_has_web_search_and_the_graph_with_no_setup(client: TestClient) -> None:
-    listed = client.get(f"/api/worlds/{world(client)}/connectors").json()
-    ready = {c["name"]: c for c in listed if c["kind"] == "tool"}
-    assert set(ready) == {"web_search", "graph"}
-    assert all(c["builtin"] and c["missing"] == [] for c in ready.values())
-    assert all(c["stage_types"] == ["swarm"] for c in ready.values())
+def test_web_search_and_the_graph_are_agent_tools_not_listed_connectors(
+    client: TestClient,
+) -> None:
+    w = world(client)
+    listed = client.get(f"/api/worlds/{w}/connectors").json()
+    assert not {c["name"] for c in listed} & {"web_search", "graph"}
+    saved = (
+        "name: s\nstages:\n  - swarm: r\n    goal: g\n    done_when: d\n"
+        "    tools: [web_search, graph]\n"
+    )
+    assert client.post(f"/api/worlds/{w}/workflows", json={"yaml": saved}).status_code == 201
+    taken = client.post(f"/api/worlds/{w}/connectors", json={**FAL, "name": "graph"})
+    assert taken.status_code == 422 and "Agent Tool" in taken.text
     assert client.get("/api/worlds/world_nope/connectors").status_code == 404
 
 
@@ -91,28 +107,75 @@ def test_test_explains_what_went_wrong(
     assert answer.status_code == 422 and problem in answer.json()["detail"]
 
 
-def test_add_keeps_the_secret_in_the_home_file_and_never_returns_it(
+def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     client: TestClient, tmp_path: Path
 ) -> None:
     w = world(client)
     added = client.post(f"/api/worlds/{w}/connectors", json=FAL)
     assert added.status_code == 201
     body = added.json()
-    assert (body["name"], body["command"], body["credentials"]) == (
+    assert (body["name"], body["command"], body["credentials"], body["version"]) == (
         "fal_video",
         ["uvx", "fal-mcp"],
         ["FAL_KEY"],
+        "0.0.1",
     )
     assert body["missing"] == [] and "s3cret" not in added.text
-    env = tmp_path / ".env"
-    assert env.read_text() == "FAL_KEY=s3cret\n"
-    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
+        ("fal_video", "0.0.1", "local"),
+        ("remotion_build", "1.0.0", "connectors/remotion_build"),
+        ("remotion_render", "1.0.0", "connectors/remotion_render"),
+        ("slack", "1.0.0", "connectors/slack"),
+        ("speech", "1.0.0", "connectors/speech"),
+        ("upload_post", "1.0.0", "connectors/upload_post"),
+        ("youtube", "1.0.0", "connectors/youtube"),
+    ]
+    assert client.get(f"/api/worlds/{w}/packages").json() == [
+        {"name": "fal_video", "version": "0.0.1"},
+        {"name": "remotion_build", "version": "1.0.0"},
+        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
+    ]
+    form = client.get(f"/api/worlds/{w}/packages/fal_video/setup")
+    (field,) = form.json()["fields"]
+    assert (field["label"], field["env"], field["secret"], field["scope"]) == (
+        "FAL_KEY",
+        "FAL_KEY",
+        True,
+        "shared",
+    )
+    assert field["shared_set"] and "s3cret" not in form.text
+    setup = tmp_path / "setup.json"
+    assert "s3cret" in setup.read_text() and stat.S_IMODE(setup.stat().st_mode) == 0o600
+    assert not (tmp_path / ".env").exists()
     listed = client.get(f"/api/worlds/{w}/connectors")
-    assert "s3cret" not in listed.text and listed.json()[-1]["id"] == body["id"]
+    assert "s3cret" not in listed.text and body["id"] in [c["id"] for c in listed.json()]
 
     again = client.post(f"/api/worlds/{w}/connectors", json=FAL)
-    assert again.status_code == 422 and "already exists" in again.json()["detail"]
+    assert again.status_code == 422 and "enables already" in again.json()["detail"]
     assert client.post("/api/worlds/world_nope/connectors", json=FAL).status_code == 404
+
+
+def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
+    client: TestClient,
+) -> None:
+    # ADR 0025: a skin picks a step's panel from these, never from the connector's name
+    w = world(client)
+    client.post(f"/api/worlds/{w}/connectors", json=FAL)
+    shown = {
+        c["name"]: (c["label"], c["capabilities"], [o["media_type"] for o in c["outputs"]])
+        for c in client.get(f"/api/worlds/{w}/connectors").json()
+    }
+    assert shown == {
+        "remotion_render": ("Remotion render", ["check"], ["video/mp4"]),
+        "remotion_build": ("Remotion build", ["build_session"], ["video/mp4"]),
+        "youtube": ("YouTube", ["publish", "outcomes"], []),
+        "upload_post": ("Upload-Post", ["publish"], []),
+        "speech": ("Speech", [], ["application/json", "audio/wav"]),
+        "fal_video": ("fal_video", [], []),
+    }
 
 
 def test_workflows_see_the_registry(client: TestClient) -> None:
@@ -127,13 +190,45 @@ def test_workflows_see_the_registry(client: TestClient) -> None:
     assert [v["rule"] for v in refused.json()["violations"]] == ["connector_stage_type"]
 
 
-def test_delete_removes_an_added_connector_but_never_a_built_in(client: TestClient) -> None:
+def test_an_added_connector_leaves_the_world_as_any_package_does(client: TestClient) -> None:
     w = world(client)
-    added = client.post(f"/api/worlds/{w}/connectors", json=FAL).json()
-    assert client.delete("/api/connectors/builtin_web_search").status_code == 409
-    assert client.delete(f"/api/connectors/{added['id']}").status_code == 204
-    assert client.delete(f"/api/connectors/{added['id']}").status_code == 404
-    assert client.get(f"/api/worlds/{w}/connectors").json()[-1]["builtin"]
+    client.post(f"/api/worlds/{w}/connectors", json=FAL)
+    assert client.delete(f"/api/worlds/{w}/packages/fal_video").status_code == 204
+    assert all(c["name"] != "fal_video" for c in client.get(f"/api/worlds/{w}/connectors").json())
+
+
+def test_a_v1_data_directory_moves_its_world_added_connectors_to_local_packages(
+    tmp_path: Path, transport: FakeTransport
+) -> None:
+    root = tmp_path / "v1"
+    db = migrated_db(root)
+    w = world_service(root).create("Video").id
+    with closing(connect(db)) as conn:
+        conn.execute(
+            "INSERT INTO connectors (id, world_id, name, kind, command, url, credentials,"
+            " stage_types, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("conn_1", w, "fal_video", "stage", '["uvx", "fal-mcp"]', None, '["FAL_KEY"]')
+            + ('["connector"]', "2026-10-01T00:00:00+00:00"),
+        )
+    ref = ConnectorRef("fal_video", "stage", frozenset({"connector"}))
+    saved = Workflows(WorkflowStorage(db), lambda *_: {"fal_video": ref}).save(w, CLIP)
+    env = root / ".env"
+    env.write_text("FAL_KEY=s3cret\nYOUTUBE_CLIENT_ID=yt\n")
+    env.chmod(0o600)
+
+    app = create_app(root, transport=transport, poll_seconds=0.01, retro=False)
+    with TestClient(app) as client:
+        listed = client.get(f"/api/worlds/{w}/connectors").json()
+        (fal,) = [c for c in listed if c["name"] == "fal_video"]
+        assert (fal["name"], fal["version"], fal["missing"]) == ("fal_video", "0.0.1", [])
+        assert env.read_text() == "YOUTUBE_CLIENT_ID=yt\n"
+        with closing(connect(db)) as conn:
+            assert conn.execute("SELECT count(*) FROM connectors").fetchone()[0] == 0
+
+        run = client.post(f"/api/workflows/{saved.workflow_id}/runs", json={}).json()
+        until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+        assert transport.calls[0][:2] == ("fal_video", "fal_video")
+        assert transport.calls[0][3] == {"FAL_KEY": "s3cret"}
 
 
 def start(client: TestClient) -> dict[str, Any]:
@@ -206,17 +301,285 @@ def test_progress_streams_on_the_world_events(live_url: str, transport: FakeTran
     assert seen == [("running", None), ("polling", 0.0), ("polling", 0.5), ("done", 1.0)]
 
 
-def test_the_speech_connector_reports_each_engine_s_health(
-    client: TestClient, transport: FakeTransport
-) -> None:
-    listed = {c["name"]: c for c in client.get(f"/api/worlds/{world(client)}/connectors").json()}
-    assert listed["speech"]["health"] == "speech_health" and listed["youtube"]["health"] is None
-    transport.outputs["speech_health"] = [
-        {"checks": [{"name": "http://kokoro:8880", "ok": False, "message": "refused"}]},
-        ConnectorError("speech: could not start"),
+def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient) -> None:
+    w = world(client)
+    listed = {c["name"]: c for c in client.get(f"/api/worlds/{w}/connectors").json()}
+    assert listed["speech"]["services"] == ["engines"] and listed["speech"]["version"] == "1.0.0"
+    assert listed["youtube"]["services"] == [] and listed["youtube"]["health"] is None
+    down = "http://127.0.0.1:9"  # nothing listens on discard
+    setup = {"shared": {"speech_endpoints": down}, "world": {}}
+    assert client.put(f"/api/worlds/{w}/packages/speech/setup", json=setup).status_code == 200
+    (check,) = client.get(f"/api/worlds/{w}/packages/speech/health").json()
+    assert check["name"] == down and check["ok"] is False and check["message"]
+    assert client.get(f"/api/worlds/{w}/packages/echo/health").status_code == 404
+    assert client.get("/api/worlds/nope/packages/speech/health").status_code == 404
+    assert client.get(f"/api/worlds/{w}/packages/remotion_build/health").json() == []
+
+
+def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_path: Path) -> None:
+    # the defaults: slack is installed too, but no world is given it
+    assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "remotion_build",
+        "remotion_render",
+        "slack",
+        "speech",
+        "upload_post",
+        "youtube",
     ]
-    health = client.get("/api/connectors/builtin_speech/health")
-    assert health.json() == [{"name": "http://kokoro:8880", "ok": False, "message": "refused"}]
-    assert client.get("/api/connectors/builtin_speech/health").status_code == 502
-    assert client.get("/api/connectors/builtin_youtube/health").json() == []
-    assert client.get("/api/connectors/nope/health").status_code == 404
+    source = "packages/connectors/tests/fixtures/packages/echo"
+    installed = install(client, source)
+    assert installed.status_code == 201, installed.text
+    assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
+    listed = client.get("/api/packages").json()
+    assert listed[0] == installed.json() and len(listed) == 7
+    assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
+        "name": "echo",
+        "version": "1.0.0",
+        "label": "Echo",
+        "kind": "stage",
+        "state": "installed",
+        "source": source,
+    }
+    again = install(client, source)
+    assert again.status_code == 422
+    assert again.json()["detail"] == "echo 1.0.0 is already installed"
+    # installed for the whole install: no world holds it, and the built-ins are unchanged
+    world_id = world(client)
+    names = [c["name"] for c in client.get(f"/api/worlds/{world_id}/connectors").json()]
+    assert "echo" not in names and "speech" in names
+
+
+def test_an_invalid_manifest_is_refused_naming_the_field(
+    client: TestClient, tmp_path: Path
+) -> None:
+    source = tmp_path / "bad"
+    source.mkdir()
+    fixture = Path(__file__).parents[3] / "packages/connectors/tests/fixtures/manifests"
+    (source / "swarmify-connector.toml").write_text((fixture / "bad_kind.toml").read_text())
+    refused = install(client, str(source))
+    assert refused.status_code == 422
+    assert refused.json()["detail"].startswith("invalid Manifest: kind: 'robot'")
+    assert [p["name"] for p in client.get("/api/packages").json()] == [
+        "remotion_build",
+        "remotion_render",
+        "slack",
+        "speech",
+        "upload_post",
+        "youtube",
+    ]
+
+
+def git(cwd: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    who = ["-c", "user.name=t", "-c", "user.email=t@example.org"]
+    return subprocess.run(
+        ["git", *who, *args], cwd=cwd, env=env, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_install_from_git_at_a_tag_once_its_permissions_are_approved(
+    client: TestClient, tmp_path: Path
+) -> None:
+    work = tmp_path / "echo"
+    fixtures = Path(__file__).parents[3] / "packages/connectors/tests/fixtures"
+    shutil.copytree(fixtures / "packages/echo", work)
+    git(work, "init", "-q")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "echo")
+    git(work, "tag", "v1.0.0")
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(tmp_path / "echo.git"))
+    source = {"source": str(tmp_path / "echo.git"), "ref": "v1.0.0"}
+
+    review = client.post("/api/packages/review", json=source)
+    assert review.status_code == 200, review.text
+    shown = review.json()
+    assert shown["commit"] == git(work, "rev-parse", "HEAD") and shown["upgrade"] is None
+    some = {"network: api.example.org", "credentials: ECHO_KEY", "sign_in: auth.example.org"}
+    assert some <= set(shown["permissions"])
+    assert not (tmp_path / "packages/echo").exists()  # reviewing ran nothing of it
+
+    approve = {**source, "commit": shown["commit"]}
+    refused = client.post("/api/packages", json={**approve, "approved": shown["permissions"][1:]})
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "approve these permissions first: network: api.example.org"
+    assert not (tmp_path / "packages/echo").exists()
+    installed = client.post("/api/packages", json={**approve, "approved": shown["permissions"]})
+    assert installed.status_code == 201, installed.text
+    assert {k: installed.json()[k] for k in ("name", "version", "ref", "commit")} == {
+        "name": "echo",
+        "version": "1.0.0",
+        "ref": "v1.0.0",
+        "commit": shown["commit"],
+    }
+    assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
+
+    http = client.post("/api/packages/review", json={"source": "http://example.org/x.git"})
+    assert http.status_code == 422 and http.json()["detail"].startswith("http:// is refused")
+
+
+def test_the_index_lists_packages_that_install_through_the_review(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    work = tmp_path / "mono"
+    fixtures = Path(__file__).parents[3] / "packages/connectors/tests/fixtures"
+    shutil.copytree(fixtures / "packages/echo", work / "connectors/echo")
+    git(work, "init", "-q")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "echo")
+    git(work, "tag", "v1.0.0")
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(tmp_path / "mono.git"))
+    index = tmp_path / "index.toml"
+    index.write_text(
+        f"""[[packages]]
+name = "echo"
+description = "Says it back."
+git = "{tmp_path / "mono.git"}"
+subfolder = "connectors/echo"
+ref = "v1.0.0"
+permissions = ["network: api.example.org"]
+"""
+    )
+    monkeypatch.setenv("SWARMIFY_CONNECTOR_INDEX", str(index))
+    listed = client.get("/api/packages/index")
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["url"] == str(index)
+    [entry] = listed.json()["packages"]
+    assert entry["subfolder"] == "connectors/echo" and entry["description"] == "Says it back."
+
+    source = {k: entry[k] for k in ("subfolder", "ref")} | {"source": entry["git"]}
+    review = client.post("/api/packages/review", json=source).json()
+    assert len(review["permissions"]) > len(entry["permissions"])  # the clone's, not the index's
+    approve = {**source, "commit": review["commit"], "approved": review["permissions"]}
+    installed = client.post("/api/packages", json=approve)
+    assert installed.status_code == 201, installed.text
+    assert installed.json()["subfolder"] == "connectors/echo"
+
+    monkeypatch.setenv("SWARMIFY_CONNECTOR_INDEX", "http://example.org/index.toml")
+    down = client.get("/api/packages/index")
+    assert down.status_code == 502
+    assert down.json()["detail"] == (
+        "Could not read the index at http://example.org/index.toml:"
+        " http:// is refused: the index is fetched over https:// only"
+    )
+
+
+ECHO = """name: Say it
+stages:
+  - swarm: write
+    goal: a line
+    done_when: written
+    output_type: line
+    produces: [line.md]
+  - connector: say
+    calls: echo
+    input: line.md
+    output: said.wav
+"""
+
+
+def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None:
+    source = "packages/connectors/tests/fixtures/packages/echo"
+    assert install(client, source).status_code == 201
+    one, two = world(client), world(client)
+    refused = client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO})
+    assert refused.status_code == 422
+    assert refused.json()["violations"][0]["message"] == "no connector named 'echo'"
+
+    for w in (one, two):
+        put = client.put(f"/api/worlds/{w}/packages/echo", json={"version": "1.0.0"})
+        assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
+    assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "echo", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.0"},  # the default packages
+        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
+    ]
+    echo = next(
+        c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "echo"
+    )
+    assert (echo["name"], echo["version"]) == ("echo", "1.0.0")
+    assert "folder" not in echo
+    assert echo["label"] == "Echo"  # from its Manifest
+    assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 201
+
+    assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
+    assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "remotion_build", "version": "1.0.0"},
+        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
+    ]
+    assert client.get(f"/api/worlds/{two}/packages").json() == [
+        {"name": "echo", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.0"},
+        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "speech", "version": "1.0.0"},
+        {"name": "upload_post", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.0.0"},
+    ]
+    assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 422
+    assert client.post(f"/api/worlds/{two}/workflows", json={"yaml": ECHO}).status_code == 201
+    names = [c["name"] for c in client.get(f"/api/worlds/{one}/connectors").json()]
+    assert "echo" not in names and "speech" in names and "youtube" in names
+
+    assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 404
+    missing = client.put(f"/api/worlds/{one}/packages/echo", json={"version": "9.0.0"})
+    assert missing.status_code == 422 and missing.json()["detail"] == "echo 9.0.0 is not installed"
+    nope = client.put("/api/worlds/world_nope/packages/echo", json={"version": "1.0.0"})
+    assert nope.status_code == 404
+
+
+def test_a_packages_setup_form_tests_before_saving_and_never_returns_a_credential(
+    client: TestClient, transport: FakeTransport, tmp_path: Path
+) -> None:
+    source = "packages/connectors/tests/fixtures/packages/probe"
+    assert install(client, source).status_code == 201
+    one, two = world(client), world(client)
+    for w in (one, two):
+        client.put(f"/api/worlds/{w}/packages/probe", json={"version": "1.0.0"})
+    form = client.get(f"/api/worlds/{one}/packages/probe/setup").json()
+    assert [f["type"] for f in form["fields"]] == [
+        "string", "text", "number", "integer", "boolean", "choice", "url", "path"
+    ]  # fmt: skip
+    key = form["fields"][0]
+    assert (key["key"], key["secret"], key["required"], key["env"]) == (
+        "api_key", True, True, "PROBE_KEY"
+    )  # fmt: skip
+    assert form["missing"] == ["api_key"] and form["test"] == "check_setup"
+    probe = next(
+        c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "probe"
+    )
+    assert probe["missing"] == ["api_key"] and probe["credentials"] == ["PROBE_KEY"]
+
+    transport.outputs["check_setup"] = [
+        {"ok": False, "message": "That key was refused."},
+        {"ok": True, "message": "Signed in as probe."},
+    ]
+    url = f"/api/worlds/{one}/packages/probe/setup"
+    body = {"shared": {"api_key": "s3cret", "ratio": "0.5"}, "world": {"voice": "high"}}
+    refused = client.put(url, json=body)
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "Not saved. The test said: That key was refused."
+    assert not (tmp_path / "setup.json").exists()
+
+    saved = client.put(url, json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["check"] == {"ok": True, "message": "Signed in as probe."}
+    assert "s3cret" not in saved.text
+    assert stat.S_IMODE((tmp_path / "setup.json").stat().st_mode) == 0o600
+    for w, voice in ((one, "high"), (two, None)):
+        got = client.get(f"/api/worlds/{w}/packages/probe/setup")
+        assert "s3cret" not in got.text
+        by_key = {f["key"]: f for f in got.json()["fields"]}
+        assert (by_key["api_key"]["shared"], by_key["api_key"]["shared_set"]) == (None, True)
+        assert by_key["ratio"]["shared"] == 0.5 and by_key["voice"]["world"] == voice
+        assert got.json()["missing"] == []
+    assert "s3cret" not in client.get(f"/api/worlds/{one}/connectors").text
+
+    bad = client.put(url, json={"shared": {"ratio": "lots"}})
+    assert bad.status_code == 422 and bad.json()["detail"] == "Ratio: is a number"
+    gone = client.get(f"/api/worlds/{one}/packages/echo/setup")
+    assert gone.status_code == 404

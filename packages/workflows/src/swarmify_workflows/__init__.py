@@ -22,15 +22,18 @@ from swarmify_workflows.model import (
     WorkflowModel,
     WorkflowStage,
     WorkflowVersion,
+    calls,
 )
 from swarmify_workflows.parse import parse_workflow
 from swarmify_workflows.ports import Storage
 from swarmify_workflows.schedule import cron_problem, next_fire
 from swarmify_workflows.sqlite import MIGRATIONS, SqliteStorage
+from swarmify_workflows.starters import STARTERS, Starter
 from swarmify_workflows.validate import validate
 
 __all__ = [
     "MIGRATIONS",
+    "STARTERS",
     "ConnectorRef",
     "ConnectorStage",
     "Draft",
@@ -38,6 +41,7 @@ __all__ = [
     "Invalid",
     "SqliteStorage",
     "Stage",
+    "Starter",
     "Storage",
     "SwarmStage",
     "Violation",
@@ -70,23 +74,32 @@ class Workflows:
     def __init__(
         self,
         storage: Storage,
-        connectors_for: Callable[[str], Mapping[str, ConnectorRef]],
+        connectors_for: Callable[[str, Mapping[str, str]], Mapping[str, ConnectorRef]],
         on_saved: Callable[[WorkflowVersion], None] = lambda _: None,
     ) -> None:
-        """`on_saved` sees every new version once it is stored: the composition root uses it to
-        hand the version's `schedule` to the Runs context, which owns the cron."""
+        """`connectors_for(world id, pins)` gives the world's connectors, a package named in
+        `pins` at that version over the world's pin. `on_saved` sees every new version once it
+        is stored: the composition root uses it to hand the version's `schedule` to the Runs
+        context, which owns the cron."""
         self.storage = storage
         self.connectors_for = connectors_for
         self.on_saved = on_saved
 
-    def check(self, world_id: str, yaml: str, workflow_id: str | None = None) -> Draft:
-        """Parse and validate without saving. `workflow_id` is the workflow a new version is for."""
+    def check(
+        self,
+        world_id: str,
+        yaml: str,
+        workflow_id: str | None = None,
+        pins: Mapping[str, str] | None = None,
+    ) -> Draft:
+        """Parse and validate without saving. `workflow_id` is the workflow a new version is for;
+        `pins`, the package versions a saved version recorded, checks it against those."""
         model, violations = parse_workflow(yaml)
         if model is not None:
             violations += validate(
                 model,
                 workflow_id=workflow_id,
-                connectors=self.connectors_for(world_id),
+                connectors=self.connectors_for(world_id, pins or {}),
                 references=self._references(),
             )
         return Draft(model, violations)
@@ -96,12 +109,16 @@ class Workflows:
         draft = self.check(world_id, yaml, workflow_id)
         if draft.violations or draft.model is None:
             raise Invalid(draft.violations)
+        refs = self.connectors_for(world_id, {})
+        packages = {
+            n: v for n in sorted(calls(draft.model)) if n in refs and (v := refs[n].version)
+        }
         if workflow_id is None:
             workflow = Workflow(
                 new_id("wf"), world_id, draft.model.name, 1, datetime.now(UTC).isoformat()
             )
             version = self.storage.add_workflow(
-                workflow, yaml, _saved(workflow.id, world_id, draft.model.name, 1)
+                workflow, yaml, _saved(workflow.id, world_id, draft.model.name, 1), packages
             )
         else:
             existing = self.storage.get_workflow(workflow_id)
@@ -109,7 +126,7 @@ class Workflows:
                 raise KeyError(workflow_id)
             number = existing.current_version + 1
             event = _saved(workflow_id, world_id, draft.model.name, number)
-            added = self.storage.add_version(workflow_id, yaml, draft.model.name, event)
+            added = self.storage.add_version(workflow_id, yaml, draft.model.name, event, packages)
             if added is None:
                 raise KeyError(workflow_id)
             version = added
@@ -145,6 +162,31 @@ class Workflows:
 
     def version(self, workflow_id: str, number: int) -> WorkflowVersion | None:
         return self.storage.get_version(workflow_id, number)
+
+    def stamp(self, versions_for: Callable[[str], Mapping[str, str]]) -> int:
+        """Record, in every saved version, the package version `versions_for(world id)` gives
+        for each package it calls but has not recorded, as a version saved before versions
+        were recorded, or one calling a connector that has since become a package. Recorded
+        versions never change. Returns how many versions it stamped."""
+        stamped = 0
+        for world_id, version in self.storage.all_versions():
+            pins = versions_for(world_id)
+            missing = {
+                n: pins[n] for n in calls(version.model) - set(version.packages) if n in pins
+            }
+            if missing:
+                self.storage.set_packages(version.id, {**version.packages, **missing})
+                stamped += 1
+        return stamped
+
+    def using(self, package: str, version: str) -> list[tuple[Workflow, int]]:
+        """Each saved workflow version, as its workflow and number, that records `package` at
+        `version`."""
+        return [
+            (workflow, v.number)
+            for _, v in self.storage.all_versions()
+            if v.packages.get(package) == version and (workflow := self.get(v.workflow_id))
+        ]
 
     def delete_world(self, world_id: str) -> None:
         """Drop a deleted world's workflows so they stop shaping cycle and depth checks."""

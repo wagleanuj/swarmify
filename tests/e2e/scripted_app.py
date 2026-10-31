@@ -7,18 +7,23 @@ judge passes with two ranked ideas. Every run's retro session proposes nothing, 
 `SWARMIFY_E2E_RETRO=propose` in the app's environment, one new skill. A `remotion_build` stage's
 builder session installs packages and writes src/Main.tsx.
 
-The planner chat, told apart by its system prompt too, drafts GOLDEN. The built-in Remotion
-render, speech and YouTube connectors answer from a fake ConnectorTransport (render writes the
-video and its sidecar, as the real wrapper does; speech writes timings.json and a silent take per
-scene; YouTube counts 1,234 views); a connector a test adds goes through the real MCP transport.
-Upkeep runs every second.
+The planner chat, told apart by its system prompt too, drafts GOLDEN. The Remotion render,
+speech and YouTube connectors answer from a fake ConnectorTransport (render writes the video and
+its sidecar, as the real wrapper does; speech writes timings.json and a silent take per scene;
+YouTube posts and counts 1,234 views, while its preview is the youtube package's own, over MCP);
+a connector a test adds, and the render package's workflow check, go through the real MCP
+transport. remotion_render installs with an `npm` and `npx` that do nothing, so each app does not
+fetch the Remotion CLI and Chrome (800 MB) its fake renders never use. Upkeep runs every second.
 
 The GraphWriter's extract writes a fixed graph instead of calling graphify's model, a second
 after the last change; the real graphify MCP process answers queries over it."""
 
 import json
 import os
+import tempfile
 import wave
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -27,13 +32,15 @@ from fastapi import FastAPI
 
 from swarmify_api.main import create_app as real_app
 from swarmify_api.planner import SYSTEM as PLANNER_SYSTEM
-from swarmify_connectors import Connector, FakeTransport, McpTransport
+from swarmify_connectors import Connector, FakeTransport, McpTransport, packages
+from swarmify_connectors.mcp_transport import Caller
 from swarmify_learning import SYSTEM as RETRO_SYSTEM
 from swarmify_memory import GRAPH_OUT
 from swarmify_swarm import SdkRuntime, tool_id
-from swarmify_swarm.build import SYSTEM as BUILDER_SYSTEM
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script, ScriptedTransport
 
+BUILDER_SYSTEM = (Path(__file__).parents[2] / "connectors/remotion_build/system.md").read_text()
+"""The remotion_build package's system prompt for its Build Session."""
 IDEAS_MD = """# Ideas
 
 ```
@@ -126,7 +133,7 @@ stages:
     calls: remotion_render
     input: ideas.md
     output: short.mp4
-    params: {project: /tmp, composition: Short}
+    params: {project: shorts, composition: Short}
   - gate: review
     ask: Watch it. Approve or send back.
     kind: approve
@@ -187,32 +194,37 @@ def voice(out: Path) -> dict[str, Any]:
 
 
 class Transport(McpTransport):
-    """The real MCP transport, but the built-in render and YouTube connectors are fakes."""
+    """The real MCP transport, but the render connector and YouTube's posting are fakes."""
 
     def __init__(self) -> None:
         super().__init__()
         self.fake = FakeTransport(
             outputs={
-                "youtube": [{"video_id": VIDEO, "url": f"https://youtu.be/{VIDEO}"}],
-                "views": [{"views": {VIDEO: 1234}}],
+                "publish": [{"id": VIDEO, "url": f"https://youtu.be/{VIDEO}"}],
+                "outcomes": [{VIDEO: {"views": 1234}}],
             }
         )
 
     def call(
         self, connector: Connector, tool: str, arguments: dict[str, Any], env: dict[str, str]
     ) -> dict[str, Any]:
-        if connector.name == "remotion_render":
+        if connector.name == "remotion_render" and tool == "remotion_render":
             out = Path(arguments["output_path"])
             out.write_bytes(b"not really an mp4")
             head = {**arguments["frontmatter"], "type": "video", "file": out.name}
             front = "\n".join(f"{k}: {json.dumps(v)}" for k, v in head.items())
             out.with_name(f"{out.name}.md").write_text(f"---\n{front}\n---\n\n# {out.name}\n")
             return self.fake.call(connector, tool, arguments, env) | {"output": out.name}
-        if connector.name == "youtube":
+        if connector.name == "youtube" and tool != "preview":
             return self.fake.call(connector, tool, arguments, env)
         if connector.name == "speech" and tool == "speech":  # its types answer for real
             return voice(Path(arguments["output_path"]))
         return super().call(connector, tool, arguments, env)
+
+    @contextmanager
+    def session(self, connector: Connector, env: dict[str, str]) -> Iterator[Caller]:
+        """Each call of a stage's session by itself, so the fakes above answer theirs."""
+        yield lambda tool, arguments: self.call(connector, tool, arguments, env)
 
 
 GRAPH = {
@@ -232,7 +244,22 @@ def extract(folder: Path, allow_shrink: bool = False) -> None:
     (folder / GRAPH_OUT / "graph.json").write_text(json.dumps(GRAPH))
 
 
+def _no_node_installs() -> None:
+    bin_dir = Path(tempfile.mkdtemp())
+    for tool in ("npm", "npx"):
+        (bin_dir / tool).write_text("#!/bin/sh\n")
+        (bin_dir / tool).chmod(0o755)
+    real = packages._install_env
+
+    def install_env() -> dict[str, str]:
+        env = real()
+        return {**env, "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"}
+
+    packages._install_env = install_env
+
+
 def create_app() -> FastAPI:
+    _no_node_installs()
     retro = PROPOSE if os.environ.get("SWARMIFY_E2E_RETRO") == "propose" else RETRO
     scripts = {  # the first whose marker is in the system prompt plays the session
         PLANNER_SYSTEM: Script(PLANNER_CHAT, cost=0.0042),
@@ -248,6 +275,10 @@ def create_app() -> FastAPI:
         script = next(s for marker, s in scripts.items() if marker in prompt)
         return script.transport(options)
 
+    # The template the e2e workflows render, where the render package's templates folder is:
+    # its sandbox lets it read nothing else of the data directory.
+    template = Path(os.environ["SWARMIFY_DATA_DIR"]) / "remotion" / "shorts"
+    template.mkdir(parents=True, exist_ok=True)
     return real_app(
         transport=Transport(),
         runtime=SdkRuntime(transport=transport),

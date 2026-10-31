@@ -1,0 +1,9 @@
+# error: about: 
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = ""
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]

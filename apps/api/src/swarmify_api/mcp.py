@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from swarmify_api import tasks
 from swarmify_api.agents import run_artifacts
@@ -240,6 +241,48 @@ def server(
     @mcp.tool(description="Abort a run and every child run it started.")
     def abort_run(run_id: str) -> dict[str, Any]:
         return run_or_fail(lambda: control.abort(run_id))
+
+    return mcp
+
+
+def approvals_server(control: RunControl) -> MCPServer:
+    """The part of the MCP server a Remote Approval connector reaches with the token the core
+    provisions for it (scope `remote_approvals`, at `/mcp/remote_approvals`): answering a gate,
+    nothing else. The answer resolves exactly as one in the web UI; the first answer wins."""
+    mcp = MCPServer(
+        "swarmify-remote-approvals",
+        instructions="Answer a gate Swarmify posted to you, as the person who answered it.",
+    )
+
+    @mcp.tool(
+        description="Answer the gate a posted message is for: `run_id`, `stage_index` and `visit`"
+        ' as the gate carried them, and `by`, who answered, as a person reads it ("anuj in'
+        ' chat"). Then the `decide` of the answer chosen: a pick names `artifact`, an approve'
+        " may name `send_back_to`. Refused once the gate was answered anywhere, or has moved on."
+    )
+    def decide_gate(
+        run_id: str,
+        stage_index: int,
+        visit: int,
+        by: str,
+        choice: str | None = None,
+        artifact: str | None = None,
+        send_back_to: str | None = None,
+        note: str = "",
+    ) -> dict[str, Any]:
+        try:
+            run = control.decide(
+                run_id,
+                choice,
+                note,
+                send_back_to,
+                artifact=artifact,
+                gate=(stage_index, visit),
+                by=by.strip()[:100] or None,
+            )
+        except (KeyError, ValueError) as exc:  # Illegal is a ValueError
+            raise ToolError(str(exc).strip("'\"")) from exc
+        return {"run_id": run.id, "status": run.status}
 
     return mcp
 

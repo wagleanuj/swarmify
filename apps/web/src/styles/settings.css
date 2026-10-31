@@ -22,3 +22,16 @@
 /* Evals: one panel per report, newest first. */
 .eval-list { display: grid; gap: 16px; }
 .eval-list .panel-head { justify-content: space-between; }
+
+/* Sign-in: one narrow panel in the middle of the screen. */
+.sign-in { display: grid; place-content: center; justify-items: center; gap: 16px; min-height: 100svh; max-width: none; padding: 24px var(--pad); box-sizing: border-box; }
+.sign-in form { display: grid; gap: 16px; width: min(22rem, calc(100vw - 2 * var(--pad))); box-sizing: border-box; }
+.sign-in h1, .sign-in p { margin: 0; }
+.sign-in input { width: 100%; box-sizing: border-box; }
+
+/* API tokens: one row a token, the new one shown once above them. */
+.token-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.token-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.token-list li > span { display: grid; gap: 2px; min-width: 0; }
+.token-new { display: grid; gap: 6px; }
+.set-body { display: contents; }

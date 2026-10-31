@@ -1,0 +1,52 @@
+# Its own uv project, outside the Swarmify workspace: PyTorch and the models never enter the core
+# (ADR 0019). The speech package's README says how to run it.
+[project]
+name = "speech-chatterbox"
+version = "0.1.0"
+description = "Chatterbox Turbo speech and faster-whisper word times over HTTP"
+requires-python = ">=3.11,<3.13"
+license = "AGPL-3.0-only"
+dependencies = [
+  "chatterbox-tts==0.1.7",
+  "faster-whisper>=1.2.1",
+  "fastapi>=0.115",
+  "python-multipart>=0.0.20",
+  "soundfile>=0.13",
+  "torch==2.6.0",
+  "torchaudio==2.6.0",
+  "uvicorn>=0.34",
+  # faster-whisper 1.2 passes `metadata_errors` to av.open, which PyAV 19 dropped.
+  "av<19",
+  # Chatterbox's watermarker imports pkg_resources, which setuptools 81 removed.
+  "setuptools<81",
+]
+
+# Which PyTorch wheels on Linux: `--extra cpu` (the Compose `chatterbox` profile) or `--extra
+# cu124` (`chatterbox-gpu`, an NVIDIA driver for CUDA 12.4 or newer). The Mac takes PyPI's.
+[project.optional-dependencies]
+cpu = ["torch==2.6.0", "torchaudio==2.6.0"]
+cu124 = ["torch==2.6.0", "torchaudio==2.6.0"]
+
+[tool.uv]
+package = false
+conflicts = [[{ extra = "cpu" }, { extra = "cu124" }]]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+  { index = "pytorch-cu124", extra = "cu124", marker = "sys_platform == 'linux'" },
+]
+torchaudio = [
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+  { index = "pytorch-cu124", extra = "cu124", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true

@@ -1,12 +1,14 @@
-"""Credentials: one env file in the home data dir (`~/.swarmify/.env`), mode 600.
+"""Credentials: V1's env file in the home data dir (`~/.swarmify/.env`), mode 600.
 
-Values never enter the database, a run, a workflow or an API response; the service reads them
-only to hand a connector's own names to its transport.
+Every key now lives in a package's Setup (ADR 0024). The file is read by the V1 migrations into
+Setup (`Connectors.install_defaults` and `adopt_world_connectors`), by the add form for a key
+it still holds, and to hide its names from a coding session; `set` seeds it in tests.
 """
 
 import os
 import re
 import stat
+from collections.abc import Iterable
 from pathlib import Path
 
 NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -44,7 +46,15 @@ class Credentials:
                 raise ValueError(f"credential names are UPPER_SNAKE_CASE: {key!r}")
             if "\n" in value or "\r" in value:
                 raise ValueError(f"credential {key} holds a line break")
-        merged = {**self.read(), **values}
+        self._write({**self.read(), **values})
+
+    def remove(self, names: Iterable[str]) -> None:
+        """Drop `names` from the file; a no-op when it holds none of them."""
+        values, drop = self.read(), set(names)
+        if drop & set(values):
+            self._write({k: v for k, v in values.items() if k not in drop})
+
+    def _write(self, merged: dict[str, str]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

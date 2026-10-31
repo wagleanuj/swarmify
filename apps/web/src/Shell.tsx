@@ -64,7 +64,7 @@ const SAME_AREA = {
 } as const;
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-const Mark = () => (
+export const Mark = () => (
   <span className="brand">
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 18 L12 4 L20 18 Z" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinejoin="round" />
@@ -123,7 +123,7 @@ export function Shell() {
       api
         .GET("/api/worlds/{world_id}/connectors", path)
         .then(({ data }) => (data ? { connectors: `${data.filter((c) => status(c).tone === "ok").length} of ${data.length} ready` } : {})),
-      api.GET("/api/worlds/{world_id}/voices", path).then(({ data }) => (data ? { assets: `${count(data.voices.length, "voice")} and files` } : {})),
+      api.GET("/api/worlds/{world_id}/assets", path).then(({ data }) => (data ? { assets: count(data.length, "file") } : {})),
     ].map((p) => p.catch(() => ({})))).then((parts) => setSummary(Object.assign({}, ...parts)));
   }, [sheet, worldId]);
 
@@ -270,7 +270,7 @@ export function Shell() {
           {worldId && (
             <>
               {row("Overview", { to: "/worlds/$worldId", params }, summary.overview)}
-              {row("Assets", { to: "/worlds/$worldId/assets", params }, summary.assets ?? "voices and files")}
+              {row("Assets", { to: "/worlds/$worldId/assets", params }, summary.assets ?? "files your builds read")}
               {row("Memory", { to: "/worlds/$worldId/graph", params }, "graph and notes")}
               {row("Cast", { to: "/worlds/$worldId/cast", params }, summary.cast)}
               {row("Connectors", { to: "/worlds/$worldId/connectors", params }, summary.connectors)}

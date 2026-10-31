@@ -5,7 +5,7 @@ import "../index.css";
 
 import type { ArtifactFile, LogEntry } from "../api/events";
 import type { Call } from "../api/runs";
-import { FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
+import { CONNECTORS, FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const at = (minute: number, second = 0) => `2026-10-26T10:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}+00:00`;
@@ -93,8 +93,8 @@ const posted = made("stage_4", "publish.md", {
       { key: "schedule", label: "When", value: null, hint: "Right after confirming." },
     ],
     links: { youtube: "https://youtu.be/abc" },
-    views: 1234,
-    views_at: "2026-10-27T00:00:00",
+    outcomes: { views: 1234, clicks: 12 },
+    outcomes_at: "2026-10-27T00:00:00",
   },
 });
 
@@ -134,7 +134,7 @@ test("running: the status line says which stage works, the step and the time, an
   FakeEventSource.emit("run.updated", { payload: running });
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Video is working · step 3 of 3 · 4 min so far");
   const rail = screen.getByTestId("timeline");
-  await expect.element(rail).toMatchTextContent(/research\s*swarm\s*2m 14s\s*voice\s*speech\s*1m 14s\s*video\s*build\s*running/);
+  await expect.element(rail).toMatchTextContent(/research\s*swarm\s*2m 14s\s*voice\s*audio\s*1m 14s\s*video\s*build\s*running/);
   // The run moved on; the step you are on stays, its log is not fetched again, and Go there follows.
   await expect.element(screen.getByTestId("follow")).toHaveTextContent("Now at video · Go there");
   await expect.element(screen.getByRole("button", { name: /^Step 1, research/ })).toHaveAttribute("aria-pressed", "true");
@@ -294,7 +294,7 @@ test("done with a video: the run's time, where it was posted, and the video in p
   await expect.element(panel).toMatchTextContent(/^video\s*build · step 3 of 5 · 4m 14s/);
   await expect.element(panel.getByTestId("result")).toMatchTextContent(/What\s*video\.mp4\s*Made by\s*video, step 3 of 5/);
   await expect.element(screen.getByTestId("budget")).toHaveTextContent("$5.06 of $40.00");
-  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$34.94 left before Russ pauses the run.");
+  await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("$34.94 left before the budget pauses the run.");
   // The step that made the result does not repeat its player below it.
   await expect.element(panel).toMatchTextContent(/It made video\.mp4, the result shown above\./);
   expect(screen.getByTestId("player").elements()).toHaveLength(1);
@@ -305,7 +305,7 @@ test("done with a video: the run's time, where it was posted, and the video in p
   await screen.getByRole("button", { name: /^Step 5, publish/ }).click();
   expect(screen.getByTestId("result").query()).toBeNull();
   const out = screen.getByTestId("publish");
-  await expect.element(out).toMatchTextContent(/Where\s*YouTube\s*Title\s*Kids short\s*Visibility\s*private\s*When\s*Right after confirming\.\s*Views\s*1,234 as of 2026-10-27/);
+  await expect.element(out).toMatchTextContent(/Where\s*YouTube\s*Title\s*Kids short\s*Visibility\s*private\s*When\s*Right after confirming\.\s*Outcome\s*1,234 views, 12 clicks as of 2026-10-27/);
   await expect.element(out.getByRole("link", { name: "Open the post" })).toHaveAttribute("href", "https://youtu.be/abc");
   await expect.element(screen.getByText("Technical details")).toBeVisible();
   await expect.element(screen.getByTestId("call-request")).not.toBeVisible();
@@ -400,7 +400,7 @@ test("clicking a step selects it and keeps it in the URL, and a link opens the s
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
   await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^research\s*swarm/);
   await screen.getByRole("button", { name: /^Step 2, voice/ }).click();
-  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^voice\s*speech · step 2 of 3 · 1m 14s/);
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^voice\s*audio · step 2 of 3 · 1m 14s/);
   expect(router.state.location.search).toEqual({ stage: "stage_1" });
 });
 
@@ -410,7 +410,7 @@ test("speech panel: a row per scene with its take, length and engine, and a warn
     "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
-  const speech = screen.getByTestId("stage-panel").getByTestId("speech");
+  const speech = screen.getByTestId("stage-panel").getByTestId("takes");
   await expect.element(speech).toMatchTextContent(/^2 scenes · 7\.7 s of narration/);
   const takes = speech.getByTestId("take");
   await expect.element(takes.first()).toMatchTextContent(/hook\s*3\.6 s\s*localhost:8881\s*Line 1 runs into line 2 with no silence to cut at\./);
@@ -426,7 +426,7 @@ test("speech panel: the voice that spoke, the one chosen when it could not, and 
     "GET /api/runs/run_1/artifacts": () => Response.json([voiced, mp4]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
-  const speech = screen.getByTestId("stage-panel").getByTestId("speech");
+  const speech = screen.getByTestId("stage-panel").getByTestId("takes");
   await expect.element(speech.getByTestId("voice")).toHaveTextContent("voiced by heart");
   await expect.element(speech).toMatchTextContent(/\(chosen narrator, which localhost:8881 cannot speak\)/);
   await expect.element(speech.getByRole("note").first()).toMatchTextContent(/stranger has no consent/);
@@ -471,6 +471,23 @@ test("render panel: progress, then the player once the video is made", async () 
   artifacts = [made("stage_0", "short.mp4", { path: "runs/run_1/stage_0/artifacts/short.mp4.md", type: "video" })];
   FakeEventSource.emit("artifact.created", { payload: { type: "video", path: artifacts[0]!.path, author: "remotion_render", stage_id: "stage_0" } });
   await expect.element(screen.getByTestId("result").getByTestId("player")).toBeVisible();
+});
+
+test("a package's step gets its panel from the media it makes, never from its name", async () => {
+  // echo is the fixture package (packages/connectors/tests/fixtures/packages/echo): its Manifest
+  // declares audio, and nothing in the web app names it
+  const echo = { ...CONNECTORS[0]!, id: "echo", name: "echo", label: "Echo", outputs: [{ description: "the line, said", media_type: "audio/wav" }] };
+  const steps = [stage(0, "say", "connector", "done", { calls: "echo", ...timed(0, 1) }), stage(1, "say again", "connector", "pending", { calls: "echo" })];
+  fakeFetch({
+    "GET /api/worlds/world_1/connectors": () => Response.json([...CONNECTORS, echo]),
+    "GET /api/runs/run_1": () => Response.json(run("running", steps)),
+    "GET /api/runs/run_1/artifacts": () => Response.json([made("stage_0", "said.wav")]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
+  // by what it made, and before it made anything by what its Manifest says it makes
+  await expect.element(screen.getByTestId("timeline")).toMatchTextContent(/say\s*audio.*say again\s*audio/);
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^say\s*audio · step 1 of 2/);
+  await expect.element(screen.getByTestId("audio").first()).toHaveAttribute("src", "/api/worlds/world_1/files/runs/run_1/stage_0/artifacts/said.wav");
 });
 
 test("retro panel: the proposal and whether it was approved", async () => {
@@ -595,8 +612,8 @@ test("on a phone the step button opens the steps and spend in a sheet; picking a
   await sheet.getByRole("button", { name: /^Step 2, voice/ }).click();
   await expect.element(sheet).not.toBeInTheDocument();
   expect(router.state.location.search).toEqual({ stage: "stage_1" });
-  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^voice\s*speech · step 2 of 3/);
-  await expect.element(screen.getByRole("button", { name: /^Step 2 of 3/ })).toMatchTextContent(/^Step 2 of 3 · speech\s*voice/);
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/^voice\s*audio · step 2 of 3/);
+  await expect.element(screen.getByRole("button", { name: /^Step 2 of 3/ })).toMatchTextContent(/^Step 2 of 3 · audio\s*voice/);
   // Escape closes it too, with the step unchanged.
   await screen.getByRole("button", { name: /^Step 2 of 3/ }).click();
   await expect.element(screen.getByRole("dialog", { name: "All steps" })).toBeVisible();

@@ -1,24 +1,27 @@
 # The web skin, built and served by Caddy in the `web` service (compose.yaml), so a UI-only
 # change rebuilds only that image and never restarts the api and its runs.
-FROM node:22-bookworm-slim AS web-build
+FROM node:22.23.4-bookworm-slim AS web-build
 RUN corepack enable && corepack prepare pnpm@12.15.0 --activate
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
-RUN pnpm install --frozen-lockfile
+COPY packages/connectors/sandbox/package.json packages/connectors/sandbox/
+RUN pnpm install --frozen-lockfile --filter web
 COPY apps/web apps/web
 RUN pnpm --filter web build
+
+# The connector sandbox's launcher and Anthropic's sandbox-runtime it runs on (ADR 0021), alone.
+FROM node:22.23.4-bookworm-slim AS sandbox-build
+RUN corepack enable && corepack prepare pnpm@12.15.0 --activate
+WORKDIR /src
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/
+COPY packages/connectors/sandbox/package.json packages/connectors/sandbox/
+RUN pnpm install --frozen-lockfile --prod --filter swarmify-sandbox
 
 FROM caddy:2.10.2-alpine AS web
 COPY docker/Caddyfile /etc/caddy/Caddyfile
 COPY --from=web-build /src/apps/web/dist /srv
-
-# Remotion's Chrome Headless Shell, downloaded once by the Remotion CLI itself
-FROM node:22-bookworm-slim AS chrome
-WORKDIR /remotion
-RUN npm init -y >/dev/null && npm install --no-fund --no-audit @remotion/cli@4.0.538 \
-  && npx remotion browser ensure \
-  && mv node_modules/.remotion/chrome-headless-shell /chrome-headless-shell
 
 # The api (and graph-writer): the default target, so it stays last. No web skin in it.
 # uv's managed Python, not Debian's: DBOS needs SQLite 3.42 or later (`unixepoch('subsec')`) and
@@ -27,34 +30,34 @@ FROM debian:bookworm-slim
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=3.12.15 UV_PYTHON_PREFERENCE=only-managed \
     UV_PYTHON_INSTALL_DIR=/opt/python PATH="/app/.venv/bin:$PATH"
-# Chrome's shared libraries, as Remotion's Docker guide lists them for Debian; bubblewrap and
-# socat for the sandbox of the remotion_build stage (the Agent SDK's for its Bash, ours for the
-# render)
+# The shared libraries and fonts a package's headless browser needs (a package installs the
+# browser itself, ADR 0026); bubblewrap, socat and ripgrep for the OS sandbox every connector
+# process and a Build Session's Bash run in (ADRs 0018, 0021), which the `sandbox` service of
+# compose.yaml starts; git, to clone a package installed from a git URL (issue 225); the font
+# cache made now, which a sandboxed browser cannot write
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev \
     libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
-    fonts-noto-core fonts-noto-color-emoji \
-    bubblewrap socat \
-  && rm -rf /var/lib/apt/lists/*
-# Node and npx for the Remotion render connector (`npx remotion render`)
-COPY --from=chrome /usr/local/bin/node /usr/local/bin/node
-COPY --from=chrome /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+    fonts-noto-core fonts-noto-color-emoji fontconfig \
+    bubblewrap socat ripgrep \
+    git ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && fc-cache -f
+# Node and npm, for the packages that install with them (ADR 0026)
+COPY --from=node:22.23.4-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22.23.4-bookworm-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
-# On PATH, the render connector hands it to Remotion as --browser-executable. The binary is
-# chrome-headless-shell on amd64 and headless_shell on arm64.
-COPY --from=chrome /chrome-headless-shell /opt/chrome-headless-shell
-RUN ln -s "$(find /opt/chrome-headless-shell -type f \( -name chrome-headless-shell -o -name headless_shell \))" \
-    /usr/local/bin/chrome-headless-shell \
-  && chrome-headless-shell --version
-# With no GPU Chrome draws WebGL in software: a 3D scene at the default concurrency (half the
-# CPUs) runs out of memory, 2 tabs render it (spike 2026-10-30). Override in .env if needed.
-ENV SWARMIFY_RENDER_CONCURRENCY=2
+  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+  && node --version && npm --version
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/api apps/api
-COPY docker/needs.sh docker/needs.sh
+# The default Connector Packages, installed from here into /data/packages on startup (ADR 0023)
+COPY connectors connectors
+COPY --from=sandbox-build /src/node_modules node_modules
+COPY --from=sandbox-build /src/packages/connectors/sandbox/node_modules packages/connectors/sandbox/node_modules
+COPY docker/needs.sh docker/claude-in-runner docker/
 RUN uv sync --locked --no-dev --all-packages \
   && python -c "import sqlite3; assert sqlite3.sqlite_version_info >= (3, 42), sqlite3.sqlite_version"
 # The Claude Code CLI the Agent SDK bundles, on PATH for graphify's claude-cli backend

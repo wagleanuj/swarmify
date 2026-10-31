@@ -244,3 +244,43 @@ def test_assets_are_uploaded_listed_and_served_by_the_operator(running: TestClie
     assert 400 <= escape.status_code < 500 and running.get(url).json() == [bed]  # no route or 422
     assert running.get("/api/worlds/world_nope/assets").status_code == 404
     assert running.put("/api/worlds/world_nope/assets/x.mp3", content=b"x").status_code == 404
+
+
+def test_a_package_s_owned_folder_is_a_group_of_assets_with_nothing_voice_specific(
+    client: TestClient,
+) -> None:
+    """Issue 220: speech's `voices/` is an Owned Folder of each world that enables it, uploaded
+    to (only what it accepts), renamed and deleted like any asset; disabled, it is gone."""
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    url = f"/api/worlds/{world}/assets"
+    (voices,) = client.get(f"/api/worlds/{world}/owned_folders").json()
+    assert voices["path"] == "assets/voices/" and voices["package"] == "Speech"
+    assert (voices["folder"], voices["label"]) == ("voices", "Voices")
+    assert voices["accept"] == ["audio/wav"]
+    assert voices["confirm"] == "This is my voice, or I have the speaker's permission"
+    me = client.put(f"{url}/me.wav?folder=voices", content=b"RIFF")
+    assert me.status_code == 201 and me.json()["path"] == "assets/voices/me.wav"
+    mp3 = client.put(f"{url}/me.mp3?folder=voices", content=b"ID3")
+    assert mp3.status_code == 422 and mp3.json()["detail"] == "Voices takes audio/wav only"
+    assert client.put(f"{url}/x.wav?folder=runs", content=b"x").status_code == 422
+    client.put(f"{url}/bed.mp3", content=b"ID3")
+    client.put(f"{url}/logo.png", content=b"PNG")
+    renamed = client.patch(f"{url}/assets/bed.mp3", json={"name": "bed-calm.mp3"})
+    assert renamed.json() == {"path": "assets/bed-calm.mp3", "name": "bed-calm.mp3", "bytes": 3}
+    taken = client.patch(f"{url}/assets/logo.png", json={"name": "bed-calm.mp3"})
+    assert taken.status_code == 422 and "already there" in taken.json()["detail"]
+    assert client.patch(f"{url}/assets/logo.png", json={"name": "../x"}).status_code == 422
+    moved = client.patch(f"{url}/assets%2Fvoices%2Fme.wav", json={"name": "narrator.wav"})
+    assert moved.json()["path"] == "assets/voices/narrator.wav"  # the voice's own folder
+    for path in ("assets/nope.png", "assets/../worlds.db", "runs/x.md"):
+        assert client.delete(f"{url}/{path}").status_code == 404
+    assert client.delete(f"{url}/assets%2Flogo.png").status_code == 204  # as the web sends it
+    assert [a["path"] for a in client.get(url).json()] == [
+        "assets/bed-calm.mp3",
+        "assets/voices/narrator.wav",
+    ]
+    assert client.delete(f"{url}/assets/voices/narrator.wav").status_code == 204
+    assert client.delete(f"/api/worlds/{world}/packages/speech").status_code == 204
+    assert client.get(f"/api/worlds/{world}/owned_folders").json() == []
+    assert client.put(f"{url}/me.wav?folder=voices", content=b"RIFF").status_code == 422
+    assert client.get("/api/worlds/world_nope/owned_folders").status_code == 404

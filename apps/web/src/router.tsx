@@ -109,6 +109,11 @@ export const connectorsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/worlds/$worldId/connectors",
   component: Connectors,
+  // Where an OAuth sign-in comes back: the package signed in to, or why it did not.
+  validateSearch: (search: Record<string, unknown>): { sign_in?: string; sign_in_error?: string } => ({
+    ...(typeof search.sign_in === "string" ? { sign_in: search.sign_in } : {}),
+    ...(typeof search.sign_in_error === "string" ? { sign_in_error: search.sign_in_error } : {}),
+  }),
 });
 
 export const graphRoute = createRoute({

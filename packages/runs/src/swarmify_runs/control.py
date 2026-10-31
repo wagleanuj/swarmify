@@ -86,6 +86,11 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def queue_name(world_id: str) -> str:
+    """The world's DBOS queue, which caps how many of its runs hold a slot."""
+    return f"runs:{world_id}"
+
+
 def run_folder(data_dir: Path, run: Run) -> Path:
     return data_dir / "worlds" / run.world_id / "runs" / run.id
 
@@ -294,6 +299,8 @@ class RunControl:
         artifact: str | None = None,
         edits: dict[str, Any] | None = None,
         seen: dict[str, Any] | None = None,
+        gate: tuple[int, int] | None = None,
+        by: str | None = None,
     ) -> Run:
         """Answer the gate the run waits at. Writes the decision artifact, then resumes the run.
         A skill gate takes only the answer of its proposal (`proposal=True`, from Learning).
@@ -303,6 +310,9 @@ class RunControl:
         editable, and every field's value is recorded with the decision. `seen` holds the values
         the gate showed; a field that is not editable and has changed since (a relative schedule
         resolving to another day) is refused, so what posts is what was confirmed.
+        A Remote Approval names the gate it answers as `gate`, (stage index, visit), so a stale
+        message never answers a later gate or a later visit to the same one, and `by`, who
+        answered, which the decision records.
 
         Raises KeyError for an unknown run, Illegal when the run is not at a gate, when the
         send-back target is not an earlier stage, on a send-back past the gate's limit, when someone
@@ -312,10 +322,17 @@ class RunControl:
         that is not editable, a value the connector reports a problem with, or the next stage does
         not publish), or a field the gate showed has changed.
         """
-        run = self._run(run_id)
+        try:
+            run = self._run(run_id)
+        except Illegal:
+            if gate is None:
+                raise
+            raise Illegal("this gate was already answered") from None  # the run has ended
+        index = next((s.index for s in run.stages if s.status == "waiting"), None)
+        if gate is not None and (index, run.send_backs) != gate:
+            raise Illegal("this gate was already answered")
         if run.over_budget:
             raise Illegal("the run waits at a budget gate: add money or abort")
-        index = next((s.index for s in run.stages if s.status == "waiting"), None)
         if index is None:
             raise Illegal("the run is not waiting at a gate")
         _, stage = self.storage.stage_def(run_id, index)
@@ -373,6 +390,7 @@ class RunControl:
             _now(),
             artifact or None,
             shown.values() if shown else None,
+            by,
         )
         decision = self._write_decision(run, decision)
         message: dict[str, Any] = {"action": "decide", "index": index}
@@ -434,12 +452,20 @@ class RunControl:
         return run
 
     def delete_world(self, world_id: str) -> None:
-        """Cancel the world's unfinished runs, then drop its rows. Through the DBOS client, so
-        it reaches runs hosted by another process too (the MCP server deleting a world)."""
+        """Cancel the world's unfinished runs, then drop its rows and its queue. Through the DBOS
+        client, so it reaches runs hosted by another process too (the MCP server deleting a
+        world)."""
         for run_id in self.storage.active_run_ids(world_id):
             self.client.cancel_workflow(run_id)
             self._send(run_id, WAKE)  # a run blocked waiting for a message sees the cancel
         self.storage.delete_world(world_id)
+        # A queue left behind keeps a DBOS thread polling it, a write transaction every poll,
+        # for as long as the app runs; deleting its row stops that thread.
+        try:
+            self.client.delete_queue(queue_name(world_id))
+        except OperationalError as exc:
+            if "no such table" not in str(exc):  # DBOS never launched here, so no queue either
+                raise
 
     def _abort_children(self, run_id: str) -> None:
         for child in self.storage.child_run_ids(run_id):
@@ -646,6 +672,7 @@ def decision_markdown(run: Run, decision: Decision) -> str:
         "artifact": decision.artifact,
         "send_back_to": decision.send_back_to,
         "publish": decision.publish,
+        "by": decision.by,
         "created": decision.decided_at,
     }
     lines = [f"{k}: {json.dumps(v)}" for k, v in front.items() if v is not None]
@@ -659,6 +686,8 @@ def decision_markdown(run: Run, decision: Decision) -> str:
         outcome = f"Skill proposal {decision.choice or 'approved'}."
     else:
         outcome = "Approved."
+    if decision.by:
+        outcome = f"{outcome[:-1]}, by {decision.by}."
     body = [f"# Decision at {decision.stage_name}", "", outcome]
     if decision.note:
         body += ["", f"Note: {decision.note}"]

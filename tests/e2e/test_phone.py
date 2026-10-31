@@ -1,4 +1,4 @@
-"""Every page at phone width, behind basic auth, as an operator answering a gate from the sofa.
+"""Every page at phone width, signed in, as an operator answering a gate from the sofa.
 
 A page passes when it renders its content with no sideways scroll: nothing wider than the
 screen. Runs wait at a gate (one early in a long workflow), run and finish with a video, so the
@@ -16,7 +16,7 @@ from playwright.sync_api import Browser, Page, ViewportSize, expect
 
 from scripted_app import LONG
 
-LOGIN = ("erlich", "aviato")  # what the `locked_url` app expects
+PASSWORD = "aviato"  # what the `locked_url` app expects
 PHONE: ViewportSize = {"width": 390, "height": 844}  # an iPhone 14
 FLOW = """name: Brief then research
 stages:
@@ -38,7 +38,7 @@ stages:
     calls: remotion_render
     input: ideas.md
     output: short.mp4
-    params: {project: /tmp, composition: Short}
+    params: {project: shorts, composition: Short}
 """
 CHILD = "name: Brief\nstages:\n  - gate: brief\n    ask: Go?\n"
 PAGES = [
@@ -65,11 +65,20 @@ PAGES = [
 ]
 
 
+def signed_in(url: str) -> httpx.Client:
+    """An API client signed in as the operator; it keeps the session cookie. It waits 30 s, not
+    httpx's 5: saving a workflow and starting a run start the processes of the packages the
+    workflow calls, for the workflow check, which takes seconds under load."""
+    api = httpx.Client(base_url=f"{url}/api", timeout=30)
+    api.post("/session", json={"password": PASSWORD}).raise_for_status()
+    return api
+
+
 @pytest.fixture(scope="module")
 def ids(locked_url: str) -> dict[str, str]:
     """A run in every state: `run` and `long` wait at a gate, `running` waits on its child run,
     `done` rendered a video; `doc` is the ideas.md `done`'s research made."""
-    api = httpx.Client(base_url=f"{locked_url}/api", auth=LOGIN)
+    api = signed_in(locked_url)
     world = api.post("/worlds", json={"name": "Video"}).json()["id"]
     api.patch(f"/worlds/{world}", json={"run_cap": 8}).raise_for_status()  # the default 2 queues
 
@@ -111,25 +120,39 @@ def ids(locked_url: str) -> dict[str, str]:
 
 @pytest.fixture
 def phone(browser: Browser, locked_url: str) -> Iterator[Page]:
-    user, password = LOGIN
     context = browser.new_context(
-        viewport=PHONE,
-        http_credentials={"username": user, "password": password},
-        base_url=locked_url,
-        is_mobile=True,
-        has_touch=True,
+        viewport=PHONE, base_url=locked_url, is_mobile=True, has_touch=True
     )
+    context.request.post("/api/session", data={"password": PASSWORD})
     yield context.new_page()
     context.close()  # an open event stream would hold the server's shutdown
 
 
-def test_without_signing_in_the_lan_sees_only_a_challenge(
-    browser: Browser, locked_url: str
+def test_signing_in_opens_the_app_until_signing_out(
+    browser: Browser, locked_url: str, ids: dict
 ) -> None:
-    context = browser.new_context()
-    assert context.new_page().goto(locked_url).status == 401  # type: ignore[union-attr]
-    context.close()
+    """Issue 227: the sign-in page, a wrong then the right password, staying signed in across
+    a reload, and signing out from Settings."""
     assert httpx.get(f"{locked_url}/api/worlds").status_code == 401
+    context = browser.new_context(viewport=PHONE, base_url=locked_url, is_mobile=True)
+    page = context.new_page()
+    page.goto("/gates")
+    password = page.get_by_label("Password")
+    password.fill("hooli")
+    page.get_by_role("button", name="Sign in").click()
+    expect(page.get_by_role("alert")).to_contain_text("That is not the password")
+    password.fill(PASSWORD)
+    page.get_by_role("button", name="Sign in").click()
+    expect(page.get_by_role("heading", name="Needs you")).to_be_visible()
+    page.reload()
+    expect(page.get_by_role("heading", name="Needs you")).to_be_visible()
+
+    page.goto(f"/worlds/{ids['world']}/settings")
+    page.get_by_role("button", name="Sign out").click()
+    expect(page.get_by_label("Password")).to_be_visible()
+    page.reload()
+    expect(page.get_by_label("Password")).to_be_visible()
+    context.close()
 
 
 def _fits(page: Page) -> None:
@@ -154,6 +177,8 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
     # The sidebar gives way to a bottom tab bar; every tab and More's rows are a 44px thumb tap.
     expect(phone.get_by_role("navigation", name="Main")).to_be_hidden()
     tabs = phone.get_by_role("navigation", name="Tabs")
+    # On / the world's three tabs appear once the worlds load, after the heading.
+    expect(tabs.locator(".tabbar-item")).to_have_count(5)
     heights = tabs.locator(".tabbar-item").evaluate_all("as => as.map(a => a.offsetHeight)")
     assert len(heights) == 5 and all(h >= 44 for h in heights), f"{path} has tabs {heights}px tall"
     tabs.get_by_role("button", name="More").click()
@@ -242,28 +267,27 @@ def _clip(seconds: float, rate: int = 8000) -> bytes:
     return buf.getvalue()
 
 
-def test_assets_plays_a_voice_first_and_pins_add_a_voice_above_the_tab_bar(
+def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
     phone: Page, ids: dict, locked_url: str
 ) -> None:
-    """Issue 194: a voice added over the API is a playable card; Add a voice opens its sheet."""
-    api = httpx.Client(base_url=f"{locked_url}/api", auth=LOGIN)
-    form = {"name": "narrator", "description": "Warm and calm", "consent": "Mine."}
-    files = {"clip": ("n.wav", _clip(6), "audio/wav")}
-    added = api.post(f"/worlds/{ids['world']}/voices", data=form, files=files)
-    assert added.status_code in (201, 422), added.text  # 422: a rerun on the same world
+    """Issues 194 and 220: a clip in the speech package's Owned Folder is a playable card; Add to
+    Voices opens its sheet, with the package's confirm."""
+    api = signed_in(locked_url)
+    added = api.put(f"/worlds/{ids['world']}/assets/narrator.wav?folder=voices", content=_clip(6))
+    assert added.status_code == 201, added.text
     api.put(f"/worlds/{ids['world']}/assets/logo.png", content=b"PNG")
     phone.goto(f"/worlds/{ids['world']}/assets")
-    card = phone.get_by_role("listitem", name="narrator")
+    card = phone.get_by_role("listitem", name="narrator.wav")
     expect(card.get_by_role("button", name="Play narrator")).to_be_visible()
-    expect(card).to_contain_text("6.0 s clip")
+    expect(card).to_contain_text("6.0 s")
     expect(phone.get_by_role("listitem", name="logo.png")).to_contain_text("KB")
-    add = phone.get_by_role("button", name="Add a voice")
+    add = phone.get_by_role("button", name="Add to Voices")
     expect(add).to_be_in_viewport(ratio=1)
     box, bar = add.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
     _fits(phone)
     add.click()
-    sheet = phone.get_by_role("dialog", name="Add a voice")
+    sheet = phone.get_by_role("dialog", name="Add to Voices")
     expect(sheet.get_by_role("button", name="Record")).to_be_visible()
     expect(
         sheet.get_by_text("This is my voice, or I have the speaker's permission")

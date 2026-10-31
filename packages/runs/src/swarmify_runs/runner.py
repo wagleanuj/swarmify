@@ -46,6 +46,7 @@ from swarmify_runs.control import (
     ended_event,
     no_previews,
     no_spend,
+    queue_name,
     run_folder,
     with_sidecar,
 )
@@ -152,10 +153,12 @@ class Runner(RunControl):
         monthly: Monthly = lambda _world_id: None,
         cap_for: CapFor | None = None,
         retro: Retro | None = None,
+        worlds: Callable[[], list[str]] | None = None,
     ) -> None:
         """`pin` and `take` serve workflow stages; without `pin` they fail the run. `spend` sums
         the agents' estimated cost of runs, for the Budget. `monthly` is each world's Monthly
-        Budget and `cap_for` its run cap (`cap` for every world when left out)."""
+        Budget and `cap_for` its run cap (`cap` for every world when left out). `worlds` lists
+        the ids of the worlds that exist; given it, launch drops the queues of any others."""
         super().__init__(
             storage, system_db, data_dir, notifier or LogNotifier(), previews, spend, monthly
         )
@@ -166,6 +169,7 @@ class Runner(RunControl):
         self.take = take
         self.cap_for = cap_for or (lambda _world_id: cap)
         self.poll_seconds = poll_seconds
+        self.worlds = worlds
         self._caps: dict[str, int] = {}
         """The cap each world's queue was last registered with."""
 
@@ -185,6 +189,8 @@ class Runner(RunControl):
         DBOS(config=config)
         DBOS.launch()
         self._caps.clear()
+        if self.worlds is not None:
+            self._drop_leaked_queues(self.worlds)
         DBOS.register_queue(
             CHILD_QUEUE, polling_interval_sec=self.poll_seconds, on_conflict="always_update"
         )
@@ -213,6 +219,17 @@ class Runner(RunControl):
         self.close()
         DBOS.destroy()
         _runner = None
+
+    @staticmethod
+    def _drop_leaked_queues(worlds: Callable[[], list[str]]) -> None:
+        """Delete the queues of deleted worlds that a delete which kept its queue left behind, each
+        still polled by its own thread. Queues are listed before worlds: a world created in
+        between has no queue yet, so every queue whose world is missing after is a leak."""
+        names = [q.name for q in DBOS.list_queues()]
+        live = {queue_name(w) for w in worlds()}
+        for name in names:
+            if name.startswith(queue_name("")) and name not in live:
+                DBOS.delete_queue(name)
 
     def promote(self, pinned: Pinned, index: int, artifact: Path, promoted_from: str) -> Run:
         """Start a Promote: a run of `pinned` that starts at stage `index` with `artifact` as
@@ -289,10 +306,6 @@ class Runner(RunControl):
             self.set_cap(run.world_id)
         with SetWorkflowID(run.id):
             DBOS.enqueue_workflow(queue_name(run.world_id), execute_run, run.id)
-
-
-def queue_name(world_id: str) -> str:
-    return f"runs:{world_id}"
 
 
 def _current() -> Runner:
@@ -545,9 +558,12 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
     # world stream gets the run.updated and gate.opened or run.ended events twice. Split into
     # steps, or key events by (run, state), if duplicates start to matter.
     runner = _current()
+    before = runner.storage.get_run(run_id)
     run = runner.storage.save_state(run_id, state, error)
     if run is None:
         return
+    if before is not None and (closed := gate_closed(before, run)) is not None:
+        runner.notify(closed)
     if gate_opened:
         index = state.stages.index("waiting")
         _, stage = runner.storage.stage_def(run_id, index)
@@ -564,6 +580,7 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
                 "run_id": run.id,
                 "name": run.name,
                 "stage_index": index,
+                "visit": state.send_backs,
                 "stage": stage.name,
                 "kind": kind,
                 "ask": ask,
@@ -576,6 +593,48 @@ def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) ->
         return
     runner.storage.record(event)
     runner.notify(event)
+
+
+OUTCOMES = {"approve": "approved", "pick": "picked", "confirm": "confirmed", "skill": "answered"}
+
+
+def gate_closed(before: Run, after: Run) -> Event | None:
+    """`gate.closed` when the gate `before` waited at is no longer waiting in `after`: answered
+    (by whom, when it was answered from outside the web UI), sent back, given money or aborted.
+    A Notification only, for a Remote Approval to update the message it posted; never recorded."""
+    index = next((s.index for s in before.stages if s.status == "waiting"), None)
+    if index is None:
+        return None
+    same = (after.stages[index].status, after.send_backs, after.over_budget)
+    if same == ("waiting", before.send_backs, before.over_budget):
+        return None
+    decision = next((d for d in reversed(after.decisions) if d.stage_index == index), None)
+    resolution: dict[str, Any] = {"outcome": "aborted"}
+    if after.status != "aborted" and before.over_budget:
+        resolution = {"outcome": "budget_added"}
+    elif after.status != "aborted" and decision is not None:
+        resolution = {
+            "outcome": "sent_back"
+            if decision.send_back_to
+            else OUTCOMES.get(decision.kind, "answered"),
+            "choice": decision.choice,
+            "send_back_to": decision.send_back_to,
+            "note": decision.note,
+            "by": decision.by,
+        }
+    return Event.new(
+        "gate.closed",
+        world_id=after.world_id,
+        run_id=after.id,
+        payload={
+            "run_id": after.id,
+            "name": after.name,
+            "stage_index": index,
+            "visit": before.send_backs,
+            "stage": before.stages[index].name,
+            "resolution": resolution,
+        },
+    )
 
 
 @DBOS.step(name="swarmify.execute")

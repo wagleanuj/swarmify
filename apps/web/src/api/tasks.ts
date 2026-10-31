@@ -1,4 +1,5 @@
 import type { Task } from "./events";
+import { role } from "../skin";
 
 export type { Task };
 
@@ -10,16 +11,7 @@ export function upsert(tasks: Task[], task: Task): Task[] {
   return tasks.map((t) => (t.id === task.id ? task : t));
 }
 
-/** Pied Piper names belong to the skin (ADR 0004): code says worker-1, the page says Gilfoyle. */
-const CAST: Record<string, string> = {
-  operator: "you",
-  swarmify: "the swarm",
-  "worker-1": "Gilfoyle",
-  "worker-2": "Dinesh",
-  "worker-3": "Jared",
-  "worker-4": "Big Head",
-  planner: "Richard",
-  judge: "Erlich",
-};
+const OTHERS: Record<string, string> = { operator: "you", swarmify: "the swarm" };
 
-export const who = (name: string | null) => (name ? (CAST[name] ?? name) : "nobody");
+/** Who did something, as the skin names them (ADR 0004): code says worker-1, the page Worker 1. */
+export const who = (name: string | null) => (name ? (OTHERS[name] ?? role(name)) : "nobody");

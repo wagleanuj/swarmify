@@ -1,0 +1,28 @@
+# A fixture notify Connector Package offering Remote Approvals, with a long-lived `listen` process
+# that writes what it was started with to listened.json in its HOME and waits.
+name = "pager"
+version = "1.0.0"
+label = "Pager"
+about = "Posts gates and takes their answers. A fixture."
+kind = "notify"
+stage_types = []
+runtime = "uv"
+command = ["python3", "server.py"]
+listen = ["python3", "listen.py"]
+enable_by_default = false
+capabilities = ["remote_approvals"]
+
+[[config]]
+key = "token"
+label = "Token"
+type = "string"
+secret = true
+required = true
+env = "PAGER_TOKEN"
+
+[[config]]
+key = "room"
+label = "Room"
+type = "string"
+scope = "world"
+env = "PAGER_ROOM"

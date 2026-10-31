@@ -3,7 +3,7 @@
 Boots the e2e scripted app (fake agent transport, fixed graph, see tests/e2e/scripted_app.py)
 on a fresh temp data folder, then seeds the Video world: a Weekly short workflow, a run of it
 waiting at its pick gate, a Trend sweep workflow with a finished run, and a monthly budget.
-The scripted swarm cycles planner, worker, judge, so a Hooli baseline (which skips the
+The scripted swarm cycles planner, worker, judge, so a baseline (which skips the
 planner) cannot be seeded. Serves the built skin, so run `pnpm --filter web build` first.
 
     uv run python tools/demo.py [--port 8000]

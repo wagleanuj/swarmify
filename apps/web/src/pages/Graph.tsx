@@ -1,17 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { graphRoute } from "../router";
+import { cap, the } from "../skin";
 import { FileLink } from "./Artifacts";
 
 type World = components["schemas"]["World"];
 type View = components["schemas"]["GraphView"];
 type Node = components["schemas"]["GraphNode"];
 
-/** Pied Piper names belong to the skin (ADR 0004): the GraphWriter is Anton. */
-const WRITER = "Anton";
 
 function ago(ts: string, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - new Date(ts).getTime()) / 1000));
@@ -52,10 +51,13 @@ export function Graph() {
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Loads can overlap (a rebuild streams in while one is in flight); only the latest one shows.
+  const loads = useRef(0);
   function load() {
+    const asked = ++loads.current;
     return api
       .GET("/api/worlds/{world_id}/graph", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setView(data));
+      .then(({ data }) => data && asked === loads.current && setView(data));
   }
 
   useEffect(() => {
@@ -67,10 +69,12 @@ export function Graph() {
   }, [worldId]);
 
   // Rebuilds arrive on the world's stream (ADR 0002); each one reloads the summary. Only new
-  // ones matter, so `since=now` skips replaying history.
+  // ones matter, so `since=now` skips replaying history. The stream starts at the head when it
+  // opens, which can be after the first load: reloading on open catches a rebuild in between.
   useEffect(() => {
     const source = new EventSource(`/api/worlds/${worldId}/events?since=now`);
     const reload = () => void load().catch(() => undefined);
+    source.addEventListener("open", reload);
     source.addEventListener("graph.rebuilt", reload);
     source.addEventListener("graph.failed", reload);
     return () => source.close();
@@ -141,7 +145,7 @@ export function Graph() {
           <h1>Memory</h1>
           <p className="sub" data-testid="rebuilt">
             {rebuilt
-              ? `${WRITER} rebuilt it ${ago(rebuilt.at)}: ${signed(rebuilt.nodes_added)} nodes, ${signed(rebuilt.edges_added)} edges in ${rebuilt.seconds}s, est. ${usd(rebuilt.cost_usd)}`
+              ? `${cap(the("writer"))} rebuilt it ${ago(rebuilt.at)}: ${signed(rebuilt.nodes_added)} nodes, ${signed(rebuilt.edges_added)} edges in ${rebuilt.seconds}s, est. ${usd(rebuilt.cost_usd)}`
               : view
                 ? "Not built yet"
                 : "Everything this world has learned, as one graph."}
@@ -150,14 +154,14 @@ export function Graph() {
       </header>
       {view?.failed && !view.failed.shrink && (
         <p role="alert" data-testid="failed">
-          {WRITER}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. The previous
+          {cap(the("writer"))}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. The previous
           graph still answers; the next new note retries.
         </p>
       )}
       {view?.failed?.shrink && (
         <div role="alert" data-testid="failed">
           <p>
-            {WRITER}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. graphify
+            {cap(the("writer"))}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. graphify
             refused to write a smaller graph, and keeps refusing until you accept the shrink. The
             previous graph still answers.
           </p>
@@ -217,7 +221,7 @@ export function Graph() {
       {empty && (
         <div className="empty" data-testid="graph-empty">
           <p>
-            The graph grows from the notes and artifacts agents write. {WRITER} folds them in
+            The graph grows from the notes and artifacts agents write. {cap(the("writer"))} folds them in
             about 30 seconds after the last one lands.
           </p>
           <ul className="faint">
@@ -281,7 +285,7 @@ export function Graph() {
                 </ul>
               ) : (
                 <p className="faint" data-testid="no-communities">
-                  No communities yet. {WRITER} finds them when he rebuilds the graph.
+                  No communities yet. {cap(the("writer"))} finds them on the next rebuild.
                 </p>
               )}
             </section>

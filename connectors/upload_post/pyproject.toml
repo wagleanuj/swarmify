@@ -1,0 +1,12 @@
+# The Upload-Post connector's own uv project, outside the Swarmify workspace: its install step
+# syncs these into the installed version's folder (ADR 0026).
+[project]
+name = "swarmify-upload-post"
+version = "1.0.0"
+description = "Posts or schedules a video through Upload-Post's HTTP API"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["httpx==0.28.1", "mcp==2.3.0"]
+
+[tool.uv]
+package = false

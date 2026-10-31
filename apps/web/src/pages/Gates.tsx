@@ -2,14 +2,16 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { api } from "../api/client";
+import { labelOf, useConnectors } from "../api/connectors";
 import { dropGate, reloadGates, useOpenGates } from "../api/gates";
 import type { ArtifactFile } from "../api/events";
 import { actOn, decide, type Gate, money, type Run, setBudget, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { gatesRoute } from "../router";
+import { piedPiper } from "../skin";
 import { ArtifactCards, ArtifactView, choosable, underReview } from "./Artifacts";
 import { RunRef } from "./Runs";
-import { LABEL, PublishValue } from "./Connectors";
+import { PublishValue } from "./Connectors";
 import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
@@ -356,7 +358,7 @@ export function GateCard({
         className="gate-form"
         aria-label={`Answer ${gate.stage_name}`}
       >
-        {gate.publish && <WhatGoesOut preview={gate.publish} />}
+        {gate.publish && <WhatGoesOut preview={gate.publish} worldId={gate.world_id} />}
         {gate.kind === "budget" && (
           <>
             <label>
@@ -372,7 +374,7 @@ export function GateCard({
               />
             </label>
             <span className="faint">
-              Russ has spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
+              {piedPiper() ? "Russ has" : "This run has"} spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
               stopped agents resume where they stopped.
             </span>
             <div className="row gate-actions">
@@ -595,14 +597,15 @@ const editable = (f: PublishField) => f.editable && (typeof f.value === "string"
 
 /** What the publish stage after this gate sends out: exactly these values, as its connector
  * describes them (ADR 0007). Fields it marks editable are fields of the gate's form. */
-function WhatGoesOut({ preview }: { preview: PublishPreview }) {
+function WhatGoesOut({ preview, worldId }: { preview: PublishPreview; worldId: string }) {
   const id = useId();
+  const connectors = useConnectors(worldId);
   const problems = preview.problems ?? [];
   return (
     <section className="publish-preview" aria-label="What goes out">
       <dl>
         <dt>Where</dt>
-        <dd>{LABEL[preview.connector] ?? preview.connector}</dd>
+        <dd>{labelOf(connectors, preview.connector)}</dd>
         {(preview.fields ?? []).map((f) => (
           <div key={f.key} className="publish-field">
             <dt>{editable(f) ? <label htmlFor={`${id}-${f.key}`}>{f.label}</label> : f.label}</dt>

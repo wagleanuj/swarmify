@@ -1,0 +1,108 @@
+# The fixture package's next version (issue 223): a new param, a new required Setup field and
+# a new network permission, so a world switching its pin to it sees the Manifest diff.
+name = "echo"
+version = "2.0.0"
+label = "Echo"
+about = "Says back what it is given, as audio. A fixture."
+kind = "stage"
+stage_types = ["connector"]
+
+planner_notes = "Use echo to voice a short line."
+input_types = ["line"]
+world_types = "echo_types"
+
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+install = ["python3", "-c", "open('installed.txt', 'w').write('ok')"]
+health = "echo_health"
+
+capabilities = ["check"]
+
+[params]
+type = "object"
+additionalProperties = false
+[params.properties.loud]
+type = "boolean"
+description = "Say it louder"
+[params.properties.speed]
+type = "number"
+description = "How fast to say it"
+
+[[inputs]]
+description = "the line to say"
+media_type = "text/markdown"
+
+[[outputs]]
+description = "the line, said"
+media_type = "audio/wav"
+
+[types.line]
+type = "object"
+required = ["text"]
+properties.text = { type = "string" }
+
+[setup]
+test = "check_setup"
+help_url = "https://example.org/echo/setup"
+
+[[config]]
+key = "api_key"
+label = "API key"
+type = "string"
+secret = true
+required = true
+scope = "shared"
+env = "ECHO_KEY"
+help = "Any value works."
+
+[[config]]
+key = "region"
+label = "Region"
+type = "string"
+required = true
+scope = "world"
+help = "Where the echo is said."
+
+[[config]]
+key = "endpoint"
+label = "Echo service URL"
+type = "url"
+default = "http://localhost:8099"
+
+[[config]]
+key = "voice"
+label = "Voice"
+type = "choice"
+options = ["low", "high"]
+default = "low"
+scope = "world"
+
+[[config]]
+key = "account"
+label = "Account"
+type = "oauth"
+scope = "world"
+env = "ECHO_TOKEN"
+[config.oauth]
+authorize_url = "https://auth.example.org/authorize"
+token_url = "https://auth.example.org/token"
+scopes = ["read"]
+pkce = true
+client = "operator"
+
+[[services]]
+name = "echo_service"
+url = "endpoint"
+health = "/health"
+
+[permissions]
+network = ["api.example.org", "eu.example.org"]
+services = ["echo_service"]
+folders = ["echo-cache", "worlds/{world}/assets"]
+
+[[owned_folders]]              # a folder of each world's assets it owns
+folder = "echoes"
+label = "Echoes"
+about = "Lines it says back, one clip each."
+accept = ["audio/wav"]
+confirm = "I may share these lines"

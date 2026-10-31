@@ -2,13 +2,14 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
-import type { Agent, ArtifactFile, LogEntry, Verdict } from "../api/events";
-import { type Call, clock, decisionLine, PUBLISHERS, type Run } from "../api/runs";
+import { type Agent, type ArtifactFile, type LogEntry, outcomeOf, type Verdict } from "../api/events";
+import { type Connector, type Connectors, labelOf } from "../api/connectors";
+import { type Call, clock, decisionLine, type Run } from "../api/runs";
 import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
 import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, RECORD, rawUrl, summary, underReview, VIDEO } from "./Artifacts";
-import { LABEL, PublishValue } from "./Connectors";
+import { PublishValue } from "./Connectors";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
@@ -41,17 +42,20 @@ export function stepMeta(s: Stage, queued = false): string {
   }
 }
 
-/** What kind of stage this is, as the panel names it. */
-export function kindOf(s: Stage): string {
-  if (s.type !== "connector") return s.type;
-  if (s.calls === "remotion_build") return "build";
-  if (s.calls === "remotion_render") return "render";
-  if (s.calls === "speech") return "speech";
-  if (PUBLISHERS.has(s.calls ?? "")) return "publish";
-  return "connector";
-}
+/** The media a file is, by its type or name: video, audio or image; undefined for anything else. */
+const mediaOf = (a: ArtifactFile) =>
+  a.type === "video" || VIDEO.test(a.name) ? "video" : AUDIO.test(a.name) ? "audio" : IMAGE.test(a.name) ? "image" : undefined;
 
-const isPublish = (s: Stage, made: ArtifactFile[]) => kindOf(s) === "publish" || made.some((a) => a.type === "publish");
+/** What kind of step this is, as the panel names it and picks its view by (ADR 0025): a connector
+ * step by its connector's Capability or kind, else by the media it made, else by the media its
+ * Manifest says it makes. Never by the connector's name. */
+export function kindOf(s: Stage, made: ArtifactFile[] = [], c?: Connector): string {
+  if (s.type !== "connector") return s.type;
+  if (c?.capabilities.includes("build_session")) return "build";
+  if (c?.kind === "publish" || made.some((a) => a.type === "publish")) return "publish";
+  const media = [...made.map(mediaOf), ...(c?.outputs ?? []).map((o) => o.media_type.split("/")[0])];
+  return media.find((m) => m === "video" || m === "audio") ?? "connector";
+}
 
 /** The run's work: what its stages made, not what it wrote about itself or what it posted. */
 const work = (artifacts: ArtifactFile[]) =>
@@ -89,7 +93,7 @@ export function Made({ a, worldId }: { a: ArtifactFile; worldId: string }) {
   }
   if (AUDIO.test(a.name)) return <audio controls preload="metadata" src={url} data-testid="audio" />;
   if (IMAGE.test(a.name)) return <img className="player" src={url} alt={a.title} />;
-  if (a.name === "timings.json") return <SpeechTakes timings={a} worldId={worldId} />;
+  if (a.name === "timings.json") return <Takes timings={a} worldId={worldId} />;
   if (/\.(md|txt)$/i.test(a.name)) {
     return (
       <div className="document" data-testid="document">
@@ -188,7 +192,7 @@ type Timings = {
   warnings: string[];
 };
 
-/** The speech connector's timings.json: one take per scene, voiced by one engine in one voice. */
+/** A timings.json of takes: one per scene, voiced by one engine in one voice. */
 function takes(a: ArtifactFile): Timings | null {
   try {
     const t = JSON.parse(a.body) as Partial<Timings>;
@@ -209,13 +213,13 @@ const engineName = (engine: string) => engine.replace(/^https?:\/\//, "");
 
 /** One row per scene: its take, its length, the engine, and a warning where a join has no
  * silence to cut at. */
-export function SpeechTakes({ timings, worldId }: { timings: ArtifactFile; worldId: string }) {
+export function Takes({ timings, worldId }: { timings: ArtifactFile; worldId: string }) {
   const t = takes(timings);
   if (!t) return <p className="faint">timings.json could not be read.</p>;
   const total = t.takes.reduce((sum, k) => sum + k.duration, 0);
   const folder = timings.path.split("/").slice(0, -1).join("/");
   return (
-    <div className="takes" data-testid="speech">
+    <div className="takes" data-testid="takes">
       <p>
         <b>
           {t.takes.length} {t.takes.length === 1 ? "scene" : "scenes"} · {total.toFixed(1)} s of narration
@@ -335,14 +339,15 @@ function BuildPanel(props: {
   );
 }
 
-function PublishPanel({ made, call }: { made: ArtifactFile[]; call: Call | null | undefined }) {
+function PublishPanel({ made, call, connectors }: { made: ArtifactFile[]; call: Call | null | undefined; connectors: Connectors }) {
   const post = made.find((a) => a.type === "publish");
   if (!post) {
     return <p className="faint">Nothing has gone out from this stage. It posts what the gate before it confirmed.</p>;
   }
   const f = post.fields;
+  const outcome = outcomeOf(f);
   const links = Object.values((f.links as Record<string, string> | undefined) ?? {});
-  const where = LABEL[String(f.connector)] ?? String(f.connector ?? call?.connector ?? "");
+  const where = labelOf(connectors, String(f.connector ?? call?.connector ?? ""));
   // What went out, as its connector described it; a post from before #127 kept fixed fields.
   const sent: components["schemas"]["PublishField"][] = Array.isArray(f.sent)
     ? (f.sent as components["schemas"]["PublishField"][])
@@ -364,11 +369,11 @@ function PublishPanel({ made, call }: { made: ArtifactFile[]; call: Call | null 
             </dd>
           </div>
         ))}
-        {typeof f.views === "number" && (
+        {outcome && (
           <>
-            <dt>Views</dt>
-            <dd data-testid="views">
-              {f.views.toLocaleString("en")} as of {String(f.views_at ?? "").slice(0, 10)}
+            <dt>Outcome</dt>
+            <dd data-testid="outcome">
+              {outcome.line} as of {outcome.day}
             </dd>
           </>
         )}
@@ -564,6 +569,8 @@ export type PanelProps = {
   tasks: Task[];
   verdicts: Verdict[];
   call: Call | null | undefined;
+  /** The world's connectors by name, which say what a connector step is. */
+  connectors: Connectors;
   onTaskAdded: (task: Task) => void;
   /** What the panel leads with: the open gate's question and answer, or the run's result. */
   lead?: ReactNode;
@@ -576,7 +583,8 @@ export type PanelProps = {
 /** Part 7: what the selected step did and made, by its type, then its live log (part 8). */
 export function StagePanel(p: PanelProps) {
   const { run, stage, worldId, made, call } = p;
-  const kind = kindOf(stage);
+  const kind = kindOf(stage, made, p.connectors[stage.calls ?? ""]);
+  const timings = kind === "audio" ? made.find((a) => a.name === "timings.json") : undefined;
   const connector = stage.type === "connector";
   let inside;
   if (stage.type === "swarm") {
@@ -591,24 +599,19 @@ export function StagePanel(p: PanelProps) {
     inside = <GatePanel run={run} stage={stage} open={!!p.answering} artifacts={p.artifacts} worldId={worldId} />;
   } else if (stage.type === "retro") {
     inside = <RetroPanel run={run} stage={stage} />;
-  } else if (kind === "speech") {
-    const timings = made.find((a) => a.name === "timings.json");
-    inside = p.resultShown && timings ? (
-      <p className="faint">Its takes are the result shown above.</p>
-    ) : timings ? (
-      <SpeechTakes timings={timings} worldId={worldId} />
-    ) : <p className="faint">No narration yet. The takes appear here once the engine has voiced the script.</p>;
+  } else if (timings) {
+    inside = p.resultShown ? <p className="faint">Its takes are the result shown above.</p> : <Takes timings={timings} worldId={worldId} />;
   } else if (kind === "build") {
     inside = <BuildPanel call={call} log={p.log} agents={p.agents} made={made} worldId={worldId} shown={p.resultShown} />;
-  } else if (kind === "render") {
+  } else if (kind === "video") {
     inside = (
       <>
         <RenderProgress call={call} />
         <Video made={made} worldId={worldId} shown={p.resultShown} />
       </>
     );
-  } else if (isPublish(stage, made)) {
-    inside = <PublishPanel made={made} call={call} />;
+  } else if (kind === "publish") {
+    inside = <PublishPanel made={made} call={call} connectors={p.connectors} />;
   } else {
     const out = work(made);
     inside = out.length ? (
@@ -621,7 +624,10 @@ export function StagePanel(p: PanelProps) {
       <p className="faint">{call?.status === "polling" ? `Working: ${Math.round((call.progress ?? 0) * 100)}%` : "Nothing made yet."}</p>
     );
   }
-  const logged = stage.type === "swarm" || stage.type === "retro" || (connector && kind !== "build" && p.log.length > 0);
+  // A build step's panel shows its builder's steps; anything else logged there (the sandbox
+  // blocking its render) still gets the live log.
+  const shownLog = kind === "build" ? p.log.filter((e) => e.agent !== "builder") : p.log;
+  const logged = stage.type === "swarm" || stage.type === "retro" || (connector && shownLog.length > 0);
   return (
     <section className="panel" aria-label={`Step ${stage.index + 1}, ${stage.name}`} data-testid="stage-panel">
       <div className="panel-head">
@@ -657,7 +663,7 @@ export function StagePanel(p: PanelProps) {
       {connector && <StepInputs run={run} stage={stage} artifacts={p.artifacts} worldId={worldId} />}
       {inside}
       <AllFiles made={made} worldId={worldId} />
-      {logged && <LiveLog log={p.log} tasks={p.tasks} />}
+      {logged && <LiveLog log={shownLog} tasks={p.tasks} />}
       {connector && <TechnicalDetails call={call} />}
     </section>
   );

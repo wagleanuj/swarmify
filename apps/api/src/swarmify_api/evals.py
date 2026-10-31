@@ -12,15 +12,16 @@ from pydantic import BaseModel, Field
 
 from swarmify_kernel import new_id
 from swarmify_learning.evals import (
-    IDEAS,
     JUDGE_SYSTEM,
+    KINDS,
     PICK_SCHEMA,
-    SCRIPT,
     TASKS,
     EvalReport,
+    EvalTask,
     Judgement,
     Trial,
     judge_prompt,
+    made_by,
     markdown,
     parse_pick,
     summarize,
@@ -38,6 +39,8 @@ log = logging.getLogger(__name__)
 
 class NewEval(BaseModel):
     k: int = Field(ge=1, le=20)
+    kind: str | None = None
+    """The task kind the trials ran, a key of KINDS."""
     trials: list[Trial] = Field(min_length=2, max_length=5_000)
     judgements: list[Judgement] = Field(default=[], max_length=2_500)
 
@@ -74,16 +77,16 @@ def router(worlds: Worlds, memory: Memory, runtime: AgentRuntime) -> APIRouter:
     def eval_world() -> World | None:
         return next((w for w in worlds.list_all() if w.name == EVAL_WORLD), None)
 
-    def outputs(side: Side) -> dict[str, str]:
+    def outputs(task: EvalTask, side: Side) -> dict[str, str]:
         return {
             a.name: a.body
             for a in memory.library(side.world_id)
-            if a.run_id == side.run_id and a.name in (IDEAS, SCRIPT)
+            if a.run_id == side.run_id and made_by(task, a.name)
         }
 
     @api.post("/evals/judge", responses={404: {}, 502: {}})
     async def judge(body: Pair) -> Judgement:
-        """One blind judge session over the pair's `ideas.md` and `script.md`: the arm labels
+        """One blind judge session over what the task's workflow left on each side: the arm labels
         removed, the order shuffled per task. 502 when the session fails or answers in another
         shape; post again to retry."""
         task = next((t for t in TASKS if t.id == body.task_id), None)
@@ -91,7 +94,7 @@ def router(worlds: Worlds, memory: Memory, runtime: AgentRuntime) -> APIRouter:
             raise HTTPException(404, "no such eval task")
         if worlds.get(body.baseline.world_id) is None or worlds.get(body.swarm.world_id) is None:
             raise HTTPException(404, "world not found")
-        shown = {"baseline": outputs(body.baseline), "swarm": outputs(body.swarm)}
+        shown = {"baseline": outputs(task, body.baseline), "swarm": outputs(task, body.swarm)}
         world = eval_world() or worlds.create(EVAL_WORLD, DESCRIPTION)
         folder = worlds.folder(world.id)
         spec = SessionSpec(
@@ -116,11 +119,13 @@ def router(worlds: Worlds, memory: Memory, runtime: AgentRuntime) -> APIRouter:
     @api.post("/evals", status_code=201, responses={422: {}})
     def save_eval(body: NewEval) -> EvalReport:
         """Summarize the trials and the judge's picks into a report (pass at k, pass to the k,
-        cost, duration, acceptance, wins, losses, ties and cost a win per arm) and store it as
-        `report.md` in the eval world's Library."""
+        cost, duration, acceptance, wins, losses, ties and cost a win per arm, and whether the
+        kind is a swarm win) and store it as `report.md` in the eval world's Library."""
         now = datetime.now(UTC).isoformat()
+        if body.kind is not None and body.kind not in KINDS:
+            raise HTTPException(422, f"no such task kind {body.kind}")
         try:
-            report = summarize(body.trials, body.k, new_id("eval"), now, body.judgements)
+            report = summarize(body.trials, body.k, new_id("eval"), now, body.judgements, body.kind)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         world = eval_world() or worlds.create(EVAL_WORLD, DESCRIPTION)

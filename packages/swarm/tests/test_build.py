@@ -1,12 +1,10 @@
 """The build session (ADR 0018) through the real Agent SDK client with a scripted CLI: what the
-session is started with (sandbox, path rules, environment) and what its hooks refuse."""
+session is started with (sandbox, path rules, environment, the package's prompts) and what its
+hooks refuse."""
 
 import asyncio
-import json
-import shutil
-import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -23,8 +21,9 @@ from swarmify_swarm import (
     build,
 )
 from swarmify_swarm.fake import Call, Say, Script, Step
+from swarmify_swarm.sdk import options as options_for
 
-STARTER = Path(__file__).parents[2] / "connectors/src/swarmify_connectors/remotion_starter"
+DOMAINS = ["registry.npmjs.org", "pypi.org"]
 W, R, S = "world_1", "run_1", "stage_1"
 
 
@@ -55,9 +54,9 @@ def _build(board: SqliteStorage, data: Path, runtime: Any, **kw: Any) -> None:
     )
     secrets = ["YOUTUBE_CLIENT_SECRET", "UPLOAD_POST_API_KEY"]
     swarm.build(
-        W, R, S, "video", world, folder, script,
-        composition="Main", brief="Make it loud.",
-        sandbox=build.sandbox(folder, world, data, data / "npm-cache", secrets),
+        W, R, S, "video", world, folder,
+        system="You build pages.", task=f"Build `Main` from {script}.", brief="Make it loud.",
+        sandbox=build.sandbox(folder, world, data, data / "npm-cache", secrets, DOMAINS),
         env={**dict.fromkeys(secrets, ""), "npm_config_cache": str(data / "npm-cache")},
         data_dir=data, **kw,
     )  # fmt: skip
@@ -97,6 +96,7 @@ def test_the_session_is_sandboxed_in_its_build_folder_without_keys(
     sdk = _scripted(board, data, [Say("A loud title card.")], model="claude-sonnet-5-5")
     (options,) = sdk.sessions
     assert options.cwd == folder and options.model == "claude-sonnet-5-5"
+    assert options.system_prompt == "You build pages."
     assert options.plugins == []  # Claude Code refuses writes inside a plugin's folder
     assert set(options.allowed_tools) == {*build.TOOLS, "StructuredOutput", "ToolSearch"}
     assert options.sandbox == {
@@ -104,9 +104,7 @@ def test_the_session_is_sandboxed_in_its_build_folder_without_keys(
         "failIfUnavailable": True,
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
-        "network": {
-            "allowedDomains": ["registry.npmjs.org", "fonts.googleapis.com", "fonts.gstatic.com"]
-        },
+        "network": {"allowedDomains": DOMAINS},  # the package's permissions.network
         "filesystem": {
             "allowWrite": [str(folder), str(data / "npm-cache")],
             "denyRead": [str(data)],
@@ -279,44 +277,15 @@ def test_a_spent_budget_stops_the_build_before_it_starts(board: SqliteStorage, d
     assert script.sessions == []
 
 
-VOICE_RULES = ["createTikTokStyleCaptions", "white-space: pre", "trimBefore", "durationInFrames"]
-
-
-def test_speech_timings_make_the_brief_voice_first(tmp_path: Path) -> None:
-    script, timings = tmp_path / "script.md", tmp_path / "timings.json"
-    plain = build.prompt(script, "Main", "", [], [tmp_path / "notes.md"], [])
-    assert not any(rule in plain for rule in VOICE_RULES)
-    voiced = build.prompt(script, "Main", "", [], [timings], [])
-    assert all(rule in voiced for rule in VOICE_RULES)
-    assert build.VOICE_EXAMPLE.read_text() in voiced  # the spike's composition, as a sample
-
-
-@pytest.mark.skipif(not shutil.which("npm"), reason="no npm here")
-def test_the_starter_builds_with_the_voice_first_example(tmp_path: Path) -> None:
-    """The starter installs from its lockfile and type-checks with the example as its Main,
-    reading a timings.json in the speech connector's shape."""
-    folder = tmp_path / "build"
-    shutil.copytree(STARTER, folder, ignore=shutil.ignore_patterns("node_modules"))
-    shutil.copy(build.VOICE_EXAMPLE, folder / "src/Main.tsx")
-    word = {"startMs": 0, "endMs": 400, "timestampMs": None, "confidence": None}
-    line = {"pause_after": 0.3, "cut_in": 0.0, "cut_out": 0.5, "joined_next": False}
-    take = {"scene": "hook", "file": "narration/hook.wav", "duration": 0.6}
-    take["lines"] = [{**line, "text": "Shh!", "words": [{**word, "text": "Shh!"}]}]
-    (folder / "public").mkdir()
-    (folder / "public/timings.json").write_text(json.dumps({"takes": [take]}))
-    for argv in (["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], ["npx", "tsc"]):
-        done = subprocess.run(argv, cwd=folder, capture_output=True, text=True)
-        assert done.returncode == 0, done.stdout + done.stderr
-
-
-def test_the_builder_knows_3d_is_available_and_how_to_keep_it_deterministic() -> None:
-    """A 3D scene renders locally and in Docker (spike 2026-10-30), if every frame is a function
-    of the frame number and every asset is in the project."""
-    for must in (
-        "@remotion/three",
-        "<ThreeCanvas>",
-        "useCurrentFrame()",
-        "never React Three",
-        "world's assets",
-    ):
-        assert must in build.SYSTEM, must
+def test_only_a_sandboxed_session_runs_on_the_cli_that_can_start_its_sandbox(
+    board: SqliteStorage, data: Path
+) -> None:
+    """In Docker the api container cannot start an OS sandbox, so a Build Session's CLI runs
+    in the sandbox runner (`sandboxed_cli`); any other session keeps the bundled CLI."""
+    script = Script([Say("Done.")])
+    runner = "/app/docker/claude-in-runner"
+    _build(board, data, SdkRuntime(transport=script.transport, sandboxed_cli=runner))
+    (options,) = script.sessions
+    assert options.cli_path == runner
+    plain = SessionSpec("system", "prompt", data, None, [], [])
+    assert options_for(plain, cast(Any, None), None, runner).cli_path is None

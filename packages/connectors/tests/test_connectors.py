@@ -1,6 +1,6 @@
 """The Connectors service at its seam: real SQLite, a recording fake transport behind it."""
 
-import stat
+import json
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -12,9 +12,9 @@ from swarmify_connectors import (
     ConnectorError,
     Connectors,
     FakeTransport,
-    KeyCheck,
     Tool,
 )
+from swarmify_connectors.sandbox import LAUNCHER, REGISTRIES
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
 
@@ -30,7 +30,7 @@ def fal(connectors: Connectors, **over: Any) -> Connector:
         "credentials": ["FAL_KEY"],
         "stage_types": ["connector"],
     }
-    return connectors.draft(W, **{**fields, **over})
+    return connectors.draft(**{"world_id": W, **fields, **over})
 
 
 def events(db: Path) -> list[dict[str, Any]]:
@@ -38,13 +38,9 @@ def events(db: Path) -> list[dict[str, Any]]:
         return [e.payload for e in read_after(conn, W, 0) if e.type == "connector_call.updated"]
 
 
-def test_web_search_and_the_graph_are_built_in_and_need_no_setup(connectors: Connectors) -> None:
-    found = {c.name: c for c in connectors.list_all(W)}
-    for name in ("web_search", "graph"):
-        assert found[name].builtin and found[name].kind == "tool"
-        assert found[name].stage_types == ["swarm"]
-        assert connectors.missing(found[name]) == []
-    assert connectors.get("builtin_graph") == found["graph"]
+def test_web_search_and_the_graph_are_agent_tools_not_connectors(connectors: Connectors) -> None:
+    names = {c.name for c in connectors.list_all(W)}
+    assert names.isdisjoint({"web_search", "graph"})
 
 
 def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
@@ -58,7 +54,7 @@ def test_a_draft_reads_a_command_or_a_url(connectors: Connectors) -> None:
     ("over", "problem"),
     [
         ({"name": "Fal Video"}, "lower_snake_case"),
-        ({"name": "graph"}, "built-in"),
+        ({"name": "graph"}, "Agent Tool"),
         ({"kind": "plugin"}, "kind is one of"),
         ({"server": "  "}, "MCP command or a URL"),
         ({"server": "uvx 'unclosed"}, "cannot read the command"),
@@ -78,18 +74,16 @@ def test_a_bad_draft_names_its_problem(
 def test_a_connector_may_declare_input_types_and_they_are_kept(connectors: Connectors) -> None:
     recipe = {"type": "object", "required": ["steps"]}
     cook = fal(connectors, declared={"recipe": recipe}, input_types=["recipe", None])
-    connectors.add(cook, {})
-    (saved,) = connectors.storage.list_connectors(W)
+    saved = connectors.add(cook, {})
     assert saved.types == {"recipe": recipe} and saved.input_types == ["recipe", None]
     assert connectors.type_schema(W, "recipe") == recipe
-    assert connectors.type_schema(W, "script") is not None  # the speech built-in declares it
     assert connectors.type_schema(W, "idea") is None
     with pytest.raises(ValueError, match="a type name is lower_snake_case"):
-        fal(connectors, declared={"Recipe": recipe})
+        fal(connectors, name="other", declared={"Recipe": recipe})
     with pytest.raises(ValueError, match="type recipe is not a JSON Schema"):
-        fal(connectors, declared={"recipe": {"type": "soup"}})
+        fal(connectors, name="other", declared={"recipe": {"type": "soup"}})
     with pytest.raises(ValueError, match="input types it does not declare: script"):
-        fal(connectors, input_types=["script"])
+        fal(connectors, name="other", input_types=["script"])
 
 
 # World-dependent types (issue 140), on a fixture publish connector whose `post` type lists
@@ -173,20 +167,35 @@ def test_test_without_a_credential_says_which_one(connectors: Connectors) -> Non
         connectors.test(fal(connectors), {})
 
 
-def test_add_saves_the_record_and_its_secret_lands_only_in_the_file(
+def test_add_installs_a_local_package_enabled_for_the_world_with_its_keys_as_credentials(
     connectors: Connectors, db: Path
 ) -> None:
     saved = connectors.add(fal(connectors), {"FAL_KEY": "s3cret", "STRAY": "ignored"})
     assert connectors.find(W, "fal_video") == saved
-    assert connectors.list_all("world_2")[-1].name != "fal_video"
-    assert connectors.credentials.read() == {"FAL_KEY": "s3cret"}
-    assert stat.S_IMODE(connectors.credentials.path.stat().st_mode) == 0o600
+    assert (saved.version, saved.world_id) == ("0.0.1", W)
+    assert connectors.enabled(W) == {"fal_video": "0.0.1"}
+    assert connectors.find("world_2", "fal_video") is None
+    (package,) = connectors.packages.list()
+    assert (package.name, package.source, package.state) == ("fal_video", "local", "installed")
+    m = saved.manifest
+    assert (m["kind"], m["stage_types"], m["runtime"]) == ("stage", ["connector"], "uv")
+    assert m["command"] == ["uvx", "fal-mcp", "--model", "kling 2"]
+    assert m["config"] == [
+        {"key": "fal_key", "label": "FAL_KEY", "type": "string", "secret": True}
+        | {"required": True, "scope": "shared", "env": "FAL_KEY"}
+    ]
+    assert connectors.setups.values("fal_video", W) == ({"fal_key": "s3cret"}, {})
+    assert connectors.credentials.read() == {}
     assert b"s3cret" not in db.read_bytes()
     assert connectors.missing(saved) == []
-    with pytest.raises(ValueError, match="already exists"):
-        connectors.add(fal(connectors), {})
-    assert connectors.delete(saved.id) and not connectors.delete(saved.id)
-    assert connectors.find(W, "fal_video") is None
+    with pytest.raises(ValueError, match="a Connector Package this world enables already"):
+        fal(connectors)
+
+    # Another world adding the same server reuses the version; a different one is the next.
+    assert connectors.add(fal(connectors, world_id="world_2"), {}).version == "0.0.1"
+    other = connectors.add(fal(connectors, world_id="world_3", server="uvx fal-mcp"), {})
+    assert other.version == "0.0.2"
+    assert connectors.setups.values("fal_video", "world_3") == ({"fal_key": "s3cret"}, {})
 
 
 def test_agent_servers_hand_a_swarm_stage_its_connectors_with_credentials(
@@ -196,68 +205,29 @@ def test_agent_servers_hand_a_swarm_stage_its_connectors_with_credentials(
     remote = connectors.draft(W, "notes_api", "tool", "https://x.test/mcp", [], ["swarm"])
     connectors.add(remote, {})
     servers = connectors.agent_servers(W, ["fal_video", "notes_api", "web_search", "nope"])
-    assert servers == {
-        "fal_video": {
-            "type": "stdio",
-            "command": "uvx",
-            "args": ["fal-mcp", "--model", "kling 2"],
-            "env": {"FAL_KEY": "s3cret"},
-        },
-        "notes_api": {"type": "http", "url": "https://x.test/mcp", "headers": {}},
-    }
-    connectors.credentials.path.write_text("")
-    with pytest.raises(ConnectorError, match="needs FAL_KEY"):
+    assert set(servers) == {"fal_video", "notes_api"}
+    assert servers["notes_api"] == {"type": "http", "url": "https://x.test/mcp", "headers": {}}
+    # the command starts in the connector sandbox, with only its own key and uvx's registry
+    fal_server = servers["fal_video"]
+    assert fal_server["env"] == {"FAL_KEY": "s3cret"}
+    assert fal_server["args"][0] == str(LAUNCHER)
+    assert fal_server["args"][2:] == ["--", "uvx", "fal-mcp", "--model", "kling 2"]
+    plan = json.loads(Path(fal_server["args"][1]).read_text())
+    assert plan["pass"] == ["FAL_KEY"] and plan["session"] is True
+    assert plan["sandbox"]["network"]["allowedDomains"] == REGISTRIES["uv"]
+    connectors.setups.path.write_text("{}")
+    with pytest.raises(ConnectorError, match="needs its Setup"):
         connectors.agent_servers(W, ["fal_video"])
 
 
-def test_missing_lists_what_the_file_lacks(connectors: Connectors) -> None:
+def test_missing_lists_the_keys_its_setup_lacks(connectors: Connectors) -> None:
     saved = connectors.add(fal(connectors, credentials=["FAL_KEY", "FAL_ORG"]), {"FAL_KEY": "k"})
-    assert connectors.missing(saved) == ["FAL_ORG"]
-    connectors.credentials.path.chmod(0o644)
-    assert connectors.missing(saved) == ["FAL_KEY", "FAL_ORG"]
+    assert connectors.missing(saved) == ["fal_org"]
+    connectors.setups.path.chmod(0o644)
+    assert connectors.missing(saved) == ["fal_key", "fal_org"]
     with pytest.raises(PermissionError):
         connectors.add(fal(connectors, name="other"), {})
     assert connectors.find(W, "other") is None
-
-
-YOUTUBE = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "s", "YOUTUBE_REFRESH_TOKEN": "r"}
-
-
-def test_saving_a_builtins_keys_checks_them_live_and_names_the_account(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    youtube, upload_post = connectors.get("builtin_youtube"), connectors.get("builtin_upload_post")
-    assert youtube and upload_post
-    transport.outputs["channel"] = [{"channel": "Hooks Daily"}]
-    transport.outputs["get_account_info"] = [{"result": {"email": "me@example.com"}}]
-    check = connectors.set_credentials(youtube, YOUTUBE)
-    assert check == KeyCheck(True, "Posts to the YouTube channel Hooks Daily.")
-    assert transport.calls[-1] == ("youtube", "channel", {}, YOUTUBE)
-    check = connectors.set_credentials(upload_post, {"UPLOAD_POST_API_KEY": "k"})
-    assert check == KeyCheck(True, "Signed in to Upload-Post as me@example.com.")
-    assert transport.calls[-1][1:] == ("get_account_info", {}, {"UPLOAD_POST_API_KEY": "k"})
-
-
-def test_a_failing_key_check_still_saves_and_says_why(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    youtube = connectors.get("builtin_youtube")
-    assert youtube
-    transport.outputs["channel"] = [ConnectorError("refreshing the YouTube token failed (400)")]
-    check = connectors.set_credentials(youtube, YOUTUBE)
-    assert check == KeyCheck(False, "refreshing the YouTube token failed (400)")
-    assert connectors.missing(youtube) == []
-
-
-def test_no_key_check_while_keys_are_missing_or_for_added_connectors(
-    connectors: Connectors, transport: FakeTransport
-) -> None:
-    youtube = connectors.get("builtin_youtube")
-    assert youtube
-    assert connectors.set_credentials(youtube, {"YOUTUBE_CLIENT_ID": "id"}) is None
-    added = connectors.add(fal(connectors), {})
-    assert connectors.set_credentials(added, {"FAL_KEY": "k"}) is None
-    assert transport.calls == []
 
 
 STAGE = {"calls": "fal_video", "input": "script.md", "output": "clip.mp4", "params": {"len": 5}}
@@ -374,8 +344,8 @@ def test_a_poll_that_errors_fails_the_stage(
     ("calls", "problem"),
     [
         ("nope", "no connector named 'nope'"),
-        ("web_search", "not allowed in connector stages"),
-        ("fal_video", "needs FAL_KEY"),
+        ("web_search", "no connector named 'web_search'"),
+        ("fal_video", "needs its Setup on the Connectors page: fal_key"),
     ],
 )
 def test_a_stage_that_cannot_call_says_why(
@@ -394,3 +364,21 @@ def test_deleting_the_world_takes_its_connectors_and_calls(
     connectors.run_stage(W, "run_1", "stage_1", STAGE)
     connectors.delete_world(W)
     assert connectors.find(W, "fal_video") is None and connectors.call_for("stage_1") is None
+
+
+def test_a_v1_row_that_cannot_become_a_package_is_kept_with_its_key(
+    connectors: Connectors, db: Path
+) -> None:
+    connectors.credentials.set({"_ODD": "k", "FAL_KEY": "f", "YOUTUBE_CLIENT_ID": "yt"})
+    with closing(connect(db)) as conn:
+        for id_, name, keys in (("c1", "odd", '["_ODD"]'), ("c2", "fal_video", '["FAL_KEY"]')):
+            conn.execute(
+                "INSERT INTO connectors (id, world_id, name, kind, command, url, credentials,"
+                " stage_types, created_at) VALUES (?, ?, ?, 'stage', '[\"uvx\", \"x\"]', NULL,"
+                " ?, '[\"connector\"]', '2026-10-01')",
+                (id_, W, name, keys),
+            )
+    connectors.adopt_world_connectors()
+    assert [c.name for c in connectors.storage.world_connectors()] == ["odd"]
+    assert connectors.enabled(W) == {"fal_video": "0.0.1"}
+    assert connectors.credentials.read() == {"_ODD": "k", "YOUTUBE_CLIENT_ID": "yt"}

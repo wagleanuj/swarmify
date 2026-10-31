@@ -5,7 +5,9 @@ The GraphWriter runs in the API process unless `SWARMIFY_GRAPH_WRITER=external` 
 `swarmify-graph-writer` process does it instead; never both (ADR 0003).
 `SWARMIFY_DATA_DIR` (default `~/.swarmify`) holds `swarmify.db`, the DBOS system database
 `dbos.sqlite` and `worlds/<id>/`. DBOS launches in the lifespan, so runs execute only while the
-app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` turns on basic auth.
+app is served (or inside `with TestClient(app)`). `SWARMIFY_PASSWORD` is the operator's sign-in
+password (auth.py); the MCP server is also served over HTTP at `/mcp`, for API tokens, and its
+Remote Approvals part at `/mcp/remote_approvals`, for the connectors that offer them (remote.py).
 """
 
 import asyncio
@@ -24,13 +26,16 @@ import yaml
 from anyio import to_thread
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 from starlette.responses import Response
-from starlette.types import Scope
+from starlette.routing import Route
+from starlette.types import Receive, Scope, Send
 
 from swarmify_api import (
     agents,
+    auth,
     connectors,
     evals,
     graph,
@@ -39,14 +44,13 @@ from swarmify_api import (
     mcp,
     notifications,
     planner,
+    remote,
     runs,
     tasks,
     upkeep,
-    voices,
     workflows,
     worlds,
 )
-from swarmify_api.auth import BasicAuth
 from swarmify_connectors import MIGRATIONS as CONNECTORS_MIGRATIONS
 from swarmify_connectors import Connector as ConnectorDef
 from swarmify_connectors import (
@@ -55,10 +59,12 @@ from swarmify_connectors import (
     ConnectorTransport,
     Credentials,
     McpTransport,
+    Packages,
+    build_session,
     publish,
-    remotion,
 )
 from swarmify_connectors import SqliteStorage as ConnectorStorage
+from swarmify_kernel import AGENT_TOOLS
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
 from swarmify_learning import MIGRATIONS as LEARNING_MIGRATIONS
@@ -67,6 +73,7 @@ from swarmify_learning import SqliteStorage as LearningStorage
 from swarmify_memory import (
     ASSETS,
     DEBOUNCE,
+    ArtifactFile,
     GraphIndex,
     GraphWriter,
     McpGraphIndex,
@@ -80,6 +87,7 @@ from swarmify_notifications import SqliteStorage as ChannelStorage
 from swarmify_runs import (
     DEFAULT_CAP,
     Connector,
+    Gate,
     Notifier,
     OverBudget,
     Previews,
@@ -104,7 +112,9 @@ from swarmify_worlds import SqliteStorage, Worlds
 
 log = logging.getLogger(__name__)
 VERSION = version("swarmify-api")
-WEB_DIST = Path(os.environ.get("SWARMIFY_WEB_DIST", Path(__file__).parents[4] / "apps/web/dist"))
+REPO = Path(__file__).parents[4]
+"""This repository, whose `connectors/` folder holds the first-party Connector Packages."""
+WEB_DIST = Path(os.environ.get("SWARMIFY_WEB_DIST", REPO / "apps/web/dist"))
 
 
 def data_dir() -> Path:
@@ -124,12 +134,13 @@ def migrated_db(root: Path) -> Path:
             SWARM_MIGRATIONS,
             NOTIFICATIONS_MIGRATIONS,
             LEARNING_MIGRATIONS,
+            auth.MIGRATIONS,
         )
     return db
 
 
-def world_service(root: Path) -> Worlds:
-    return Worlds(SqliteStorage(migrated_db(root)), root)
+def world_service(root: Path, on_create: Callable[[str], None] = lambda _world_id: None) -> Worlds:
+    return Worlds(SqliteStorage(migrated_db(root)), root, on_create)
 
 
 def connector_service(
@@ -141,6 +152,7 @@ def connector_service(
         transport or McpTransport(),
         Credentials(root / ".env"),
         poll_seconds,
+        Packages(root / "packages", REPO),
     )
 
 
@@ -173,9 +185,9 @@ def workflow_service(
     `control`, every saved version's `schedule` becomes (or removes) a DBOS cron for it."""
     registry = registry or connector_service(root)
 
-    def refs(world_id: str) -> dict[str, ConnectorRef]:
+    def refs(world_id: str, pins: Mapping[str, str]) -> dict[str, ConnectorRef]:
         def problems(config: dict[str, Any]) -> list[str]:
-            return registry.stage_problems(world_id, config)
+            return registry.stage_problems(world_id, config, pins)
 
         return {
             c.name: ConnectorRef(
@@ -185,8 +197,9 @@ def workflow_service(
                 problems,
                 WorldTypes(registry, world_id, c),
                 tuple(c.input_types),
+                c.version,
             )
-            for c in registry.list_all(world_id)
+            for c in registry.list_all(world_id, pins)
         }
 
     def on_saved(version: WorkflowVersion) -> None:
@@ -229,6 +242,12 @@ def world_deleter(
 def base_url() -> str:
     """Where deep links in Notifications point: the web skin as the operator reaches it."""
     return os.environ.get("SWARMIFY_BASE_URL", "http://localhost:8000")
+
+
+def internal_url() -> str:
+    """Where a connector process reaches the API: `SWARMIFY_INTERNAL_URL`, as `http://api:8000`
+    from the sandbox runner in Docker, else the operator's own `base_url`."""
+    return os.environ.get("SWARMIFY_INTERNAL_URL") or base_url()
 
 
 def learning_service(root: Path) -> Learning:
@@ -296,14 +315,27 @@ def publish_config(
     return {**stage.config, "params": params}, metadata, problem
 
 
-def previews(registry: Connectors, worlds: Worlds) -> Previews:
-    """Runs learns what a stage will publish from the registry, which knows connector kinds."""
+def recorded_pins(workflows: Workflows, run: Run) -> dict[str, str]:
+    """The package versions the run's workflow version recorded (issue 223): the run resolves
+    those packages at them, never at the world's current pin."""
+    if not (run.workflow_id and run.workflow_version):
+        return {}
+    version = workflows.version(run.workflow_id, run.workflow_version)
+    return version.packages if version else {}
+
+
+def previews(
+    registry: Connectors, worlds: Worlds, pins: Callable[[Run], dict[str, str]]
+) -> Previews:
+    """Runs learns what a stage will publish from the registry, which knows connector kinds,
+    at the package versions `pins` gives for the run."""
 
     def preview(run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPreview | None:
-        if not registry.is_publish(run.world_id, stage.config):
+        recorded = pins(run)
+        if not registry.is_publish(run.world_id, stage.config, recorded):
             return None
         config, metadata, problem = publish_config(worlds.folder(run.world_id), run, stage)
-        shown = registry.publish_preview(run.world_id, config, metadata, edits)
+        shown = registry.publish_preview(run.world_id, config, metadata, edits, recorded)
         assert shown is not None  # is_publish above
         if problem:
             shown["problems"].append(problem)
@@ -316,6 +348,7 @@ def previews(registry: Connectors, worlds: Worlds) -> Previews:
 def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
     """Act on runs from a process that does not host DBOS, such as the MCP server."""
     worlds = world_service(root)
+    workflows = workflow_service(root)
 
     def monthly(world_id: str) -> float | None:
         world = worlds.get(world_id)
@@ -326,7 +359,7 @@ def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
         root / "dbos.sqlite",
         root,
         notifier or notification_service(root),
-        previews(connector_service(root), worlds),
+        previews(connector_service(root), worlds, lambda run: recorded_pins(workflows, run)),
         monthly=monthly,
     )
 
@@ -382,6 +415,16 @@ class SpaFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
+class McpEndpoint:
+    """`/mcp`, handed to the session manager of the lifespan that is running."""
+
+    def __init__(self, tools: MCPServer) -> None:
+        self.tools = tools
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.tools.session_manager.handle_request(scope, receive, send)
+
+
 class Health(BaseModel):
     version: str
 
@@ -417,50 +460,93 @@ def create_app(
     that script no retro session turn it off."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
+    # Every world is given this repository's default packages once (ADR 0023): those there now
+    # on upgrade, each new one as it is made. Installed first, so their V1 keys are carried
+    # before the move below takes the keys of the connectors worlds added.
+    registry.install_defaults()
+    registry.adopt_world_connectors()  # V1's world-added connectors become local packages
     whiteboard = task_board(root)
-    world_svc = world_service(root)
+
+    def blocked(connector: ConnectorDef, stage: tuple[str, str] | None, lines: list[str]) -> None:
+        """What the sandbox blocked (ADR 0021) goes to the API's log, and for a stage's call to
+        the stage's run log too, under the connector's name."""
+        connectors_log(connector, stage, lines)
+        if stage and connector.world_id:
+            run_id, stage_id = stage
+            whiteboard.agent(connector.world_id, run_id, stage_id, connector.name, "worker")
+            for line in lines:
+                whiteboard.log(
+                    stage_id, connector.name, "denied", f"Blocked by the sandbox: {line}"
+                )
+            whiteboard.update_agent(stage_id, connector.name, status="done")
+
+    connectors_log, registry.on_blocked = registry.on_blocked, blocked
+    world_svc = world_service(root, on_create=registry.offer_defaults)
+    for world in world_svc.list_all():
+        registry.offer_defaults(world.id)
     memory = Memory(migrated_db(root), root)
     channels = notification_service(root)
     learning_svc = learning_service(root)
 
-    def build_stage(run: Run, stage_id: str, stage: StageDef) -> None:
-        """`remotion_build` (ADR 0018): seed `<stage>/build/` from the template `base` or the
-        starter (or, on a send-back, from the last build to revise), run one sandboxed coding
-        session in it (swarmify_swarm.build), then render its composition through
-        `remotion_render` like any render stage, sandboxed because the project lies under a
-        world (remotion.built). A call already rendering or done for this
-        visit skips the session, so a restart resumes the render. The folder stays, without
-        its node_modules once the video is out, for a person to open."""
+    def build_stage(
+        run: Run, stage_id: str, stage: StageDef, package: ConnectorDef, recorded: dict[str, str]
+    ) -> None:
+        """A Build Session (ADR 0018), as the stage's package asks in its Manifest: seed
+        `<stage>/build/` from its starter or the template `base` names (or, on a send-back, from
+        the last build, to revise), run one sandboxed coding session in it
+        (swarmify_swarm.build) with the package's prompts and network, then call its `tool` on
+        the result as the stage's call, a long job, on its `connector` (another package whose
+        tool it reuses) or itself. A call already running or done for this visit skips the
+        session, so a restart resumes the call. The folder stays, without its node_modules
+        once the call is done, for a person to open."""
+        session = package.manifest["build_session"]
+        source = Path(package.folder or "")
         folder = world_svc.folder(run.world_id)
-        output = stage.config.get("output") or "video.mp4"
+        output = stage.config.get("output") or session.get("output", "")
         config = with_files(folder, run, stage_id, {**stage.config, "output": output})
-        params = config["params"]
-        # the script is `input` or the first of `inputs`; the rest are the builder's to read
-        script, *others = params.get("input_paths") or [params.get("input_path") or ""]
-        if not script:
-            raise ConnectorError("remotion_build needs an input, the script")
-        params["input_path"] = script
+        schema = (package.manifest.get("params") or {}).get("properties") or {}
+        defaults = {k: p["default"] for k, p in schema.items() if "default" in p}
+        params = {**defaults, **config["params"]}
+        # the first input is `input` or the first of `inputs`; the rest are the builder's to read
+        first, *others = params.get("input_paths") or [params.get("input_path") or ""]
+        if not first and package.manifest.get("inputs"):
+            said = package.manifest["inputs"][0]["description"]
+            raise ConnectorError(f"{package.name} needs an input, {said}")
+        if first:
+            params["input_path"] = first
         project = folder / "runs" / run.id / stage_id / "build"
-        composition = str(params.get("composition") or "Main")
+        values = {**params, "input": first, "folder": project}
+        made = Path(params["output_path"]) if output else None
         call = registry.call_for(stage_id)
         if call is None or call.visit != run.send_backs or call.status == "failed":
             # A send-back revises the last good build, kept as build.v<n> (n counting visits
-            # from 1); a stage never run, or one whose last render failed, starts fresh.
+            # from 1); a stage never run, or one whose last call failed, starts fresh.
             last = call if call is not None and call.status == "done" else None
             previous = project.with_name(f"build.v{last.visit + 1}") if last else None
-            video = Path(params["output_path"])
             try:
                 if previous and (previous.exists() or project.exists()):
-                    remotion.keep(project, previous, video)
+                    build_session.keep(project, previous, made)
                 else:
                     previous = None
-                    remotion.seed(project, params.get("base"), root)
+                    base = params.get(build_session.BASE)
+                    templates = session.get("templates")
+                    start = (
+                        build_session.template(str(base), root, templates)
+                        if base and templates
+                        else source / session["starter"]
+                    )
+                    build_session.seed(project, start)
                 limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
             except ValueError as exc:
                 raise ConnectorError(str(exc)) from exc
+            inputs = [Path(p) for p in [first, *others] if p]
             world = world_svc.get(run.world_id)
             cache = root / "npm-cache"
             secrets = registry.secret_names(run.world_id) + ["SWARMIFY_PASSWORD"]
+            domains = package.manifest.get("permissions", {}).get("network", [])
+            revises = [previous] if previous else []
+            if previous and made:
+                revises.append(previous.with_name(previous.name + made.suffix))
             try:
                 swarm.build(
                     run.world_id,
@@ -469,44 +555,52 @@ def create_app(
                     stage.name,
                     folder,
                     project,
-                    Path(script),
-                    composition=composition,
+                    system=(source / session["system"]).read_text(),
+                    task=build_session.task(package.manifest, source, values, inputs),
                     inputs=[Path(p) for p in others],
                     brief=str(params.get("brief") or ""),
-                    sandbox=build.sandbox(project, folder, root, cache, secrets),
+                    sandbox=build.sandbox(project, folder, root, cache, secrets, domains),
                     env={**dict.fromkeys(secrets, ""), "npm_config_cache": str(cache)},
                     data_dir=root,
                     model=params.get("model") or (world.model_for("worker") if world else None),
                     max_turns=int(limits.get("max_turns", build.MAX_TURNS)),
                     minutes=limits.get("minutes", build.MINUTES),
-                    revises=[previous, previous.with_name(previous.name + video.suffix)]
-                    if previous
-                    else [],
+                    revises=revises,
                     note=run.send_back_note(stage.name),
                 )
             except Stopped as exc:
                 raise OverBudget(str(exc)) from exc
-        keep = ("input_path", "output_path", "frontmatter")
-        render = {
-            "calls": "remotion_render",
+        arguments = session.get("arguments", {})
+        then = {
+            "calls": session.get("connector", package.name),
             "output": output,
             "params": {
-                "project": str(project),
-                "composition": composition,
-                **{k: params[k] for k in keep},
+                "tool": session["tool"],
+                **{k: build_session.fill(v, values) for k, v in arguments.items()},
+                **{
+                    k: params[k]
+                    for k in ("input_path", "output_path", "frontmatter")
+                    if k in params
+                },
             },
         }
-        registry.run_stage(run.world_id, run.id, stage_id, render, run.send_backs)
-        memory.record(run.world_id, run.id, stage_id, "remotion_build", Path(params["output_path"]))
+        registry.run_stage(run.world_id, run.id, stage_id, then, run.send_backs, recorded)
+        if made and made.is_file():
+            memory.record(run.world_id, run.id, stage_id, package.name, made)
         shutil.rmtree(project / "node_modules", ignore_errors=True)
 
+    def pins(run: Run) -> dict[str, str]:
+        return recorded_pins(workflow_svc, run)
+
     def call_connector(run: Run, stage_id: str, stage: StageDef) -> None:
-        if stage.config.get("calls") == "remotion_build":
-            return build_stage(run, stage_id, stage)
-        if not registry.is_publish(run.world_id, stage.config):
+        recorded = pins(run)
+        called = registry.find(run.world_id, str(stage.config.get("calls", "")), recorded)
+        if called is not None and "build_session" in called.manifest.get("capabilities", []):
+            return build_stage(run, stage_id, stage, called, recorded)
+        if not registry.is_publish(run.world_id, stage.config, recorded):
             folder = world_svc.folder(run.world_id)
             config = with_files(folder, run, stage_id, stage.config)
-            registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
+            registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs, recorded)
             output = Path(config["params"].get("output_path") or "")
             if output.is_file():  # announce what the connector left as an artifact
                 memory.record(run.world_id, run.id, stage_id, str(stage.config["calls"]), output)
@@ -521,7 +615,7 @@ def create_app(
         config, metadata, problem = publish_config(folder, run, stage)
         if problem:
             raise ConnectorError(problem)
-        shown = registry.publish_preview(run.world_id, config, metadata, confirmed)
+        shown = registry.publish_preview(run.world_id, config, metadata, confirmed, recorded)
         assert shown is not None  # is_publish above
         if shown["problems"]:
             raise ConnectorError("; ".join(shown["problems"]))
@@ -537,7 +631,7 @@ def create_app(
             config["params"]["input_paths"] = [
                 str(run_file(folder, run, str(n))) for n in config["inputs"]
             ]
-        call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs)
+        call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs, recorded)
         out = registry.publish_result(call)
         memory.write_artifact(
             run.world_id,
@@ -564,7 +658,7 @@ def create_app(
     memory = Memory(migrated_db(root), root)
     swarm = Swarm(
         whiteboard,
-        runtime or SdkRuntime(),
+        runtime or SdkRuntime(sandboxed_cli=os.environ.get("SWARMIFY_SANDBOX_CLI") or None),
         memory,
         graphs=graph.WorldGraphs(world_svc, index),
         servers=registry.agent_servers,
@@ -577,8 +671,8 @@ def create_app(
         learning_svc.sync(run.world_id)  # shared skills the world lacks load from its folder
         note = run.send_back_note(stage.name)  # an older send-back's note no longer applies
         # The Cast as it stands when the stage starts: an edit reaches every later stage.
-        # A run's own worker count (the workflow's `agents` or the start's) beats the world's.
-        members = world_svc.cast(run.world_id, stage.config.get("agents")) or []
+        # The stage's worker count (its `agents` or the start's), one when it has none (ADR 0020).
+        members = world_svc.cast(run.world_id, stage.config.get("agents") or 1) or []
         world = world_svc.get(run.world_id)
         staged = stage.config.get("model")  # the stage's model wins over the world's choice
 
@@ -586,10 +680,10 @@ def create_app(
             return staged or (world.model_for(role) if world else None)
 
         cast = [CastEntry(m.name, m.role, m.prompt, m.tools, model(m.role)) for m in members]  # type: ignore[arg-type]
-        config = dict(stage.config)
+        config = {**stage.config, "packages": pins(run)}  # the agents' connector versions
         promised = "".join(str(config.get("output_type") or "").split())
         schema = registry.type_schema(
-            run.world_id, promised.removeprefix("list[").removesuffix("]")
+            run.world_id, promised.removeprefix("list[").removesuffix("]"), config["packages"]
         )
         if schema is not None:  # a type a connector declares: the judge projects its schema
             config["output_schema"] = schema
@@ -651,26 +745,42 @@ def create_app(
         world = world_svc.get(world_id)
         return getattr(world, name) if world else None
 
+    def open_gate(run_id: str) -> Gate | None:
+        return next((g for g in runner.storage.open_gates() if g.run_id == run_id), None)
+
+    def cards(run_id: str, index: int) -> list[ArtifactFile]:
+        run = runner.get(run_id)
+        return agents.run_artifacts(memory, run, index) if run else []
+
+    # Each world's Slack webhook stays the Channel until the world sets up a remote approver.
+    approvers = remote.RemoteApprovals(
+        migrated_db(root), registry, channels, open_gate, cards, base_url()
+    )
     runner = Runner(
         run_storage(root),
         root / "dbos.sqlite",
         connector or call_connector,
         root,
-        notifier or channels,
+        notifier or approvers,
         swarm=run_swarm,
         take=take,
-        previews=previews(registry, world_svc),
+        previews=previews(registry, world_svc, pins),
         spend=spend,
         monthly=lambda w: setting(w, "monthly_budget_usd"),
         cap_for=lambda w: setting(w, "run_cap") or DEFAULT_CAP,
         retro=run_retro,
+        worlds=lambda: [w.id for w in world_svc.list_all()],
     )
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
+    # On upgrade: versions saved before they recorded package versions take the world's pins.
+    workflow_svc.stamp(registry.enabled)
 
     def swarm_tools(world_id: str) -> list[str]:
-        """The world's connectors a swarm stage may use: an Ad Hoc Run's tools."""
-        return [c.name for c in registry.list_all(world_id) if "swarm" in c.stage_types]
+        """The Agent Tools and the world's connectors a swarm stage may use: an Ad Hoc Run's
+        tools."""
+        world = [c.name for c in registry.list_all(world_id) if "swarm" in c.stage_types]
+        return [*AGENT_TOOLS, *world]
 
     async def sweep() -> None:
         while True:
@@ -678,6 +788,8 @@ def create_app(
                 await to_thread.run_sync(lambda: whiteboard.expire(clock()))
                 # Runs the MCP process started wait queued for this process to enqueue them.
                 await to_thread.run_sync(runner.adopt)
+                await to_thread.run_sync(listeners.sync)
+                await to_thread.run_sync(registry.drain)
             except Exception:
                 log.exception("sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
@@ -712,7 +824,11 @@ def create_app(
         )
         if os.environ.get("SWARMIFY_GRAPH_WRITER") != "external":
             rebuilds.start()
-        yield
+        # A session manager runs once, and a test may enter the lifespan twice: a fresh one each.
+        for server in (tools, approvals):
+            server.streamable_http_app(stateless_http=True, json_response=True, host="0.0.0.0")
+        async with tools.session_manager.run(), approvals.session_manager.run():
+            yield
         stop.set()
         for task in (sweeper, upkeeper):
             task.cancel()
@@ -720,6 +836,8 @@ def create_app(
                 await task
         if rebuilds.is_alive():
             await to_thread.run_sync(lambda: rebuilds.join(5))
+        await to_thread.run_sync(listeners.stop)
+        await to_thread.run_sync(approvers.flush)
         await to_thread.run_sync(index.close)
         await to_thread.run_sync(runner.shutdown)
 
@@ -745,12 +863,18 @@ def create_app(
     app.include_router(
         runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)
     )
-    app.include_router(connectors.router(registry, world_svc))
+    app.include_router(connectors.router(registry, world_svc, workflow_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))
-    app.include_router(library.router(memory, world_svc, runner.list_all))
-    app.include_router(voices.router(memory, world_svc, workflow_svc))
+    app.include_router(
+        library.router(
+            memory,
+            world_svc,
+            runner.list_all,
+            lambda w: library.owned_folders(registry.list_all(w)),
+        )
+    )
     app.include_router(notifications.router(channels, world_svc))
     app.include_router(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
@@ -760,9 +884,22 @@ def create_app(
         world_svc, workflow_svc, whiteboard, runner, delete, memory=memory, retro=retro
     )
     app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
+    # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
+    # Stateless: each request stands alone, so nothing is lost when the api restarts.
+    app.router.routes.append(Route("/mcp", McpEndpoint(tools)))
+    approvals = mcp.approvals_server(runner)
+    app.router.routes.append(Route(remote.PATH, McpEndpoint(approvals)))
+    operator = auth.Operator(migrated_db(root))
+    listeners = remote.Listeners(
+        registry,
+        lambda name: operator.provision(f"{name} remote approvals", remote.SCOPE),
+        internal_url().rstrip("/") + remote.PATH,
+    )
+    if password := os.environ.get("SWARMIFY_PASSWORD"):
+        operator.set_password(password)
+    app.include_router(auth.router(operator))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
-    if password := os.environ.get("SWARMIFY_PASSWORD"):
-        user = os.environ.get("SWARMIFY_USER", "swarmify")
-        app.add_middleware(BasicAuth, user=user, password=password)
+    if operator.enabled:
+        app.add_middleware(auth.SignedIn, operator=operator)
     return app
