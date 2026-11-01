@@ -141,6 +141,9 @@ def options(
         sandbox=spec.sandbox,  # type: ignore[arg-type]  # the CLI's settings shape, a superset
         env=spec.env,
         cli_path=sandboxed_cli if spec.sandbox else None,
+        # One stream message carries a whole tool result: a few full-size frames a builder
+        # reads to check its work are several MB of base64, past the SDK's 1 MB default.
+        max_buffer_size=64 * 1024 * 1024,
     )
 
 
