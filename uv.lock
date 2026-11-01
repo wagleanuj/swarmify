@@ -1801,6 +1801,7 @@ source = { editable = "packages/memory" }
 dependencies = [
     { name = "graphifyy", extra = ["mcp"] },
     { name = "mcp" },
+    { name = "pyyaml" },
     { name = "swarmify-kernel" },
 ]
 
@@ -1808,6 +1809,7 @@ dependencies = [
 requires-dist = [
     { name = "graphifyy", extras = ["mcp"], specifier = "==0.9.95" },
     { name = "mcp", specifier = ">=2.3" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "swarmify-kernel", editable = "packages/kernel" },
 ]
 

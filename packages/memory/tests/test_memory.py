@@ -94,6 +94,24 @@ def test_an_artifact_may_carry_its_own_type_and_frontmatter(memory: Memory) -> N
     assert _events(memory)[-1]["type"] == "publish"
 
 
+def test_an_agents_own_frontmatter_joins_the_artifacts_instead_of_stacking_under_it(
+    memory: Memory,
+) -> None:
+    """A worker that writes metadata.md with its own YAML frontmatter (a publish stage's title)
+    left a second block under the core's, and readers of the first saw no title."""
+    content = (
+        '---\ntitle: "Why You Can\'t Tickle Yourself"\ndescription: >-\n  Your brain cancels\n'
+        '  your own touch.\nhashtags:\n  - "#shorts"\ntype: forged\n---\n\n# Metadata\n'
+    )
+    rel = memory.write_artifact("w1", "r1", "s1", "worker-1", "metadata.md", content)
+    text = (memory.world_folder("w1") / rel).read_text()
+    assert text.count("---\n") == 2, text  # one frontmatter block
+    assert text.startswith('---\ntype: "file"\nauthor: "worker-1"\n')  # core keys win
+    assert 'title: "Why You Can\'t Tickle Yourself"' in text
+    assert 'description: "Your brain cancels your own touch."' in text
+    assert 'hashtags: ["#shorts"]' in text and text.endswith("# Metadata\n")
+
+
 def test_a_typed_artifact_carries_its_type_and_fields_in_frontmatter(memory: Memory) -> None:
     fields = {"title": "The chase", "rank": 1, "sources": ["runs/r1/s1/notes/a.md#p2"]}
     rel = memory.write_typed(

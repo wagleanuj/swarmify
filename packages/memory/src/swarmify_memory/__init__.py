@@ -31,6 +31,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from swarmify_kernel import Event
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
@@ -92,6 +94,19 @@ def _frontmatter(fields: dict[str, Any]) -> str:
     """JSON values are valid YAML (flow style), so values never need hand escaping."""
     lines = [f"{k}: {json.dumps(v)}" for k, v in fields.items() if v is not None]
     return "---\n" + "\n".join(lines) + "\n---\n\n"
+
+
+def _own_frontmatter(content: str) -> tuple[dict[str, Any], str]:
+    """The YAML frontmatter a writer put at the top of its own markdown, and the body after it;
+    ({}, content) when there is none or it does not parse to a mapping."""
+    if not content.startswith("---\n") or "\n---\n" not in content[3:]:
+        return {}, content
+    head, body = content[4:].split("\n---\n", 1)
+    try:
+        fields = yaml.safe_load(head)
+    except yaml.YAMLError:
+        return {}, content
+    return (fields, body.lstrip("\n")) if isinstance(fields, dict) else ({}, content)
 
 
 def _split(text: str) -> tuple[dict[str, Any], str]:
@@ -190,8 +205,13 @@ class Memory:
         folder = self.stage_folder(world_id, run_id, stage_id) / "artifacts"
         folder.mkdir(exist_ok=True)
         path = folder / name
-        meta = _frontmatter({**self._meta(kind, author, run_id, stage_id, None), **(fields or {})})
+        core = {**self._meta(kind, author, run_id, stage_id, None), **(fields or {})}
+        meta = _frontmatter(core)
         if path.suffix == ".md":
+            # A writer's own frontmatter joins ours (ours wins on clashes) rather than stacking
+            # under it, where readers of the first block, like a publish stage, never saw it.
+            own, content = _own_frontmatter(content)
+            meta = _frontmatter(core | {k: v for k, v in own.items() if k not in core})
             path.write_text(meta + content)
         else:
             path.write_text(content)
