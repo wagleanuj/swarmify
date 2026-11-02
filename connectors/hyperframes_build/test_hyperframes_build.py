@@ -3,6 +3,7 @@ HyperFrames brief, the system prompt and the offline starter. The session itself
 it through hyperframes_render and the workflow check are tested through the API
 (apps/api/tests/test_build_http.py)."""
 
+import html
 import json
 import os
 import re
@@ -134,6 +135,7 @@ def test_the_voice_first_sample_writes_a_composition_the_linter_accepts(tmp_path
             **line,
             "text": "Shh! The <owl> sleeps.",
             "pause_after": 0.3,
+            "joined_next": True,
             "cut_in": 0.0,
             "cut_out": 1.6,
             "words": [
@@ -162,14 +164,44 @@ def test_the_voice_first_sample_writes_a_composition_the_linter_accepts(tmp_path
         assert done.returncode == 0, done.stdout + done.stderr
     assert "0 errors" in done.stdout, done.stdout
     page = (folder / "index.html").read_text()
-    # 0.4 s lead, the two clips and their pauses, 0.6 s tail
-    assert 'data-composition-id="main" data-start="0" data-duration="4.6"' in page
-    assert re.findall(
-        r'<audio id="line-\d" src="narration/hook.wav" data-start="([\d.]+)" '
-        r'data-duration="([\d.]+)" data-media-start="([\d.]+)"',
-        page,
-    ) == [
-        ("0.4", "1.6", "0"),
-        ("2.3", "1.2", "1.6"),
+    # 0.4 s lead, the two joined clips back to back, the last pause, 0.6 s tail
+    assert 'data-composition-id="main" data-start="0" data-duration="4.3"' in page
+    clips = [
+        (float(start), float(length), media)
+        for start, length, media in re.findall(
+            r'<audio id="line-\d" src="narration/hook.wav" data-start="([\d.]+)" '
+            r'data-duration="([\d.]+)" data-media-start="([\d.]+)"',
+            page,
+        )
     ]
-    assert 'src="bed.mp3"' in page and "&lt;owl&gt;" in page
+    assert clips == [(0.4, 1.6, "0"), (2.0, 1.2, "1.6")]
+    # The bed is ducked to 0.12 all through speech, joined lines included, and up between.
+    lane = re.search(r'<audio id="bed" src="bed.mp3"[^>]*data-automation="([^"]+)"', page)
+    assert lane is not None
+    points = sorted(
+        (p["t"], p["v"]) for p in json.loads(html.unescape(lane[1]))["lanes"][0]["points"]
+    )
+
+    def volume(t: float) -> float:
+        before = [p for p in points if p[0] <= t][-1]
+        after = next((p for p in points if p[0] > t), before)
+        if after == before:
+            return before[1]
+        return before[1] + (after[1] - before[1]) * (t - before[0]) / (after[0] - before[0])
+
+    for start, length, _ in clips:
+        for t in (start, start + length / 2, start + length):
+            assert volume(t) == 0.12, (t, points)
+    assert volume(2.0) == 0.12, points  # where the joined lines meet
+    assert volume(3.75) == 0.45, points  # the last pause
+    # Each caption page sits inside its own line's clip, and words are escaped.
+    pages = [
+        (float(s), float(d))
+        for s, d in re.findall(
+            r'class="clip page" data-start="([\d.]+)" data-duration="([\d.]+)"', page
+        )
+    ]
+    assert pages
+    for s, d in pages:
+        assert any(c <= s and s + d <= c + n + 1e-6 for c, n, _ in clips), (s, d, clips)
+    assert "&lt;owl&gt;" in page

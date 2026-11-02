@@ -23,7 +23,7 @@ picture follows the voice, never the other way round.
   beside it: pad it sideways by what the scale adds, or highlight by colour alone.
 - Music: a bed from the world's assets, when it has one, under the whole video and ducked under
   speech with a `data-automation` volume lane (about 0.45 between lines, 0.12 while a line plays).
-  No bed, no music.
+  No bed, no music. The bed plays once, not looped: pick or trim one at least as long as the film.
 A sample, voice.mjs, writing a composition doing all this, to adapt to the script and the brief:
 ```js
 // Voice first: writes $composition from timings.json, since HyperFrames reads clips, audio and the
@@ -67,12 +67,19 @@ for (const take of timings.takes) {
 }
 const SECONDS = sec(at + 0.6);
 
-// The bed ducks under speech: 0.45 between lines, 0.12 while one plays, 0.1 s ramps.
-// ponytail: four points a line, so 128 lines at most (a lane holds 512); merge close lines past that.
-const duck = [{ t: 0, v: 0.45 }];
+// The bed ducks under speech: 0.45 between lines, 0.12 while one plays, 0.1 s ramps. Lines
+// closer than two ramps (joined ones, short pauses) are one span, or the bed swells between them.
+// ponytail: four points a span, so 128 spans at most (a lane holds 512); widen the merge past that.
+const spans = [];
 for (const c of clips) {
-  duck.push({ t: sec(Math.max(0, c.from - 0.1)), v: 0.45 }, { t: sec(c.from), v: 0.12 });
-  duck.push({ t: sec(c.from + c.length), v: 0.12 }, { t: sec(c.from + c.length + 0.1), v: 0.45 });
+  const span = spans.at(-1);
+  if (span && c.from - span.until <= 0.2) span.until = c.from + c.length;
+  else spans.push({ from: c.from, until: c.from + c.length });
+}
+const duck = [{ t: 0, v: 0.45 }];
+for (const s of spans) {
+  duck.push({ t: sec(Math.max(0, s.from - 0.1)), v: 0.45 }, { t: sec(s.from), v: 0.12 });
+  duck.push({ t: sec(s.until), v: 0.12 }, { t: sec(s.until + 0.1), v: 0.45 });
 }
 const lane = JSON.stringify({ version: 1, lanes: [{ target: "volume", points: duck }] });
 const bed = existsSync("bed.mp3")
