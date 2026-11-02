@@ -123,7 +123,15 @@ export function Assets() {
 
       {folders?.map((f) =>
         f.templates ? (
-          <TemplatesGroup key={f.path} folder={f} templates={templates && templates.filter((t) => t.folder === f.folder)} onAdd={() => setAdding(f)} />
+          <TemplatesGroup
+            key={f.path}
+            worldId={worldId}
+            folder={f}
+            onAdd={() => setAdding(f)}
+            templates={templates && templates.filter((t) => t.folder === f.folder)}
+            onChanged={reload}
+            onError={setError}
+          />
         ) : (
           <OwnedGroup
             key={f.path}
@@ -174,9 +182,40 @@ export function Assets() {
 const origin = (t: Template) =>
   t.origin === "run" ? `Saved from run ${t.run_id}, stage ${t.stage}` : t.origin === "upload" ? "Uploaded" : "Placed by hand";
 
-/** A package's Templates folder: one row per Template, each a subfolder a build can start from. */
-function TemplatesGroup({ folder: f, templates, onAdd }: { folder: Folder; templates: Template[] | null; onAdd: () => void }) {
+/** A package's Templates folder: one row per Template, each a subfolder a build can start from,
+ * downloaded as a zip or deleted after a confirm naming the workflows that use it. */
+function TemplatesGroup({
+  worldId,
+  folder: f,
+  templates,
+  onAdd,
+  onChanged,
+  onError,
+}: {
+  worldId: string;
+  folder: Folder;
+  templates: Template[] | null;
+  onAdd: () => void;
+  onChanged: (said: string | null) => void;
+  onError: (e: string) => void;
+}) {
   const head = `owned-${f.folder}`;
+
+  async function remove(t: Template) {
+    const at = { params: { path: { world_id: worldId, folder: t.folder, name: t.name } } };
+    const { data, error } = await api.DELETE("/api/worlds/{world_id}/templates/{folder}/{name}", at);
+    if (error || !data) return onError(`Could not delete ${t.name}. Try again.`);
+    const names = data.workflows.map((w) => w.name);
+    const using =
+      names.length === 0
+        ? "No workflow names it."
+        : `${names.length === 1 ? "1 workflow names it and will fail its" : `${names.length} workflows name it and will fail their`} check: ${names.join(", ")}.`;
+    if (!window.confirm(`Delete the Template ${t.name}? ${using} Past runs keep their copies. This cannot be undone.`)) return;
+    const done = await api.DELETE("/api/worlds/{world_id}/templates/{folder}/{name}", { params: { ...at.params, query: { confirm: true } } });
+    if (done.error) onError(`Could not delete ${t.name}. Try again.`);
+    else onChanged(`Deleted ${t.name}.`);
+  }
+
   return (
     <section className="panel" aria-labelledby={head}>
       <div className="panel-head">
@@ -204,6 +243,12 @@ function TemplatesGroup({ folder: f, templates, onAdd }: { folder: Folder; templ
                   {size(t.bytes)} · {origin(t)} · added {new Date(t.added).toLocaleDateString()}
                 </span>
               </span>
+              <a className="file-open" href={`/api/worlds/${worldId}/templates/${encodeURIComponent(t.folder)}/${encodeURIComponent(t.name)}/download`} download aria-label={`Download ${t.name}`}>
+                Download
+              </a>
+              <button type="button" className="danger" onClick={() => void remove(t)} aria-label={`Delete ${t.name}`}>
+                Delete
+              </button>
             </li>
           ))}
         </ul>

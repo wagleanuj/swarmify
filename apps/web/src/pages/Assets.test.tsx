@@ -183,6 +183,36 @@ test("a world with no Templates says so in its Templates group", async () => {
   await expect.element(screen.getByRole("region", { name: "HyperFrames templates" })).toMatchTextContent(/No Templates in HyperFrames templates yet\. Projects a build starts from\./);
 });
 
+test("a Template downloads as a zip and deletes after a confirm listing the workflows that name it", async () => {
+  const remotion = { ...voices, path: "assets/remotion_templates/", folder: "remotion_templates", label: "Remotion templates", about: "", accept: [], confirm: "", package: "Remotion build", templates: true };
+  const kids = { name: "kids", folder: "remotion_templates", path: "assets/remotion_templates/kids/", bytes: 1_200_000, origin: "upload", run_id: "", stage: "", added: "2026-10-30T09:00:00+00:00" };
+  const url = "DELETE /api/worlds/world_1/templates/remotion_templates/kids";
+  const deletes: string[] = [];
+  routes({
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([remotion]),
+    "GET /api/worlds/world_1/templates": () => Response.json([kids]),
+    [url]: (req) => {
+      const confirm = new URL(req.url).searchParams.get("confirm") === "true";
+      deletes.push(confirm ? "confirmed" : "asked");
+      return Response.json({ deleted: confirm, workflows: [{ id: "wf_1", name: "Kids short" }, { id: "wf_2", name: "Cat loop" }] });
+    },
+  });
+  const asked: string[] = [];
+  vi.spyOn(window, "confirm").mockImplementation((m) => (asked.push(m ?? ""), asked.length > 1));
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  const row = screen.getByRole("listitem", { name: "kids" });
+  await expect.element(row.getByRole("link", { name: "Download kids" })).toHaveAttribute("href", "/api/worlds/world_1/templates/remotion_templates/kids/download");
+
+  await row.getByRole("button", { name: "Delete kids" }).click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toBe("Delete the Template kids? 2 workflows name it and will fail their check: Kids short, Cat loop. Past runs keep their copies. This cannot be undone.");
+  expect(deletes).toEqual(["asked"]);
+
+  await row.getByRole("button", { name: "Delete kids" }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted kids.");
+  expect(deletes).toEqual(["asked", "asked", "confirmed"]);
+});
+
 test("a file in an Owned Folder is renamed in place and deleted after a confirm naming its package", async () => {
   const calls = routes({
     "PATCH /api/worlds/world_1/assets/assets%2Fvoices%2Fnarrator.wav": () => Response.json({ path: "assets/voices/calm.wav", name: "calm.wav", bytes: 300_000 }),
