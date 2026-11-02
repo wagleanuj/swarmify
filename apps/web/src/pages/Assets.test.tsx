@@ -17,6 +17,7 @@ const voices = {
   accept: ["audio/wav"],
   confirm: "This is my voice, or I have the speaker's permission",
   package: "Speech",
+  templates: false,
 };
 const files = [
   { path: "assets/bed-calm.mp3", name: "bed-calm.mp3", bytes: 2_400_000 },
@@ -99,6 +100,47 @@ test("a package's Owned Folder is a group of playable cards before its Add; othe
   await expect.element(screen.getByRole("listitem", { name: "bed-calm.mp3" }).getByLabelText("Play bed-calm.mp3")).toBeVisible();
   await expect.element(screen.getByRole("listitem", { name: "bed-calm.mp3" })).toMatchTextContent(/2\.4 MB/);
   await expect.element(logo.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/api/worlds/world_1/files/assets/logo.png");
+});
+
+test("a package's Templates folder is a group of Templates, one row each, not loose files", async () => {
+  const remotion = {
+    path: "assets/remotion_templates/",
+    folder: "remotion_templates",
+    label: "Remotion templates",
+    about: "Projects a build starts from instead of the starter.",
+    accept: [],
+    confirm: "",
+    package: "Remotion build",
+    templates: true,
+  };
+  const at = { folder: "remotion_templates", run_id: "", stage: "" };
+  const kids = { ...at, name: "kids", path: "assets/remotion_templates/kids/", bytes: 1_200_000, origin: "folder", added: "2026-10-30T09:00:00+00:00" };
+  const office = { ...at, name: "office", path: "assets/remotion_templates/office/", bytes: 85_000_000, origin: "run", run_id: "run_1", stage: "build", added: "2026-11-01T10:00:00+00:00" };
+  routes({
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([voices, remotion]),
+    "GET /api/worlds/world_1/assets": () => Response.json([...files, { path: "assets/remotion_templates/kids/package.json", name: "package.json", bytes: 2 }]),
+    "GET /api/worlds/world_1/templates": () => Response.json([kids, office]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  const group = screen.getByRole("region", { name: "Remotion templates" });
+  await expect.element(group.getByRole("listitem", { name: "kids" })).toBeVisible();
+  await expect.element(group).toMatchTextContent(/Remotion build/);
+  expect(group.getByRole("listitem").elements().map((r) => r.getAttribute("aria-label"))).toEqual(["kids", "office"]);
+  const added = (iso: string) => new Date(iso).toLocaleDateString();
+  await expect.element(group.getByRole("listitem", { name: "kids" })).toMatchTextContent(`kids1.2 MB · Placed by hand · added ${added(kids.added)}`);
+  await expect.element(group.getByRole("listitem", { name: "office" })).toMatchTextContent(`office85.0 MB · Saved from run run_1, stage build · added ${added(office.added)}`);
+  await expect.element(screen.getByRole("listitem", { name: "bed-calm.mp3" })).toBeVisible();
+  expect(screen.getByRole("listitem", { name: /package\.json/ }).elements()).toEqual([]);
+});
+
+test("a world with no Templates says so in its Templates group", async () => {
+  const hyper = { ...voices, path: "assets/hyperframes_templates/", folder: "hyperframes_templates", label: "HyperFrames templates", about: "Projects a build starts from.", accept: [], confirm: "", package: "HyperFrames build", templates: true };
+  routes({
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([hyper]),
+    "GET /api/worlds/world_1/templates": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  await expect.element(screen.getByRole("region", { name: "HyperFrames templates" })).toMatchTextContent(/No Templates in HyperFrames templates yet\. Projects a build starts from\./);
 });
 
 test("a file in an Owned Folder is renamed in place and deleted after a confirm naming its package", async () => {

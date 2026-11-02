@@ -1,0 +1,17 @@
+# error: templates.folder: is required
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+capabilities = ["templates"]
+
+[[owned_folders]]
+folder = "clips"
+label = "Clips"
+
+[templates]
+require = ["package.json"]

@@ -57,6 +57,7 @@ CAPABILITIES = (
     "check",
     "remote_approvals",
     "run_assistant",
+    "templates",
 )
 FIELD_TYPES = ("string", "text", "number", "integer", "boolean", "choice", "url", "path", "oauth")
 _PYTHON = {"string": str, "text": str, "url": str, "path": str, "choice": str}
@@ -227,6 +228,25 @@ SCHEMA: dict[str, Any] = {
                 "arguments": {"type": "object", "additionalProperties": {"type": "string"}},
             },
         },
+        # The Template Capability (ADR 0028): each world's Templates of the package are the
+        # subfolders of its Owned Folder `folder`. A Template must hold `require`, Save as
+        # Template removes `strip`, the brief names `guide` when a Template has it, and `prepare`
+        # runs once per added Template with `prepare_network`. `form` is reserved for a declared
+        # creation form: accepted, not acted on.
+        "templates": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["folder"],
+            "properties": {
+                "folder": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,59}$"},
+                "require": {**_strings, "items": _inside},
+                "strip": {**_strings, "items": _inside},
+                "guide": _inside,
+                "prepare": {**_strings, "minItems": 1},
+                "prepare_network": _domains,
+                "form": {"type": "object"},
+            },
+        },
         "primary_metric": {"type": "string", "pattern": _SNAKE},
         # What the sandbox lets it use (ADR 0021): the hosts it reaches (`localhost` alone: its
         # own loopback servers), the Services whose URLs it calls, the data directory's folders it
@@ -387,6 +407,11 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     for i, folder in enumerate(folders):
         if folder in folders[:i]:
             bad(f"owned_folders[{i}].folder", f"{folder} is declared twice")
+    templates = manifest.get("templates")
+    if ("templates" in manifest.get("capabilities", [])) != bool(templates):
+        bad("templates", "is the [templates] of the templates capability, both or none")
+    if templates and templates["folder"] not in folders:
+        bad("templates.folder", f"{templates['folder']} is not one of its owned_folders")
     if "private_when" in manifest:
         if manifest["kind"] != "publish":
             bad("private_when", "says when a post stays private, so the kind is publish")
@@ -435,15 +460,18 @@ def permissions(manifest: dict[str, Any]) -> list[str]:
     """Every permission the Manifest declares, as `network: api.example.org`, which the operator
     approves before anything of the package runs (ADR 0021): the hosts it reaches (`network`),
     the hosts its install step reaches with its runtime's registries (`install_network`), the
-    data directory's folders it reads (`folders`), the Services it calls (`services`), the world
-    folders it owns (`owned_folders`), the Credentials it is given (`credentials`, by the
-    variable it reads), the hosts Swarmify signs in to for it (`sign_in`) and the core's
-    Capabilities it uses (`capabilities`). `{}` declares none."""
+    hosts its Templates' prepare command reaches (`prepare_network`), the data directory's
+    folders it reads (`folders`), the Services it calls (`services`), the world folders it owns
+    (`owned_folders`), the Credentials it is given (`credentials`, by the variable it reads),
+    the hosts Swarmify signs in to for it (`sign_in`) and the core's Capabilities it uses
+    (`capabilities`). `{}` declares none."""
     granted = manifest.get("permissions", {})
     out = [f"network: {d}" for d in granted.get("network", [])]
     if manifest.get("install"):
         registries = REGISTRIES.get(manifest.get("runtime", ""), [])
         out += [f"install_network: {d}" for d in [*registries, *granted.get("install_network", [])]]
+    prepare = manifest.get("templates", {}).get("prepare_network", [])
+    out += [f"prepare_network: {d}" for d in prepare]
     out += [f"folders: {f}" for f in granted.get("folders", [])]
     out += [f"services: {s}" for s in granted.get("services", [])]
     out += [f"owned_folders: {f['folder']}" for f in manifest.get("owned_folders", [])]

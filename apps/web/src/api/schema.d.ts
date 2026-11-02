@@ -1346,6 +1346,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Templates
+         * @description The Templates of the packages the world enables, each a subfolder of its package's
+         *     Templates folder, those placed there by hand included.
+         */
+        get: operations["list_templates_api_worlds__world_id__templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/assets/{name}": {
         parameters: {
             query?: never;
@@ -2980,6 +3001,8 @@ export interface components {
             confirm: string;
             /** Package */
             package: string;
+            /** Templates */
+            templates: boolean;
         };
         /**
          * Package
@@ -3914,6 +3937,28 @@ export interface components {
             depends_on?: string[];
             /** Notes */
             notes?: components["schemas"]["Note"][];
+        };
+        /**
+         * Template
+         * @description A Template of a world: a subfolder of a Templates folder, with its record when it has one.
+         */
+        Template: {
+            /** Name */
+            name: string;
+            /** Folder */
+            folder: string;
+            /** Path */
+            path: string;
+            /** Bytes */
+            bytes: number;
+            /** Origin */
+            origin: string;
+            /** Run Id */
+            run_id: string;
+            /** Stage */
+            stage: string;
+            /** Added */
+            added: string;
         };
         /** Tested */
         Tested: {
@@ -6828,6 +6873,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnedFolder"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_worlds__world_id__templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"][];
                 };
             };
             /** @description Validation Error */

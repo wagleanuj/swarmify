@@ -513,6 +513,7 @@ export function Connectors() {
 const PERMISSION_KINDS: [string, string][] = [
   ["network", "Hosts it reaches"],
   ["install_network", "Hosts its install step reaches"],
+  ["prepare_network", "Hosts its Templates' prepare step reaches"],
   ["folders", "Data folders it reads"],
   ["services", "Services it calls"],
   ["owned_folders", "World folders it owns"],

@@ -1,6 +1,7 @@
 """The Library, pins, forks and promotes over HTTP: real DBOS on SQLite, a scripted agent CLI
 behind the Agent SDK and the fake ConnectorTransport."""
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -253,7 +254,8 @@ def test_a_package_s_owned_folder_is_a_group_of_assets_with_nothing_voice_specif
     to (only what it accepts), renamed and deleted like any asset; disabled, it is gone."""
     world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
     url = f"/api/worlds/{world}/assets"
-    (voices,) = client.get(f"/api/worlds/{world}/owned_folders").json()
+    folders = client.get(f"/api/worlds/{world}/owned_folders").json()
+    voices = next(f for f in folders if f["folder"] == "voices")
     assert voices["path"] == "assets/voices/" and voices["package"] == "Speech"
     assert (voices["folder"], voices["label"]) == ("voices", "Voices")
     assert voices["accept"] == ["audio/wav"]
@@ -281,6 +283,48 @@ def test_a_package_s_owned_folder_is_a_group_of_assets_with_nothing_voice_specif
     ]
     assert client.delete(f"{url}/assets/voices/narrator.wav").status_code == 204
     assert client.delete(f"/api/worlds/{world}/packages/speech").status_code == 204
-    assert client.get(f"/api/worlds/{world}/owned_folders").json() == []
+    assert "voices" not in [
+        f["folder"] for f in client.get(f"/api/worlds/{world}/owned_folders").json()
+    ]
     assert client.put(f"{url}/me.wav?folder=voices", content=b"RIFF").status_code == 422
     assert client.get("/api/worlds/world_nope/owned_folders").status_code == 404
+
+
+def test_a_world_lists_the_templates_in_its_packages_templates_folders(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Issue 346: remotion_build declares the templates Capability; each subfolder of its
+    Owned Folder in a world is a Template, one placed by hand included, and no other world's."""
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    other = client.post("/api/worlds", json={"name": "Other"}).json()["id"]
+    folders = client.get(f"/api/worlds/{world}/owned_folders").json()
+    remotion = next(f for f in folders if f["folder"] == "remotion_templates")
+    assert remotion["templates"] and remotion["package"] == "Remotion build"
+    assert not next(f for f in folders if f["folder"] == "voices")["templates"]
+    assert client.get(f"/api/worlds/{world}/templates").json() == []
+    root = tmp_path / "worlds" / world / "assets/remotion_templates"
+    (root / "kids/src").mkdir(parents=True)
+    (root / "kids/package.json").write_text("{}")
+    (root / "kids/src/index.ts").write_text("export {};")
+    saved = root / "office"
+    saved.mkdir()
+    (saved / "package.json").write_text("{}")
+    record = {
+        "origin": "run",
+        "run_id": "run_1",
+        "stage": "build",
+        "added": "2026-11-01T10:00:00+00:00",
+    }
+    (saved / ".template.json").write_text(json.dumps(record))
+    (root / "notes.txt").write_text("a loose file is no Template")
+    kids, office = client.get(f"/api/worlds/{world}/templates").json()
+    assert kids["name"] == "kids" and kids["folder"] == "remotion_templates"
+    assert kids["path"] == "assets/remotion_templates/kids/" and kids["bytes"] == 12
+    assert (kids["origin"], kids["run_id"], kids["stage"]) == ("folder", "", "")
+    assert kids["added"].startswith("20")
+    assert (office["name"], office["origin"], office["run_id"], office["stage"]) == (
+        "office", "run", "run_1", "build",
+    )  # fmt: skip
+    assert office["added"] == "2026-11-01T10:00:00+00:00" and office["bytes"] == 2
+    assert client.get(f"/api/worlds/{other}/templates").json() == []
+    assert client.get("/api/worlds/world_nope/templates").status_code == 404

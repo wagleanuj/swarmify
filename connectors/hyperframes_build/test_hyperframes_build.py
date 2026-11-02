@@ -29,7 +29,9 @@ def _task(*inputs: Path) -> str:
 
 def test_it_requests_a_build_session_and_renders_through_hyperframes_render() -> None:
     session = MANIFEST["build_session"]
-    assert MANIFEST["capabilities"] == ["build_session"] and "command" not in MANIFEST
+    assert MANIFEST["capabilities"] == ["build_session", "templates"] and "command" not in MANIFEST
+    assert MANIFEST["templates"]["folder"] == "hyperframes_templates"  # one of its owned_folders
+    assert [f["folder"] for f in MANIFEST["owned_folders"]] == ["hyperframes_templates"]
     assert MANIFEST["enable_by_default"] is False  # Remotion stays the default engine
     assert (session["connector"], session["tool"], session["output"]) == (
         "hyperframes_render",
