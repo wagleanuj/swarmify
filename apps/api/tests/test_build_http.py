@@ -273,7 +273,6 @@ def test_a_hyperframes_build_writes_the_project_and_hyperframes_render_makes_the
         [
             Call("Bash", {"command": "npm install"}),
             Answer(_installs_hyperframes),
-            Call("Write", {"file_path": "index.html", "content": "<!doctype html>"}),
             Say("A title card over black."),
         ]
     )

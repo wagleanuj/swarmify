@@ -66,7 +66,8 @@ which needs no browser.
 The starter, its `node_modules` installed, renders through hyperframes_render's real install in
 its sandbox with no network: GSAP loads from `node_modules`, the script's first line shows from
 the variables, and the compiler's fetch of Google Fonts for `sans-serif` is refused, logged as
-blocked, and falls back to the Inter HyperFrames bundles.
+blocked, and falls back to the Inter HyperFrames bundles. That one blocked fetch in the stage's
+run log is expected noise; a project that should be quiet offline runs `npm run fonts` first.
 
 Tests drive the builder with the scripted CLI and the render with a fake HyperFrames CLI inside
 the real connector sandbox; `test_hyperframes_build.py` runs HyperFrames' own linter on the
