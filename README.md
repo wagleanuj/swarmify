@@ -1373,9 +1373,9 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   masked one). It holds nothing at rest worth stealing: no token, password or `setup.json`, only
   the folders of `data` the sandboxed processes use (`packages`, `worlds`, `remotion`,
   `hyperframes`, `npm-cache` and `sandbox`, which the one-shot `folders` service makes first),
-  each process bringing the values it is given. A folder a `path` Setting names must be one of those to exist
-  there. It needs Docker Engine 26 or later for volume subpaths, and on an Ubuntu 23.10 or later
-  host `sudo tools/allow-bwrap-userns.sh` once (see The connector sandbox).
+  each process bringing the values it is given. A folder a `path` Setting names must be one of
+  those to exist there. It needs Docker Engine 26 or later for volume subpaths, and on an Ubuntu
+  23.10 or later host `sudo tools/allow-bwrap-userns.sh` once (see The connector sandbox).
 - A file a package reads from the data directory (a template, say) must be inside the container:
   copy it into the volume (`docker compose cp ./shorts api:/data/remotion/shorts`), as its README
   says.

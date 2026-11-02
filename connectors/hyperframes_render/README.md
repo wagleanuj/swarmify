@@ -126,8 +126,8 @@ fails saying to reinstall; a Linux x64 host is fine.
 A project a build stage wrote, in the run's folders, renders through this package. That render
 executes the agent's code, and it does so in this package's connector sandbox (ADR 0021): no
 network beyond its own loopback, nothing of the data directory readable but this package, the
-templates and the run's folders, nothing writable but its stage's folder and its scratch folder, and no other
-package's keys (it has none of its own).
+templates and the run's folders, nothing writable but its stage's folder and its scratch folder,
+and no other package's keys (it has none of its own).
 
 ## Tests
 
@@ -135,8 +135,8 @@ package's keys (it has none of its own).
 suite's `npm` and `npx` that only log), enables it for a world, runs the workflow check through
 its `check` tool and renders over stdio MCP with a fake HyperFrames CLI as the project's own
 (`fake_hyperframes.py`), a template in the templates folder or a run's build folder, all in the
-real connector sandbox, where an agent-written project trying to read the data directory's keys, write outside
-its stage and reach the internet is refused each time and each block logged. One real install and
-render runs when you opt in, with a HyperFrames project whose `node_modules` are installed (it is
-copied into a run's folder, where a build would have written it):
+real connector sandbox, where an agent-written project trying to read the data directory's keys,
+write outside its stage and reach the internet is refused each time and each block logged. One
+real install and render runs when you opt in, with a HyperFrames project whose `node_modules` are
+installed (it is copied into a run's folder, where a build would have written it):
 `SWARMIFY_REAL_BUILD=1 SWARMIFY_HYPERFRAMES_PROJECT=<project> uv run pytest connectors/hyperframes_render -k real_render -s`.
