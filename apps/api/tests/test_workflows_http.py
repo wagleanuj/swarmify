@@ -108,7 +108,8 @@ def test_an_invalid_workflow_is_a_422_naming_every_violation_and_saves_nothing(
         "violations": [
             {
                 "rule": "publish_without_gate",
-                "message": "publish connector 'youtube' must come right after a gate",
+                "message": "publish connector 'youtube' must come right after a gate"
+                " unless it posts privately (visibility: private)",
                 "stage": "youtube",
             },
             {

@@ -30,6 +30,15 @@ def test_publish_must_come_right_after_a_gate() -> None:
     assert rules(WorkflowModel("w", [render, GATE, publish])) == []
 
 
+def test_a_private_post_needs_no_gate() -> None:
+    private = ConnectorStage("upload", "youtube", params={"visibility": "private"})
+    public = ConnectorStage("upload", "youtube", params={"visibility": "public"})
+    unsaid = ConnectorStage("upload", "youtube")  # the connector's default is not read
+    assert rules(WorkflowModel("w", [private])) == []
+    assert rules(WorkflowModel("w", [public])) == [("publish_without_gate", "upload")]
+    assert rules(WorkflowModel("w", [unsaid])) == [("publish_without_gate", "upload")]
+
+
 def test_unknown_connectors_and_wrong_stage_types_are_named() -> None:
     swarm = SwarmStage("research", "g", "d", tools=["web_search", "remotion_render", "nope"])
     assert rules(WorkflowModel("w", [swarm])) == [

@@ -199,6 +199,7 @@ def workflow_service(
                 WorldTypes(registry, world_id, c),
                 tuple(c.input_types),
                 c.version,
+                (c.manifest or {}).get("private_when", {}),
             )
             for c in registry.list_all(world_id, pins)
         }
