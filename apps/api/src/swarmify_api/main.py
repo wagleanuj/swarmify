@@ -786,6 +786,13 @@ def create_app(
         """The agents' estimated cost of these runs: what their Budget counts."""
         return sum(a.cost_usd for r in run_ids for a in whiteboard.list_agents(r))
 
+    def stage_spend(run_id: str) -> dict[str, float]:
+        """The agents' estimated cost of the run by stage id, for what a Rerun costs again."""
+        by_stage: dict[str, float] = {}
+        for a in whiteboard.list_agents(run_id):
+            by_stage[a.stage_id] = by_stage.get(a.stage_id, 0.0) + a.cost_usd
+        return by_stage
+
     def take(child: Run, run: Run, stage_id: str, names: list[str]) -> None:
         stage = next(s.name for s in run.stages if s.id == stage_id)
         source = (child.world_id, child.id, [s.id for s in child.stages])
@@ -826,6 +833,7 @@ def create_app(
     runner.pin = runs.pinner(workflow_svc)
     runner.check = runs.checker(workflow_svc)
     runner.check_text = text_check(registry, pins)
+    runner.stage_spend = stage_spend
     # On upgrade: versions saved before they recorded package versions take the world's pins.
     workflow_svc.stamp(registry.enabled)
 

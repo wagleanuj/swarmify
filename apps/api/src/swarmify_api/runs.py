@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from swarmify_api.workflows import INVALID, Report
 from swarmify_runs import (
@@ -107,11 +107,19 @@ class Decide(BaseModel):
 class Change(BaseModel):
     """A Run Change (ADR 0027). A `stage_edit` targets a stage that has not started, by id, and
     its `payload` is the stage's whole new config. An `artifact_edit` targets a finished stage
-    and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`."""
+    and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`.
+    A `rerun` targets a finished stage and its `payload` holds the `note` the stage reruns
+    with; a `skip` targets a stage that has not started and has none."""
 
-    kind: Literal["stage_edit", "artifact_edit"]
+    kind: Literal["stage_edit", "artifact_edit", "rerun", "skip"]
     stage: str
-    payload: dict[str, Any]
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _edits_carry_a_payload(self) -> "Change":
+        if self.kind in ("stage_edit", "artifact_edit") and not self.payload:
+            raise ValueError(f"a {self.kind} needs a payload")
+        return self
 
     def value(self) -> RunChange:
         return RunChange(self.kind, self.stage, self.payload)

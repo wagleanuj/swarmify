@@ -61,10 +61,12 @@ from swarmify_runs.machine import (
     MonthSpent,
     OpenGate,
     Paused,
+    Rerun,
     Resumed,
     RunEvent,
     RunState,
     SentBack,
+    Skip,
     StageFailed,
     StageFinished,
     StageStopped,
@@ -391,7 +393,9 @@ def execute_run(run_id: str) -> str:
             event = StageFinished(index) if error is None else StageFailed(index)
         try:
             state, commands = transition(tuple(kinds), state, event)
-        except Illegal:
+        except Illegal as exc:
+            if isinstance(event, Rerun | Skip) and event.change:
+                _drop_change(event.change, str(exc))  # e.g. its stage started meanwhile
             continue  # a stale message, e.g. a resume for a run that is not paused
         gate_opened = bool(commands and isinstance(commands[0], OpenGate))
         outcome_next = events and isinstance(
@@ -443,6 +447,10 @@ def _as_event(message: dict[str, Any]) -> RunEvent | _ChildEnded | None:
             return SentBack(message["index"], message["to"])
         case "decide":
             return GateAnswered(message["index"])
+        case "rerun":
+            return Rerun(message["to"], message.get("change", ""))
+        case "skip":
+            return Skip(message["index"], message.get("change", ""))
         case "budget":
             return BudgetAdded()
         case "pause":
@@ -551,6 +559,11 @@ def _take(run_id: str, child_run_id: str, status: str) -> tuple[int, str | None]
     return stage.index, None
 
 
+@DBOS.step(name="swarmify.drop_change")
+def _drop_change(change_id: str, reason: str) -> None:
+    _current().storage.remove_change(change_id, reason)
+
+
 @DBOS.step(name="swarmify.save")
 def _save(run_id: str, state: RunState, error: str | None, gate_opened: bool) -> None:
     """Save the state; when a gate opened or the run ended, record the event and notify."""
@@ -609,9 +622,17 @@ def gate_closed(before: Run, after: Run) -> Event | None:
     if same == ("waiting", before.send_backs, before.over_budget):
         return None
     decision = next((d for d in reversed(after.decisions) if d.stage_index == index), None)
+    rerun = next((c for c in reversed(after.changes) if c.kind == "rerun"), None)
     resolution: dict[str, Any] = {"outcome": "aborted"}
     if after.status != "aborted" and before.over_budget:
         resolution = {"outcome": "budget_added"}
+    elif after.status != "aborted" and rerun and (not decision or rerun.at > decision.decided_at):
+        resolution = {
+            "outcome": "rerun",
+            "send_back_to": rerun.stage_name,
+            "note": rerun.payload["note"],
+            "by": rerun.by,
+        }
     elif after.status != "aborted" and decision is not None:
         resolution = {
             "outcome": "sent_back"

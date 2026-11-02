@@ -30,10 +30,13 @@ from swarmify_runs.machine import (
     Illegal,
     MonthSpent,
     Paused,
+    Rerun,
     Resumed,
     RunEvent,
     RunState,
     SentBack,
+    Skip,
+    rerun_from,
     transition,
 )
 from swarmify_runs.model import (
@@ -118,6 +121,10 @@ def no_text_check(_run: Run, _name: str, _old: str, _text: str) -> list[str]:
 
 TEXT = (".md", ".markdown", ".json", ".yaml", ".yml", ".txt")
 """The files an Artifact Edit rewrites in place; a Rerun remakes the rest (ADR 0027)."""
+
+
+StageSpend = Callable[[str], dict[str, float]]
+"""A run's id to its agents' estimated cost by stage id, for what a Rerun will cost again."""
 
 
 def _now() -> str:
@@ -209,6 +216,8 @@ class RunControl:
         """Set by the composition root; every Run Change is checked with it."""
         self.check_text: TextCheck = no_text_check
         """Set by the composition root; every Artifact Edit's new text is checked with it."""
+        self.stage_spend: StageSpend = lambda _run_id: {}
+        """Set by the composition root; a Rerun's proposal estimates its cost with it."""
 
     def start(
         self,
@@ -449,18 +458,21 @@ class RunControl:
 
     def propose(self, run_id: str, change: RunChange) -> ChangeProposal:
         """What `change` would do to the run, writing nothing: the stage's config before and
-        after, and the violations that would refuse it, the run's state (a stage that has
-        started) and the workflow check of the run's stages with the change in them. Raises
+        after (a Rerun's or Skip's stages by name with their status), and the violations that
+        would refuse it, the run's state (a stage that has started, a run at work) and the
+        workflow check of the run's stages with the change in them; a Rerun's cost too. Raises
         KeyError for an unknown run, Illegal when it has ended, and ValueError for a stage not
         in the run or a kind of change that cannot be applied yet."""
         run = self._run(run_id)
         if change.kind == "artifact_edit":
             return self._artifact_edit(run, change)[1]
-        stage, stages = edited(run, change)
+        if change.kind in STEPS:
+            return self._propose_step(run, change)
+        stage, stages, at = edited(run, change)
         violations, checked = self.check(run, stages)
         problems = [p for p in [self._not_editable(run, stage)] if p] + violations
         return ChangeProposal(
-            change, stage.name, stage.config, checked[stage.index].config, problems, run.revision
+            change, stage.name, stage.config, checked[at].config, problems, run.revision
         )
 
     def apply(self, run_id: str, change: RunChange, revision: int, by: str) -> AppliedChange:
@@ -474,7 +486,9 @@ class RunControl:
             raise Illegal(moved(run, revision))
         if change.kind == "artifact_edit":
             return self._apply_artifact_edit(run, change, by)
-        stage, stages = edited(run, change)
+        if change.kind in STEPS:
+            return self._apply_step(run, change, by)
+        stage, stages, at = edited(run, change)
         if problem := self._not_editable(run, stage):
             raise Illegal(problem)
         violations, checked = self.check(run, stages)
@@ -482,7 +496,7 @@ class RunControl:
             raise ValueError("; ".join(violations))
         applied = AppliedChange(
             new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
-            checked[stage.index].config, stage.config, by, _now(), revision + 1,
+            checked[at].config, stage.config, by, _now(), revision + 1,
         )  # fmt: skip
         if not self.storage.add_change(applied, revision):
             raise Illegal(moved(self._run(run_id), revision))  # it moved while being checked
@@ -574,6 +588,76 @@ class RunControl:
                 },
             )
         )
+        return applied
+
+    def _step(
+        self, run: Run, change: RunChange
+    ) -> tuple[RunStageView, RunEvent, dict[str, Any], str | None, list[str]]:
+        """A Rerun or a Skip: its stage, the event the run's workflow takes for it, the stages
+        it changes by name with their status now, why the run cannot take it now, and the
+        workflow check's violations the change itself brings (a Skip's missing input or
+        ungated publish, ADR 0007)."""
+        stage = target(run, change)
+        violations: list[str] = []
+        if change.kind == "rerun":
+            event: RunEvent = Rerun(stage.index)
+            start = rerun_from(kinds_of(run), [s.status for s in run.stages], stage.index)
+            resets = [s for s in run.stages[start:] if s.status not in ("pending", "skipped")]
+            before = {s.name: s.status for s in resets}
+            not_now = None if stage.status == "done" else f"{stage.name} has not finished"
+        else:
+            event = Skip(stage.index)
+            before = {stage.name: stage.status}
+            not_now = None if stage.status == "pending" else f"{stage.name} has started"
+            kept = [s for s in run.stages if s.status != "skipped"]  # no longer gate or make
+            every = [StageDef(s.name, s.type, s.config) for s in kept]
+            known = set(self.check(run, every)[0])
+            without = [d for d, s in zip(every, kept, strict=True) if s is not stage]
+            violations = [v for v in self.check(run, without)[0] if v not in known]
+        if not_now is None:
+            try:
+                transition(kinds_of(run), state_of(run), event)
+            except Illegal as exc:
+                not_now = str(exc)
+        return stage, event, before, not_now, violations
+
+    def _propose_step(self, run: Run, change: RunChange) -> ChangeProposal:
+        stage, _, before, not_now, violations = self._step(run, change)
+        after = dict.fromkeys(before, "pending" if change.kind == "rerun" else "skipped")
+        problems = ([not_now] if not_now else []) + violations
+        top = self.top(run)
+        left = None if top.budget_usd is None else max(0.0, top.budget_usd - top.spent_usd)
+        cost = None
+        if change.kind == "rerun":
+            spent = self.stage_spend(run.id)
+            reset = [s for s in run.stages if s.name in before]
+            cost = sum(spent.get(s.id, 0.0) / visits(run, s) for s in reset)
+        return ChangeProposal(
+            change, stage.name, before, after, problems, run.revision,
+            cost_usd=cost, budget_left_usd=left,
+        )  # fmt: skip
+
+    def _apply_step(self, run: Run, change: RunChange, by: str) -> AppliedChange:
+        """Record the Rerun or Skip, then tell the run's workflow, which resets or passes over
+        the stages once it is free (a Skip while a stage runs lands when it ends)."""
+        stage, event, before, not_now, violations = self._step(run, change)
+        if not_now:
+            raise Illegal(not_now)
+        if violations:
+            raise ValueError("; ".join(violations))
+        payload = {"note": str(change.payload.get("note") or "").strip()}
+        applied = AppliedChange(
+            new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
+            payload if change.kind == "rerun" else {}, before, by, _now(), run.revision + 1,
+        )  # fmt: skip
+        if not self.storage.add_change(applied, run.revision):
+            raise Illegal(moved(self._run(run.id), run.revision))
+        # ponytail: a DBOS outage here leaves the change recorded but not taken; the run page
+        # still shows the stage as it was, so apply it again once DBOS is reachable.
+        if isinstance(event, Rerun):
+            self._send(run.id, {"action": "rerun", "to": event.to, "change": applied.id})
+        else:
+            self._send(run.id, {"action": "skip", "index": stage.index, "change": applied.id})
         return applied
 
     def _not_editable(self, run: Run, stage: RunStageView) -> str | None:
@@ -817,21 +901,45 @@ class RunControl:
         attempt = sum(d.stage_index == decision.stage_index for d in run.decisions) + 1
         path = folder / ("decision.md" if attempt == 1 else f"decision-{attempt}.md")
         decision = replace(decision, path=str(path))
-        self.storage.add_decision(run.id, decision, run.send_backs)  # Illegal: already answered
+        # Illegal: already answered, or the run moved since `run` was read (a Rerun landed)
+        self.storage.add_decision(run.id, decision, run.send_backs, run.revision)
         path.write_text(decision_markdown(run, decision))
         return decision
 
 
-def edited(run: Run, change: RunChange) -> tuple[RunStageView, list[StageDef]]:
-    """The stage a Stage Edit targets and the run's stages with the edit in them."""
-    if change.kind != "stage_edit":
-        raise ValueError(f"a {change.kind} cannot be applied yet")
+STEPS = ("rerun", "skip")
+"""The Run Changes that move the run's stages rather than edit them, through its workflow."""
+
+
+def target(run: Run, change: RunChange) -> RunStageView:
     stage = next((s for s in run.stages if s.id == change.stage), None)
     if stage is None:
         raise ValueError(f"no stage {change.stage} in this run")
-    return stage, [
-        StageDef(s.name, s.type, change.payload if s is stage else s.config) for s in run.stages
-    ]
+    return stage
+
+
+def visits(run: Run, stage: RunStageView) -> int:
+    """How often the stage has run: once, plus each send-back and Rerun that reset it after it
+    ran, so its cost so far over this is its average cost."""
+    index = {s.name: s.index for s in run.stages}
+    back = sum(
+        1
+        for d in run.decisions
+        if d.send_back_to
+        and index.get(d.send_back_to, stage.index + 1) <= stage.index < d.stage_index
+    )
+    return 1 + back + sum(1 for c in run.changes if c.kind == "rerun" and stage.name in c.before)
+
+
+def edited(run: Run, change: RunChange) -> tuple[RunStageView, list[StageDef], int]:
+    """The stage a Stage Edit targets, the run's stages with the edit in them and its place
+    among them. A skipped stage is left out: it no longer gates or makes anything."""
+    if change.kind != "stage_edit":
+        raise ValueError(f"a {change.kind} cannot be applied yet")
+    stage = target(run, change)
+    kept = [s for s in run.stages if s.status != "skipped" or s is stage]
+    defs = [StageDef(s.name, s.type, change.payload if s is stage else s.config) for s in kept]
+    return stage, defs, kept.index(stage)
 
 
 def not_pending(stage: RunStageView) -> str | None:
@@ -868,7 +976,8 @@ def moved(run: Run, revision: int) -> str:
     since = [c for c in run.changes if c.revision > revision]
     live = next((s for s in run.stages if s.status in ("running", "waiting")), None)
     if since:
-        what = f"{since[-1].stage_name} was edited by {since[-1].by}"
+        done = {"rerun": "re-run", "skip": "skipped"}.get(since[-1].kind, "edited")
+        what = f"{since[-1].stage_name} was {done} by {since[-1].by}"
     else:
         what = f"it is now at {live.name}" if live else f"it is now {run.status}"
     return f"The run moved on since this was proposed: {what}."

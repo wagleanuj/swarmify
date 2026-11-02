@@ -167,5 +167,7 @@ def test_a_stale_revision_or_a_started_stage_is_refused(running: TestClient) -> 
         "pick is waiting; only a stage that has not started can be edited"
     ]
     assert running.post("/api/runs/run_nope/changes/propose", json=gate).status_code == 404
-    other = {**gate, "kind": "skip"}
+    other = {**gate, "kind": "restructure"}
     assert running.post(f"/api/runs/{run['id']}/changes/propose", json=other).status_code == 422
+    bare = {"kind": "stage_edit", "stage": gate["stage"]}
+    assert running.post(f"/api/runs/{run['id']}/changes/propose", json=bare).status_code == 422
