@@ -27,15 +27,17 @@ class Storage(Protocol):
         """
         ...
 
-    def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
-        """`visit` is the run's send-back count, which tells visits to one gate apart. Raises
-        Illegal when this visit already has a decision."""
+    def add_decision(self, run_id: str, decision: Decision, visit: int, revision: int) -> None:
+        """`visit` is the run's send-back count, which tells visits to one gate apart. Moves the
+        run past `revision`. Raises Illegal, with nothing written, when this visit already has a
+        decision or the run is no longer at `revision` (a Run Change landed meanwhile)."""
         ...
 
     def add_change(self, change: AppliedChange, revision: int) -> bool:
         """Write a Stage Edit's payload to its stage, record the change and its `run.changed` and
         `run.updated` events in one transaction, moving the run to `change.revision`. False, with
-        nothing written, when the run is no longer at `revision` or the stage has started."""
+        nothing written, when the run is no longer at `revision` or the edited stage has
+        started."""
         ...
 
     def set_spent(self, run_id: str, usd: float) -> Run | None:
@@ -71,6 +73,11 @@ class Storage(Protocol):
 
     def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
         """Link the workflow stage at `index` to the child run it started."""
+        ...
+
+    def remove_change(self, change_id: str, reason: str) -> None:
+        """Drop a Rerun or Skip the run could no longer take when it heard of it, with a
+        `run.changed` event saying why and `run.updated`, so it is not shown as applied."""
         ...
 
     def remove_decision(self, decision_id: str) -> None:

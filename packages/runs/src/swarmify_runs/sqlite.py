@@ -251,9 +251,15 @@ class SqliteStorage:
             ).fetchone()
             return float(total)
 
-    def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
+    def add_decision(self, run_id: str, decision: Decision, visit: int, revision: int) -> None:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute(
+                "UPDATE runs SET revision = revision + 1 WHERE id = ? AND revision = ?",
+                (run_id, revision),
+            ).rowcount:
+                conn.execute("ROLLBACK")
+                raise Illegal("the run moved since the gate was read: look again")
             try:
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
@@ -279,7 +285,6 @@ class SqliteStorage:
             except sqlite3.IntegrityError as exc:
                 conn.execute("ROLLBACK")
                 raise Illegal("the gate was already decided") from exc
-            conn.execute("UPDATE runs SET revision = revision + 1 WHERE id = ?", (run_id,))
             conn.execute("COMMIT")
 
     def add_change(self, change: AppliedChange, revision: int) -> bool:
@@ -338,6 +343,27 @@ class SqliteStorage:
             )
             saved = self._read(conn, run_id)
             if saved is not None:
+                append(conn, _updated(saved))
+            conn.execute("COMMIT")
+
+    def remove_change(self, change_id: str, reason: str) -> None:
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT run_id FROM run_changes WHERE id = ?", (change_id,)
+            ).fetchone()
+            conn.execute("DELETE FROM run_changes WHERE id = ?", (change_id,))
+            saved = row and self._read(conn, row["run_id"])
+            if saved:
+                append(
+                    conn,
+                    Event.new(
+                        "run.changed",
+                        world_id=saved.world_id,
+                        run_id=saved.id,
+                        payload={"id": change_id, "dropped": reason},
+                    ),
+                )
                 append(conn, _updated(saved))
             conn.execute("COMMIT")
 
@@ -463,6 +489,24 @@ class SqliteStorage:
                 "SELECT * FROM gate_decisions WHERE run_id = ? ORDER BY decided_at, id", (run_id,)
             ).fetchall()
         ]
+        changes = [
+            AppliedChange(
+                c["id"],
+                c["run_id"],
+                c["kind"],
+                c["stage_id"],
+                c["stage_index"],
+                c["stage_name"],
+                json.loads(c["payload"]),
+                json.loads(c["before_json"]),
+                c["applied_by"],
+                c["applied_at"],
+                c["revision"],
+            )
+            for c in conn.execute(
+                "SELECT * FROM run_changes WHERE run_id = ? ORDER BY revision", (run_id,)
+            )
+        ]
         return Run(
             row["id"],
             row["world_id"],
@@ -482,7 +526,7 @@ class SqliteStorage:
                     s["started_at"],
                     s["ended_at"],
                     s["error"],
-                    [d.note for d in decisions if d.send_back_to == s["name"] and d.note],
+                    notes(decisions, changes, s["name"]),
                     _link(conn, s["child_run_id"]),
                     json.loads(s["config"]).get("calls") if s["type"] == "connector" else None,
                     json.loads(s["config"]).get("ask") if s["type"] == "gate" else None,
@@ -512,24 +556,7 @@ class SqliteStorage:
             bool(row["over_budget"]),
             bool(row["baseline"]),
             row["revision"],
-            [
-                AppliedChange(
-                    c["id"],
-                    c["run_id"],
-                    c["kind"],
-                    c["stage_id"],
-                    c["stage_index"],
-                    c["stage_name"],
-                    json.loads(c["payload"]),
-                    json.loads(c["before_json"]),
-                    c["applied_by"],
-                    c["applied_at"],
-                    c["revision"],
-                )
-                for c in conn.execute(
-                    "SELECT * FROM run_changes WHERE run_id = ? ORDER BY revision", (run_id,)
-                )
-            ],
+            changes,
         )
 
 
@@ -548,3 +575,14 @@ def _updated(run: Run) -> Event:
 def _inputs(config: dict[str, Any]) -> list[str]:
     """A connector stage's input names: its `inputs`, or its one `input`."""
     return list(config.get("inputs") or []) or ([config["input"]] if config.get("input") else [])
+
+
+def notes(decisions: list[Decision], changes: list[AppliedChange], stage_name: str) -> list[str]:
+    """The notes of the send-backs and Reruns addressed to the stage, oldest first."""
+    sent = [(d.decided_at, d.note) for d in decisions if d.send_back_to == stage_name]
+    sent += [
+        (c.at, c.payload["note"])
+        for c in changes
+        if c.kind == "rerun" and c.stage_name == stage_name
+    ]
+    return [note for _, note in sorted(sent) if note]

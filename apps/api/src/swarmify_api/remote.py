@@ -54,6 +54,8 @@ def said(resolution: dict[str, Any]) -> str:
         what = f"Picked {resolution.get('choice') or 'one'}"
     elif outcome == "sent_back":
         what = f"Sent back to {resolution.get('send_back_to')}"
+    elif outcome == "rerun":
+        what = f"Re-run from {resolution.get('send_back_to')}"
     else:
         what = SAID.get(outcome, "Answered")
     by = resolution.get("by")

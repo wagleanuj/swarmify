@@ -17,11 +17,13 @@ from swarmify_runs.machine import (
     Illegal,
     OpenGate,
     Paused,
+    Rerun,
     Resumed,
     RunEvent,
     RunStage,
     RunState,
     SentBack,
+    Skip,
     StageFailed,
     StageFinished,
     Started,
@@ -41,6 +43,8 @@ EVENTS = st.one_of(
     st.builds(BudgetSpent, INDEX),
     st.builds(GateRaised, INDEX),
     st.just(BudgetAdded()),
+    st.builds(Rerun, INDEX),
+    st.builds(Skip, INDEX),
     st.just(Paused()),
     st.just(Resumed()),
     st.just(Aborted()),
@@ -74,30 +78,29 @@ class AnyEvents(RuleBasedStateMachine):
 
     @invariant()
     def stages_form_done_prefix_then_pending(self) -> None:
-        stages = list(self.state.stages)
-        settled = [i for i, s in enumerate(stages) if s != "pending"]
+        # Any stage may be skipped (a Skip, or the stages a failure passes over to the retro);
+        # the rest are done, then at most a failure and its retro, then pending.
+        kept = [(i, s) for i, s in enumerate(self.state.stages) if s != "skipped"]
+        stages = [s for _, s in kept]
+        settled = [n for n, s in enumerate(stages) if s != "pending"]
         if settled:
             last = settled[-1]
-            # A failed stage is followed by skipped stages up to the retro, which still runs.
             failed = stages.index("failed") if "failed" in stages[:last] else last
             assert all(s == "done" for s in stages[:failed])
-            assert all(
-                s == "skipped" or self.kinds[i] == "retro"
-                for i, s in enumerate(stages[failed + 1 : last], failed + 1)
-            )
+            assert all(self.kinds[kept[n][0]] == "retro" for n in range(failed + 1, last))
             assert all(s == "pending" for s in stages[last + 1 :])
 
     @invariant()
     def status_agrees_with_stages(self) -> None:
         status, stages = self.state.status, self.state.stages
         if status == "queued":
-            assert set(stages) == {"pending"}
+            assert set(stages) <= {"pending", "skipped"}
         if status == "waiting_gate":
             assert "waiting" in stages
         if status == "running":
             assert "running" in stages
         if status == "done":
-            assert set(stages) == {"done"}
+            assert set(stages) <= {"done", "skipped"}
         if status == "failed":
             assert "failed" in stages
         if "waiting" in stages:
@@ -135,6 +138,7 @@ class Shell(RuleBasedStateMachine):
         self.kinds = tuple(kinds)
         self.state, self.pending = transition(self.kinds, RunState.new(len(kinds)), Started())
         self.started = [c.index for c in self.pending]
+        self.skipped: set[int] = set()
 
     def _apply(self, event: RunEvent) -> None:
         self.state, commands = transition(self.kinds, self.state, event)
@@ -169,6 +173,37 @@ class Shell(RuleBasedStateMachine):
             self.complete()
             self._apply(Resumed())
 
+    @rule(data=st.data())
+    def skip_a_stage_to_come(self, data: st.DataObject) -> None:
+        """A skipped stage never starts, and the run still ends done."""
+        pending = [i for i, s in enumerate(self.state.stages) if s == "pending"]
+        if pending:
+            index = data.draw(st.sampled_from(pending))
+            self._apply(Skip(index))
+            self.skipped.add(index)
+
+    @rule(data=st.data(), paused=st.booleans())
+    def rerun_from_a_finished_stage(self, data: st.DataObject, paused: bool) -> None:
+        """A Rerun at a gate (or once paused there) starts the stage and every later one again,
+        from the answered gate right before it if there is one (ADR 0007); it never touches a
+        stage at work."""
+        if not (self.pending and isinstance(self.pending[0], OpenGate)):
+            return
+        done = [i for i, s in enumerate(self.state.stages) if s == "done"]
+        if not done:
+            return
+        to = data.draw(st.sampled_from(done))
+        start = to - 1 if to and self.kinds[to - 1] == "gate" and to - 1 in done else to
+        if paused:
+            self._apply(Paused())
+        self.pending.pop(0)  # the gate is no longer waiting
+        self.started = [i for i in self.started if i < start]  # they start afresh
+        self._apply(Rerun(to))
+        assert "running" not in self.state.stages or not paused
+        assert all(s != "done" for s in self.state.stages[start:])
+        if paused:
+            self._apply(Resumed())
+
     @invariant()
     def no_stage_starts_twice(self) -> None:
         assert len(self.started) == len(set(self.started))
@@ -177,7 +212,8 @@ class Shell(RuleBasedStateMachine):
         while self.pending:
             self.complete()
         assert self.state.status == "done"
-        assert sorted(self.started) == list(range(len(self.kinds)))
+        expected = [i for i in range(len(self.kinds)) if i not in self.skipped]
+        assert sorted(self.started) == expected
 
 
 TestShell = Shell.TestCase
@@ -297,3 +333,46 @@ def test_money_added_while_paused_runs_the_stage_on_resume() -> None:
     assert state == RunState("paused", ("pending",)) and cmds == []
     state, cmds = transition(kinds, state, Resumed())
     assert state == RunState("running", ("running",)) and cmds == [RunStage(0)]
+
+
+def test_a_rerun_needs_a_finished_stage_and_a_run_at_rest() -> None:
+    """From a gate or a pause it resets the stage and every later one, a skipped one staying
+    skipped, and counts a visit; at work it is refused, and at a budget gate too."""
+    kinds = ("swarm", "connector", "connector", "gate", "connector")
+    state, _ = transition(kinds, RunState.new(5), Started())
+    with pytest.raises(Illegal, match="pause first"):
+        transition(kinds, state, Rerun(0))
+    state, _ = transition(kinds, state, Skip(2))
+    state, _ = transition(kinds, state, StageFinished(0))
+    state, cmds = transition(kinds, state, StageFinished(1))
+    assert state.stages == ("done", "done", "skipped", "waiting", "pending")
+    assert cmds == [OpenGate(3)]
+    with pytest.raises(Illegal, match="has not finished"):
+        transition(kinds, state, Rerun(4))
+
+    again, cmds = transition(kinds, state, Rerun(1))
+    assert again == RunState("running", ("done", "running", "skipped", "pending", "pending"), 1)
+    assert cmds == [RunStage(1)]
+    paused, _ = transition(kinds, state, Paused())
+    held, cmds = transition(kinds, paused, Rerun(0))
+    assert held == RunState("paused", ("pending", "pending", "skipped", "pending", "pending"), 1)
+    assert cmds == []
+    paused_at_work, _ = transition(kinds, again, Paused())
+    with pytest.raises(Illegal, match="pause first"):
+        transition(kinds, paused_at_work, Rerun(0))
+    spent, _ = transition(kinds, again, BudgetSpent(1))
+    with pytest.raises(Illegal, match="budget gate"):
+        transition(kinds, spent, Rerun(0))
+
+
+def test_a_skip_passes_over_a_stage_that_has_not_started() -> None:
+    kinds = ("connector", "gate", "connector")
+    state, _ = transition(kinds, RunState.new(3), Started())
+    state, cmds = transition(kinds, state, Skip(1))
+    assert state == RunState("running", ("running", "skipped", "pending")) and cmds == []
+    with pytest.raises(Illegal, match="has started"):
+        transition(kinds, state, Skip(0))
+    state, cmds = transition(kinds, state, StageFinished(0))
+    assert state.stages == ("done", "skipped", "running") and cmds == [RunStage(2)]
+    state, _ = transition(kinds, state, StageFinished(2))
+    assert state.status == "done"

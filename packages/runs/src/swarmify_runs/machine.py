@@ -95,6 +95,24 @@ class BudgetAdded:
 
 
 @dataclass(frozen=True)
+class Rerun:
+    """A Rerun (ADR 0027): the finished stage `to` and every later one run again, as a send-back
+    from anywhere does, from a gate or a pause. A skipped stage stays skipped. `change` is the
+    recorded Run Change it carries out."""
+
+    to: int
+    change: str = ""
+
+
+@dataclass(frozen=True)
+class Skip:
+    """A Skip (ADR 0027): the stage at `index`, which has not started, is passed over."""
+
+    index: int
+    change: str = ""
+
+
+@dataclass(frozen=True)
 class Paused:
     pass
 
@@ -119,6 +137,8 @@ RunEvent = (
     | StageStopped
     | GateRaised
     | BudgetAdded
+    | Rerun
+    | Skip
     | Paused
     | Resumed
     | Aborted
@@ -208,6 +228,20 @@ def transition(
             _require(state.over_budget, "the run is not over budget")
             stages[stages.index("waiting")] = "pending"  # runs again, from where it stopped
             return _settle(kinds, replace(state, over_budget=False), stages)
+        case Rerun(to):
+            at_work = state.status not in ("waiting_gate", "paused") or "running" in stages
+            _require(not at_work, "the run is at work: pause first")
+            _require(not state.over_budget, "the run waits at a budget gate: add money or abort")
+            _require(_at(stages, to) == "done", f"stage {to} has not finished")
+            to = rerun_from(kinds, stages, to)
+            again: list[StageStatus] = [s if s == "skipped" else "pending" for s in stages[to:]]
+            return _settle(
+                kinds, replace(state, send_backs=state.send_backs + 1), stages[:to] + again
+            )
+        case Skip(i):
+            _require(_at(stages, i) == "pending", f"stage {i} has started")
+            stages[i] = "skipped"
+            return replace(state, stages=tuple(stages)), []
         case Paused():
             _require(state.status in ("running", "waiting_gate"), "nothing to pause")
             return replace(state, status="paused"), []
@@ -222,6 +256,12 @@ def transition(
             active = ("running", "waiting")
             ended = tuple("failed" if s in active else s for s in stages)
             return replace(state, status="aborted", stages=ended, over_budget=False), []
+
+
+def rerun_from(kinds: tuple[str, ...], stages: list[StageStatus], to: int) -> int:
+    """Where a Rerun of stage `to` starts: at the answered gate right before it, if any, so the
+    gate asks again and nothing it confirmed runs twice on one answer (ADR 0007)."""
+    return to - 1 if to and kinds[to - 1] == "gate" and stages[to - 1] == "done" else to
 
 
 def _settle(

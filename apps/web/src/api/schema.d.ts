@@ -1820,11 +1820,11 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "stage_edit" | "artifact_edit";
+            kind: "stage_edit" | "artifact_edit" | "rerun" | "skip";
             /** Stage */
             stage: string;
             /** Payload */
-            payload: {
+            payload?: {
                 [key: string]: unknown;
             };
             /** Revision */
@@ -2051,17 +2051,19 @@ export interface components {
          * @description A Run Change (ADR 0027). A `stage_edit` targets a stage that has not started, by id, and
          *     its `payload` is the stage's whole new config. An `artifact_edit` targets a finished stage
          *     and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`.
+         *     A `rerun` targets a finished stage and its `payload` holds the `note` the stage reruns
+         *     with; a `skip` targets a stage that has not started and has none.
          */
         Change: {
             /**
              * Kind
              * @enum {string}
              */
-            kind: "stage_edit" | "artifact_edit";
+            kind: "stage_edit" | "artifact_edit" | "rerun" | "skip";
             /** Stage */
             stage: string;
             /** Payload */
-            payload: {
+            payload?: {
                 [key: string]: unknown;
             };
         };
@@ -2094,6 +2096,10 @@ export interface components {
             in_place: boolean;
             /** Read By */
             read_by?: string[];
+            /** Cost Usd */
+            cost_usd?: number | null;
+            /** Budget Left Usd */
+            budget_left_usd?: number | null;
         };
         /** Changes */
         Changes: {
@@ -3210,7 +3216,8 @@ export interface components {
          * RunChange
          * @description One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
          *     `stage_edit`'s `payload` is the stage's new config, an `artifact_edit`'s the `path` of a file
-         *     in the stage's artifacts folder and its new `text`.
+         *     in the stage's artifacts folder and its new `text`, a `rerun`'s its `note` and a `skip` has
+         *     none.
          */
         RunChange: {
             /** Kind */

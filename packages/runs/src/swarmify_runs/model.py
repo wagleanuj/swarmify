@@ -97,7 +97,8 @@ class RunStageView:
 class RunChange:
     """One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
     `stage_edit`'s `payload` is the stage's new config, an `artifact_edit`'s the `path` of a file
-    in the stage's artifacts folder and its new `text`."""
+    in the stage's artifacts folder and its new `text`, a `rerun`'s its `note` and a `skip` has
+    none."""
 
     kind: str
     stage: str
@@ -120,6 +121,10 @@ class ChangeProposal:
     """Applies to this run; False once it would continue as a Fork."""
     read_by: list[str] = field(default_factory=list)
     """The finished stages that already read the file an Artifact Edit changes, to re-run."""
+    cost_usd: float | None = None
+    """A Rerun's estimate: the stages it resets at their average cost so far."""
+    budget_left_usd: float | None = None
+    """What the run's Budget has left, None when it has none."""
 
 
 @dataclass(frozen=True)
@@ -177,10 +182,12 @@ class Run:
     """Every Run Change applied to the run, oldest first."""
 
     def send_back_note(self, stage_name: str) -> str:
-        """The note of the send-back that caused this visit, when it named `stage_name`; empty
-        when the stage reruns because the send-back named an earlier stage."""
-        sent = next((d for d in reversed(self.decisions) if d.send_back_to), None)
-        return sent.note if sent and sent.send_back_to == stage_name else ""
+        """The note of the send-back or Rerun that caused this visit, when it named
+        `stage_name`; empty when the stage reruns because it named an earlier stage."""
+        sent = [(d.decided_at, d.send_back_to, d.note) for d in self.decisions if d.send_back_to]
+        sent += [(c.at, c.stage_name, c.payload["note"]) for c in self.changes if c.kind == "rerun"]
+        last = max(sent, default=None)
+        return last[2] if last and last[1] == stage_name else ""
 
 
 @dataclass(frozen=True)

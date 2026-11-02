@@ -14,6 +14,7 @@ import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
 import { the } from "../skin";
 import { ChangeCard, hhmm, who } from "./ChangeCard";
+import { changed, changedStage, StepChangeCard, type StepKind } from "./StepChangeCard";
 import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
 import { type MenuItem, Menu } from "./Menu";
@@ -67,6 +68,8 @@ export function RunTimeline() {
   // The file whose Artifact Edit card is open.
   const [editingFile, setEditingFile] = useState<ArtifactFile | null>(null);
   const [changesOpen, setChangesOpen] = useState(false);
+  // The step whose Rerun or Skip card is open.
+  const [stepping, setStepping] = useState<{ id: string; kind: StepKind } | null>(null);
   // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
   const [topbar, setTopbar] = useState<Element | null>(null);
   useEffect(() => setTopbar(document.getElementById("topbar-slot")), []);
@@ -327,7 +330,12 @@ export function RunTimeline() {
   }
   if (stage && !ended && stage.status === "pending") {
     const at = stage;
-    items.push({ label: "Edit stage", note: `Shows the change to ${at.name} and its check first; nothing changes until you apply`, onSelect: () => setEditing(at.id) });
+    items.push({ label: "Edit stage", note: `Shows the change to ${at.name} and its check first; nothing changes until you apply`, onSelect: () => { setStepping(null); setEditing(at.id); } });
+    items.push({ label: "Skip", note: `Shows the check first; ${at.name} is passed over once you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "skip" }); } });
+  }
+  if (stage && !ended && stage.status === "done") {
+    const at = stage;
+    items.push({ label: "Re-run from here", note: `Shows what it resets and costs first; nothing changes until you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "rerun" }); } });
   }
   const changes = run.changes ?? [];
   if (changes.length > 0) {
@@ -362,7 +370,7 @@ export function RunTimeline() {
                     {s.name}
                     <small>
                       {s.status === "waiting" ? "waiting for you" : kind(s)}
-                      {edit && <span className="edited"> · Edited by {who(edit.by)} {hhmm(edit.at)}</span>}
+                      {edit && <span className="edited"> · {changed(edit.kind)} by {who(edit.by)} {hhmm(edit.at)}</span>}
                     </small>
                   </span>
                   <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>
@@ -443,7 +451,7 @@ export function RunTimeline() {
           <ol className="changes">
             {changes.map((c) => (
               <li key={c.id}>
-                Edited {c.kind === "artifact_edit" ? `${String(c.payload.path)} of ${c.stage_name}` : c.stage_name} · by {who(c.by)} at {hhmm(c.at)}
+                {changedStage(c)} · by {who(c.by)} at {hhmm(c.at)}
               </li>
             ))}
           </ol>
@@ -497,6 +505,8 @@ export function RunTimeline() {
                 <ChangeCard key={editingFile.path} run={run} stage={stage} file={editingFile} onClose={() => setEditingFile(null)} />
               ) : editing === stage.id ? (
                 <ChangeCard key={stage.id} run={run} stage={stage} onClose={() => setEditing(null)} />
+              ) : stepping?.id === stage.id ? (
+                <StepChangeCard key={`${stepping.kind} ${stage.id}`} run={run} stage={stage} kind={stepping.kind} onClose={() => setStepping(null)} />
               ) : open ? (
                 <ul className="gate-list inline-gate" aria-label="Answer the gate">
                   <GateCard gate={open} world={world?.name ?? worldId} onAnswer={answer} bare />
