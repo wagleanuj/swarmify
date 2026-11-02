@@ -1711,8 +1711,8 @@ export interface paths {
          *     and with `save` save it. An Artifact Edit is drafted by the Run Assistant as a Stage
          *     Edit to the stage that made the file (502 when it does not answer), and saved with that
          *     `config`. 409 for a Rerun or an Ad Hoc Run, which have no workflow form, or when saving
-         *     a workflow changed since the run's version without `confirmed`; 422 when the check
-         *     refuses the draft.
+         *     a workflow changed since the run's version without `confirmed` or since the draft's
+         *     `version`; 422 when the check refuses the draft.
          */
         post: operations["save_to_workflow_api_runs__run_id__changes__change_id__save_to_workflow_post"];
         delete?: never;
@@ -3479,6 +3479,8 @@ export interface components {
              * @default false
              */
             confirmed: boolean;
+            /** Version */
+            version?: number | null;
             /** Config */
             config?: {
                 [key: string]: unknown;

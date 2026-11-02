@@ -69,7 +69,7 @@ test("an applied Stage Edit drafts the workflow's next version, names a newer ve
   expect(asked).toHaveLength(1);
   await save.getByRole("button", { name: "Save anyway" }).click();
   await expect.element(card).toMatchTextContent(/Saved as v4 of the workflow\./);
-  expect(asked.at(-1)).toEqual({ save: true, confirmed: true });
+  expect(asked.at(-1)).toEqual({ save: true, confirmed: true, version: 3 });
 });
 
 test("an applied Artifact Edit saves the Run Assistant's drafted Stage Edit to the stage that made the file", async () => {
@@ -113,7 +113,53 @@ test("an applied Artifact Edit saves the Run Assistant's drafted Stage Edit to t
   const save = card.getByRole("region", { name: "Save to the workflow" });
   await expect.element(save).toMatchTextContent(/Cap the hashtags in write's goal\./);
   await expect.element(save.getByRole("insertion")).toHaveTextContent("goal: Write the metadata with at most five hashtags.");
+  // The drafted Stage Edit is the operator's to change; it is drafted once, kept through "Not now".
+  const edited = { goal: "Write the metadata with at most three hashtags." };
+  await save.getByLabelText("The Stage Edit to write").fill("goal: Write the metadata with at most three hashtags.\n");
+  await expect.poll(() => asked.length).toBe(2);
+  expect(asked[1]).toEqual({ save: false, confirmed: false, config: edited });
+  await save.getByRole("button", { name: "Not now" }).click();
+  await card.getByRole("button", { name: "Also save to the workflow" }).click();
+  await expect.element(save.getByLabelText("The Stage Edit to write")).toHaveValue("goal: Write the metadata with at most three hashtags.\n");
+  expect(asked[2]).toEqual({ save: false, confirmed: false, config: edited });
   await save.getByRole("button", { name: "Save as v3" }).click();
   await expect.element(card).toMatchTextContent(/Saved as v3 of the workflow\./);
-  expect(asked).toEqual([{ save: false, confirmed: false }, { save: true, confirmed: false, config }]);
+  expect(asked.at(-1)).toEqual({ save: true, confirmed: false, version: 2, config: edited });
+});
+
+test("a save refused because the workflow moved on shows the draft as it now stands", async () => {
+  const asked: Record<string, unknown>[] = [];
+  const conflicts = ["Since this run's v2, v4 changed render (output)."];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "POST /api/runs/run_1/changes/propose": async (req) => {
+      const change = await req.json();
+      return Response.json({ change, stage_name: "render", before: render.config, after: change.payload, violations: [], revision: 3, in_place: true });
+    },
+    "POST /api/runs/run_1/changes": async (req) => {
+      const { kind, stage: stageId, payload } = await req.json();
+      return Response.json({ id: "change_1", run_id: "run_1", kind, stage_id: stageId, stage_index: 1, stage_name: "render", payload, before: render.config, by: "operator", at: ts, revision: 4 }, { status: 201 });
+    },
+    "POST /api/runs/run_1/changes/change_1/save-to-workflow": async (req) => {
+      const body = await req.json();
+      asked.push(body);
+      if (body.save) return Response.json({ detail: "The workflow moved on since this draft; draft it again." }, { status: 409 });
+      return Response.json(asked.length === 1 ? draft() : draft({ version: 4, conflicts }));
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await screen.getByRole("button", { name: "Run actions" }).click();
+  await screen.getByRole("menuitem", { name: /^Edit stage/ }).click();
+  const card = screen.getByTestId("change-card");
+  await card.getByLabelText("render's config").fill("calls: remotion_render\nparams:\n  fps: 60\n");
+  const apply = card.getByRole("button", { name: "Apply" });
+  await expect.element(apply).toBeEnabled();
+  await apply.click();
+  await card.getByRole("button", { name: "Also save to the workflow" }).click();
+  const save = card.getByRole("region", { name: "Save to the workflow" });
+  await save.getByRole("button", { name: "Save as v4" }).click();
+  await expect.element(save.getByRole("alert")).toMatchTextContent(/moved on since this draft/);
+  await expect.element(save).toMatchTextContent(/Since this run's v2, v4 changed render \(output\)\./);
+  await expect.element(save.getByRole("button", { name: "Save as v5" })).toBeEnabled();
+  expect(asked).toEqual([{ save: false, confirmed: false }, { save: true, confirmed: false, version: 3 }, { save: false, confirmed: false }]);
 });

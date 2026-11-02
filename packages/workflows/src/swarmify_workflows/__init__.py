@@ -182,6 +182,9 @@ class Workflows:
                 Violation("run_change", f"v{current.number} has no stage named {name}", name)
             )
             texts = (current.yaml, current.yaml)
+        elif texts[0] == texts[1]:
+            msg = f"v{current.number} already has this change"
+            violations.append(Violation("run_change", msg, before[0]["name"]))
         else:
             violations += self.check(workflow.world_id, texts[1], workflow_id).violations
         conflicts = [

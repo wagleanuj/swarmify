@@ -142,3 +142,18 @@ def test_a_rerun_has_nothing_to_save(running: TestClient, transport: FakeTranspo
     applied = apply(running, run, {"kind": "rerun", "stage": stage(run, "check")["id"]})
     refused = save(running, run, applied)
     assert refused.status_code == 409 and "Rerun" in refused.text
+
+
+def test_saving_a_draft_the_workflow_moved_on_from_is_refused(running: TestClient) -> None:
+    run = at_gate(running)
+    applied = apply(running, run, change(run, "render", params={"fps": 60}))
+    draft = save(running, run, applied).json()
+    newer = SHORT.replace("output: short.mp4", "output: final.mp4")
+    assert running.post(
+        f"/api/workflows/{run['workflow_id']}/versions", json={"yaml": newer}
+    ).is_success
+
+    refused = save(running, run, applied, save=True, confirmed=True, version=draft["version"])
+    assert refused.status_code == 409 and "moved on" in refused.text
+    versions = running.get(f"/api/workflows/{run['workflow_id']}/versions").json()
+    assert len(versions) == 2

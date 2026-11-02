@@ -110,3 +110,16 @@ def test_a_change_the_check_refuses_or_a_stage_the_workflow_no_longer_has_never_
     assert missing.saved is None
     assert [v.message for v in missing.violations] == ["v1 has no stage named outro"]
     assert [v.number for v in workflows.versions(v1.workflow_id)] == [1]
+
+
+def test_a_change_the_workflow_already_has_is_never_saved_twice(workflows: Workflows) -> None:
+    v1 = workflows.save(WORLD, WEEKLY_SHORT)
+    edited = {**SCRIPT, "goal": "Write a 20s script."}
+    workflows.save_from_run(v1.workflow_id, 1, [SCRIPT], [edited], save=True)
+
+    again = workflows.save_from_run(
+        v1.workflow_id, 1, [SCRIPT], [edited], save=True, confirmed=True
+    )
+    assert again.saved is None
+    assert [v.message for v in again.violations] == ["v2 already has this change"]
+    assert [v.number for v in workflows.versions(v1.workflow_id)] == [1, 2]

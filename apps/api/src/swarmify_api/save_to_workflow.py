@@ -13,10 +13,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from swarmify_api.assistant import MAX_READ, MAX_TURNS, Conversations, Reader, _Hooks
+from swarmify_api.assistant import MAX_READ, Conversations, Reader, run_turn
 from swarmify_memory import GraphIndex
 from swarmify_runs import AppliedChange, Run, Runner
-from swarmify_swarm import AgentRuntime, SessionEnd, SessionSpec, Storage, tool_id
+from swarmify_swarm import AgentRuntime, SessionEnd, Storage
 from swarmify_workflows import Violation, Workflows, WorkflowVersion
 from swarmify_worlds import Worlds
 
@@ -45,6 +45,9 @@ class SaveToWorkflow(BaseModel):
     """Save the draft as the workflow's next version; left out, only draft it."""
     confirmed: bool = False
     """Save even though the workflow changed the touched stages since the run's version."""
+    version: int | None = None
+    """The workflow's version the shown draft applied the change to: saving refuses (409) once
+    the workflow moved on from it, so what is saved is what the operator saw."""
     config: dict[str, Any] | None = None
     """For an Artifact Edit: the fields of the stage's config to change, as the draft gave them
     (the operator may edit them); needed to save. Left out, the Run Assistant drafts them."""
@@ -103,10 +106,6 @@ def router(
         stage = run.stages[change.stage_index]
         reader = Reader(run.id, runner, worlds, workflows, board, index, conversations)
         tools = [t for t in reader.tools() if t.name != "propose_change"]
-        allowed = [tool_id(t.name) for t in tools]
-        world = worlds.get(run.world_id)
-        folder = worlds.folder(run.world_id)
-        folder.mkdir(parents=True, exist_ok=True)
         path = change.payload["path"]
         prompt = (
             f"The operator rewrote {path}, which the stage {stage.name} (id {stage.id}) made."
@@ -114,22 +113,12 @@ def router(
             f"{change.payload['text'][:MAX_READ]}\n\n{stage.name} is a {stage.type} stage with"
             f" this config:\n{json.dumps(stage.config)}"
         )
-        spec = SessionSpec(
-            system_prompt=f"{SYSTEM}\n\nThe run is {run.name}, id {run.id}.",
-            prompt=prompt,
-            cwd=folder,
-            plugin=None,
-            tools=tools,
-            allowed=allowed,
-            resume=conversations.session(run.id),
-            max_turns=MAX_TURNS,
-            output_schema=DRAFT_SCHEMA,
-            model=world.model_for("planner") if world else None,
-        )
-        hooks = _Hooks(allowed)
+        system = f"{SYSTEM}\n\nThe run is {run.name}, id {run.id}."
         end: SessionEnd | None = None
         try:
-            end = await runtime.run(spec, hooks)
+            end, sid = await run_turn(
+                runtime, worlds, conversations, run, system, prompt, tools, DRAFT_SCHEMA
+            )
             out = end.output
             if end.is_error or not isinstance(out, dict) or not isinstance(out.get("config"), dict):
                 raise RuntimeError(end.result or "the assistant drafted no config")
@@ -140,7 +129,6 @@ def router(
             raise HTTPException(502, f"The assistant did not draft a change: {exc}") from exc
         reply = str(out.get("reply") or "").strip()
         asked = f"Also save the edit of {path} to the workflow."
-        sid = hooks.session_id or end.session_id
         conversations.turn(run, asked, reply, [], [], [], sid, end.cost_usd)
         return out["config"], reply
 
@@ -153,8 +141,8 @@ def router(
         and with `save` save it. An Artifact Edit is drafted by the Run Assistant as a Stage
         Edit to the stage that made the file (502 when it does not answer), and saved with that
         `config`. 409 for a Rerun or an Ad Hoc Run, which have no workflow form, or when saving
-        a workflow changed since the run's version without `confirmed`; 422 when the check
-        refuses the draft."""
+        a workflow changed since the run's version without `confirmed` or since the draft's
+        `version`; 422 when the check refuses the draft."""
         run = runner.get(run_id)
         change = next((c for c in run.changes if c.id == change_id), None) if run else None
         if run is None or change is None:
@@ -169,6 +157,9 @@ def router(
             if body.save:
                 raise HTTPException(422, "save the Stage Edit the draft gave as config")
             config, reply = await drafted(run, change)
+        workflow = workflows.get(run.workflow_id)
+        if body.save and workflow and body.version not in (None, workflow.current_version):
+            raise HTTPException(409, "The workflow moved on since this draft; draft it again.")
         before, after = stages(run, change, config)
         try:
             draft = workflows.save_from_run(
