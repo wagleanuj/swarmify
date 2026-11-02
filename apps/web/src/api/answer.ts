@@ -67,6 +67,17 @@ export const changedFields = (gate: Gate, form: HTMLFormElement | null) =>
     return input instanceof HTMLTextAreaElement && input.value !== String(f.value ?? "");
   });
 
+/** Fill the fields of `form` the gate lets the person edit with `values` by key (what the Run
+ * Assistant answered), as if typed; others are left alone. Returns whether the form now differs
+ * from what the gate showed. */
+export function fill(gate: Gate, form: HTMLFormElement | null, values: Record<string, string>): boolean {
+  for (const [key, value] of Object.entries(values)) {
+    const input = form?.elements.namedItem(`edit:${key}`);
+    if (input instanceof HTMLTextAreaElement) input.value = value;
+  }
+  return changedFields(gate, form);
+}
+
 /** A field the gate lets the person change: the connector marks it editable and it is text. */
 export const editable = (f: PublishField) => f.editable && (typeof f.value === "string" || f.value == null);
 

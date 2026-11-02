@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import YAML from "yaml";
 
+import { lines } from "../api/assistant";
 import { api } from "../api/client";
 import type { ArtifactFile } from "../api/events";
 import { refusal, type Run } from "../api/runs";
@@ -33,8 +34,8 @@ const shaped = (s: Stage) => ({ name: s.name, type: s.type, ...(s.config ?? {}) 
  * from it on, to edit, the diff, what the check would refuse, and Apply only once it passes.
  * A change that continues as a Fork says so. Nothing changes until Apply. With a `file` it is
  * an Artifact Edit of that file the stage made: its text, a line diff, and the finished stages
- * that already read the old version. `proposed` is a Stage Edit made already (by the Run
- * Assistant): shown as it was, so it goes stale when the run moved. */
+ * that already read the old version. `proposed` is a Stage Edit or an Artifact Edit made
+ * already (by the Run Assistant): shown as it was, so it goes stale when the run moved. */
 export function ChangeCard({
   run,
   stage,
@@ -52,10 +53,14 @@ export function ChangeCard({
   proposed?: Proposal;
   onApplied?: (change: AppliedChange) => void;
 }) {
-  const restructure = !file && edit === "restructure";
+  // An Artifact Edit the Run Assistant proposed names its file by the payload's path.
+  const named = file?.name ?? (proposed?.change.kind === "artifact_edit" ? String(proposed.change.payload?.path ?? "") : null);
+  const restructure = named === null && edit === "restructure";
   const [start] = useState<string | null>(() =>
-    file
-      ? null
+    named !== null
+      ? proposed
+        ? String(proposed.after.text ?? "")
+        : null
       : YAML.stringify(
           restructure ? run.stages.slice(stage.index).filter((s) => s.type !== "retro").map(shaped) : (proposed?.after ?? stage.config ?? {}),
         ),
@@ -67,11 +72,11 @@ export function ChangeCard({
   const [applied, setApplied] = useState<AppliedChange | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const [asked, setAsked] = useState(0);
-  const kind = file ? "artifact_edit" : edit;
+  const kind = named !== null ? "artifact_edit" : edit;
   const configId = useId();
 
   useEffect(() => {
-    if (!file) return;
+    if (!file || proposed) return;
     let gone = false;
     globalThis
       .fetch(fileUrl(run.world_id, file.path))
@@ -81,7 +86,7 @@ export function ChangeCard({
     return () => {
       gone = true;
     };
-  }, [file, run.world_id]);
+  }, [file, run.world_id, proposed]);
 
   useEffect(() => {
     if (proposed && asked === 0 && text === start) return; // as proposed, until edited or asked again
@@ -89,7 +94,7 @@ export function ChangeCard({
     if (text === null) return;
     let payload: unknown;
     try {
-      payload = file ? { path: file.name, text } : YAML.parse(text);
+      payload = named !== null ? { path: named, text } : YAML.parse(text);
     } catch (e) {
       setProposal(null);
       return setProblem((e instanceof Error && e.message.split("\n")[0]) || "the text is not YAML");
@@ -113,7 +118,7 @@ export function ChangeCard({
       stale = true;
       clearTimeout(timer);
     };
-  }, [text, run.id, stage.id, asked, file, kind, restructure, proposed, start]);
+  }, [text, run.id, stage.id, asked, named, kind, restructure, proposed, start]);
 
   async function apply() {
     if (!proposal) return;
@@ -133,11 +138,11 @@ export function ChangeCard({
     Object.fromEntries(((v.stages as Record<string, unknown>[] | undefined) ?? []).map((s, i) => [`${stage.index + i + 1}`, s]));
   const before = restructure ? byPosition(proposal?.before ?? {}) : (proposal?.before ?? {});
   const after = restructure ? byPosition(proposal?.after ?? {}) : (proposal?.after ?? {});
-  const changed = file
+  const changed = named !== null
     ? lines(String(before.text ?? ""), String(after.text ?? ""))
     : [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
   const readBy = proposal?.read_by ?? [];
-  const title = restructure ? `Change the stages from ${stage.name} on` : `Edit ${file?.name ?? stage.name}`;
+  const title = restructure ? `Change the stages from ${stage.name} on` : `Edit ${named ?? stage.name}`;
   const stale = !applied && !!proposal && (run.revision ?? 0) > proposal.revision;
   const problems = [...(problem ? [problem] : []), ...(proposal?.violations ?? [])];
   const ready = !!proposal && changed.length > 0 && problems.length === 0 && !stale;
@@ -145,7 +150,7 @@ export function ChangeCard({
   return (
     <section className="change-card" aria-label={title} data-testid="change-card">
       <h3>{title}</h3>
-      {proposal && changed.length > 0 && file ? (
+      {proposal && changed.length > 0 && named !== null ? (
         <ul className="diff" aria-label="The change">
           {changed.map((l, i) => (
             <li key={i}>{l.startsWith("-") ? <del>{l.slice(1)}</del> : <ins>{l.slice(1)}</ins>}</li>
@@ -160,7 +165,7 @@ export function ChangeCard({
           ))}
         </ul>
       ) : (
-        !applied && <p className="faint">No change yet. Edit the {file ? "text" : "fields"} below.</p>
+        !applied && <p className="faint">No change yet. Edit the {named !== null ? "text" : "fields"} below.</p>
       )}
       {readBy.length > 0 && !applied && (
         <p className="warn">
@@ -196,10 +201,10 @@ export function ChangeCard({
         <>
           <p className="notice ok" role="status">
             Applied by {who(applied.by)} at {hhmm(applied.at)}
-            {file && typeof applied.before.kept === "string" && (
+            {named !== null && typeof applied.before.kept === "string" && (
               <>
                 {" · "}
-                <FileLink a={{ path: applied.before.kept, name: file.name }} worldId={run.world_id}>
+                <FileLink a={{ path: applied.before.kept, name: named }} worldId={run.world_id}>
                   Earlier version
                 </FileLink>
               </>
@@ -216,7 +221,7 @@ export function ChangeCard({
         <>
           {editing && (
             <>
-              <label htmlFor={configId}>{file ? `${file.name}'s text` : restructure ? `The stages from ${stage.name} on` : `${stage.name}'s config`}</label>
+              <label htmlFor={configId}>{named !== null ? `${named}'s text` : restructure ? `The stages from ${stage.name} on` : `${stage.name}'s config`}</label>
               <textarea id={configId} value={text ?? ""} disabled={text === null} spellCheck={false} rows={10} onChange={(e) => setText(e.target.value)} />
             </>
           )}
@@ -235,18 +240,6 @@ export function ChangeCard({
       )}
     </section>
   );
-}
-
-/** The lines that differ, `-` before and `+` after, around the lines both share at the top and
- * bottom: enough for the one place a person edits a file. */
-export function lines(before: string, after: string): string[] {
-  const a = before.split("\n");
-  const b = after.split("\n");
-  let top = 0;
-  while (top < a.length && top < b.length && a[top] === b[top]) top++;
-  let end = 0;
-  while (end < a.length - top && end < b.length - top && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
-  return [...a.slice(top, a.length - end).map((l) => `-${l}`), ...b.slice(top, b.length - end).map((l) => `+${l}`)];
 }
 
 /** "Check", "Check and Tag", "Check, Tag and Upload". */

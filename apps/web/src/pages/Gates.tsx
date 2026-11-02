@@ -7,6 +7,7 @@ import {
   choosable,
   decision,
   editable,
+  fill,
   GATE_KIND,
   gateArtifacts,
   gateProposal,
@@ -28,6 +29,7 @@ import { piedPiper } from "../skin";
 import { ArtifactCards, ArtifactView } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { PublishValue } from "./Connectors";
+import { GateAsk } from "./GateAsk";
 import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
@@ -263,6 +265,8 @@ export function GateCard({
       .then(setArtifacts)
       .catch(() => setArtifacts([]));
   }, [shows, gate.run_id, gate.stage_index, gate.send_backs_left]);
+  // A change applied at the gate reloads its preview, shown afresh below: compare with that.
+  useEffect(() => setChanged(changedFields(gate, form.current)), [gate]);
 
   const cards = gate.kind === "pick" && artifacts ? choosable(artifacts) : [];
   const reviewed = gate.kind === "approve" && artifacts ? underReview(artifacts) : [];
@@ -344,7 +348,7 @@ export function GateCard({
         className="gate-form"
         aria-label={`Answer ${gate.stage_name}`}
       >
-        {gate.publish && <WhatGoesOut preview={gate.publish} worldId={gate.world_id} />}
+        {gate.publish && <WhatGoesOut key={JSON.stringify(gate.publish)} preview={gate.publish} worldId={gate.world_id} />}
         {gate.kind === "budget" && (
           <>
             <label>
@@ -448,6 +452,8 @@ export function GateCard({
         </div>
       </form>
       )}
+      {/* The run page has its own Ask this run. */}
+      {!bare && <GateAsk gate={gate} onFill={(fields) => setChanged(fill(gate, form.current, fields))} />}
     </li>
   );
 }

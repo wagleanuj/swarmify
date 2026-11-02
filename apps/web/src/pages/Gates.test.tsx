@@ -470,3 +470,81 @@ test("an approve gate shows a typed script's top-level text, as the voice its ju
   await expect.element(typed).toMatchTextContent(/voice\s*narrator\s*description\s*Why hedgehogs sleep\./);
   await expect.element(typed).not.toMatchTextContent(/scenes/);
 });
+
+test("asking at a publish gate answers there, fills the form, and an applied file change refreshes what goes out", async () => {
+  const field = (key: string, label: string, value: unknown, editable: boolean) => ({ key, label, value, editable, hint: "" });
+  const seven = "#a #b #c #d #e #f #g";
+  const five = "#a #b #c #d #e";
+  const preview = (title: string, tags: string, problems: string[]) => ({
+    connector: "youtube",
+    fields: [field("title", "Title", title, true), field("hashtags", "Hashtags", tags, true), field("visibility", "Visibility", "public", false)],
+    private: false,
+    problems,
+  });
+  let publish = preview("Owls", seven, ["7 hashtags, at most 5"]);
+  const atGate = run("waiting_gate", [stage(0, "write", "connector", "done"), stage(1, "confirm", "gate", "waiting"), stage(2, "publish", "connector", "pending")], { revision: 3 });
+  const meta = (tags: string) => `---\nhashtags: ${tags}\n---\n`;
+  const change = { kind: "artifact_edit", stage: "stage_0", payload: { path: "metadata.md", text: meta(five) } };
+  const proposal = { change, stage_name: "write", before: { path: "metadata.md", text: meta(seven) }, after: change.payload, violations: [], revision: 3, in_place: true, read_by: [] };
+  const reply = { id: "message_2", role: "assistant", text: "Cut to five, here and in metadata.md.", at: ts, sources: [], cost_usd: 0.02, fields: { hashtags: five } };
+  const asked: unknown[] = [];
+  const applied: unknown[] = [];
+  const marked: unknown[] = [];
+  const calls = fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([gate("confirm", { publish })]),
+    "GET /api/runs/run_1": () => Response.json(atGate),
+    "POST /api/runs/run_1/assistant": async (req) => {
+      asked.push(await req.json());
+      return Response.json({ ...reply, proposals: [{ id: "proposal_1", state: "open", proposal, change_id: null }] });
+    },
+    "POST /api/runs/run_1/changes": async (req) => {
+      applied.push(await req.json());
+      publish = preview("Owls, explained", five, []); // what metadata.md now says
+      const done = { id: "change_1", run_id: "run_1", kind: "artifact_edit", stage_id: "stage_0", stage_index: 0, stage_name: "write" };
+      return Response.json({ ...done, payload: change.payload, before: proposal.before, by: "operator", at: ts, revision: 4 }, { status: 201 });
+    },
+    "POST /api/runs/run_1/assistant/proposals/proposal_1": async (req) => {
+      marked.push(await req.json());
+      return Response.json({});
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_1");
+  const confirm = card.getByRole("button", { name: "Confirm and post" });
+  await expect.element(confirm).toBeDisabled();
+
+  await card.getByLabelText("Ask or change before you answer").fill("Cut the hashtags to five");
+  await card.getByRole("button", { name: "Send" }).click();
+  await expect.element(card).toMatchTextContent(/Cut to five, here and in metadata\.md\./);
+  expect(asked).toEqual([{ message: "Cut the hashtags to five" }]);
+  // The gate field fills the form instead of a card, and Confirm unlocks.
+  await expect.element(card.getByLabelText("Hashtags")).toHaveValue(five);
+  await expect.element(card).toMatchTextContent(/Filled Hashtags in the form above\./);
+  await expect.element(confirm).toBeEnabled();
+
+  // The file edit is a card; applying it refreshes the preview from the server.
+  const edit = card.getByTestId("change-card");
+  await expect.element(edit.getByRole("heading", { name: "Edit metadata.md" })).toBeVisible();
+  await expect.element(edit.getByRole("list", { name: "The change" })).toHaveTextContent(`hashtags: ${seven}hashtags: ${five}`);
+  await edit.getByRole("button", { name: "Apply" }).click();
+  await expect.element(edit).toMatchTextContent(/Applied by you at \d\d:\d\d/);
+  expect(applied).toEqual([{ ...change, revision: 3 }]);
+  await vi.waitFor(() => expect(marked).toEqual([{ state: "applied", change_id: "change_1" }]));
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
+  await expect.element(card.getByText("7 hashtags, at most 5")).not.toBeInTheDocument();
+  await expect.element(card.getByLabelText("Title")).toHaveValue("Owls, explained");
+  await expect.element(card.getByLabelText("Hashtags")).toHaveValue(five);
+  await expect.element(confirm).toBeEnabled();
+});
+
+test("the run page's own gate has no second assistant: Ask this run covers it", async () => {
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/runs/run_1": () => Response.json(run("waiting_gate", [stage(0, "pick", "gate", "waiting")])),
+    "GET /api/gates": () => Response.json([gate("pick", { stage_id: "stage_0", stage_index: 0 })]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
+  await expect.element(screen.getByRole("form", { name: "Answer pick" })).toBeVisible();
+  expect(screen.getByLabelText("Ask or change before you answer").elements()).toHaveLength(0);
+});

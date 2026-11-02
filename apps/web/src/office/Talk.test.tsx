@@ -267,3 +267,54 @@ test("a refused answer says why and keeps the asker up", async () => {
   await expect.element(screen.getByRole("alert")).toHaveTextContent("already sent back 2 times; approve or abort");
   await expect.element(screen.getByRole("heading", { name: "Rex Judge", level: 1 })).toBeVisible();
 });
+
+test("asking at a publish gate in Talk answers there, fills the form, and an applied file change refreshes what goes out", async () => {
+  const field = (key: string, label: string, value: unknown) => ({ key, label, value, editable: true, hint: "" });
+  const seven = "#a #b #c #d #e #f #g";
+  const five = "#a #b #c #d #e";
+  const preview = (title: string, tags: string, problems: string[]) => ({ connector: "youtube", fields: [field("title", "Title", title), field("hashtags", "Hashtags", tags)], private: false, problems });
+  const open = [gate("confirm", { run_id: "run_c", stage_id: "run_c_s2", stage_index: 2, publish: preview("Owls", seven, ["7 hashtags, at most 5"]) })];
+  const meta = (tags: string) => `---\nhashtags: ${tags}\n---\n`;
+  const change = { kind: "artifact_edit", stage: "run_c_s1", payload: { path: "metadata.md", text: meta(five) } };
+  const proposal = { change, stage_name: "Step 2", before: { path: "metadata.md", text: meta(seven) }, after: change.payload, violations: [], revision: 3, in_place: true, read_by: [] };
+  const applied: unknown[] = [];
+  const marked: unknown[] = [];
+  const posted = world1([bare], [], open, {
+    "POST /api/runs/run_c/assistant": () =>
+      Response.json({
+        id: "message_2", role: "assistant", text: "Cut to five, here and in metadata.md.", at: ts, sources: [], cost_usd: 0.02,
+        fields: { hashtags: five }, proposals: [{ id: "proposal_1", state: "open", proposal, change_id: null }],
+      }),
+    "POST /api/runs/run_c/changes": async (req) => {
+      applied.push(await req.json());
+      open[0] = { ...open[0]!, publish: preview("Owls, explained", five, []) }; // what metadata.md now says
+      return Response.json({ id: "change_1" }, { status: 201 });
+    },
+    "POST /api/runs/run_c/assistant/proposals/proposal_1": async (req) => {
+      marked.push(await req.json());
+      return Response.json({});
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/office/talk");
+  const confirm = screen.getByRole("button", { name: "1 Confirm and post" });
+  await expect.element(confirm).toBeDisabled();
+
+  await screen.getByLabelText("Ask or change before you answer").fill("Cut the hashtags to five");
+  await screen.getByRole("button", { name: "Send" }).click();
+  await expect.element(screen.getByText("Cut to five, here and in metadata.md.")).toBeVisible();
+  await expect.element(screen.getByLabelText("Hashtags")).toHaveValue(five);
+  await expect.element(screen.getByText(/Filled Hashtags in the form above\./)).toBeVisible();
+  await expect.element(confirm).toBeEnabled();
+
+  const card = screen.getByTestId("talk-card");
+  await expect.element(card).toMatchTextContent(/Edit metadata\.md/);
+  await expect.element(card.getByRole("list", { name: "The change" })).toHaveTextContent(`hashtags: ${seven}hashtags: ${five}`);
+  await card.getByRole("button", { name: "Apply" }).click();
+  await expect.element(card.getByRole("status")).toHaveTextContent("Applied by you.");
+  expect(applied).toEqual([{ ...change, revision: 3 }]);
+  expect(marked).toEqual([{ state: "applied", change_id: "change_1" }]);
+  await expect.element(screen.getByLabelText("Title")).toHaveValue("Owls, explained");
+  await expect.element(screen.getByText("7 hashtags, at most 5")).not.toBeInTheDocument();
+  await confirm.click();
+  await vi.waitFor(() => expect(posted.map((p) => p.key)).toEqual(["POST /api/runs/run_c/decision"]));
+});
