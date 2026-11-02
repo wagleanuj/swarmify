@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import stat
+import tempfile
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -25,11 +26,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from swarmify_connectors import Connector
 from swarmify_memory import ASSETS, ArtifactFile, Memory
 from swarmify_runs import Run
+from swarmify_workflows import ConnectorStage, Workflows
 from swarmify_worlds import Worlds
 
 _DECISION_FOLDER = re.compile(r"^(\d{2})-")
@@ -215,6 +218,51 @@ async def received(request: Request, file: Path, cap: int | None = None) -> None
             out.write(chunk)
 
 
+@dataclass(frozen=True)
+class Naming:
+    """A workflow whose current version names a Template, as a stage's `base` or `project`."""
+
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TemplateDelete:
+    deleted: bool
+    """False until the delete is confirmed: then it only answers the workflows naming it."""
+    workflows: list[Naming]
+
+
+def naming(workflows: Workflows, world_id: str, calls: set[str], name: str) -> list[Naming]:
+    """The world's workflows whose current version has a stage calling one of `calls` that
+    names the Template `name` as its `base` (a build) or `project` (a direct render)."""
+    found = []
+    for w in workflows.list_all(world_id):
+        version = workflows.version(w.id, w.current_version)
+        stages = version.model.stages if version else []
+        if any(
+            isinstance(s, ConnectorStage)
+            and s.calls in calls
+            and name in (s.params.get("base"), s.params.get("project"))
+            for s in stages
+        ):
+            found.append(Naming(w.id, w.name))
+    return found
+
+
+def zipped(folder: Path) -> Path:
+    """A temporary zip of a Template's files at its root, without its record or installed
+    packages, so it uploads back as the same Template."""
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as out:
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in sorted(folder.rglob("*")):
+                rel = p.relative_to(folder)
+                if p.is_file() and not p.is_symlink() and "node_modules" not in rel.parts:
+                    if rel != Path(TEMPLATE_RECORD):
+                        z.write(p, rel.as_posix())
+    return Path(out.name)
+
+
 def accepted(name: str, accept: list[str]) -> bool:
     """Whether a file of this name is one of the media types `accept` lists (any when empty),
     by its extension, `audio/x-wav` counting as `audio/wav`."""
@@ -265,9 +313,13 @@ def router(
     memory: Memory,
     worlds: Worlds,
     list_runs: Callable[[str], list[Run]],
-    owned: Callable[[str], list[OwnedFolder]],
+    connectors: Callable[[str], list[Connector]],
+    workflows: Workflows,
 ) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["library"])
+
+    def owned(world_id: str) -> list[OwnedFolder]:
+        return owned_folders(connectors(world_id))
 
     def world_or_404(world_id: str) -> None:
         if worlds.get(world_id) is None:
@@ -373,6 +425,44 @@ def router(
             raise taken from exc
         finally:
             await run_in_threadpool(shutil.rmtree, work, True)
+
+    def template(world_id: str, folder: str, name: str) -> Path:
+        world_or_404(world_id)
+        world = memory.world_folder(world_id)
+        for t in templates(world, owned(world_id)):
+            if (t.folder, t.name) == (folder, name):
+                return world / t.path
+        raise HTTPException(404, "template not found")
+
+    @api.get(
+        "/worlds/{world_id}/templates/{folder}/{name}/download",
+        response_class=FileResponse,
+        responses={404: {}},
+    )
+    def download_template(world_id: str, folder: str, name: str) -> FileResponse:
+        """A Template as a zip of its files, which uploads back as the same Template."""
+        out = zipped(template(world_id, folder, name))
+        return FileResponse(
+            out, media_type="application/zip", filename=f"{name}.zip",
+            background=BackgroundTask(out.unlink),
+        )  # fmt: skip
+
+    @api.delete("/worlds/{world_id}/templates/{folder}/{name}", responses={404: {}})
+    def delete_template(
+        world_id: str, folder: str, name: str, confirm: bool = False
+    ) -> TemplateDelete:
+        """Delete a Template once `confirm`ed; until then, only answer the workflows whose
+        stages name it. Past runs keep their own copies."""
+        path = template(world_id, folder, name)
+        calls = {
+            c.name
+            for c in connectors(world_id)
+            if c.manifest.get("templates", {}).get("folder") == folder
+        }
+        named = naming(workflows, world_id, calls, name)
+        if confirm:
+            shutil.rmtree(path)
+        return TemplateDelete(confirm, named)
 
     @api.put("/worlds/{world_id}/assets/{name}", status_code=201, responses={422: {}})
     async def add_asset(

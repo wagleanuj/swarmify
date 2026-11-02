@@ -1384,6 +1384,31 @@ export interface paths {
          */
         put: operations["upload_template_api_worlds__world_id__templates__folder___name__put"];
         post?: never;
+        /**
+         * Delete Template
+         * @description Delete a Template once `confirm`ed; until then, only answer the workflows whose
+         *     stages name it. Past runs keep their own copies.
+         */
+        delete: operations["delete_template_api_worlds__world_id__templates__folder___name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worlds/{world_id}/templates/{folder}/{name}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Template
+         * @description A Template as a zip of its files, which uploads back as the same Template.
+         */
+        get: operations["download_template_api_worlds__world_id__templates__folder___name__download_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2886,6 +2911,16 @@ export interface components {
             /** Models */
             models: string[];
         };
+        /**
+         * Naming
+         * @description A workflow whose current version names a Template, as a stage's `base` or `project`.
+         */
+        Naming: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** NewConnector */
         NewConnector: {
             /** Name */
@@ -3988,6 +4023,13 @@ export interface components {
             added: string;
             /** Fingerprint */
             fingerprint: string;
+        };
+        /** TemplateDelete */
+        TemplateDelete: {
+            /** Deleted */
+            deleted: boolean;
+            /** Workflows */
+            workflows: components["schemas"]["Naming"][];
         };
         /** Tested */
         Tested: {
@@ -6990,6 +7032,86 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    delete_template_api_worlds__world_id__templates__folder___name__delete: {
+        parameters: {
+            query?: {
+                confirm?: boolean;
+            };
+            header?: never;
+            path: {
+                world_id: string;
+                folder: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateDelete"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_template_api_worlds__world_id__templates__folder___name__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+                folder: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

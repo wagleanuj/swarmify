@@ -3,6 +3,7 @@ behind the Agent SDK and the fake ConnectorTransport."""
 
 import io
 import json
+import shutil
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -422,3 +423,74 @@ def test_a_template_name_already_there_is_refused_unless_replace_is_asked(
     assert (folder / "cats/src/index.ts").read_text() == "export const cat = 1;"
     assert not (folder / "cats/public").exists()  # replaced, not merged
     assert sorted(p.name for p in folder.iterdir()) == ["cats"]
+
+
+NAMES_KIDS = """name: Kids short
+stages:
+  - connector: write
+    calls: draft
+    output: script.md
+  - connector: build
+    calls: remotion_build
+    input: script.md
+    params: {base: kids}
+"""
+DRAFT = {"name": "draft", "kind": "stage", "server": "uvx draft-mcp", "stage_types": ["connector"]}
+
+
+def test_a_template_downloads_as_a_zip_and_deletes_only_once_confirmed(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Issue 351: a Template downloads as a zip of its own files (no record, no installed
+    packages), so it uploads back the same; a delete first answers the workflows naming it as
+    `base`, and only a confirmed one deletes, leaving a past run's build as it was."""
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    other = client.post("/api/worlds", json={"name": "Other"}).json()["id"]
+    assert client.post(f"/api/worlds/{world}/connectors", json=DRAFT).status_code == 201
+    kids = tmp_path / "worlds" / world / "assets/remotion_templates/kids"
+    files = {"package.json": b"{}", "src/index.ts": b"export {};", "public/cat.glb": b"\x00\x01"}
+    for name, body in files.items():
+        (kids / name).parent.mkdir(parents=True, exist_ok=True)
+        (kids / name).write_bytes(body)
+    (kids / ".template.json").write_text(json.dumps({"origin": "upload"}))
+    (kids / "node_modules/remotion").mkdir(parents=True)
+    (kids / "node_modules/remotion/index.js").write_text("installed")
+    # ponytail: the workflow check still looks for a base in the data directory until #348.
+    shutil.copytree(kids, tmp_path / "remotion" / "kids")
+    named = client.post(f"/api/worlds/{world}/workflows", json={"yaml": NAMES_KIDS})
+    assert named.status_code == 201, named.json()
+    office = NAMES_KIDS.replace("Kids short", "Office").replace("kids", "office")
+    (tmp_path / "remotion" / "office").mkdir()
+    assert client.post(f"/api/worlds/{world}/workflows", json={"yaml": office}).status_code == 201
+    build = tmp_path / "worlds" / world / "runs/run_old/stage_2/build"
+    shutil.copytree(kids, build, ignore=shutil.ignore_patterns("node_modules"))
+    url = f"/api/worlds/{world}/templates/remotion_templates/kids"
+
+    got = client.get(f"{url}/download")
+    assert got.status_code == 200, got.text
+    assert got.headers["content-type"] == "application/zip"
+    assert 'filename="kids.zip"' in got.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(got.content)) as z:
+        assert {n: z.read(n) for n in z.namelist()} == files
+    for nope in (
+        f"/api/worlds/{other}/templates/remotion_templates/kids",
+        f"/api/worlds/{world}/templates/remotion_templates/nope",
+        f"/api/worlds/{world}/templates/voices/kids",
+    ):
+        assert client.get(f"{nope}/download").status_code == 404
+
+    asked = client.delete(url)
+    assert asked.status_code == 200, asked.text
+    workflow = {"id": named.json()["workflow_id"], "name": "Kids short"}
+    assert asked.json() == {"deleted": False, "workflows": [workflow]}
+    assert kids.is_dir()
+    done = client.delete(f"{url}?confirm=true")
+    assert done.json() == {"deleted": True, "workflows": [workflow]}
+    assert not kids.exists()
+    assert [t["name"] for t in client.get(f"/api/worlds/{world}/templates").json()] == []
+    assert {str(p.relative_to(build)) for p in build.rglob("*") if p.is_file()} == {
+        *files,
+        ".template.json",
+    }
+    assert (build / "src/index.ts").read_bytes() == files["src/index.ts"]
+    assert client.delete(f"{url}?confirm=true").status_code == 404

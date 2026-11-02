@@ -937,7 +937,8 @@ def create_app(
             memory,
             world_svc,
             runner.list_all,
-            lambda w: library.owned_folders(registry.list_all(w)),
+            registry.list_all,
+            workflow_svc,
         )
     )
     app.include_router(notifications.router(channels, world_svc))
