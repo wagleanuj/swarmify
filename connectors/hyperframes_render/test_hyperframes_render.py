@@ -97,13 +97,28 @@ def path_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in TOOLS:
         (bin_dir / name).write_text("#!/bin/sh\n")
         (bin_dir / name).chmod(0o755)
-    kept = [d for d in os.environ["PATH"].split(os.pathsep) if not _has_tool(Path(d))]
-    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), *kept]))
+    path = [str(bin_dir)]
+    for i, d in enumerate(os.environ["PATH"].split(os.pathsep)):
+        folder = Path(d)
+        if any((folder / name).exists() for name in HIDDEN):
+            folder = _without(folder, tmp_path / "path" / str(i))
+        path.append(str(folder))
+    monkeypatch.setenv("PATH", os.pathsep.join(path))
     return bin_dir
 
 
-def _has_tool(folder: Path) -> bool:
-    return any((folder / name).exists() for name in (*TOOLS, "chromium", "google-chrome"))
+HIDDEN = (*TOOLS, "chromium", "google-chrome")
+
+
+def _without(folder: Path, mirror: Path) -> Path:
+    """`folder` minus the tools: a folder of links to everything else in it. Dropping the folder
+    instead would also drop what shares it, like /usr/bin's bwrap, socat and rg on a CI runner
+    with ffmpeg installed, and the connector sandbox would not start."""
+    mirror.mkdir(parents=True)
+    for entry in folder.iterdir():
+        if entry.name not in HIDDEN:
+            (mirror / entry.name).symlink_to(entry)
+    return mirror
 
 
 @pytest.fixture

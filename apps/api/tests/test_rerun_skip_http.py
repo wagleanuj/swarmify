@@ -110,6 +110,9 @@ def test_a_skip_passes_over_a_stage_unless_a_later_one_needs_it_or_it_gates_a_pu
 
     skip = step(run, "skip", "tag")
     assert apply(running, run, skip).status_code == 201
+    # The run's workflow takes the Skip a moment later, moving the run; answering before that
+    # lands is refused as "the run moved since the gate was read", so wait as the run page does.
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["stages"][3]["status"] == "skipped")
     assert running.post(f"/api/runs/{run['id']}/decision", json={}).is_success
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["stages"][4]["status"] == "waiting")
     after = running.get(f"/api/runs/{run['id']}").json()
