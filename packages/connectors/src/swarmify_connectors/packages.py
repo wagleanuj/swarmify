@@ -50,7 +50,14 @@ _SUBFOLDER = re.compile(r"^(?!.*(^|/)\.\.?(/|$))[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+
 """A folder of a repository, as `connectors/speech`: relative, never `.` or `..`."""
 SKIPPED = (".git", ".venv", "node_modules", "__pycache__")
 COPY_SKIPS = shutil.ignore_patterns(*SKIPPED, RECORD)
-CAPABILITIES = ("publish", "outcomes", "build_session", "check", "remote_approvals")
+CAPABILITIES = (
+    "publish",
+    "outcomes",
+    "build_session",
+    "check",
+    "remote_approvals",
+    "run_assistant",
+)
 FIELD_TYPES = ("string", "text", "number", "integer", "boolean", "choice", "url", "path", "oauth")
 _PYTHON = {"string": str, "text": str, "url": str, "path": str, "choice": str}
 _PYTHON |= {"number": (int, float), "integer": int, "boolean": bool}
@@ -321,6 +328,8 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         bad("stage_types", "a notify connector runs in no stage; every other runs in one")
     if "listen" in manifest and "remote_approvals" not in manifest.get("capabilities", []):
         bad("listen", "is the long-lived process of a remote_approvals connector")
+    if "run_assistant" in manifest.get("capabilities", []) and "listen" not in manifest:
+        bad("capabilities", "run_assistant forwards replies through the listen process")
     if manifest["kind"] == "publish" and manifest["stage_types"] != ["connector"]:
         bad("stage_types", "a publish connector runs only in connector stages, after a gate")
     if "params" in manifest and (why := _is_schema(manifest["params"])):

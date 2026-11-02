@@ -5,6 +5,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -556,3 +557,105 @@ async def test_a_token_scoped_to_one_world_is_refused_on_another_worlds_run(
         after = http.get(f"/api/runs/{theirs['id']}").json()
         assert after["status"] == "waiting_gate" and after["changes"] == []
         assert len(http.get("/api/worlds").json()) == 2
+
+
+@pytest.mark.anyio
+async def test_a_chat_threads_replies_ask_the_run_assistant_and_apply_or_dismiss_its_proposals(
+    app: Any, script: Script, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ticket 315, the core side of remote approvals: only a world whose remote approver offers
+    run_assistant is answered; a proposal is applied as `by`, once, or dismissed with the run
+    untouched; another run's proposal is not found; a run that moved on answers MOVED_ON, also
+    when it moves between reading the card and applying it."""
+    from fastapi.testclient import TestClient
+    from test_run_changes_http import at_gate, change
+
+    from swarmify_api import remote
+    from swarmify_api.assistant import MOVED_ON, Conversations
+    from swarmify_connectors import Connectors
+
+    approvals = next(
+        r.app.tools for r in app.router.routes if getattr(r, "path", "") == remote.PATH
+    )
+    with TestClient(app) as http:
+        run, other = at_gate(http), at_gate(http)
+        rid = {"run_id": run["id"]}
+        script.scripts = [
+            [Call(tool_id("propose_change"), change(run, "render", params={"fps": n})), Answer(a)]
+            for n in (60, 24, 50, 40)
+            for a in [{"reply": f"At {n}.", "sources": []}]
+        ]
+
+        def ask(client: Client, message: str) -> Any:
+            return client.call_tool("ask_run", {**rid, "message": message})
+
+        def cards() -> list[tuple[str, str | None]]:
+            said = http.get(f"/api/runs/{run['id']}/assistant").json()["messages"]
+            return [(c["state"], c["change_id"]) for m in said for c in m["proposals"]]
+
+        async with Client(approvals) as client:
+            refused = await ask(client, "Faster?")
+            assert refused.is_error and "offers the run_assistant" in str(refused.content)
+
+            slack = SimpleNamespace(
+                manifest={"capabilities": ["remote_approvals", "run_assistant"]}
+            )
+            monkeypatch.setattr(Connectors, "remote_approvers", lambda *_: [slack])
+            said = (await ask(client, "Faster?")).structured_content
+            assert said and said["reply"] == "At 60."
+            [first] = said["proposals"]
+            assert (first["title"], first["violations"], first["in_place"]) == (
+                "Edit render", [], True
+            )  # fmt: skip
+            one = {**rid, "proposal_id": first["id"]}
+            assert (await client.call_tool("apply_proposal", {**one, "by": " "})).is_error
+            applied = await client.call_tool("apply_proposal", {**one, "by": "slack:lee"})
+            assert applied.structured_content == {"id": first["id"], "state": "applied"}
+            [made] = http.get(f"/api/runs/{run['id']}/changes").json()
+            assert made["by"] == "slack:lee" and cards() == [("applied", made["id"])]
+            again = await client.call_tool("apply_proposal", {**one, "by": "slack:lee"})
+            assert again.is_error and "already applied" in str(again.content)
+            theirs = {"run_id": other["id"], "proposal_id": first["id"], "by": "slack:lee"}
+            assert "proposal not found" in str(
+                (await client.call_tool("apply_proposal", theirs)).content
+            )
+
+            said = (await ask(client, "Slower?")).structured_content
+            two = {**rid, "proposal_id": said and said["proposals"][0]["id"]}
+            dismissed = await client.call_tool("dismiss_proposal", two)
+            assert (
+                dismissed.structured_content
+                and dismissed.structured_content["state"] == "dismissed"
+            )
+            assert (await client.call_tool("dismiss_proposal", two)).is_error
+            assert len(http.get(f"/api/runs/{run['id']}/changes").json()) == 1
+
+            def bump() -> None:
+                now = http.get(f"/api/runs/{run['id']}").json()
+                edit = {
+                    **change(now, "tag", params={"n": now["revision"]}),
+                    "revision": now["revision"],
+                }
+                http.post(f"/api/runs/{run['id']}/changes", json=edit).raise_for_status()
+
+            said = (await ask(client, "50?")).structured_content
+            bump()  # the card reads as stale
+            stale = {**rid, "proposal_id": said and said["proposals"][0]["id"], "by": "slack:lee"}
+            moved = await client.call_tool("apply_proposal", stale)
+            assert moved.is_error and MOVED_ON in str(moved.content)
+
+            said = (await ask(client, "40?")).structured_content
+            read = Conversations.card
+
+            def then_moved(self: Conversations, *args: Any) -> Any:
+                card = read(self, *args)
+                bump()  # the run moves after the card was read open
+                return card
+
+            monkeypatch.setattr(Conversations, "card", then_moved)
+            raced = {**rid, "proposal_id": said and said["proposals"][0]["id"], "by": "slack:lee"}
+            moved = await client.call_tool("apply_proposal", raced)
+            assert moved.is_error and MOVED_ON in str(moved.content)
+        assert [c["by"] for c in http.get(f"/api/runs/{run['id']}/changes").json()] == [
+            "slack:lee", "operator", "operator"
+        ]  # fmt: skip

@@ -1,0 +1,10 @@
+# error: capabilities: run_assistant forwards replies through the listen process
+name = "pager"
+version = "1.0.0"
+label = "Pager"
+about = "Tells a person about gates."
+kind = "notify"
+stage_types = []
+runtime = "uv"
+command = ["python", "server.py"]
+capabilities = ["remote_approvals", "run_assistant"]

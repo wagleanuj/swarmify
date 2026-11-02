@@ -127,7 +127,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         ("hyperframes_render", "1.0.0", "connectors/hyperframes_render"),
         ("remotion_build", "1.0.0", "connectors/remotion_build"),
         ("remotion_render", "1.0.0", "connectors/remotion_render"),
-        ("slack", "1.0.0", "connectors/slack"),
+        ("slack", "1.1.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
         ("youtube", "1.1.0", "connectors/youtube"),

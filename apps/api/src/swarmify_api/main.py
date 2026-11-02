@@ -947,6 +947,7 @@ def create_app(
     app.include_router(evals.router(world_svc, memory, swarm.runtime))
     conversations = assistant.Conversations(migrated_db(root))
     reads = (runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations)
+    asker = assistant.RunAssistant(*reads)
     tools = mcp.server(
         world_svc,
         workflow_svc,
@@ -955,7 +956,7 @@ def create_app(
         delete,
         memory=memory,
         retro=retro,
-        ask=lambda run, message: assistant.answer(*reads, run, message),
+        ask=asker.ask,
     )
     app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
     app.include_router(assistant.router(*reads))
@@ -963,7 +964,7 @@ def create_app(
     # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
     # Stateless: each request stands alone, so nothing is lost when the api restarts.
     app.router.routes.append(Route("/mcp", McpEndpoint(tools)))
-    approvals = mcp.approvals_server(runner)
+    approvals = mcp.approvals_server(runner, asker, registry)
     app.router.routes.append(Route(remote.PATH, McpEndpoint(approvals)))
     operator = auth.Operator(migrated_db(root))
     listeners = remote.Listeners(
