@@ -455,12 +455,10 @@ def test_a_template_downloads_as_a_zip_and_deletes_only_once_confirmed(
     (kids / ".template.json").write_text(json.dumps({"origin": "upload"}))
     (kids / "node_modules/remotion").mkdir(parents=True)
     (kids / "node_modules/remotion/index.js").write_text("installed")
-    # ponytail: the workflow check still looks for a base in the data directory until #348.
-    shutil.copytree(kids, tmp_path / "remotion" / "kids")
     named = client.post(f"/api/worlds/{world}/workflows", json={"yaml": NAMES_KIDS})
     assert named.status_code == 201, named.json()
     office = NAMES_KIDS.replace("Kids short", "Office").replace("kids", "office")
-    (tmp_path / "remotion" / "office").mkdir()
+    (kids.parent / "office").mkdir()
     assert client.post(f"/api/worlds/{world}/workflows", json={"yaml": office}).status_code == 201
     build = tmp_path / "worlds" / world / "runs/run_old/stage_2/build"
     shutil.copytree(kids, build, ignore=shutil.ignore_patterns("node_modules"))
@@ -487,7 +485,7 @@ def test_a_template_downloads_as_a_zip_and_deletes_only_once_confirmed(
     done = client.delete(f"{url}?confirm=true")
     assert done.json() == {"deleted": True, "workflows": [workflow]}
     assert not kids.exists()
-    assert [t["name"] for t in client.get(f"/api/worlds/{world}/templates").json()] == []
+    assert [t["name"] for t in client.get(f"/api/worlds/{world}/templates").json()] == ["office"]
     assert {str(p.relative_to(build)) for p in build.rglob("*") if p.is_file()} == {
         *files,
         ".template.json",
