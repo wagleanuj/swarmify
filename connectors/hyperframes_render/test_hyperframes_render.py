@@ -19,6 +19,7 @@ import hyperframes_render as hr
 import pytest
 
 from swarmify_connectors import (
+    packages,
     MIGRATIONS,
     ConnectorError,
     Connectors,
@@ -180,6 +181,26 @@ def test_install_puts_its_python_the_hyperframes_cli_its_browser_and_ffmpeg_besi
     assert log[1:] == ["npm run ffmpeg", "npx --no hyperframes browser ensure --force"]
 
 
+def test_a_platform_without_a_chrome_to_download_still_installs_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Linux arm64 has no Chrome Headless Shell for HyperFrames to download: the package still
+    installs, so it is not installed again at every startup, and a render uses one on PATH."""
+    failing = tmp_path / "bin"
+    failing.mkdir()
+    (failing / "npx").write_text('#!/bin/sh\necho "npx $*" >> fake-install.log\nexit 1\n')
+    (failing / "npx").chmod(0o755)
+    before = packages._install_env
+    monkeypatch.setattr(
+        packages,
+        "_install_env",
+        lambda: {**before(), "PATH": f"{failing}{os.pathsep}{before()['PATH']}"},
+    )
+    registry(tmp_path, FakeTransport()).install_defaults()
+    folder = tmp_path / "packages" / "hyperframes_render" / "1.0.0"
+    assert (folder / "fake-install.log").read_text().splitlines()[-1].startswith("npx --no")
+
+
 def test_a_world_has_it_only_once_its_operator_enables_it(installed: Path, tmp_path: Path) -> None:
     (tmp_path / "packages").symlink_to(installed)
     connectors = registry(tmp_path, FakeTransport())
@@ -200,6 +221,8 @@ def test_progress_reads_the_cli_progress_lines() -> None:
     assert hr.progress(log) == (0.02, "compiling")
     log += '@hf-progress {"code":"capture","done":265,"total":300,"pct":65}\n'
     assert hr.progress(log) == (0.65, "capturing frames 265/300")
+    odd = '@hf-progress {"code":"encode","total":300}\n@hf-progress {"code":\n'
+    assert hr.progress(log + odd) == (0.0, "encoding")
 
 
 def test_renders_the_script_into_a_video_with_a_sidecar(
@@ -252,12 +275,14 @@ def own_tools(installed: Path) -> Iterator[dict[str, Path]]:
         "HYPERFRAMES_FFMPEG_PATH": modules / ".ffmpeg" / "ffmpeg",
         "HYPERFRAMES_FFPROBE_PATH": modules / ".ffmpeg" / "ffprobe",
     }
-    for tool in tools.values():
+    made = [tool for tool in tools.values() if not tool.exists()]  # a real install has them
+    for tool in made:
         tool.parent.mkdir(parents=True, exist_ok=True)
         tool.write_text("#!/bin/sh\n")
         tool.chmod(0o755)
     yield tools
-    shutil.rmtree(modules)
+    for tool in made:
+        tool.unlink()
 
 
 def test_its_own_browser_and_ffmpeg_are_the_ones_used_else_those_on_path(
@@ -348,6 +373,7 @@ def test_a_render_that_writes_nothing_fails(
     [
         ({"input_path": "/nope/script.md"}, "the script /nope/script.md does not exist"),
         ({"project": "/nope"}, "the HyperFrames project /nope does not exist"),
+        ({"project": "."}, "project must be an absolute path, got '.'"),
         ({"input_path": ""}, "the render stage needs an `input`"),
         ({"composition": "--output=/etc/x"}, "composition must be a plain value"),
         ({"quality": "--docker"}, "quality must be a plain value"),

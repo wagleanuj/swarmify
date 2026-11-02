@@ -90,8 +90,9 @@ neither fails the render.
 Swarmify's image carries Node 22 and the shared libraries and fonts Chrome needs, not HyperFrames,
 Chrome or ffmpeg: this package's install step puts them in `/data/packages`. Renders run in the
 `sandbox` service (Swarmify's README, Deployment). On Linux arm64 HyperFrames has no Chrome
-Headless Shell to download (it would `apt-get install chromium`), so there the install step fails
-and the package is not installed; a Linux x64 host is fine.
+Headless Shell to download (it would `apt-get install chromium`), so there the install step skips
+it and a render needs a `chrome-headless-shell` on `PATH`, else it fails saying to reinstall; a
+Linux x64 host is fine.
 
 ## A project an agent wrote
 

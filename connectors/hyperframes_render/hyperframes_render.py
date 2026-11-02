@@ -113,15 +113,17 @@ def alive(pid: int) -> bool:
 
 def progress(log: str) -> tuple[float, str]:
     """Progress from the CLI log: the last `@hf-progress` line's percent and phase."""
-    lines = _PROGRESS.findall(log)
-    if not lines:
-        return 0.0, "starting the render"
-    last = json.loads(lines[-1])
-    code = str(last["code"])
-    words = PHASES.get(code, code)
-    if last.get("total"):
-        words += f" {last['done']}/{last['total']}"
-    return round(last["pct"] / 100, 3), words
+    for line in reversed(_PROGRESS.findall(log)):
+        try:
+            last = json.loads(line)
+            code = str(last["code"])
+        except (ValueError, TypeError, KeyError):
+            continue  # a line cut off or odd: the one before it
+        words = PHASES.get(code, code)
+        if last.get("total") and last.get("done") is not None:
+            words += f" {last['done']}/{last['total']}"
+        return round(float(last.get("pct") or 0) / 100, 3), words
+    return 0.0, "starting the render"
 
 
 def _tail(log: Path) -> str:
@@ -171,6 +173,8 @@ def hyperframes_render(
     if not input_path:
         raise ToolError("the render stage needs an `input`: the script artifact to render")
     output, script, folder = Path(output_path), Path(input_path), Path(project).expanduser()
+    if not folder.is_absolute():  # until templates (#319) give relative names a meaning
+        raise ToolError(f"project must be an absolute path, got {project!r}")
     if not script.is_file():
         raise ToolError(f"the script {script} does not exist")
     if not folder.is_dir():

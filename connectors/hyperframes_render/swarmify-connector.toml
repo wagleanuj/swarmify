@@ -12,8 +12,10 @@ runtime = "uv"
 # Its Python beside it (uv), then the HyperFrames CLI, ffmpeg and ffprobe (ffmpeg.mjs: ffmpeg-static's
 # release builds, each checked against a pinned SHA-256) and the Chrome Headless Shell HyperFrames
 # downloads into its cache here (ADR 0026), so a render needs nothing of the core image but Node.
-# --force downloads it even where a system Chrome would do.
-install = ["sh", "-c", "uv sync --frozen --no-dev && npm ci --ignore-scripts --no-audit --no-fund && npm run ffmpeg && HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_CACHE_DIR=\"$PWD/node_modules/.hyperframes\" npx --no hyperframes browser ensure --force"]
+# --force downloads it even where a system Chrome would do. Where there is none to download (Linux
+# arm64) the install still succeeds, so it is not repeated at every startup, and a render uses a
+# Chrome Headless Shell on PATH or refuses saying to reinstall.
+install = ["sh", "-c", "uv sync --frozen --no-dev && npm ci --ignore-scripts --no-audit --no-fund && npm run ffmpeg && { HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_CACHE_DIR=\"$PWD/node_modules/.hyperframes\" npx --no hyperframes browser ensure --force || echo 'no Chrome Headless Shell for this platform: put one on PATH'; }"]
 command = [".venv/bin/python", "hyperframes_render.py"]
 
 # Its sandbox (ADR 0021). A render reaches only its own loopback (HyperFrames' file server, on a
