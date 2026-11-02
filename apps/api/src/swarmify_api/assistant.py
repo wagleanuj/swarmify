@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from swarmify_kernel import new_id
 from swarmify_kernel.sqlite import connect
 from swarmify_memory import GraphIndex
-from swarmify_runs import ChangeProposal, Illegal, Run, RunChange, Runner
+from swarmify_runs import ChangeProposal, Illegal, PublishPreview, Run, RunChange, Runner
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import (
     AgentRuntime,
@@ -66,6 +66,11 @@ ANSWER_SCHEMA: dict[str, Any] = {
             "items": {"type": "string"},
             "description": "The ids of the proposals this reply presents, from propose_change",
         },
+        "fields": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": "At a publish gate: the gate's editable fields to fill, by key",
+        },
     },
     "required": ["reply"],
 }
@@ -84,6 +89,14 @@ stage that has not started, `payload` its whole new config. It writes nothing: i
 the change would do and what the check refuses. Fix a refused proposal and propose again, then
 list the ids of the proposals you present in `proposals`. Nothing changes until the operator
 presses Apply on a card. You cannot apply a change or answer a gate, and never say you did."""
+GATE = """The publish stage after the gate sends this, as the gate's form shows it, with what would
+stop the post: {preview}
+
+To change an editable field of the form (title, description, hashtags, tags), answer it in
+`fields` by key with its whole new value: it fills the gate's form for the operator to confirm,
+so propose no change for it. To change a file the post reads (like metadata.md), call
+propose_change with `kind` artifact_edit, `stage` the id of the finished stage that made it and
+`payload` {{"path": its name, "text": its whole new text}}."""
 
 
 class Ask(BaseModel):
@@ -115,6 +128,9 @@ class Message(BaseModel):
     sources: list[Source] = []
     proposals: list[Card] = []
     cost_usd: float = 0.0
+    fields: dict[str, str] = {}
+    """At a publish gate, the gate's editable fields this reply fills in its form, by key: an
+    answer of the turn only, never kept, as the gate's form is the operator's to confirm."""
 
 
 class Conversation(BaseModel):
@@ -481,9 +497,27 @@ class Reader:
         return json.dumps({"id": made, **jsonable_encoder(proposal)})
 
 
-def parse_answer(output: Any, run: Run) -> tuple[str, list[Source], list[str] | None]:
-    """The reply, its sources (those naming a stage of the run) and the proposal ids it shows,
-    None when it names none."""
+def at_gate(runner: Runner, run: Run) -> tuple[str, PublishPreview | None]:
+    """What the session hears of the gate the run waits at: its ask, and what the publish stage
+    after it sends, with the fields the gate's form edits, which a reply fills instead of
+    proposing a change. Nothing when no gate waits."""
+    gate = next((s for s in run.stages if s.type == "gate" and s.status == "waiting"), None)
+    if gate is None:
+        return "", None
+    told = f"The run waits at the gate {gate.name} ({gate.id}), which asks: {gate.ask}"
+    preview = runner.preview_after(run, gate.index)
+    if preview is None:
+        return told, None
+    fields = [{"key": f.key, "value": f.value, "editable": f.editable} for f in preview.fields]
+    shown = json.dumps({"fields": fields, "problems": preview.problems})
+    return "\n\n".join([told, GATE.format(preview=shown)]), preview
+
+
+def parse_answer(
+    output: Any, run: Run, preview: PublishPreview | None = None
+) -> tuple[str, list[Source], list[str] | None, dict[str, str]]:
+    """The reply, its sources (those naming a stage of the run), the proposal ids it shows,
+    None when it names none, and the fields it fills (only those the gate's form edits)."""
     if not isinstance(output, dict) or not str(output.get("reply") or "").strip():
         raise ValueError("the assistant answered without a reply")
     stages = {s.id for s in run.stages}
@@ -493,7 +527,12 @@ def parse_answer(output: Any, run: Run) -> tuple[str, list[Source], list[str] | 
         if isinstance(s, dict) and s.get("label") and s.get("stage") in stages
     ]
     shown = output.get("proposals")
-    return str(output["reply"]).strip(), sources, [str(p) for p in shown] if shown else None
+    editable = {f.key for f in preview.fields if f.editable} if preview else set()
+    filled = output.get("fields")
+    filled = filled if isinstance(filled, dict) else {}
+    fields = {k: str(v) for k, v in filled.items() if k in editable}
+    reply = str(output["reply"]).strip()
+    return reply, sources, [str(p) for p in shown] if shown else None, fields
 
 
 def router(
@@ -520,7 +559,9 @@ def router(
         with nothing kept but what the session cost; send the message again to retry."""
         run = get_run(run_id)
         reader = Reader(run_id, runner, worlds, workflows, board, index, conversations)
-        system = f"{SYSTEM}\n\nThe run is {run.name}, id {run.id}, in the world {run.world_id}."
+        gate, preview = at_gate(runner, run)
+        named = f"The run is {run.name}, id {run.id}, in the world {run.world_id}."
+        system = "\n\n".join(filter(None, [SYSTEM, named, gate]))
         end: SessionEnd | None = None
         try:
             end, sid = await run_turn(
@@ -529,7 +570,7 @@ def router(
             )  # fmt: skip
             if end.is_error:
                 raise RuntimeError(end.result or "the session failed")
-            reply, sources, shown = parse_answer(end.output, run)
+            reply, sources, shown, fields = parse_answer(end.output, run, preview)
         except Exception as exc:
             conversations.drop(reader.made)
             if end is not None:
@@ -540,7 +581,8 @@ def router(
         conversations.turn(
             run, body.message.strip(), reply, sources, shown, reader.made, sid, end.cost_usd
         )
-        return conversations.messages(get_run(run_id))[-1]
+        answered = conversations.messages(get_run(run_id))[-1]
+        return answered.model_copy(update={"fields": fields})
 
     @api.get("/runs/{run_id}/assistant", responses={404: {}})
     def conversation(run_id: str) -> Conversation:

@@ -1,9 +1,9 @@
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
+import YAML from "yaml";
 
 import {
   blocked,
-  changedFields,
   choosable,
   type Choice,
   decision,
@@ -15,7 +15,9 @@ import {
   staysOpen,
   topUpSuggestion,
   underReview,
+  useGateForm,
 } from "../api/answer";
+import { applyCard, type Card, cardTitle, lines, markCard, useGateAsk } from "../api/assistant";
 import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
 import type { Agent, ArtifactFile } from "../api/events";
@@ -176,10 +178,9 @@ function Ask({
   asker: { name: string; look: Look | null };
   onAnswer: (gate: Gate, send: () => Promise<string | null>, said: string, cheer: boolean) => Promise<void>;
 }) {
-  const form = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
-  // Whether an editable field of the post differs from what the gate showed.
-  const [changed, setChanged] = useState(false);
+  // The gate's form, and whether an editable field of the post differs from what the gate shows.
+  const { form, changed, edited, fill } = useGateForm(gate);
   // What the earlier stages made (a pick's cards, what an approve reviews), and a skill gate's proposal.
   const [artifacts, setArtifacts] = useState<ArtifactFile[] | null>(null);
   const [proposal, setProposal] = useState<Proposal | null | undefined>(undefined);
@@ -258,9 +259,9 @@ function Ask({
           className="talk-form"
           aria-label={`Answer ${gate.stage_name}`}
           onSubmit={(e) => e.preventDefault()}
-          onChange={() => setChanged(changedFields(gate, form.current))}
+          onChange={edited}
         >
-          {gate.publish && <WhatGoesOut preview={gate.publish} worldId={gate.world_id} />}
+          {gate.publish && <WhatGoesOut key={JSON.stringify(gate.publish)} preview={gate.publish} worldId={gate.world_id} />}
           {reviewed.length > 0 && <p className="talk-review">Under review: {reviewed.map((a) => a.name).join(", ")}</p>}
           {gate.kind === "skill" && proposal?.skill && (
             <section className="talk-review" aria-label="Skill change">
@@ -314,8 +315,100 @@ function Ask({
             ))}
           </ol>
         </form>
+        <AskRun gate={gate} revision={run?.revision} onFill={fill} />
       </section>
     </div>
+  );
+}
+
+/** Ask or change at the gate (spec Run Assistant), as the Needs you page asks: a turn with the
+ * run's assistant under the gate's form. Its proposals come as cards to apply or dismiss; at a
+ * publish gate the fields it fills go into the form above, for the operator to confirm. */
+function AskRun({ gate, revision, onFill }: { gate: Gate; revision?: number | null; onFill: (fields: Record<string, string>) => void }) {
+  const { turns, text, setText, asking, error, send, filled } = useGateAsk(gate, onFill);
+  return (
+    <section className="talk-ask" aria-label="Ask or change">
+      {turns.map(({ said }) => (
+        <div key={said.id} className="talk-review">
+          <p>{said.text}</p>
+          {filled(said) && <p>{filled(said)}</p>}
+          {(said.proposals ?? []).map((card) => (
+            <TalkCard key={card.id} runId={gate.run_id} card={card} revision={revision ?? 0} />
+          ))}
+        </div>
+      ))}
+      {error && <p role="alert">{error}</p>}
+      <form className="talk-form" onSubmit={send}>
+        <label>
+          Ask or change before you answer
+          <textarea rows={1} value={text} onChange={(e) => setText(e.target.value)} />
+        </label>
+        <button type="submit" className="office-btn" disabled={!text.trim() || asking}>
+          {asking ? "Reading the run..." : "Send"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+/** A Run Change the assistant proposed: what changes, what the check refuses, Apply and Not now.
+ * Applying reloads the gates, so the preview shows what will really go out. Once the run is past
+ * the `revision` it was proposed at, it is stale and cannot be applied. */
+function TalkCard({ runId, card, revision }: { runId: string; card: Card; revision: number }) {
+  const [state, setState] = useState<"open" | "applied" | "dismissed">("open");
+  const [refused, setRefused] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (state === "dismissed") return null;
+  const { change, before, after, violations, read_by, in_place, fork_from } = card.proposal;
+  const text = (v: Record<string, unknown>) => (change.kind === "artifact_edit" ? String(v.text ?? "") : YAML.stringify(v));
+  const diff = lines(text(before), text(after));
+  const stale = state === "open" && revision > card.proposal.revision;
+
+  async function apply() {
+    setBusy(true);
+    const why = await applyCard(runId, card);
+    setBusy(false);
+    setRefused(why);
+    if (why) return;
+    setState("applied");
+    reloadGates();
+  }
+
+  return (
+    <section className="talk-card" aria-label={cardTitle(card)} data-testid="talk-card">
+      <b>{cardTitle(card)}</b>
+      <ul aria-label="The change">
+        {diff.map((l, i) => (
+          <li key={i}>{l.startsWith("-") ? <del>{l.slice(1)}</del> : <ins>{l.slice(1)}</ins>}</li>
+        ))}
+      </ul>
+      {state === "open" &&
+        violations.map((v) => <p key={v}>This would not pass: {v.replace(/\.$/, "")}.</p>)}
+      {state === "open" && (read_by ?? []).length > 0 && <p>{(read_by ?? []).join(", ")} already read the old version.</p>}
+      {state === "open" && !in_place && <p>Continues as a new run from {fork_from}; this one ends.</p>}
+      {stale && <p role="status">The run moved on since this was proposed.</p>}
+      {refused && <p role="alert">{refused}</p>}
+      {state === "applied" ? (
+        <p role="status">Applied by you.</p>
+      ) : (
+        <div className="talk-card-actions">
+          <button type="button" className="office-btn talk-yes" disabled={busy || stale || violations.length > 0} onClick={() => void apply()}>
+            Apply
+          </button>
+          <button
+            type="button"
+            className="office-btn"
+            disabled={busy}
+            onClick={() => {
+              setState("dismissed");
+              void markCard(runId, card, "dismissed");
+            }}
+          >
+            Not now
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

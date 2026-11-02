@@ -591,3 +591,9 @@
   .office-desks i::before { left: 5px; width: 18px; }
   .office-desks.office-on i::before { height: 11px; }
 }
+.talk-ask { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.talk-card { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 8px 10px; background: #fff; border: 2px solid var(--ink); border-radius: 10px; font-size: 13px; }
+.talk-card ul { margin: 0; padding: 0; list-style: none; font-family: monospace; white-space: pre-wrap; }
+.talk-card del { color: var(--muted); }
+.talk-card ins { text-decoration: none; background: #fff8d6; }
+.talk-card-actions { display: flex; gap: 8px; }

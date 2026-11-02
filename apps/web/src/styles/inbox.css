@@ -82,3 +82,4 @@ p.ask { margin: 0; font-size: 18px; line-height: 1.35; max-width: 44rem; }
   .gate-actions .menu button { justify-content: stretch; }
   .gate-list .gate .artifact-view video { width: auto; max-width: 100%; max-height: 300px; }
 }
+.gate-ask { display: grid; gap: 10px; max-width: 44rem; margin-top: 12px; }

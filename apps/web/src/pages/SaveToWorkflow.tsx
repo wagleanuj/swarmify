@@ -1,10 +1,11 @@
 import { useId, useRef, useState } from "react";
 import YAML from "yaml";
 
+import { lines } from "../api/assistant";
 import { api } from "../api/client";
 import { refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
-import { type AppliedChange, lines } from "./ChangeCard";
+import type { AppliedChange } from "./ChangeCard";
 
 type Draft = components["schemas"]["WorkflowDraft"];
 

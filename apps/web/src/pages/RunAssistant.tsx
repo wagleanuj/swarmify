@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
+import { cardable, cardTitle } from "../api/assistant";
 import { api } from "../api/client";
 import { refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
@@ -120,5 +121,6 @@ function Proposed({ run, card, onMark }: { run: Run; card: Card; onMark: (state:
       </>
     );
   }
+  if (!cardable(card)) return <p className="faint">Proposed: {cardTitle(card)}.</p>;
   return <ChangeCard run={run} stage={stage} proposed={card.proposal} onClose={() => onMark("dismissed")} onApplied={(c) => onMark("applied", c.id)} />;
 }

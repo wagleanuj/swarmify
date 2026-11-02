@@ -86,7 +86,7 @@ test("a budget gate adds money as a new total or aborts the run", async () => {
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
   await expect.element(card).toMatchTextContent(/The budget of \$5\.00 is spent.*This run has spent \$5\.20 of \$5\.00/);
-  expect(card.getByRole("textbox").query()).toBeNull(); // no note: money is not a decision
+  expect(card.getByLabelText(/^Note/).query()).toBeNull(); // no note: money is not a decision
   await card.getByLabelText("Add (US dollars)").fill("2.5");
   await card.getByRole("button", { name: "Add money and go on" }).click();
   await vi.waitFor(() => expect(bodies).toEqual([{ budget_usd: 7.5 }]));

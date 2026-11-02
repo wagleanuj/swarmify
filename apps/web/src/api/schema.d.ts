@@ -2820,6 +2820,13 @@ export interface components {
              * @default 0
              */
             cost_usd: number;
+            /**
+             * Fields
+             * @default {}
+             */
+            fields: {
+                [key: string]: string;
+            };
         };
         /** Models */
         Models: {
