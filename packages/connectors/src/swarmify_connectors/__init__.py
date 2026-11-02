@@ -1149,11 +1149,10 @@ class Connectors:
         if session and not config.get("output"):
             config = {**config, "output": session.get("output")}  # its default output, if any
         out = _manifest_problems(manifest, config, params) if manifest else []
-        if session and session.get("templates") and params.get(build_session.BASE):
+        if session and "templates" in manifest and params.get(build_session.BASE):
+            world = self.data_dir / "worlds" / world_id
             try:
-                build_session.template(
-                    str(params[build_session.BASE]), self.data_dir, session["templates"]
-                )
+                build_session.template(manifest, world, str(params[build_session.BASE]))
             except ValueError as exc:
                 out.append(str(exc))
         if "check" in manifest.get("capabilities", []):
@@ -1288,6 +1287,7 @@ class Connectors:
                 now,
                 attempts=(before.attempts if before else 0) + 1,
                 visit=visit,
+                template=config.get("template"),
             )
         )
         try:

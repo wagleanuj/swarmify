@@ -3,6 +3,7 @@
 stage calling a package that requests one. The fixture package `sketch` requests one."""
 
 import copy
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -39,22 +40,58 @@ def test_the_brief_fills_the_stage_and_adds_the_note_of_each_input_it_has_one_fo
     )
 
 
-def test_a_build_is_seeded_from_a_folder_or_a_template_by_name(tmp_path: Path) -> None:
+def test_a_build_is_seeded_from_a_folder_or_a_world_template_by_name(tmp_path: Path) -> None:
     folder = tmp_path / "worlds/w/runs/r/s/build"
     build_session.seed(folder, SKETCH / "session/starter")
     assert (folder / "index.html").is_file()
 
-    shorts = tmp_path / "remotion/shorts"
+    m, world = read_manifest(SKETCH), tmp_path / "worlds/w"
+    shorts = world / "assets/sketches/shorts"
     (shorts / "node_modules/x").mkdir(parents=True)
     (shorts / ".git").mkdir()
     (shorts / "index.ts").write_text("// shorts")
-    build_session.seed(folder, build_session.template("shorts", tmp_path, "remotion"))
+    (shorts / build_session.RECORD).write_text("{}")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data/.env").write_text("SECRET=1")
+    (shorts / "src").mkdir()
+    (shorts / "src/data").symlink_to(tmp_path / "data")
+    (shorts / "env").symlink_to(tmp_path / "data/.env")
+    build_session.seed(folder, build_session.template(m, world, "shorts"))
     assert (folder / "index.ts").read_text() == "// shorts"  # a fresh folder each time
     assert not (folder / "node_modules").exists() and not (folder / "index.html").exists()
-    assert not (folder / ".git").exists()
-    for base in ("../shorts", str(shorts), "..", "nope"):
+    assert not (folder / ".git").exists() and not (folder / build_session.RECORD).exists()
+    assert (folder / "src").is_dir() and not os.path.lexists(folder / "src/data")
+    assert not os.path.lexists(folder / "env")  # a link in a Template is not followed out of it
+    (world / "assets/sketches/.hidden").mkdir()
+    (world / "assets/sketches/linked").symlink_to(shorts)
+    for base in ("../shorts", str(shorts), "..", ".hidden", "linked", "nope"):
         with pytest.raises(ValueError):
-            build_session.template(base, tmp_path, "remotion")
+            build_session.template(m, world, base)
+
+
+def test_a_templates_fingerprint_is_its_files_paths_and_bytes(tmp_path: Path) -> None:
+    a, b = tmp_path / "a", tmp_path / "b"
+    for t in (a, b):
+        (t / "src").mkdir(parents=True)
+        (t / "src/index.ts").write_text("// one")
+    (a / "node_modules/x").mkdir(parents=True)
+    (a / build_session.RECORD).write_text('{"origin": "upload"}')
+    assert build_session.fingerprint(a) == build_session.fingerprint(b)
+    (b / "src/index.ts").rename(b / "index.ts")
+    assert build_session.fingerprint(a) != build_session.fingerprint(b)
+
+
+def test_the_brief_names_the_templates_guide_only_when_it_has_one(tmp_path: Path) -> None:
+    m, copy = read_manifest(SKETCH), tmp_path / "copy.md"
+    values = {"tone": "calm", "input": copy, "folder": tmp_path}
+    plain = f"Write a calm page for the copy at {copy}."
+    assert build_session.task(m, SKETCH, values, [copy], "bold") == plain
+    (tmp_path / "GUIDE.md").write_text("Shout.")
+    assert build_session.task(m, SKETCH, values, [copy]) == plain  # the starter's, not a Template's
+    assert build_session.task(m, SKETCH, values, [copy], "bold") == (
+        f"{plain}\nRead {tmp_path / 'GUIDE.md'} first: the guide of the Template bold this build"
+        " starts from."
+    )
 
 
 def test_a_revision_keeps_the_last_build_and_its_file_once(tmp_path: Path) -> None:
@@ -126,10 +163,9 @@ def test_a_session_calling_another_packages_tool_needs_no_server() -> None:
 
 @pytest.fixture
 def sketched(tmp_path: Path, connectors: Connectors) -> Connectors:
-    """The fixture package installed and enabled in W, with remotion-style templates."""
+    """The fixture package installed and enabled in W, with its Templates in `sketches`."""
     folder = _sketch(tmp_path)
     text = (folder / MANIFEST).read_text()
-    text = text.replace('tool = "finish"\n', 'tool = "finish"\ntemplates = "remotion"\n')
     text = text.replace("[build_session]\n", '[build_session]\noutput = "index.html"\n')
     (folder / MANIFEST).write_text(text)
     connectors.packages = Packages(tmp_path / "packages", tmp_path)
@@ -138,7 +174,7 @@ def sketched(tmp_path: Path, connectors: Connectors) -> Connectors:
     return connectors
 
 
-def test_a_saved_build_stage_names_its_input_and_an_existing_template(
+def test_a_saved_build_stage_names_its_input_and_a_template_of_its_world(
     tmp_path: Path, sketched: Connectors
 ) -> None:
     stage: dict[str, Any] = {"calls": "sketch"}  # its output defaults to the Manifest's
@@ -146,12 +182,14 @@ def test_a_saved_build_stage_names_its_input_and_an_existing_template(
     stage["inputs"] = ["copy.md", "palette.json"]
     assert sketched.stage_problems(W, stage) == []
     assert sketched.stage_problems(W, {**stage, "params": {"base": "/etc"}}) == [
-        f"base must be a template name under {tmp_path / 'remotion'}, not a path"
+        "base must be a Template's name, not a path: /etc"
     ]
-    assert sketched.stage_problems(W, {**stage, "params": {"base": "shorts"}}) == [
-        f"the template shorts does not exist in {tmp_path / 'remotion'}"
-    ]
-    (tmp_path / "remotion/shorts").mkdir(parents=True)
+    missing = ["the Template shorts is not one of this world's Sketch Templates"]
+    assert sketched.stage_problems(W, {**stage, "params": {"base": "shorts"}}) == missing
+    (tmp_path / "sketches/shorts").mkdir(parents=True)  # the data directory's: never a Template
+    (tmp_path / "worlds/world_2/assets/sketches/shorts").mkdir(parents=True)
+    assert sketched.stage_problems(W, {**stage, "params": {"base": "shorts"}}) == missing
+    (tmp_path / f"worlds/{W}/assets/sketches/shorts").mkdir(parents=True)
     assert sketched.stage_problems(W, {**stage, "params": {"base": "shorts"}}) == []
 
 

@@ -29,15 +29,13 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from swarmify_connectors import Connector
+from swarmify_connectors import Connector, build_session
 from swarmify_memory import ASSETS, ArtifactFile, Memory
 from swarmify_runs import Run
 from swarmify_workflows import ConnectorStage, Workflows
 from swarmify_worlds import Worlds
 
 _DECISION_FOLDER = re.compile(r"^(\d{2})-")
-TEMPLATE_RECORD = ".template.json"
-"""A Template's own record, in its folder: where it came from and when it was added."""
 _TEMPLATE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$")
 
 
@@ -146,7 +144,7 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
             if d.name.startswith(".") or d.is_symlink():
                 continue
             files = [p for p in d.rglob("*") if p.is_file() and not p.is_symlink()]
-            record = d / TEMPLATE_RECORD
+            record = d / build_session.RECORD
             try:
                 meta = json.loads(record.read_text()) if record.is_file() else {}
             except ValueError:  # a record mangled by hand: the Template is still there
@@ -167,7 +165,7 @@ def fingerprint(folder: Path) -> str:
     digest = hashlib.sha256()
     files = {p.relative_to(folder).as_posix(): p for p in folder.rglob("*") if p.is_file()}
     for rel, p in sorted(files.items()):
-        if rel == TEMPLATE_RECORD or "node_modules" in rel.split("/") or p.is_symlink():
+        if rel == build_session.RECORD or "node_modules" in rel.split("/") or p.is_symlink():
             continue
         with p.open("rb") as f:
             digest.update(f"{rel}\0".encode() + hashlib.file_digest(f, "sha256").digest())
@@ -258,7 +256,7 @@ def zipped(folder: Path) -> Path:
             for p in sorted(folder.rglob("*")):
                 rel = p.relative_to(folder)
                 if p.is_file() and not p.is_symlink() and "node_modules" not in rel.parts:
-                    if rel != Path(TEMPLATE_RECORD):
+                    if rel != Path(build_session.RECORD):
                         z.write(p, rel.as_posix())
     return Path(out.name)
 
@@ -375,7 +373,7 @@ def router(
         if missing := [r for r in f.require if not (root / r).exists()]:
             raise ValueError(f"the Template lacks {', '.join(missing)}, which {f.package} requires")
         files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
-        (root / TEMPLATE_RECORD).write_text(json.dumps({
+        (root / build_session.RECORD).write_text(json.dumps({
             "origin": "upload",
             "added": datetime.now(UTC).isoformat(),
             "bytes": sum(p.stat().st_size for p in files),

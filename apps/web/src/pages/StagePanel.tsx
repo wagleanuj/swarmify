@@ -308,6 +308,11 @@ function BuildPanel(props: {
           <h3>Writing the project</h3>
           {builder && <span className="faint">{usd(builder.cost_usd)}</span>}
         </div>
+        {call?.template && (
+          <p className="faint" data-testid="template">
+            Started from the Template <b>{call.template.name}</b>
+          </p>
+        )}
         {steps.length === 0 ? (
           <p className="faint">The builder has not started. It writes the project, then the render starts.</p>
         ) : (

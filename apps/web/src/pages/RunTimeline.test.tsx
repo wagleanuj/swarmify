@@ -449,6 +449,7 @@ test("build panel: the builder's session in words with its cost, the render's fr
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   const build = screen.getByTestId("build-log");
   await expect.element(build).toMatchTextContent(/^Writing the project\s*\$0\.8273\s*Installed packages\s*Wrote src\/Main\.tsx$/);
+  expect(build.getByTestId("template").query()).toBeNull(); // started from the package's starter
   await expect.element(screen.getByTestId("render-progress")).toHaveTextContent("Rendered 412 of 870 frames");
   await expect.element(screen.getByRole("meter", { name: "Render progress" })).toHaveAttribute("value", "0.4");
 
@@ -456,6 +457,15 @@ test("build panel: the builder's session in words with its cost, the render's fr
   await expect.element(screen.getByTestId("render-progress")).toHaveTextContent("Encoded 778 of 972 frames");
   await expect.element(screen.getByTestId("project")).toHaveTextContent("/data/worlds/world_1/runs/run_1/stage_2/build");
   expect(screen.getByRole("region", { name: "Live log" }).query()).toBeNull(); // the session is the log
+});
+
+test("build panel: the Template the build started from, by name", async () => {
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("done", [voice("done"), video("done")])),
+    "GET /api/stages/stage_2/call": () => Response.json(call("stage_2", { template: { name: "cat kit", fingerprint: "ab12" } })),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_2");
+  await expect.element(screen.getByTestId("build-log").getByTestId("template")).toHaveTextContent("Started from the Template cat kit");
 });
 
 test("render panel: progress, then the player once the video is made", async () => {

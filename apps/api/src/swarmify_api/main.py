@@ -545,8 +545,9 @@ def create_app(
         run: Run, stage_id: str, stage: StageDef, package: ConnectorDef, recorded: dict[str, str]
     ) -> None:
         """A Build Session (ADR 0018), as the stage's package asks in its Manifest: seed
-        `<stage>/build/` from its starter or the template `base` names (or, on a send-back, from
-        the last build, to revise), run one sandboxed coding session in it
+        `<stage>/build/` from its starter or the world's Template `base` names (ADR 0028), its
+        name and fingerprint recorded on the call (or, on a send-back, from the last build, to
+        revise), run one sandboxed coding session in it
         (swarmify_swarm.build) with the package's prompts and network, then call its `tool` on
         the result as the stage's call, a long job, on its `connector` (another package whose
         tool it reuses) or itself. A call already running or done for this visit skips the
@@ -571,6 +572,7 @@ def create_app(
         values = {**params, "input": first, "folder": project}
         made = Path(params["output_path"]) if output else None
         call = registry.call_for(stage_id)
+        template = call.template if call is not None else None
         if call is None or call.visit != run.send_backs or call.status == "failed":
             # A send-back revises the last good build, kept as build.v<n> (n counting visits
             # from 1); a stage never run, or one whose last call failed, starts fresh.
@@ -580,14 +582,13 @@ def create_app(
                 if previous and (previous.exists() or project.exists()):
                     build_session.keep(project, previous, made)
                 else:
-                    previous = None
+                    previous, template = None, None
                     base = params.get(build_session.BASE)
-                    templates = session.get("templates")
-                    start = (
-                        build_session.template(str(base), root, templates)
-                        if base and templates
-                        else source / session["starter"]
-                    )
+                    start = source / session["starter"]
+                    if base and "templates" in package.manifest:
+                        start = build_session.template(package.manifest, folder, str(base))
+                        fingerprint = build_session.fingerprint(start)
+                        template = {"name": str(base), "fingerprint": fingerprint}
                     build_session.seed(project, start)
                 limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
             except ValueError as exc:
@@ -609,7 +610,9 @@ def create_app(
                     folder,
                     project,
                     system=(source / session["system"]).read_text(),
-                    task=build_session.task(package.manifest, source, values, inputs),
+                    task=build_session.task(
+                        package.manifest, source, values, inputs, (template or {}).get("name", "")
+                    ),
                     inputs=[Path(p) for p in others],
                     brief=str(params.get("brief") or ""),
                     sandbox=build.sandbox(project, folder, root, cache, secrets, domains),
@@ -627,6 +630,7 @@ def create_app(
         then = {
             "calls": session.get("connector", package.name),
             "output": output,
+            "template": template,
             "params": {
                 "tool": session["tool"],
                 **{k: build_session.fill(v, values) for k, v in arguments.items()},

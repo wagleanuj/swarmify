@@ -64,7 +64,8 @@ class Tool:
 class Call:
     """One connector stage call, keyed by the stage id. `response` is the latest raw response:
     the tool's result, or for a long job the last poll. `visit` is the run's send-back count
-    when it was made; a later visit to the stage replaces it."""
+    when it was made; a later visit to the stage replaces it. `template` is the Template a build
+    stage started from, its `name` and `fingerprint` (ADR 0028)."""
 
     idempotency_key: str
     world_id: str
@@ -84,6 +85,7 @@ class Call:
     attempts: int = 0
     polls: int = 0
     visit: int = 0
+    template: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)

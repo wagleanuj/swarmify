@@ -2071,7 +2071,8 @@ export interface components {
          * Call
          * @description One connector stage call, keyed by the stage id. `response` is the latest raw response:
          *     the tool's result, or for a long job the last poll. `visit` is the run's send-back count
-         *     when it was made; a later visit to the stage replaces it.
+         *     when it was made; a later visit to the stage replaces it. `template` is the Template a build
+         *     stage started from, its `name` and `fingerprint` (ADR 0028).
          */
         Call: {
             /** Idempotency Key */
@@ -2126,6 +2127,10 @@ export interface components {
              * @default 0
              */
             visit: number;
+            /** Template */
+            template?: {
+                [key: string]: string;
+            } | null;
         };
         /**
          * Card

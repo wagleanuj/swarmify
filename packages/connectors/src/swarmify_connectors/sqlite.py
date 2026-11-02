@@ -12,7 +12,7 @@ from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
 
 MIGRATIONS = Path(__file__).parent / "migrations"
-_JSON = ("request", "response")
+_JSON = ("request", "response", "template")
 
 
 def _connector(row: sqlite3.Row) -> Connector:

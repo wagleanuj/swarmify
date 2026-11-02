@@ -679,7 +679,6 @@ network = ["registry.npmjs.org"]       # the only hosts the session's Bash may r
 system = "system.md"                   # the session's system prompt, a file of the package
 brief = "brief.md"                     # its task, with $input, $folder and the stage's $params
 starter = "starter"                    # the folder a fresh build starts as a copy of
-templates = "mine"                     # optional: params.base names <data dir>/mine/<base> instead
 output = "page.html"                   # optional: the stage's output when it names none
 tool = "publish_page"                  # called on the result as the stage's call, a long job
 connector = "other_package"            # optional: whose tool it is; no server of its own then
@@ -689,7 +688,8 @@ arguments = { site = "$folder" }       # the tool's arguments, beside input_path
 "palette.json" = "palette.md"          # added to the brief when an input has this name ($file)
 ```
 
-A stage calling such a package copies the starter (or the `base` template), without its
+A stage calling such a package copies the starter (or, when the package also declares the
+`templates` Capability, the world's Template its `base` param names, ADR 0028), without its
 `node_modules` or `.git`, into a fresh `<stage folder>/build/`, and runs one session there as
 agent `builder` with Bash, Read, Write, Edit, Glob and Grep, the package's system prompt and
 brief, the stage's other inputs and the world's assets by path, the run's gate decisions as
