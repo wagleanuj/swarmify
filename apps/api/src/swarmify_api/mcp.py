@@ -4,7 +4,7 @@ Run over stdio with `uv run swarmify-mcp`. Reads the same `SWARMIFY_DATA_DIR` as
 world created here appears on the API's event stream.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -14,10 +14,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from swarmify_api import tasks
 from swarmify_api.agents import run_artifacts
+from swarmify_api.assistant import Message, Unanswered, read_run_text
+from swarmify_api.auth import CALLER
 from swarmify_api.runs import checker, pinner, start_pinned
 from swarmify_memory import Memory
-from swarmify_runs import Illegal, RunControl
+from swarmify_runs import Illegal, Run, RunChange, RunControl
 from swarmify_swarm import OPERATOR, Refused, Storage
+from swarmify_swarm import ToolError as AgentToolError
 from swarmify_workflows import Invalid, Workflows
 from swarmify_worlds import MAX_AGENTS, Worlds
 
@@ -30,12 +33,17 @@ def server(
     delete: Callable[[str], bool] | None = None,
     memory: Memory | None = None,
     retro: bool = True,
+    ask: Callable[[Run, str], Awaitable[Message]] | None = None,
 ) -> MCPServer:
     """`control` acts on runs hosted by the API process, and records the runs it starts queued
     for that process to adopt; `delete` is the composition root's world delete
     (`main.world_deleter`), the world's row and folder only when not given. With `retro`, a
     started run ends with the Retro stage, as over HTTP. A fork through `control` re-checks
-    its workflow version with this server's pin."""
+    its workflow version with this server's pin. `ask` is one turn of a run's Run Assistant,
+    served as `ask_run` when given (the API process has the agent runtime it needs).
+
+    A call through an API token (`auth.CALLER`) scoped to one world reaches only that world, its
+    workflows and runs, and a Run Change it applies is recorded as made by the token's name."""
     delete = delete or worlds.delete
     root = control.data_dir
     memory = memory or Memory(root / "swarmify.db", root)
@@ -43,20 +51,42 @@ def server(
     control.check = checker(workflows)
     mcp = MCPServer(
         "swarmify",
-        instructions="Drive swarmify: worlds, workflows, runs (start, fork, artifacts), swarm stage"
-        " whiteboards, and the gates runs wait at.",
+        instructions="Drive swarmify: worlds, workflows, runs (start, fork, artifacts, Run"
+        " Changes, the Run Assistant), swarm stage whiteboards, and the gates runs wait at.",
     )
+
+    def scope() -> str | None:
+        token = CALLER.get()
+        return token.world_id if token else None
+
+    def reach(world_id: str) -> None:
+        if (only := scope()) is not None and world_id != only:
+            raise ToolError(f"This token reaches only the world {only}.")
+
+    def run_of(run_id: str) -> Run:
+        run = control.get(run_id)
+        if run is None:
+            raise ToolError(f"run not found: {run_id}")
+        reach(run.world_id)
+        return run
+
+    def workflow_world(workflow_id: str) -> None:
+        if (workflow := workflows.get(workflow_id)) is not None:
+            reach(workflow.world_id)
 
     @mcp.tool(description="Create a world: one long-lived memory with its own folder and stream.")
     def create_world(name: str, purpose: str = "") -> dict[str, Any]:
+        if (only := scope()) is not None:
+            raise ToolError(f"This token reaches only the world {only}.")
         return asdict(worlds.create(name, purpose))
 
     @mcp.tool(description="List every world in creation order.")
     def list_worlds() -> list[dict[str, Any]]:
-        return [asdict(w) for w in worlds.list_all()]
+        return [asdict(w) for w in worlds.list_all() if scope() in (None, w.id)]
 
     @mcp.tool(description="Get one world by id.")
     def get_world(world_id: str) -> dict[str, Any]:
+        reach(world_id)
         world = worlds.get(world_id)
         if world is None:
             raise ValueError(f"world not found: {world_id}")
@@ -64,6 +94,7 @@ def server(
 
     @mcp.tool(description="Delete a world, its folder and its rows. Irreversible.")
     def delete_world(world_id: str) -> dict[str, Any]:
+        reach(world_id)
         if not delete(world_id):
             raise ValueError(f"world not found: {world_id}")
         return {"deleted": world_id}
@@ -73,6 +104,7 @@ def server(
         " with it, a new immutable version. Returns the version, or the violations when refused."
     )
     def save_workflow(world_id: str, yaml: str, workflow_id: str | None = None) -> dict[str, Any]:
+        reach(world_id)
         if worlds.get(world_id) is None:
             raise ValueError(f"world not found: {world_id}")
         try:
@@ -84,6 +116,7 @@ def server(
 
     @mcp.tool(description="Check workflow YAML against every rule without saving it.")
     def check_workflow(world_id: str, yaml: str, workflow_id: str | None = None) -> dict[str, Any]:
+        reach(world_id)
         draft = workflows.check(world_id, yaml, workflow_id)
         return {
             "violations": [asdict(v) for v in draft.violations],
@@ -92,6 +125,7 @@ def server(
 
     @mcp.tool(description="List a world's workflows with their current version numbers.")
     def list_workflows(world_id: str) -> list[dict[str, Any]]:
+        reach(world_id)
         return [asdict(w) for w in workflows.list_all(world_id)]
 
     @mcp.tool(description="Get a workflow version: its YAML and parsed stages. Latest by default.")
@@ -99,6 +133,7 @@ def server(
         workflow = workflows.get(workflow_id)
         if workflow is None:
             raise ValueError(f"workflow not found: {workflow_id}")
+        reach(workflow.world_id)
         found = workflows.version(workflow_id, version or workflow.current_version)
         if found is None:
             raise ValueError(f"version not found: {workflow_id} v{version}")
@@ -116,6 +151,7 @@ def server(
         depends_on: list[str] | None = None,
         added_by: str = OPERATOR,
     ) -> dict[str, Any]:
+        run_of(run_id)
         try:
             task = tasks.add_task(
                 whiteboard,
@@ -135,6 +171,7 @@ def server(
 
     @mcp.tool(description="List the tasks on a swarm stage's whiteboard, oldest first.")
     def list_tasks(run_id: str, stage_id: str) -> list[dict[str, Any]]:
+        run_of(run_id)
         try:
             return [asdict(t) for t in tasks.list_tasks(whiteboard, control.get, run_id, stage_id)]
         except KeyError as exc:
@@ -167,6 +204,7 @@ def server(
             raise ValueError("budget_usd must be above 0")
         if agents is not None and not 1 <= agents <= MAX_AGENTS:
             raise ValueError(f"agents must be 1 to {MAX_AGENTS}")
+        workflow_world(workflow_id)
         return run_or_fail(
             lambda: start_pinned(
                 control, pin(workflow_id, version), retro, budget_usd, agents, baseline
@@ -180,6 +218,7 @@ def server(
         " refused with its violations."
     )
     def fork_run(run_id: str, stage: int) -> dict[str, Any]:
+        run_of(run_id)
         return run_or_fail(lambda: control.fork(run_id, stage))
 
     @mcp.tool(
@@ -188,21 +227,89 @@ def server(
         " body. With `before`, only those of the stages before that index."
     )
     def list_artifacts(run_id: str, before: int | None = None) -> list[dict[str, Any]]:
-        run = control.get(run_id)
-        if run is None:
-            raise ValueError(f"run not found: {run_id}")
-        return [asdict(a) for a in run_artifacts(memory, run, before)]
+        return [asdict(a) for a in run_artifacts(memory, run_of(run_id), before)]
 
-    @mcp.tool(description="Get a run with its stages and gate decisions.")
+    @mcp.tool(
+        description="Get a run: its stages with their status and config (Run Changes included),"
+        " gate decisions, the Run Changes applied, spend, and `revision`, which"
+        " apply_run_change takes."
+    )
     def get_run(run_id: str) -> dict[str, Any]:
-        run = control.get(run_id)
-        if run is None:
-            raise ValueError(f"run not found: {run_id}")
-        return asdict(run)
+        return asdict(run_of(run_id))
+
+    @mcp.tool(
+        description="Read a text file of a run's folder by its path in the world folder,"
+        " `runs/<run>/<stage id>/...`, as list_artifacts lists it."
+    )
+    def read_run_file(run_id: str, path: str) -> str:
+        world = worlds.folder(run_of(run_id).world_id)
+        try:
+            return read_run_text(world / "runs" / run_id, world, path)
+        except AgentToolError as exc:
+            raise ToolError(str(exc)) from exc
+
+    def changed(action: Callable[[], Any]) -> dict[str, Any]:
+        """A Run Change's answer, or why it was refused, which the client is shown."""
+        try:
+            return asdict(action())
+        except (KeyError, ValueError) as exc:  # Illegal is a ValueError
+            raise ToolError(str(exc).strip("'\"")) from exc
+
+    def change_of(kind: str, stage: str, payload: dict[str, Any] | None) -> RunChange:
+        return RunChange(kind, stage, payload or {})
+
+    @mcp.tool(
+        description="Propose a Run Change, writing nothing. `kind` is stage_edit (`payload` the"
+        " stage's new config; a stage that has not started), artifact_edit (`path` of a text"
+        " file in the stage's artifacts folder and its new `text`), rerun (`note`), skip (no"
+        " payload) or restructure (`stages`, the new list from `stage` on); `stage` is the"
+        " target stage's id. Answers the before and after, the violations that would refuse it,"
+        " what it costs or forks, and the run's `revision` to apply it with."
+    )
+    def propose_run_change(
+        run_id: str, kind: str, stage: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        run_of(run_id)
+        return changed(lambda: control.propose(run_id, change_of(kind, stage, payload)))
+
+    @mcp.tool(
+        description="Apply a Run Change as propose_run_change took it, with the `revision` its"
+        " proposal answered. Checked again; refused when the run moved on since, naming what"
+        " moved. Recorded as made by this token's name. A Restructure, or a change to a run"
+        " that has ended, continues as a Fork, which the change names as `fork`."
+    )
+    def apply_run_change(
+        run_id: str, kind: str, stage: str, revision: int, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        run_of(run_id)
+        token = CALLER.get()
+        by = token.name if token else OPERATOR
+        change = change_of(kind, stage, payload)
+        return changed(lambda: control.apply(run_id, change, revision, by))
+
+    @mcp.tool(description="List the Run Changes applied to a run, oldest first, with who and when.")
+    def list_run_changes(run_id: str) -> list[dict[str, Any]]:
+        return [asdict(c) for c in run_of(run_id).changes]
+
+    if ask is not None:
+        answer = ask
+
+        @mcp.tool(
+            description="Ask a run's Run Assistant one question or for a change, in plain words."
+            " It reads the run and answers with its sources and any Run Changes it proposes;"
+            " it never applies one (apply_run_change does, with the proposal's revision)."
+        )
+        async def ask_run(run_id: str, message: str) -> dict[str, Any]:
+            if not message.strip():
+                raise ToolError("message is empty")
+            try:
+                return (await answer(run_of(run_id), message)).model_dump(mode="json")
+            except Unanswered as exc:
+                raise ToolError(f"The assistant did not answer: {exc}") from exc
 
     @mcp.tool(description="List every open gate across all worlds and runs, newest first.")
     def list_gates() -> list[dict[str, Any]]:
-        return [asdict(g) for g in control.gates()]
+        return [asdict(g) for g in control.gates() if scope() in (None, g.world_id)]
 
     @mcp.tool(
         description="Answer the gate a run waits at. A pick gate needs `choice` or `artifact`,"
@@ -219,6 +326,7 @@ def server(
         send_back_to: str | None = None,
         artifact: str | None = None,
     ) -> dict[str, Any]:
+        run_of(run_id)
         return run_or_fail(
             lambda: control.decide(run_id, choice, note, send_back_to, artifact=artifact)
         )
@@ -229,18 +337,22 @@ def server(
         " gate goes on; to refuse more money, abort the run instead."
     )
     def set_budget(run_id: str, budget_usd: float) -> dict[str, Any]:
+        run_of(run_id)
         return run_or_fail(lambda: control.set_budget(run_id, budget_usd))
 
     @mcp.tool(description="Pause a run: at once at a gate, otherwise after the current stage.")
     def pause_run(run_id: str) -> dict[str, Any]:
+        run_of(run_id)
         return run_or_fail(lambda: control.pause(run_id))
 
     @mcp.tool(description="Resume a paused run.")
     def resume_run(run_id: str) -> dict[str, Any]:
+        run_of(run_id)
         return run_or_fail(lambda: control.resume(run_id))
 
     @mcp.tool(description="Abort a run and every child run it started.")
     def abort_run(run_id: str) -> dict[str, Any]:
+        run_of(run_id)
         return run_or_fail(lambda: control.abort(run_id))
 
     return mcp

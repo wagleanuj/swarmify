@@ -1760,7 +1760,7 @@ export interface paths {
         /**
          * Create Token
          * @description A new token for the MCP server at `/mcp`, sent as `Authorization: Bearer <token>`.
-         *     The token is in this response only.
+         *     The token is in this response only. 404 when `world_id` names no world.
          */
         post: operations["create_token_api_tokens_post"];
         delete?: never;
@@ -2930,6 +2930,8 @@ export interface components {
              * @default mcp
              */
             scope: string;
+            /** World Id */
+            world_id?: string | null;
             /** Token */
             token: string;
         };
@@ -3926,11 +3928,15 @@ export interface components {
              * @default mcp
              */
             scope: string;
+            /** World Id */
+            world_id?: string | null;
         };
         /** TokenCreate */
         TokenCreate: {
             /** Name */
             name: string;
+            /** World Id */
+            world_id?: string | null;
         };
         /**
          * Tool

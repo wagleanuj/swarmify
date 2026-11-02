@@ -9,7 +9,9 @@ A browser signs in at `POST /api/session` and gets a session cookie: a random id
 install's secret (HttpOnly, SameSite Lax, Secure over https), stored hashed with its expiry, so
 signing out ends it. API tokens reach only the MCP server at `/mcp`: shown once, stored hashed,
 revocable. A token's scope says how much of it: `mcp` all of it, any other scope only the server
-at `/mcp/<scope>`, as the token the core provisions for a Remote Approval connector. The
+at `/mcp/<scope>`, as the token the core provisions for a Remote Approval connector. A token
+may be scoped to one world as well; the middleware hands the MCP tools the token it let in as
+`CALLER`, so they keep to its world and record its name as who changed a run. The
 middleware is pure ASGI, so event streams pass through unbuffered. The skin's
 static files, `/api/health` and `/api/session` stay open; every other `/api` path and `/mcp` is
 refused without a session.
@@ -24,6 +26,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -69,6 +72,8 @@ class Token(BaseModel):
     created_at: str
     scope: str = FULL
     """`mcp` for the whole MCP server; `remote_approvals` for a connector's, which Swarmify made."""
+    world_id: str | None = None
+    """The one world the token reaches; None for every world."""
 
 
 class NewToken(Token):
@@ -143,21 +148,25 @@ class Operator:
 
     def tokens(self) -> list[Token]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT id, name, created_at, scope FROM api_tokens ORDER BY id")
+            rows = conn.execute(
+                "SELECT id, name, created_at, scope, world_id FROM api_tokens ORDER BY id"
+            )
             return [Token(**dict(r)) for r in rows]
 
-    def create_token(self, name: str, scope: str = FULL) -> NewToken:
+    def create_token(self, name: str, scope: str = FULL, world_id: str | None = None) -> NewToken:
         made = NewToken(
             id=new_id("tok"),
             name=name,
             created_at=self.clock().isoformat(),
             scope=scope,
+            world_id=world_id,
             token=f"swm_{secrets.token_urlsafe(32)}",
         )
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO api_tokens (id, name, hash, created_at, scope) VALUES (?, ?, ?, ?, ?)",
-                (made.id, name, _digest(made.token), made.created_at, scope),
+                "INSERT INTO api_tokens (id, name, hash, created_at, scope, world_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (made.id, name, _digest(made.token), made.created_at, scope, world_id),
             )
         return made
 
@@ -172,12 +181,18 @@ class Operator:
         with self._conn() as conn:
             return conn.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,)).rowcount > 0
 
+    def token(self, secret: str) -> Token | None:
+        """A live token by its secret, None for an unknown or revoked one."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id, name, created_at, scope, world_id FROM api_tokens WHERE hash = ?",
+                (_digest(secret),),
+            ).fetchone()
+        return Token(**dict(row)) if row else None
+
     def token_scope(self, token: str) -> str | None:
         """The scope of a live token, None for an unknown or revoked one."""
-        with self._conn() as conn:
-            found = conn.execute("SELECT scope FROM api_tokens WHERE hash = ?", (_digest(token),))
-            row = found.fetchone()
-            return row["scope"] if row else None
+        return found.scope if (found := self.token(token)) else None
 
 
 class Throttle:
@@ -203,9 +218,13 @@ class Throttle:
         self.failures.setdefault(who, deque()).append(time.monotonic())
 
 
+CALLER: ContextVar[Token | None] = ContextVar("caller", default=None)
+"""The API token a request to `/mcp` came with; None for the operator's own session."""
+
+
 class SignedIn:
     """Refuses `/api` and `/mcp` without a session cookie; `/mcp` also takes a Bearer token,
-    one scoped to a part of it only there."""
+    one scoped to a part of it only there, and sets `CALLER` to it."""
 
     def __init__(self, app: ASGIApp, operator: Operator) -> None:
         self.app = app
@@ -222,8 +241,11 @@ class SignedIn:
         scheme, _, token = conn.headers.get("authorization", "").partition(" ")
         if not mcp or scheme.lower() != "bearer":
             return False
-        reach = self.operator.token_scope(token.strip())
-        return reach == FULL or (reach is not None and path == f"{MCP}/{reach}")
+        found = self.operator.token(token.strip())
+        if found is None or (found.scope != FULL and path != f"{MCP}/{found.scope}"):
+            return False
+        CALLER.set(found)
+        return True
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan" or self.allowed(scope):
@@ -244,6 +266,8 @@ class SessionView(BaseModel):
 class TokenCreate(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     """What the token is for, such as "Claude Code on the laptop"."""
+    world_id: str | None = None
+    """Scope it to this one world: its runs, workflows and the world itself, nothing else."""
 
 
 def _https(request: Request) -> bool:
@@ -251,7 +275,11 @@ def _https(request: Request) -> bool:
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
-def router(operator: Operator, throttle: Throttle | None = None) -> APIRouter:
+def router(
+    operator: Operator,
+    throttle: Throttle | None = None,
+    world_exists: Callable[[str], bool] = lambda _: True,
+) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["auth"])
     throttle = throttle or Throttle()
 
@@ -306,8 +334,10 @@ def router(operator: Operator, throttle: Throttle | None = None) -> APIRouter:
     @api.post("/tokens", status_code=201)
     def create_token(body: TokenCreate) -> NewToken:
         """A new token for the MCP server at `/mcp`, sent as `Authorization: Bearer <token>`.
-        The token is in this response only."""
-        return operator.create_token(body.name)
+        The token is in this response only. 404 when `world_id` names no world."""
+        if body.world_id is not None and not world_exists(body.world_id):
+            raise HTTPException(404, "world not found")
+        return operator.create_token(body.name, world_id=body.world_id)
 
     @api.delete("/tokens/{token_id}", status_code=204)
     def revoke_token(token_id: str) -> Response:
