@@ -14,9 +14,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from swarmify_api import tasks
 from swarmify_api.agents import run_artifacts
-from swarmify_api.assistant import Message, Unanswered, read_run_text
+from swarmify_api.assistant import Card, Message, RunAssistant, Unanswered, read_run_text, title
 from swarmify_api.auth import CALLER
 from swarmify_api.runs import checker, pinner, start_pinned
+from swarmify_connectors import Connectors
 from swarmify_memory import Memory
 from swarmify_runs import Illegal, Run, RunChange, RunControl
 from swarmify_swarm import OPERATOR, Refused, Storage
@@ -358,10 +359,16 @@ def server(
     return mcp
 
 
-def approvals_server(control: RunControl) -> MCPServer:
+ASSISTANT = "run_assistant"
+"""The Capability of a Remote Approval connector that forwards replies to the Run Assistant."""
+
+
+def approvals_server(control: RunControl, asker: RunAssistant, registry: Connectors) -> MCPServer:
     """The part of the MCP server a Remote Approval connector reaches with the token the core
     provisions for it (scope `remote_approvals`, at `/mcp/remote_approvals`): answering a gate,
-    nothing else. The answer resolves exactly as one in the web UI; the first answer wins."""
+    nothing else. The answer resolves exactly as one in the web UI; the first answer wins. A
+    connector that also offers the `run_assistant` Capability, enabled in the run's world,
+    forwards replies to the run's assistant and applies or dismisses its proposals."""
     mcp = MCPServer(
         "swarmify-remote-approvals",
         instructions="Answer a gate Swarmify posted to you, as the person who answered it.",
@@ -396,6 +403,72 @@ def approvals_server(control: RunControl) -> MCPServer:
         except (KeyError, ValueError) as exc:  # Illegal is a ValueError
             raise ToolError(str(exc).strip("'\"")) from exc
         return {"run_id": run.id, "status": run.status}
+
+    def assisted(run_id: str) -> Run:
+        run = control.get(run_id)
+        if run is None:
+            raise ToolError("run not found")
+        offered = (
+            c.manifest.get("capabilities", []) for c in registry.remote_approvers(run.world_id)
+        )
+        if not any(ASSISTANT in capabilities for capabilities in offered):
+            raise ToolError(f"no connector of this world offers the {ASSISTANT} Capability")
+        return run
+
+    def proposal_or_fail(act: Callable[[], Card]) -> dict[str, Any]:
+        try:
+            card = act()
+        except (KeyError, ValueError) as exc:  # Illegal is a ValueError
+            raise ToolError(str(exc).strip("'\"")) from exc
+        return {"id": card.id, "state": card.state}
+
+    @mcp.tool(
+        description="Ask a run's Run Assistant, as a reply in a posted gate's thread: `run_id`"
+        " as the gate carried it and the `message`. Answers its `reply` and its `proposals`,"
+        " each an `id`, a `title`, the `violations` that would refuse it and what applying it"
+        " costs: `in_place` false when it continues as a Fork from `fork_from` and this run"
+        " ends, a Rerun's `resets` at `cost_usd` of the `budget_left_usd`, and `read_by`, the"
+        " stages that already read the file an Artifact Edit changes."
+    )
+    async def ask_run(run_id: str, message: str) -> dict[str, Any]:
+        run = assisted(run_id)
+        if not message.strip():
+            raise ToolError("ask in words")
+        try:
+            said = await asker.ask(run, message[:20_000])
+        except Unanswered as exc:
+            raise ToolError(f"The assistant did not answer: {exc}") from exc
+        proposals = [
+            {
+                "id": c.id,
+                "title": title(p),
+                "violations": p.violations,
+                "in_place": p.in_place,
+                "fork_from": p.fork_from,
+                "resets": list(p.before) if p.change.kind == "rerun" else [],
+                "cost_usd": p.cost_usd,
+                "budget_left_usd": p.budget_left_usd,
+                "read_by": p.read_by,
+            }
+            for c in said.proposals
+            for p in [c.proposal]
+        ]
+        return {"reply": said.text, "proposals": proposals}
+
+    @mcp.tool(
+        description="Apply a proposal the run's assistant made, with its revision, as `by`, who"
+        ' pressed Apply ("chat:anuj"). Refused once the run moved on, or by the check.'
+    )
+    def apply_proposal(run_id: str, proposal_id: str, by: str) -> dict[str, Any]:
+        assisted(run_id)
+        if not by.strip():
+            raise ToolError("say who pressed Apply")
+        return proposal_or_fail(lambda: asker.apply(run_id, proposal_id, by.strip()[:100]))
+
+    @mcp.tool(description="Not now: dismiss a proposal the run's assistant made.")
+    def dismiss_proposal(run_id: str, proposal_id: str) -> dict[str, Any]:
+        assisted(run_id)
+        return proposal_or_fail(lambda: asker.dismiss(run_id, proposal_id))
 
     return mcp
 

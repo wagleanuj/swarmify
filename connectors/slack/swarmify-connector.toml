@@ -1,13 +1,14 @@
 # The Slack connector (README.md beside this file): Remote Approvals in Slack. Installed with this
 # repository's packages but enabled only by the worlds that want it, as it needs a Slack app.
 name = "slack"
-version = "1.0.0"
+version = "1.1.0"
 label = "Slack"
-about = "Posts each gate to a Slack channel with a button per answer, and updates the message once the gate is answered, there or in Swarmify. Needs a Slack app of your own in Socket Mode (its README)."
+about = "Posts each gate to a Slack channel with a button per answer, and updates the message once the gate is answered, there or in Swarmify. A reply in a gate's thread asks the run's assistant, whose proposals come with Apply and Not now. Needs a Slack app of your own in Socket Mode (its README)."
 kind = "notify"
 stage_types = []
 enable_by_default = false
-capabilities = ["remote_approvals"]
+# run_assistant: a reply in a gate's thread asks the run's Run Assistant, its listener forwarding it.
+capabilities = ["remote_approvals", "run_assistant"]
 
 runtime = "uv"
 install = ["uv", "sync", "--frozen", "--no-dev"]
@@ -27,7 +28,7 @@ type = "string"
 secret = true
 required = true
 env = "SLACK_BOT_TOKEN"
-help = "The xoxb- token on your Slack app's OAuth & Permissions page. It needs the chat:write scope."
+help = "The xoxb- token on your Slack app's OAuth & Permissions page. It needs the chat:write and channels:history scopes."
 
 [[config]]
 key = "app_token"

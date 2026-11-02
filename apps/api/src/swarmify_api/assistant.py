@@ -43,6 +43,8 @@ from swarmify_worlds import Worlds
 
 log = logging.getLogger(__name__)
 MAX_TURNS = 30
+MOVED_ON = "The run moved on; open it to see the new proposal."
+"""Why a proposal the run moved past is not applied."""
 MAX_READ = 40_000
 """The most characters of a run file one read returns."""
 ANSWER_SCHEMA: dict[str, Any] = {
@@ -254,13 +256,16 @@ class Conversations:
             ).fetchone()
         return _card(row, run) if row else None
 
-    def mark(self, run: Run, proposal_id: str, state: str, change_id: str | None) -> Card | None:
-        """Close an open proposal; None when it was already applied or dismissed."""
+    def mark(
+        self, run: Run, proposal_id: str, state: str, change_id: str | None, *, force: bool = False
+    ) -> Card | None:
+        """Close an open proposal; None when it was already applied or dismissed. `force` closes
+        it whatever it was, for a change that was applied."""
         with self._conn() as conn:
             marked = conn.execute(
                 "UPDATE assistant_proposals SET state = ?, change_id = ?"
-                " WHERE id = ? AND run_id = ? AND state = 'open'",
-                (state, change_id, proposal_id, run.id),
+                " WHERE id = ? AND run_id = ? AND (state = 'open' OR ?)",
+                (state, change_id, proposal_id, run.id, force),
             ).rowcount
         return self.card(run, proposal_id) if marked else None
 
@@ -575,6 +580,81 @@ async def answer(
     conversations.turn(run, message.strip(), reply, sources, shown, reader.made, sid, end.cost_usd)
     answered = conversations.messages(runner.get(run.id) or run)[-1]
     return answered.model_copy(update={"fields": fields})
+
+
+class RunAssistant:
+    """The Run Assistant wherever it is asked, the run page or a chat thread: one turn of a
+    run's conversation, and a proposal it made applied or dismissed."""
+
+    def __init__(
+        self, runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage,
+        index: GraphIndex, runtime: AgentRuntime, conversations: Conversations,
+    ) -> None:  # fmt: skip
+        self.runner, self.worlds, self.workflows, self.board = runner, worlds, workflows, board
+        self.index, self.runtime, self.conversations = index, runtime, conversations
+
+    async def ask(self, run: Run, message: str) -> Message:
+        """One turn: `message` in, the reply with its sources and proposals out. Raises
+        Unanswered when the session fails or answers out of shape."""
+        return await answer(
+            self.runner, self.worlds, self.workflows, self.board, self.index, self.runtime,
+            self.conversations, run, message,
+        )  # fmt: skip
+
+    def apply(self, run_id: str, proposal_id: str, by: str) -> Card:
+        """Apply an open proposal through the Run Change seam with the revision it was made
+        against, as `by`, and mark it applied. Raises KeyError for an unknown run or proposal,
+        Illegal with MOVED_ON when the run moved past it, and as `RunControl.apply` does."""
+        run = self._run(run_id)
+        card = self._card(run, proposal_id)
+        if card.state == "stale":
+            raise Illegal(MOVED_ON)
+        if card.state != "open":
+            raise Illegal(f"this proposal was already {card.state}")
+        proposed = card.proposal
+        try:
+            applied = self.runner.apply(run_id, proposed.change, proposed.revision, by)
+        except Illegal:
+            if self._run(run_id).revision != proposed.revision:
+                raise Illegal(MOVED_ON) from None
+            raise
+        # Applied even when Not now was pressed meanwhile: the card says what the run did.
+        return self.conversations.mark(run, proposal_id, "applied", applied.id, force=True) or card
+
+    def dismiss(self, run_id: str, proposal_id: str) -> Card:
+        """Not now: close an open proposal, the run untouched."""
+        run = self._run(run_id)
+        card = self._card(run, proposal_id)
+        marked = self.conversations.mark(run, proposal_id, "dismissed", None)
+        if marked is None:
+            raise Illegal(f"this proposal was already {card.state}")
+        return marked
+
+    def _run(self, run_id: str) -> Run:
+        run = self.runner.get(run_id)
+        if run is None:
+            raise KeyError("run not found")
+        return run
+
+    def _card(self, run: Run, proposal_id: str) -> Card:
+        card = self.conversations.card(run, proposal_id)
+        if card is None:
+            raise KeyError("proposal not found")
+        return card
+
+
+def title(proposal: ChangeProposal) -> str:
+    """A proposal's title as its change card shows it, as "Edit metadata.md" or "Skip Upload"."""
+    change, name = proposal.change, proposal.stage_name
+    if change.kind == "artifact_edit":
+        return f"Edit {change.payload.get('path') or name}"
+    if change.kind == "rerun":
+        return f"Re-run from {name}"
+    if change.kind == "skip":
+        return f"Skip {name}"
+    if change.kind == "restructure":
+        return f"Change the stages from {name} on"
+    return f"Edit {name}"
 
 
 def router(
