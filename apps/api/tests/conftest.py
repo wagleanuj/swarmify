@@ -36,6 +36,14 @@ def no_default_install_steps(
     monkeypatch.setattr(Connectors, "install_defaults", install_defaults)
 
 
+@pytest.fixture(autouse=True)
+def no_prepare_commands(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Template's prepare command (remotion_build's `npm ci`) runs for real only in a module
+    that sets `real_prepare = True`; elsewhere every prepare succeeds at once."""
+    if not getattr(request.module, "real_prepare", False):
+        monkeypatch.setattr(Packages, "prepare", lambda *a: None)
+
+
 @pytest.fixture
 def transport() -> FakeTransport:
     """Every package's `preview` answers as the youtube package's own does; a test of another
