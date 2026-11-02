@@ -11,7 +11,7 @@ stage_types = ["connector"]
 enable_by_default = false
 runtime = "npm"
 
-planner_notes = "Makes a video from HTML, CSS and a GSAP timeline: one sandboxed coding session writes a HyperFrames project for the script, reading the run's gate decisions, then swarmify renders it through hyperframes_render. It renders through hyperframes_render, so use it only where the world enabled both and the brief suits HTML motion graphics; else remotion_build. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read."
+planner_notes = "Makes a video from HTML, CSS and a GSAP timeline: one sandboxed coding session writes a HyperFrames project for the script, reading the run's gate decisions, then swarmify renders it through hyperframes_render. It renders through hyperframes_render, so use it only where the world enabled both and the brief suits HTML motion graphics; else remotion_build. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read (as speech's timings.json)."
 
 capabilities = ["build_session"]
 
@@ -30,6 +30,9 @@ output = "video.mp4"
 connector = "hyperframes_render"
 tool = "hyperframes_render"
 arguments = { project = "$folder", composition = "$composition" }
+
+[build_session.notes]
+"timings.json" = "voice_first.md"   # the speech package's narration: the brief turns voice first
 
 [params]
 type = "object"
