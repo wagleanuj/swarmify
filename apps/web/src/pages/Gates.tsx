@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStor
 
 import {
   blocked,
+  changedFields,
   choosable,
   decision,
   editable,
@@ -249,6 +250,8 @@ export function GateCard({
   // The earlier step a Send back menu item chose; the form then submits with it.
   const sendBack = useRef<string | null>(null);
   const form = useRef<HTMLFormElement>(null);
+  // Whether an editable field of the post differs from what the gate showed.
+  const [changed, setChanged] = useState(false);
   // What the earlier stages made: the cards a pick chooses from, the piece an approve reviews
   // (stories 53 and 54). null until loaded, so the pick's fallback field does not flash.
   const [artifacts, setArtifacts] = useState<ArtifactFile[] | null>(null);
@@ -336,6 +339,7 @@ export function GateCard({
         onChange={(e) => {
           const f = e.target as unknown as HTMLInputElement;
           if (f.name === "artifact" || f.name === "choice") setChosen(f.value.trim());
+          if (f.name.startsWith("edit:")) setChanged(changedFields(gate, form.current));
         }}
         className="gate-form"
         aria-label={`Answer ${gate.stage_name}`}
@@ -400,7 +404,7 @@ export function GateCard({
           )}
           {gate.kind === "confirm" && (
             <>
-              <button type="submit" className="primary" disabled={busy || blocked(gate)}>
+              <button type="submit" className="primary" disabled={busy || blocked(gate, changed)}>
                 {gate.publish ? "Confirm and post" : "Confirm"}
               </button>
               <span className="faint">
@@ -412,7 +416,7 @@ export function GateCard({
           )}
           {gate.kind === "approve" && (
             <>
-              <button type="submit" className="primary" disabled={busy || blocked(gate)}>
+              <button type="submit" className="primary" disabled={busy || blocked(gate, changed)}>
                 Approve
               </button>
               {sendBackTargets(gate).length > 0 ? (
@@ -601,7 +605,11 @@ function WhatGoesOut({ preview, worldId }: { preview: PublishPreview; worldId: s
               <li key={p}>{p}</li>
             ))}
           </ul>
-          <p>Abort the run from its timeline, fix the publish stage, and start a new run.</p>
+          <p>
+            {(preview.fields ?? []).some(editable)
+              ? "Edit the fields above to fix it, then confirm. Or abort the run from its timeline, fix the publish stage, and start a new run."
+              : "Abort the run from its timeline, fix the publish stage, and start a new run."}
+          </p>
         </div>
       )}
     </section>
