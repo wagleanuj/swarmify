@@ -1,6 +1,20 @@
 # The curated index of Swarmify Connector Packages. Format and how to add one: README.md.
 
 [[packages]]
+name = "hyperframes_build"
+description = "Writes a HyperFrames project (HTML and GSAP) from the script in a sandboxed coding session, then renders it. Needs Node 22."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/hyperframes_build"
+ref = "main"
+permissions = [
+  "network: registry.npmjs.org",
+  "network: fonts.googleapis.com",
+  "network: fonts.gstatic.com",
+  "network: cdn.jsdelivr.net",
+  "capabilities: build_session",
+]
+
+[[packages]]
 name = "hyperframes_render"
 description = "Renders a script with the HyperFrames CLI. Needs Node 22 and a HyperFrames project."
 git = "https://github.com/wagleanuj/swarmify.git"

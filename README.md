@@ -746,8 +746,9 @@ stage and its params, what it answers, the Services it calls and how its V1 sett
   template.
 - [`remotion_build`](connectors/remotion_build/README.md): a Build Session that writes a video
   project for the script, then renders it.
-- [`hyperframes_render`](connectors/hyperframes_render/README.md): renders a script through a
-  HyperFrames template; off until a world enables it.
+- [`hyperframes_render`](connectors/hyperframes_render/README.md) and
+  [`hyperframes_build`](connectors/hyperframes_build/README.md): the same pair for HyperFrames
+  (HTML and GSAP), installed but enabled only in the worlds that ask for them.
 - [`youtube`](connectors/youtube/README.md) and [`upload_post`](connectors/upload_post/README.md):
   publish connectors, with Outcomes.
 - [`slack`](connectors/slack/README.md): Remote Approvals, a gate answered from chat.
