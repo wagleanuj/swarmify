@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import YAML from "yaml";
 
 import { api } from "../api/client";
+import { useConnectors } from "../api/connectors";
 import type { components } from "../api/schema";
 import { role } from "../skin";
 import { usePhone } from "../usePhone";
@@ -13,6 +14,7 @@ type WorkflowModel = components["schemas"]["WorkflowModel"];
 type WorkflowVersion = components["schemas"]["WorkflowVersion"];
 type Starter = components["schemas"]["Starter"];
 type World = components["schemas"]["World"];
+type Template = components["schemas"]["Template"];
 export const EDITOR_TABS = ["stages", "planner", "yaml", "scorecard"] as const;
 export type EditorTab = (typeof EDITOR_TABS)[number];
 type Doc = Record<string, unknown>;
@@ -146,6 +148,15 @@ export function WorkflowEditor() {
     void navigate({ to: ".", search: { tab }, replace: true });
   const latestCheck = useRef(0);
   const phone = usePhone();
+  const connectors = useConnectors(worldId);
+  const [templates, setTemplates] = useState<Template[]>([]);
+
+  useEffect(() => {
+    api
+      .GET("/api/worlds/{world_id}/templates", { params: { path: { world_id: worldId } } })
+      .then(({ data }) => setTemplates(data ?? []))
+      .catch(() => undefined);
+  }, [worldId]);
 
   useEffect(() => {
     api
@@ -255,6 +266,19 @@ export function WorkflowEditor() {
     });
   }
 
+  /** A connector stage's `params.base`, its Template (ADR 0028); none starts from the starter. */
+  function setBase(index: number, base: string) {
+    rewrite((_, stages) => {
+      const stage = stages[index];
+      if (!stage) return;
+      const params = { ...(stage.params as Doc | undefined) };
+      if (base) params.base = base;
+      else delete params.base;
+      if (Object.keys(params).length) stage.params = params;
+      else delete stage.params;
+    });
+  }
+
   function move(index: number, by: -1 | 1) {
     rewrite((_, stages) => {
       const [stage] = stages.splice(index, 1);
@@ -342,6 +366,10 @@ export function WorkflowEditor() {
   const schedule = typeof parsed?.doc.schedule === "string" ? parsed.doc.schedule : "";
   const steps = parsed?.stages ?? [];
   const current = Math.min(selected, Math.max(steps.length - 1, 0));
+  // The UI reads the stage package's declaration, never its name (ADR 0025).
+  const stage = steps[current];
+  const held = stage && stageType(stage) === "connector" ? connectors[asText(stage.calls)]?.templates : "";
+  const offered = held ? templates.filter((t) => t.folder === held) : null;
   const tabs: [EditorTab, string][] = [
     ["stages", "Stages"],
     ["planner", role("planner")],
@@ -477,7 +505,9 @@ export function WorkflowEditor() {
               stages={steps}
               index={current}
               agents={asText(parsed.doc.agents) || "1"}
+              templates={offered}
               onField={setField}
+              onBase={setBase}
               onMove={move}
               onRemove={remove}
             />
@@ -691,7 +721,9 @@ function StagePanel({
   stages,
   index,
   agents,
+  templates,
   onField,
+  onBase,
   onMove,
   onRemove,
 }: {
@@ -699,7 +731,10 @@ function StagePanel({
   index: number;
   /** The workflow's agents per swarm stage, what a stage without its own runs. */
   agents: string;
+  /** The Templates of the stage's package, when it declares them; null when it does not. */
+  templates: Template[] | null;
   onField: (index: number, key: string, value: unknown) => void;
+  onBase: (index: number, base: string) => void;
   onMove: (index: number, by: -1 | 1) => void;
   onRemove: (index: number) => void;
 }) {
@@ -759,6 +794,9 @@ function StagePanel({
               )}
             </label>
           ))}
+          {templates && (
+            <TemplatePicker name={name} templates={templates} base={asText((stage.params as Doc | undefined)?.base)} onBase={(b) => onBase(index, b)} />
+          )}
           {type === "connector" && "params" in stage && <span className="faint">params: edit them in the YAML view.</span>}
         </>
       ) : (
@@ -787,6 +825,24 @@ function StagePanel({
         </button>
       </span>
     </section>
+  );
+}
+
+/** The Template a connector stage starts from, the package's starter unless one is picked. */
+function TemplatePicker({ name, templates, base, onBase }: { name: string; templates: Template[]; base: string; onBase: (base: string) => void }) {
+  return (
+    <label>
+      <span>Template</span>
+      <select aria-label={`Template of ${name}`} value={base} onChange={(e) => onBase(e.target.value)}>
+        <option value="">The package's starter</option>
+        {templates.map((t) => (
+          <option key={t.path} value={t.name}>
+            {t.name}
+          </option>
+        ))}
+        {base && !templates.some((t) => t.name === base) && <option value={base}>{base} (not in this world)</option>}
+      </select>
+    </label>
   );
 }
 

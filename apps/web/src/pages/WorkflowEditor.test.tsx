@@ -275,6 +275,53 @@ stages:
   await expect.element(screen.getByLabelText("Schedule (cron, UTC)")).toHaveValue("0 8 * * 1");
 });
 
+test("a connector stage whose package has Templates picks one as its base; the starter removes it", async () => {
+  const template = (name: string, folder: string) => ({
+    name,
+    folder,
+    path: `assets/${folder}/${name}/`,
+    bytes: 1024,
+    origin: "upload",
+    run_id: "",
+    stage: "",
+    added: video.created_at,
+  });
+  fake({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "POST /api/worlds/world_1/workflows/check": check,
+    "GET /api/worlds/world_1/templates": () =>
+      Response.json([template("cat_kit", "remotion_templates"), template("slides", "hyperframes_templates")]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows/new?tab=yaml");
+  await screen
+    .getByLabelText("Workflow YAML")
+    .fill("name: Clip\nstages:\n  - connector: make\n    calls: remotion_build\n  - connector: voice\n    calls: speech\n");
+  await screen.getByRole("tab", { name: "Stages" }).click();
+
+  const picker = screen.getByLabelText("Template of make");
+  await expect.element(picker).toHaveValue("");
+  const options = picker.getByRole("option").elements().map((o) => o.textContent);
+  expect(options).toEqual(["The package's starter", "cat_kit"]);
+  await picker.selectOptions("cat_kit");
+  await screen.getByRole("tab", { name: "YAML" }).click();
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(
+    "name: Clip\nstages:\n  - connector: make\n    calls: remotion_build\n    params:\n      base: cat_kit\n  - connector: voice\n    calls: speech\n",
+  );
+
+  await screen.getByRole("tab", { name: "Stages" }).click();
+  await screen.getByLabelText("Template of make").selectOptions("The package's starter");
+  await screen.getByRole("tab", { name: "YAML" }).click();
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(
+    "name: Clip\nstages:\n  - connector: make\n    calls: remotion_build\n  - connector: voice\n    calls: speech\n",
+  );
+
+  // a package without the Capability offers no picker
+  await screen.getByRole("tab", { name: "Stages" }).click();
+  await screen.getByTestId("stage-rows").getByRole("button", { name: /voice/ }).click();
+  await expect.element(screen.getByTestId("stage-panel")).toMatchTextContent(/voice.*connector/);
+  expect(screen.getByLabelText("Template of voice").elements()).toHaveLength(0);
+});
+
 test("a schedule shows its next run from the check, in the list and the aside", async () => {
   fake({
     "GET /api/worlds/world_1": () => Response.json(video),
