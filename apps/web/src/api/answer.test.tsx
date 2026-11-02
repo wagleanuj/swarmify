@@ -55,7 +55,7 @@ test("an approve names the one piece it reviewed, and a send back names the step
 test("a confirm before a publish posts what goes out, edited or as shown", async () => {
   const field = (key: string, value: unknown, editable: boolean) => ({ key, label: key, value, editable, hint: "" });
   const g = gate("confirm", {
-    publish: { connector: "youtube", fields: [field("title", "Five hooks", true), field("description", "Ranked.", true), field("visibility", "public", false)], problems: [] },
+    publish: { connector: "youtube", fields: [field("title", "Five hooks", true), field("description", "Ranked.", true), field("visibility", "public", false)], private: false, problems: [] },
   });
   expect(await post(g, { kind: "confirm" }, { edits: { title: "Six hooks", description: "Ranked best first." } })).toEqual({
     said: "You confirmed it",

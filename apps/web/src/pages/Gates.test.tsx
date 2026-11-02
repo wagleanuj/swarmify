@@ -165,6 +165,7 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
       field("video", "Video", "short.mp4"),
     ],
     problems: [],
+    private: false,
   };
   const later = preview.fields.slice(2).map((f) => (f.key === "schedule" ? { ...f, value: null, hint: "Right after confirming." } : f));
   const bodies: unknown[] = [];
@@ -176,7 +177,7 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
         gate("confirm", {
           run_id: "run_2",
           stage_id: "s2",
-          publish: { connector: "upload_post", fields: [...preview.fields.slice(0, 2), field("platforms", "Platforms", ["tiktok"]), ...later], problems: ["upload_post needs params.user, the Upload-Post profile to post as"] },
+          publish: { connector: "upload_post", fields: [...preview.fields.slice(0, 2), field("platforms", "Platforms", ["tiktok"]), ...later], private: false, problems: ["upload_post needs params.user, the Upload-Post profile to post as"] },
         }),
         gate("approve", {
           run_id: "run_3",
@@ -231,7 +232,7 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
 test("a post blocked by an editable field unlocks once that field is edited, and sends the edit", async () => {
   const field = (key: string, value: unknown, editable: boolean) => ({ key, label: key, value, editable, hint: "" });
   const tags = "#shorts #animals #pets #cats #cat #science #animalfacts";
-  const publish = { connector: "youtube", fields: [field("hashtags", tags, true), field("visibility", "private", false)], problems: ["7 hashtags, at most 5"] };
+  const publish = { connector: "youtube", fields: [field("hashtags", tags, true), field("visibility", "private", false)], private: false, problems: ["7 hashtags, at most 5"] };
   const bodies: unknown[] = [];
   fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
@@ -266,6 +267,7 @@ test("a gate before a text post shows the connector's own fields, and sends the 
               { key: "text", label: "Message", value: "New video is up", editable: true, hint: "" },
             ],
             problems: [],
+            private: false,
           },
         }),
       ]),
