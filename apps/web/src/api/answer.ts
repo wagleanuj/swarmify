@@ -56,8 +56,16 @@ export async function gateProposal(gate: Gate): Promise<Proposal | null> {
 /** The earlier steps an approve gate can send back to, nearest first; none once revisions run out. */
 export const sendBackTargets = (gate: Gate) => (gate.send_backs_left > 0 ? [...gate.earlier_stages].reverse() : []);
 
-/** A post that cannot go out would fail the run, so a gate in front of one cannot pass. */
-export const blocked = (gate: Gate) => (gate.publish?.problems ?? []).length > 0;
+/** A post that cannot go out would fail the run, so a gate in front of one cannot pass until the
+ * person has `changed` a field it lets them edit: the server checks the post again with the edits. */
+export const blocked = (gate: Gate, changed = false) => (gate.publish?.problems ?? []).length > 0 && !changed;
+
+/** Whether `form` holds a value other than the shown one in a field the gate lets the person edit. */
+export const changedFields = (gate: Gate, form: HTMLFormElement | null) =>
+  (gate.publish?.fields ?? []).some((f) => {
+    const input = form?.elements.namedItem(`edit:${f.key}`);
+    return input instanceof HTMLTextAreaElement && input.value !== String(f.value ?? "");
+  });
 
 /** A field the gate lets the person change: the connector marks it editable and it is text. */
 export const editable = (f: PublishField) => f.editable && (typeof f.value === "string" || f.value == null);

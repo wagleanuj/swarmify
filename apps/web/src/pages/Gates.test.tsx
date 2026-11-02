@@ -228,6 +228,30 @@ test("a gate before a publish stage shows exactly what goes out, and refuses whe
   expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(1);
 });
 
+test("a post blocked by an editable field unlocks once that field is edited, and sends the edit", async () => {
+  const field = (key: string, value: unknown, editable: boolean) => ({ key, label: key, value, editable, hint: "" });
+  const tags = "#shorts #animals #pets #cats #cat #science #animalfacts";
+  const publish = { connector: "youtube", fields: [field("hashtags", tags, true), field("visibility", "private", false)], problems: ["7 hashtags, at most 5"] };
+  const bodies: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([gate("confirm", { publish })]),
+    "POST /api/runs/run_1/decision": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(run("running", []));
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_1");
+  await expect.element(card.getByRole("alert")).toMatchTextContent(/7 hashtags, at most 5.*Edit the fields above/);
+  await expect.element(card.getByRole("button", { name: "Confirm and post" })).toBeDisabled();
+  await card.getByLabelText("hashtags").fill("#shorts #animals #pets #cats #science");
+  await card.getByRole("button", { name: "Confirm and post" }).click();
+  await vi.waitFor(() =>
+    expect(bodies).toEqual([{ note: "", edits: { hashtags: "#shorts #animals #pets #cats #science" }, seen: { visibility: "private" } }]),
+  );
+});
+
 test("a gate before a text post shows the connector's own fields, and sends the edited one", async () => {
   const bodies: unknown[] = [];
   fakeFetch({

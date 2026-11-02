@@ -3,6 +3,7 @@ import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 
 import {
   blocked,
+  changedFields,
   choosable,
   type Choice,
   decision,
@@ -177,6 +178,8 @@ function Ask({
 }) {
   const form = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
+  // Whether an editable field of the post differs from what the gate showed.
+  const [changed, setChanged] = useState(false);
   // What the earlier stages made (a pick's cards, what an approve reviews), and a skill gate's proposal.
   const [artifacts, setArtifacts] = useState<ArtifactFile[] | null>(null);
   const [proposal, setProposal] = useState<Proposal | null | undefined>(undefined);
@@ -195,7 +198,7 @@ function Ask({
 
   const cards = gate.kind === "pick" && artifacts ? choosable(artifacts) : [];
   const reviewed = gate.kind === "approve" && artifacts ? underReview(artifacts) : [];
-  const options = choices(gate, artifacts, cards, proposal);
+  const options = choices(gate, artifacts, cards, proposal, changed);
 
   async function choose(option: Option) {
     if (busy || option.disabled || !form.current) return;
@@ -250,7 +253,13 @@ function Ask({
           </li>
           <li>Spent {money(spent)}{budget == null ? ", no budget" : ` of ${money(budget)}`}</li>
         </ul>
-        <form ref={form} className="talk-form" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => e.preventDefault()}>
+        <form
+          ref={form}
+          className="talk-form"
+          aria-label={`Answer ${gate.stage_name}`}
+          onSubmit={(e) => e.preventDefault()}
+          onChange={() => setChanged(changedFields(gate, form.current))}
+        >
           {gate.publish && <WhatGoesOut preview={gate.publish} worldId={gate.world_id} />}
           {reviewed.length > 0 && <p className="talk-review">Under review: {reviewed.map((a) => a.name).join(", ")}</p>}
           {gate.kind === "skill" && proposal?.skill && (
@@ -311,8 +320,8 @@ function Ask({
 }
 
 /** The gate's real choices, as the plain Gates page offers them. */
-function choices(gate: Gate, artifacts: ArtifactFile[] | null, cards: ArtifactFile[], proposal: Proposal | null | undefined): Option[] {
-  const stop = blocked(gate);
+function choices(gate: Gate, artifacts: ArtifactFile[] | null, cards: ArtifactFile[], proposal: Proposal | null | undefined, changed: boolean): Option[] {
+  const stop = blocked(gate, changed);
   switch (gate.kind) {
     case "pick":
       if (!artifacts) return [];

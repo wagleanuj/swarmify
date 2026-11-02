@@ -178,6 +178,16 @@ test("a post that cannot go out cannot be confirmed", async () => {
   await expect.element(screen.getByRole("button", { name: "1 Confirm and post" })).toBeDisabled();
 });
 
+test("a post blocked by an editable field can be confirmed once that field is edited", async () => {
+  const publish = { connector: "youtube", fields: [{ key: "hashtags", label: "hashtags", value: "#a #b #c #d #e #f", editable: true, hint: "" }], problems: ["6 hashtags, at most 5"] };
+  const posted = world1([bare], [], [gate("confirm", { run_id: "run_c", stage_index: 2, publish })]);
+  const { screen } = await mountAt("/worlds/world_1/office/talk");
+  await expect.element(screen.getByRole("button", { name: "1 Confirm and post" })).toBeDisabled();
+  await screen.getByLabelText("hashtags").fill("#a #b #c");
+  await screen.getByRole("button", { name: "1 Confirm and post" }).click();
+  await vi.waitFor(() => expect(posted).toEqual([{ key: "POST /api/runs/run_c/decision", body: { note: "", edits: { hashtags: "#a #b #c" }, seen: {} } }]));
+});
+
 test("a pick posts the card chosen, or the typed name when no cards reached the gate", async () => {
   const cards = [artifact({ path: "a/idea-2.md", title: "Hook last", fields: { rank: 2 } }), artifact({ path: "a/idea-1.md", title: "Hook first", fields: { rank: 1 } })];
   const posted = world1([judged, bare], [], [
