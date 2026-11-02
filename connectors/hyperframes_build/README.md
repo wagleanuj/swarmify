@@ -17,6 +17,7 @@ What it gives the session, all files beside this one:
   project because the render has no network (fonts through HyperFrames' own localizer), and
   `lint`, `check` and `snapshot` before it finishes.
 - `brief.md`, the task: build composition `$composition` from the script at `$input`.
+- `voice_first.md`, added when one of the stage's inputs is a `timings.json` (below).
 - `starter/`, the project a build starts from when it names no `base`: HyperFrames' blank project
   (0.9.0) with the CLI pinned in `devDependencies`, GSAP from npm instead of a CDN, no web font,
   and an `index.html` showing the script's first line. Its npm scripts (`lint`, `check`,
@@ -49,6 +50,18 @@ for both.
 
 `base` copies a template by name from the data directory's `hyperframes/` folder instead of the
 starter; the workflow check reports one that is not there.
+
+When one of `inputs` is a `timings.json` (the speech package's), the brief turns voice first, as
+remotion_build's does: copy the timings and their takes into the project, take the film's length
+from the voice timeline, play each line as an `<audio>` clip of its take (`data-media-start` at
+its `cut_in`) spaced by its pause (scaled for the style, none after a `joined_next` line), page
+karaoke captions per line with `white-space: pre`, and duck a music bed from the world's assets
+under speech with a `data-automation` volume lane. HyperFrames reads clips, audio and the root's
+`data-duration` from the HTML before any script runs (a page script that adds them renders a
+silent film of the written length, tried 2026-11-02), so `voice_first.md` carries a sample Node
+script, `voice.mjs`, that writes the composition from the timings. A test runs it in the starter
+and HyperFrames' linter on what it writes; rendered for real it gave the timeline's length, the
+takes at their places, the bed ducked and the karaoke words with their spaces.
 
 The render executes the agent's code in the hyperframes_render package's connector sandbox (ADR
 0021, its README): no network beyond its own loopback, nothing of the data directory readable but
