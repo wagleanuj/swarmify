@@ -290,7 +290,8 @@ class SqliteStorage:
                     "UPDATE runs SET revision = ?, updated_at = ? WHERE id = ? AND revision = ?",
                     (change.revision, change.at, change.run_id, revision),
                 ).rowcount
-                or not conn.execute(
+                or change.kind == "stage_edit"
+                and not conn.execute(
                     "UPDATE run_stages SET config = ? WHERE id = ? AND status = 'pending'",
                     (json.dumps(change.payload), change.stage_id),
                 ).rowcount

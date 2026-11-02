@@ -33,7 +33,7 @@ class Storage(Protocol):
         ...
 
     def add_change(self, change: AppliedChange, revision: int) -> bool:
-        """Write the change's payload to its stage, record the change and its `run.changed` and
+        """Write a Stage Edit's payload to its stage, record the change and its `run.changed` and
         `run.updated` events in one transaction, moving the run to `change.revision`. False, with
         nothing written, when the run is no longer at `revision` or the stage has started."""
         ...

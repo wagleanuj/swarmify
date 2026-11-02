@@ -64,6 +64,8 @@ export function RunTimeline() {
   const [stepsOpen, setStepsOpen] = useState(false);
   // The step whose Stage Edit card is open, and whether the run's changes are listed.
   const [editing, setEditing] = useState<string | null>(null);
+  // The file whose Artifact Edit card is open.
+  const [editingFile, setEditingFile] = useState<ArtifactFile | null>(null);
   const [changesOpen, setChangesOpen] = useState(false);
   // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
   const [topbar, setTopbar] = useState<Element | null>(null);
@@ -441,7 +443,7 @@ export function RunTimeline() {
           <ol className="changes">
             {changes.map((c) => (
               <li key={c.id}>
-                Edited {c.stage_name} · by {who(c.by)} at {hhmm(c.at)}
+                Edited {c.kind === "artifact_edit" ? `${String(c.payload.path)} of ${c.stage_name}` : c.stage_name} · by {who(c.by)} at {hhmm(c.at)}
               </li>
             ))}
           </ol>
@@ -489,8 +491,11 @@ export function RunTimeline() {
             call={calls[stage.id]}
             connectors={connectors}
             onTaskAdded={(task) => setTasks((prev) => upsert(prev, task))}
+            onEditFile={!ended && stage.status === "done" ? setEditingFile : undefined}
             lead={
-              editing === stage.id ? (
+              editingFile?.stage === stage.id ? (
+                <ChangeCard key={editingFile.path} run={run} stage={stage} file={editingFile} onClose={() => setEditingFile(null)} />
+              ) : editing === stage.id ? (
                 <ChangeCard key={stage.id} run={run} stage={stage} onClose={() => setEditing(null)} />
               ) : open ? (
                 <ul className="gate-list inline-gate" aria-label="Answer the gate">

@@ -10,6 +10,7 @@ import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
 import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, rawUrl, summary, VIDEO } from "./Artifacts";
+import { EDITABLE } from "./ChangeCard";
 import { PublishValue } from "./Connectors";
 import { StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
@@ -503,8 +504,8 @@ function StepInputs({ run, stage, artifacts, worldId }: { run: Run; stage: Stage
   );
 }
 
-/** Every file a step made, records included, folded away. */
-function AllFiles({ made, worldId }: { made: ArtifactFile[]; worldId: string }) {
+/** Every file a step made, records included, folded away; a text one can be edited. */
+function AllFiles({ made, worldId, onEdit }: { made: ArtifactFile[]; worldId: string; onEdit?: (a: ArtifactFile) => void }) {
   if (!made.length) return null;
   return (
     <details className="technical" data-testid="all-files">
@@ -520,6 +521,14 @@ function AllFiles({ made, worldId }: { made: ArtifactFile[]; worldId: string }) 
               </FileLink>
             )}{" "}
             <span className="faint">{a.type}</span>
+            {onEdit && a.type !== "decision" && !a.fields.deleted && EDITABLE.test(a.name) && (
+              <>
+                {" "}
+                <button type="button" aria-label={`Edit file ${a.name}`} onClick={() => onEdit(a)}>
+                  Edit file
+                </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -579,6 +588,8 @@ export type PanelProps = {
   answering?: boolean;
   /** This step made the result shown above, so its player is not repeated here. */
   resultShown?: boolean;
+  /** Opens an Artifact Edit of a text file the step made; only once it has finished. */
+  onEditFile?: (a: ArtifactFile) => void;
 };
 
 /** Part 7: what the selected step did and made, by its type, then its live log (part 8). */
@@ -663,7 +674,7 @@ export function StagePanel(p: PanelProps) {
       )}
       {connector && <StepInputs run={run} stage={stage} artifacts={p.artifacts} worldId={worldId} />}
       {inside}
-      <AllFiles made={made} worldId={worldId} />
+      <AllFiles made={made} worldId={worldId} onEdit={p.onEditFile} />
       {logged && <LiveLog log={shownLog} tasks={p.tasks} />}
       {connector && <TechnicalDetails call={call} />}
     </section>

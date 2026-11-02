@@ -7,6 +7,7 @@ license = "AGPL-3.0-only"
 dependencies = [
   "fastapi>=0.162",
   "httpx2>=2.16",
+  "jsonschema>=4.26",
   "mcp>=2.3",
   "python-multipart>=0.0.20",
   "pyyaml>=6.0",

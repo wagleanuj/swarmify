@@ -12,8 +12,10 @@ the connectors that offer them (remote.py).
 """
 
 import asyncio
+import json
 import logging
 import os
+import re
 import shutil
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
@@ -27,6 +29,8 @@ import yaml
 from anyio import to_thread
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from jsonschema.exceptions import best_match
+from jsonschema.validators import validator_for
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException
@@ -98,6 +102,7 @@ from swarmify_runs import (
     RunControl,
     Runner,
     StageDef,
+    artifact_type,
 )
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import SqliteStorage as RunStorage
@@ -346,6 +351,45 @@ def previews(
         return PublishPreview(shown["connector"], fields, shown["problems"], private)
 
     return preview
+
+
+FENCE = re.compile(r"```json[ \t]*\n(.*?)\n```", re.S)
+"""A declared type's fields in a markdown artifact, as the judge projects them (issue 133)."""
+
+
+def text_check(
+    registry: Connectors, pins: Callable[[Run], dict[str, str]]
+) -> Callable[[Run, str, str], list[str]]:
+    """An Artifact Edit's new text as its readers parse it: JSON and YAML must parse, and a
+    markdown artifact of a type a connector declares must carry fields that fit the type's
+    schema, at the package versions `pins` gives for the run."""
+
+    def check(run: Run, name: str, text: str) -> list[str]:
+        suffix = Path(name).suffix.lower()
+        try:
+            if suffix == ".json":
+                json.loads(text)
+            elif suffix in (".yaml", ".yml"):
+                yaml.safe_load(text)
+        except (ValueError, yaml.YAMLError) as exc:
+            return [f"{name} does not parse: {exc}"]
+        kind = artifact_type(text) if suffix == ".md" else "file"
+        schema = registry.type_schema(run.world_id, kind, pins(run)) if kind != "file" else None
+        if schema is None:
+            return []
+        try:
+            fields = json.loads(found.group(1)) if (found := FENCE.search(text)) else None
+        except ValueError:
+            fields = None
+        if fields is None:
+            return [f"{name} no longer fits type {kind}: its fields need a JSON block"]
+        wrong = best_match(validator_for(schema)(schema).iter_errors(fields))
+        if wrong is None:
+            return []
+        at = "/".join(str(p) for p in wrong.absolute_path) or "the top"
+        return [f"{name} no longer fits type {kind} at {at}: {wrong.message}"]
+
+    return check
 
 
 def run_control(root: Path, notifier: Notifier | None = None) -> RunControl:
@@ -778,6 +822,7 @@ def create_app(
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
     runner.check = runs.checker(workflow_svc)
+    runner.check_text = text_check(registry, pins)
     # On upgrade: versions saved before they recorded package versions take the world's pins.
     workflow_svc.stamp(registry.enabled)
 
