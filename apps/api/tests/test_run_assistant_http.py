@@ -11,7 +11,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from test_run_changes_http import at_gate, change, stage
 
-from swarmify_swarm import tool_id
+from swarmify_memory import FakeGraphIndex
+from swarmify_memory.ports import graph_file
+from swarmify_swarm import SqliteStorage, tool_id
 from swarmify_swarm.fake import Answer, Call, Die, Say, Script
 
 READS = ("get_run", "read_run_file", "tail_stage_log", "list_run_events")
@@ -25,10 +27,16 @@ def running(app: FastAPI) -> Iterator[TestClient]:
 
 
 def test_a_question_is_answered_from_the_read_tools_with_its_sources(
-    running: TestClient, script: Script, tmp_path: Path
+    running: TestClient, script: Script, tmp_path: Path, graph_index: FakeGraphIndex
 ) -> None:
     run = at_gate(running)
     pick = stage(run, "pick")
+    board = SqliteStorage(tmp_path / "swarmify.db")
+    board.agent(run["world_id"], run["id"], pick["id"], "scout", "worker")
+    board.log(pick["id"], "scout", "tool", "read the three hooks", tool="Read")
+    graph = graph_file(tmp_path / "worlds" / run["world_id"])
+    graph.parent.mkdir(parents=True, exist_ok=True)
+    graph.write_text("{}")
     notes = tmp_path / "worlds" / run["world_id"] / "runs" / run["id"] / pick["id"] / "notes.md"
     notes.parent.mkdir(parents=True)
     notes.write_text("Idea 1 won on hooks.")
@@ -38,8 +46,10 @@ def test_a_question_is_answered_from_the_read_tools_with_its_sources(
             Call(tool_id("read_run_file"), {"path": f"{pick['id']}/notes.md"}),
             Call(tool_id("read_run_file"), {"path": "../../secrets.env"}),
             Call(tool_id("tail_stage_log"), {"stage": pick["id"]}),
+            Call(tool_id("tail_stage_log"), {"stage": pick["id"], "lines": -5}),
             Call(tool_id("list_run_events"), {}),
             Call(tool_id("list_workflow_runs"), {}),
+            Call(tool_id("query_graph"), {"question": "Which hooks win?"}),
             Answer(
                 {
                     "reply": "Idea 1 won on its hook.",
@@ -58,12 +68,16 @@ def test_a_question_is_answered_from_the_read_tools_with_its_sources(
     assert reply["role"] == "assistant" and reply["text"] == "Idea 1 won on its hook."
     assert reply["sources"] == [{"label": "from notes.md", "stage": pick["id"]}]
 
-    got, read, escaped, logged, events, versions = script.outcomes
+    got, read, escaped, logged, clamped, events, versions, recalled = script.outcomes
     assert not got.is_error and f'"revision": {run["revision"]}' in got.text
     assert '"render"' in got.text and "notes.md" in got.text  # its stages, config and files
     assert read.text == "Idea 1 won on hooks."
     assert escaped.is_error and "not a file of this run" in escaped.text
-    assert not logged.is_error and not events.is_error and "run.updated" in events.text
+    assert not logged.is_error and "read the three hooks" in logged.text
+    assert "read the three hooks" in clamped.text  # the tail, however few lines asked
+    assert not events.is_error and "run.updated" in events.text
+    assert recalled.text == graph_index.answer
+    assert graph_index.calls[-1][2] == {"question": "Which hooks win?"}
     assert '"number": 1' in versions.text and run["id"] in versions.text
     assert "Why idea 1?" in script.prompts[0]
     assert run["id"] in str(script.sessions[0].system_prompt)
@@ -128,6 +142,15 @@ def test_a_change_comes_back_as_the_proposal_propose_makes_and_applies_through_t
         json={"state": "applied", "change_id": "change_nope"},
     )
     assert wrong.status_code == 422
+    elsewhere = running.post(  # a real change, but not the one this card proposed
+        f"/api/runs/{run['id']}/assistant/proposals/{other['id']}",
+        json={"state": "applied", "change_id": applied.json()["id"]},
+    )
+    assert elsewhere.status_code == 422
+    again = running.post(
+        f"/api/runs/{run['id']}/assistant/proposals/{card['id']}", json={"state": "dismissed"}
+    )
+    assert again.status_code == 409
 
 
 def test_the_assistant_cannot_apply_a_change_or_answer_a_gate(
@@ -178,7 +201,10 @@ def test_the_assistant_runs_on_the_worlds_planner_model_and_a_bad_turn_is_a_502(
     running: TestClient, script: Script
 ) -> None:
     run = at_gate(running)
-    running.patch(f"/api/worlds/{run['world_id']}", json={"planner_model": "claude-sonnet-5-5"})
+    world = run["world_id"]
+    running.patch(f"/api/worlds/{world}", json={"planner_model": "claude-sonnet-5-5"})
+    before = running.get(f"/api/worlds/{world}/spend").json()["spent_usd"]
+    script.cost = 0.02
     script.scripts = [[Die()], [Say("no json")], [Answer({"reply": "Fine."})]]
     for _ in range(2):
         failed = running.post(f"/api/runs/{run['id']}/assistant", json={"message": "x"})
@@ -187,6 +213,10 @@ def test_the_assistant_runs_on_the_worlds_planner_model_and_a_bad_turn_is_a_502(
     assert script.sessions[0].model == "claude-sonnet-5-5"
     conversation = running.get(f"/api/runs/{run['id']}/assistant").json()
     assert [m["role"] for m in conversation["messages"]] == ["operator", "assistant"]
+    # The failed "no json" turn was still billed: it counts, beside the answered one.
+    spend = running.get(f"/api/worlds/{world}/spend").json()["spent_usd"]
+    assert spend == pytest.approx(before + 0.04)
+    assert conversation["spent_usd"] == pytest.approx(0.04)
     assert running.post("/api/runs/run_nope/assistant", json={"message": "x"}).status_code == 404
     assert running.get("/api/runs/run_nope/assistant").status_code == 404
     assert running.post(f"/api/runs/{run['id']}/assistant", json={"message": ""}).status_code == 422

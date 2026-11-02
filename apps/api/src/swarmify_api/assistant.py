@@ -186,6 +186,15 @@ class Conversations:
             conn.execute("COMMIT")
         return answered
 
+    def failed(self, run: Run, error: str, cost_usd: float) -> None:
+        """Keep what a failed turn cost, out of the conversation: the session still billed it."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO assistant_messages (id, run_id, world_id, role, text, cost_usd, at)"
+                " VALUES (?, ?, ?, 'failed', ?, ?, ?)",
+                (new_id("message"), run.id, run.world_id, error, cost_usd, _now()),
+            )
+
     def session(self, run_id: str) -> str | None:
         """The session the conversation resumes, None before its first answer."""
         with self._conn() as conn:
@@ -199,7 +208,9 @@ class Conversations:
     def messages(self, run: Run) -> list[Message]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM assistant_messages WHERE run_id = ? ORDER BY at, rowid", (run.id,)
+                "SELECT * FROM assistant_messages WHERE run_id = ? AND role != 'failed'"
+                " ORDER BY at, rowid",
+                (run.id,),
             ).fetchall()
             cards = conn.execute(
                 "SELECT * FROM assistant_proposals WHERE run_id = ? AND message_id IS NOT NULL"
@@ -219,18 +230,23 @@ class Conversations:
             for r in rows
         ]
 
-    def mark(self, run: Run, proposal_id: str, state: str, change_id: str | None) -> Card | None:
+    def card(self, run: Run, proposal_id: str) -> Card | None:
         with self._conn() as conn:
-            conn.execute(
-                "UPDATE assistant_proposals SET state = ?, change_id = ?"
-                " WHERE id = ? AND run_id = ?",
-                (state, change_id, proposal_id, run.id),
-            )
             row = conn.execute(
                 "SELECT * FROM assistant_proposals WHERE id = ? AND run_id = ?",
                 (proposal_id, run.id),
             ).fetchone()
         return _card(row, run) if row else None
+
+    def mark(self, run: Run, proposal_id: str, state: str, change_id: str | None) -> Card | None:
+        """Close an open proposal; None when it was already applied or dismissed."""
+        with self._conn() as conn:
+            marked = conn.execute(
+                "UPDATE assistant_proposals SET state = ?, change_id = ?"
+                " WHERE id = ? AND run_id = ? AND state = 'open'",
+                (state, change_id, proposal_id, run.id),
+            ).rowcount
+        return self.card(run, proposal_id) if marked else None
 
     def spent(self, run_id: str) -> float:
         with self._conn() as conn:
@@ -389,7 +405,11 @@ class Reader:
         stage = str(args.get("stage", ""))
         if not any(s.id == stage for s in self.run().stages):
             raise ToolError(f"no stage {stage} in this run")
-        lines = self.board.list_log(stage)[-int(args.get("lines") or 50) :]
+        try:
+            n = max(1, min(int(args.get("lines") or 50), 500))
+        except (TypeError, ValueError) as exc:
+            raise ToolError(f"lines must be a number, not {args.get('lines')!r}") from exc
+        lines = self.board.list_log(stage)[-n:]
         return json.dumps(jsonable_encoder(lines))
 
     async def list_run_events(self, _args: dict[str, Any]) -> str:
@@ -470,7 +490,7 @@ def router(
     async def ask(run_id: str, body: Ask) -> Message:
         """One turn of the Run Assistant: the operator's message in, the reply with its sources
         and proposals out. 502 when the session fails or does not answer in the shape asked,
-        with nothing kept; send the message again to retry."""
+        with nothing kept but what the session cost; send the message again to retry."""
         run = get_run(run_id)
         world = worlds.get(run.world_id)
         reader = Reader(run_id, runner, worlds, workflows, board, index, conversations)
@@ -493,13 +513,16 @@ def router(
             model=world.model_for("planner") if world else None,
         )
         hooks = _Hooks(allowed)
+        end: SessionEnd | None = None
         try:
-            end: SessionEnd = await runtime.run(spec, hooks)
+            end = await runtime.run(spec, hooks)
             if end.is_error:
                 raise RuntimeError(end.result or "the session failed")
             reply, sources, shown = parse_answer(end.output, run)
         except Exception as exc:
             conversations.drop(reader.made)
+            if end is not None:
+                conversations.failed(run, str(exc), end.cost_usd)
             log.warning("run assistant failed on run %s: %s", run_id, exc)
             raise HTTPException(502, f"The assistant did not answer: {exc}") from exc
         shown = [p for p in shown if p in reader.made] if shown is not None else reader.made
@@ -517,16 +540,27 @@ def router(
             messages=conversations.messages(run), spent_usd=conversations.spent(run_id)
         )
 
-    @api.post("/runs/{run_id}/assistant/proposals/{proposal_id}", responses={404: {}, 422: {}})
+    @api.post(
+        "/runs/{run_id}/assistant/proposals/{proposal_id}", responses={404: {}, 409: {}, 422: {}}
+    )
     def mark(run_id: str, proposal_id: str, body: Mark) -> Card:
-        """Record what became of a proposal: applied through the Run Change seam (naming the
-        change it recorded, 422 when the run has no such change) or dismissed with Not now."""
+        """Record what became of an open proposal: applied through the Run Change seam (naming
+        the change it recorded, 422 unless the run has that change for the proposal's stage and
+        kind) or dismissed with Not now. 409 once it was already applied or dismissed."""
         run = get_run(run_id)
-        if body.state == "applied" and not any(c.id == body.change_id for c in run.changes):
-            raise HTTPException(422, "no such change was applied to this run")
-        card = conversations.mark(run, proposal_id, body.state, body.change_id)
+        card = conversations.card(run, proposal_id)
         if card is None:
             raise HTTPException(404, "proposal not found")
-        return card
+        if body.state == "applied":
+            proposed = card.proposal.change
+            if not any(
+                c.id == body.change_id and (c.stage_id, c.kind) == (proposed.stage, proposed.kind)
+                for c in run.changes
+            ):
+                raise HTTPException(422, "no such change was applied to this run")
+        marked = conversations.mark(run, proposal_id, body.state, body.change_id)
+        if marked is None:
+            raise HTTPException(409, "the proposal was already applied or dismissed")
+        return marked
 
     return api

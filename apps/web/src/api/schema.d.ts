@@ -1665,7 +1665,7 @@ export interface paths {
          * Ask
          * @description One turn of the Run Assistant: the operator's message in, the reply with its sources
          *     and proposals out. 502 when the session fails or does not answer in the shape asked,
-         *     with nothing kept; send the message again to retry.
+         *     with nothing kept but what the session cost; send the message again to retry.
          */
         post: operations["ask_api_runs__run_id__assistant_post"];
         delete?: never;
@@ -1685,8 +1685,9 @@ export interface paths {
         put?: never;
         /**
          * Mark
-         * @description Record what became of a proposal: applied through the Run Change seam (naming the
-         *     change it recorded, 422 when the run has no such change) or dismissed with Not now.
+         * @description Record what became of an open proposal: applied through the Run Change seam (naming
+         *     the change it recorded, 422 unless the run has that change for the proposal's stage and
+         *     kind) or dismissed with Not now. 409 once it was already applied or dismissed.
          */
         post: operations["mark_api_runs__run_id__assistant_proposals__proposal_id__post"];
         delete?: never;
@@ -7495,6 +7496,13 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
