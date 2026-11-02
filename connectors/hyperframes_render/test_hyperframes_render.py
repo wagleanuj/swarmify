@@ -19,7 +19,6 @@ import hyperframes_render as hr
 import pytest
 
 from swarmify_connectors import (
-    packages,
     MIGRATIONS,
     ConnectorError,
     Connectors,
@@ -27,6 +26,7 @@ from swarmify_connectors import (
     FakeTransport,
     McpTransport,
     SqliteStorage,
+    packages,
     read_manifest,
 )
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
