@@ -83,11 +83,17 @@ def fingerprint(folder: Path) -> str:
 
 
 def seed(folder: Path, source: Path) -> None:
-    """A fresh build folder: a copy of `source` without its node_modules, git history or record
-    as a Template."""
+    """A fresh build folder: a copy of `source` without its node_modules, git history, record
+    as a Template or symlinks (a Template is world data, so a link in it is not followed out of
+    it into the builder's writable folder)."""
+    skip = shutil.ignore_patterns("node_modules", ".git", RECORD)
+
+    def ignore(root: str, names: list[str]) -> set[str]:
+        return set(skip(root, names)) | {n for n in names if (Path(root) / n).is_symlink()}
+
     if folder.exists():
         shutil.rmtree(folder)
-    shutil.copytree(source, folder, ignore=shutil.ignore_patterns("node_modules", ".git", RECORD))
+    shutil.copytree(source, folder, ignore=ignore)
 
 
 def keep(folder: Path, version: Path, output: Path | None) -> None:

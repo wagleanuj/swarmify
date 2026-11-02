@@ -3,6 +3,7 @@
 stage calling a package that requests one. The fixture package `sketch` requests one."""
 
 import copy
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -50,10 +51,17 @@ def test_a_build_is_seeded_from_a_folder_or_a_world_template_by_name(tmp_path: P
     (shorts / ".git").mkdir()
     (shorts / "index.ts").write_text("// shorts")
     (shorts / build_session.RECORD).write_text("{}")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data/.env").write_text("SECRET=1")
+    (shorts / "src").mkdir()
+    (shorts / "src/data").symlink_to(tmp_path / "data")
+    (shorts / "env").symlink_to(tmp_path / "data/.env")
     build_session.seed(folder, build_session.template(m, world, "shorts"))
     assert (folder / "index.ts").read_text() == "// shorts"  # a fresh folder each time
     assert not (folder / "node_modules").exists() and not (folder / "index.html").exists()
     assert not (folder / ".git").exists() and not (folder / build_session.RECORD).exists()
+    assert (folder / "src").is_dir() and not os.path.lexists(folder / "src/data")
+    assert not os.path.lexists(folder / "env")  # a link in a Template is not followed out of it
     (world / "assets/sketches/.hidden").mkdir()
     (world / "assets/sketches/linked").symlink_to(shorts)
     for base in ("../shorts", str(shorts), "..", ".hidden", "linked", "nope"):
