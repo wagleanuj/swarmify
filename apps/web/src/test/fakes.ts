@@ -128,6 +128,8 @@ export function run(status: Run["status"], stages: StageView[], over = {}): Run 
     spent_usd: 0,
     over_budget: false,
     baseline: false,
+    revision: 0,
+    changes: [],
     ...over,
   } as Run;
 }

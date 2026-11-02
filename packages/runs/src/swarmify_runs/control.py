@@ -1,4 +1,5 @@
-"""Acting on a run from outside its workflow: decide at a gate, pause, resume, abort.
+"""Acting on a run from outside its workflow: decide at a gate, pause, resume, abort, and
+propose and apply Run Changes (ADR 0027).
 
 Any process may act. Messages reach the run's DBOS workflow, the single writer of run state,
 through a DBOSClient on the shared system database, so the MCP server works without launching
@@ -35,7 +36,18 @@ from swarmify_runs.machine import (
     SentBack,
     transition,
 )
-from swarmify_runs.model import Decision, Gate, Pinned, PublishPreview, Run, StageDef
+from swarmify_runs.model import (
+    AppliedChange,
+    ChangeProposal,
+    Decision,
+    Gate,
+    Pinned,
+    PublishPreview,
+    Run,
+    RunChange,
+    RunStageView,
+    StageDef,
+)
 from swarmify_runs.ports import Notifier, Storage
 
 log = logging.getLogger(__name__)
@@ -80,6 +92,16 @@ another; the Connectors registry can, through the composition root."""
 
 def no_previews(_run: Run, _stage: StageDef, _edits: dict[str, Any]) -> PublishPreview | None:
     return None
+
+
+Check = Callable[[Run, list[StageDef]], list[str]]
+"""(run, its whole stage list with a Run Change in it) to the violations of the workflow check
+at the run's pinned package versions, every rule a workflow save meets. Runs cannot read the
+rules; the composition root checks the list as a workflow model through Workflows."""
+
+
+def no_check(_run: Run, _stages: list[StageDef]) -> list[str]:
+    return []
 
 
 def _now() -> str:
@@ -167,6 +189,8 @@ class RunControl:
         self._client: DBOSClient | None = None
         self.pin: Pin | None = None
         """Set by the composition root; a fork of a workflow run re-checks its version with it."""
+        self.check: Check = no_check
+        """Set by the composition root; every Run Change is checked with it."""
 
     def start(
         self,
@@ -405,6 +429,41 @@ class RunControl:
             raise
         return self._run(run_id)
 
+    def propose(self, run_id: str, change: RunChange) -> ChangeProposal:
+        """What `change` would do to the run, writing nothing: the stage's config before and
+        after, and the violations that would refuse it, the run's state (a stage that has
+        started) and the workflow check of the run's stages with the change in them. Raises
+        KeyError for an unknown run, Illegal when it has ended, and ValueError for a stage not
+        in the run or a kind of change that cannot be applied yet."""
+        run = self._run(run_id)
+        stage, stages = edited(run, change)
+        violations = [p for p in [not_pending(stage)] if p] + self.check(run, stages)
+        return ChangeProposal(
+            change, stage.name, stage.config, change.payload, violations, run.revision
+        )
+
+    def apply(self, run_id: str, change: RunChange, revision: int, by: str) -> AppliedChange:
+        """Apply `change` as `by` (the operator, a token's name, a Remote Approval's person),
+        checked again: write the stage's new config, record the change and emit `run.changed`.
+        `revision` is the proposal's; raises Illegal, naming what moved, when the run moved on
+        since, or when the stage has started, ValueError with the check's violations, and as
+        `propose` does otherwise."""
+        run = self._run(run_id)
+        if run.revision != revision:
+            raise Illegal(moved(run, revision))
+        stage, stages = edited(run, change)
+        if problem := not_pending(stage):
+            raise Illegal(problem)
+        if violations := self.check(run, stages):
+            raise ValueError("; ".join(violations))
+        applied = AppliedChange(
+            new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
+            change.payload, stage.config, by, _now(), revision + 1,
+        )  # fmt: skip
+        if self.storage.add_change(applied, change.payload, revision) is None:
+            raise Illegal(moved(self._run(run_id), revision))  # it moved while being checked
+        return applied
+
     def pause(self, run_id: str) -> Run:
         """Pause takes effect at once at a gate, otherwise at the running stage's next agent
         step (`check_stop`); the stage runs again, its agents resuming, on resume."""
@@ -639,6 +698,39 @@ class RunControl:
         self.storage.add_decision(run.id, decision, run.send_backs)  # Illegal: already answered
         path.write_text(decision_markdown(run, decision))
         return decision
+
+
+def edited(run: Run, change: RunChange) -> tuple[RunStageView, list[StageDef]]:
+    """The stage a Stage Edit targets and the run's stages with the edit in them."""
+    if change.kind != "stage_edit":
+        raise ValueError(f"a {change.kind} cannot be applied yet")
+    stage = next((s for s in run.stages if s.id == change.stage), None)
+    if stage is None:
+        raise ValueError(f"no stage {change.stage} in this run")
+    return stage, [
+        StageDef(s.name, s.type, change.payload if s is stage else s.config) for s in run.stages
+    ]
+
+
+def not_pending(stage: RunStageView) -> str | None:
+    """Why the stage can no longer be edited, None while it has not started (ADR 0027)."""
+    if stage.status == "running":
+        return f"{stage.name} is running: pause first or add a task"
+    if stage.status != "pending":
+        return f"{stage.name} is {stage.status}; only a stage that has not started can be edited"
+    return None
+
+
+def moved(run: Run, revision: int) -> str:
+    """What happened to the run since `revision`: the latest change applied since, else where
+    the run is now."""
+    since = [c for c in run.changes if c.revision > revision]
+    live = next((s for s in run.stages if s.status in ("running", "waiting")), None)
+    if since:
+        what = f"{since[-1].stage_name} was edited by {since[-1].by}"
+    else:
+        what = f"it is now at {live.name}" if live else f"it is now {run.status}"
+    return f"The run moved on since this was proposed: {what}."
 
 
 def artifact_title(file: Path) -> str:

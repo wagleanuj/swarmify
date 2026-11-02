@@ -1,11 +1,11 @@
 """Ports of the Runs context (ADR 0012): Storage (SQLite now, Postgres is the seam) and
 Notifier (Slack in the Notifications context, a log line standalone, a recording fake in tests)."""
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from swarmify_kernel import Event
 from swarmify_runs.machine import RunState
-from swarmify_runs.model import Decision, Gate, Run, StageDef
+from swarmify_runs.model import AppliedChange, Decision, Gate, Run, StageDef
 
 
 class Storage(Protocol):
@@ -30,6 +30,14 @@ class Storage(Protocol):
     def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
         """`visit` is the run's send-back count, which tells visits to one gate apart. Raises
         Illegal when this visit already has a decision."""
+        ...
+
+    def add_change(
+        self, change: AppliedChange, config: dict[str, Any], revision: int
+    ) -> Run | None:
+        """Write `config` to the change's stage, record the change and its `run.changed` and
+        `run.updated` events in one transaction, moving the run to `change.revision`. None, with
+        nothing written, when the run is no longer at `revision` or the stage has started."""
         ...
 
     def set_spent(self, run_id: str, usd: float) -> Run | None:

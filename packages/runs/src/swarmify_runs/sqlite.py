@@ -12,7 +12,15 @@ from swarmify_kernel import Event, new_id
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
 from swarmify_runs.machine import MAX_SEND_BACKS, Illegal, RunState
-from swarmify_runs.model import Decision, Gate, Run, RunLink, RunStageView, StageDef
+from swarmify_runs.model import (
+    AppliedChange,
+    Decision,
+    Gate,
+    Run,
+    RunLink,
+    RunStageView,
+    StageDef,
+)
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 ENDED = ("done", "failed", "aborted")
@@ -153,8 +161,8 @@ class SqliteStorage:
             conn.execute("BEGIN IMMEDIATE")
             now = _now()
             found = conn.execute(
-                "UPDATE runs SET status = ?, send_backs = ?, over_budget = ?, updated_at = ?"
-                " WHERE id = ?",
+                "UPDATE runs SET status = ?, send_backs = ?, over_budget = ?, updated_at = ?,"
+                " revision = revision + 1 WHERE id = ?",
                 (state.status, state.send_backs, state.over_budget, now, run_id),
             ).rowcount
             if not found:
@@ -244,8 +252,9 @@ class SqliteStorage:
             return float(total)
 
     def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
-        try:
-            with self._conn() as conn:
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
                 conn.execute(
                     "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
                     " note, send_back_to, path, decided_at, visit, artifact, publish, answered_by)"
@@ -267,8 +276,59 @@ class SqliteStorage:
                         decision.by,
                     ),
                 )
-        except sqlite3.IntegrityError as exc:
-            raise Illegal("the gate was already decided") from exc
+            except sqlite3.IntegrityError as exc:
+                conn.execute("ROLLBACK")
+                raise Illegal("the gate was already decided") from exc
+            conn.execute("UPDATE runs SET revision = revision + 1 WHERE id = ?", (run_id,))
+            conn.execute("COMMIT")
+
+    def add_change(
+        self, change: AppliedChange, config: dict[str, Any], revision: int
+    ) -> Run | None:
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            moved = (
+                not conn.execute(
+                    "UPDATE runs SET revision = ?, updated_at = ? WHERE id = ? AND revision = ?",
+                    (change.revision, change.at, change.run_id, revision),
+                ).rowcount
+                or not conn.execute(
+                    "UPDATE run_stages SET config = ? WHERE id = ? AND status = 'pending'",
+                    (json.dumps(config), change.stage_id),
+                ).rowcount
+            )
+            if moved:
+                conn.execute("ROLLBACK")
+                return None
+            conn.execute(
+                "INSERT INTO run_changes (id, run_id, kind, stage_id, stage_index, stage_name,"
+                " payload, before_json, applied_by, applied_at, revision)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    change.id,
+                    change.run_id,
+                    change.kind,
+                    change.stage_id,
+                    change.stage_index,
+                    change.stage_name,
+                    json.dumps(change.payload),
+                    json.dumps(change.before),
+                    change.by,
+                    change.at,
+                    change.revision,
+                ),
+            )
+            saved = self._read(conn, change.run_id)
+            assert saved is not None
+            append(
+                conn,
+                Event.new(
+                    "run.changed", world_id=saved.world_id, run_id=saved.id, payload=asdict(change)
+                ),
+            )
+            append(conn, _updated(saved))
+            conn.execute("COMMIT")
+            return saved
 
     def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
         with self._conn() as conn:
@@ -428,6 +488,7 @@ class SqliteStorage:
                     json.loads(s["config"]).get("calls") if s["type"] == "connector" else None,
                     json.loads(s["config"]).get("ask") if s["type"] == "gate" else None,
                     _inputs(json.loads(s["config"])) if s["type"] == "connector" else [],
+                    json.loads(s["config"]),
                 )
                 for s in stages
             ],
@@ -451,6 +512,25 @@ class SqliteStorage:
             row["spent_usd"],
             bool(row["over_budget"]),
             bool(row["baseline"]),
+            row["revision"],
+            [
+                AppliedChange(
+                    c["id"],
+                    c["run_id"],
+                    c["kind"],
+                    c["stage_id"],
+                    c["stage_index"],
+                    c["stage_name"],
+                    json.loads(c["payload"]),
+                    json.loads(c["before_json"]),
+                    c["applied_by"],
+                    c["applied_at"],
+                    c["revision"],
+                )
+                for c in conn.execute(
+                    "SELECT * FROM run_changes WHERE run_id = ? ORDER BY revision", (run_id,)
+                )
+            ],
         )
 
 

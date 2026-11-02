@@ -13,6 +13,7 @@ import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
 import { the } from "../skin";
+import { ChangeCard, hhmm, who } from "./ChangeCard";
 import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
 import { type MenuItem, Menu } from "./Menu";
@@ -61,6 +62,9 @@ export function RunTimeline() {
   // The gate answered here last: its step shows what you decided until you move on yourself.
   const [answered, setAnswered] = useState<{ stageId: string; said: string; at: string } | null>(null);
   const [stepsOpen, setStepsOpen] = useState(false);
+  // The step whose Stage Edit card is open, and whether the run's changes are listed.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [changesOpen, setChangesOpen] = useState(false);
   // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
   const [topbar, setTopbar] = useState<Element | null>(null);
   useEffect(() => setTopbar(document.getElementById("topbar-slot")), []);
@@ -319,6 +323,14 @@ export function RunTimeline() {
       onSelect: () => fork(at.index),
     });
   }
+  if (stage && !ended && stage.status === "pending") {
+    const at = stage;
+    items.push({ label: "Edit stage", note: `Shows the change to ${at.name} and its check first; nothing changes until you apply`, onSelect: () => setEditing(at.id) });
+  }
+  const changes = run.changes ?? [];
+  if (changes.length > 0) {
+    items.push({ label: `Changes (${changes.length})`, note: "Lists every change made to this run; you stay here", onSelect: () => setChangesOpen(!changesOpen) });
+  }
   if (run.status === "done") {
     items.push({ label: "Save as workflow", note: "Saves the steps it ran as a new workflow; you stay on this run", onSelect: saveAsWorkflow });
   }
@@ -333,6 +345,7 @@ export function RunTimeline() {
           {run.stages.map((s) => {
             const now = run.status === "queued" ? s.index === 0 : s.status === "running" || s.status === "waiting";
             const meta = stepMeta(s, run.status === "queued");
+            const edit = changes.filter((c) => c.stage_id === s.id).at(-1);
             return (
               <li key={s.id} data-status={s.status} className={`step step-${s.status}`}>
                 <button
@@ -345,7 +358,15 @@ export function RunTimeline() {
                   <Glyph status={s.status} />
                   <span className="step-name">
                     {s.name}
-                    <small>{s.status === "waiting" ? "waiting for you" : kind(s)}</small>
+                    <small>
+                      {s.status === "waiting" ? "waiting for you" : kind(s)}
+                      {edit && (
+                        <span className="edited" title={`Edited by ${who(edit.by)} at ${hhmm(edit.at)}`}>
+                          {" "}
+                          · Edited
+                        </span>
+                      )}
+                    </small>
                   </span>
                   <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>
                 </button>
@@ -420,6 +441,17 @@ export function RunTimeline() {
           </Link>
         </p>
       )}
+      {changesOpen && changes.length > 0 && (
+        <section className="panel" aria-label="Changes" data-testid="changes">
+          <ol className="changes">
+            {changes.map((c) => (
+              <li key={c.id}>
+                Edited {c.stage_name} · by {who(c.by)} at {hhmm(c.at)}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
       <TimeStrip stages={run.stages} selected={stageId} onSelect={select} />
       <div className="strip-axis">
         <span>{started ? new Date(started).toLocaleTimeString([], { timeStyle: "short" }) : "Not started"}</span>
@@ -463,7 +495,9 @@ export function RunTimeline() {
             connectors={connectors}
             onTaskAdded={(task) => setTasks((prev) => upsert(prev, task))}
             lead={
-              open ? (
+              editing === stage.id ? (
+                <ChangeCard key={stage.id} run={run} stage={stage} onClose={() => setEditing(null)} />
+              ) : open ? (
                 <ul className="gate-list inline-gate" aria-label="Answer the gate">
                   <GateCard gate={open} world={world?.name ?? worldId} onAnswer={answer} bare />
                 </ul>

@@ -14,7 +14,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from swarmify_api import tasks
 from swarmify_api.agents import run_artifacts
-from swarmify_api.runs import pinner, start_pinned
+from swarmify_api.runs import checker, pinner, start_pinned
 from swarmify_memory import Memory
 from swarmify_runs import Illegal, RunControl
 from swarmify_swarm import OPERATOR, Refused, Storage
@@ -40,6 +40,7 @@ def server(
     root = control.data_dir
     memory = memory or Memory(root / "swarmify.db", root)
     pin = control.pin = pinner(workflows)
+    control.check = checker(workflows)
     mcp = MCPServer(
         "swarmify",
         instructions="Drive swarmify: worlds, workflows, runs (start, fork, artifacts), swarm stage"
