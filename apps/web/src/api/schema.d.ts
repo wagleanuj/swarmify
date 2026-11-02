@@ -1657,7 +1657,8 @@ export interface paths {
         };
         /**
          * Conversation
-         * @description The run's conversation, oldest first, and what asking it has cost.
+         * @description The run's conversation, oldest first, what asking it has cost, and what a question
+         *     costs on average against what the world's month has left.
          */
         get: operations["conversation_api_runs__run_id__assistant_get"];
         put?: never;
@@ -2344,6 +2345,10 @@ export interface components {
             messages: components["schemas"]["Message-Output"][];
             /** Spent Usd */
             spent_usd: number;
+            /** Average Usd */
+            average_usd?: number | null;
+            /** Month Left Usd */
+            month_left_usd?: number | null;
         };
         /** CopyBody */
         CopyBody: {

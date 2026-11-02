@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from sse import sse_events
-from swarmify_connectors import FakeTransport
+from swarmify_connectors import ConnectorError, FakeTransport
 
 RENDER = {
     "name": "render_video",
@@ -223,3 +223,39 @@ def test_a_restructure_that_breaks_a_workflow_rule_is_refused_with_the_rules_mes
     )
     assert applied.status_code == 422 and refused in applied.json()["detail"]
     assert running.get(f"/api/runs/{run['id']}").json()["forks"] == []
+
+
+def failed_at_the_end(client: TestClient, transport: FakeTransport) -> dict[str, Any]:
+    """A run whose last stage, the upload, was refused; the same call in a Fork goes through."""
+    run = at_gate(client)
+    upload = stage(run, "render_video")
+
+    def refused_once(arguments: dict[str, Any]) -> dict[str, Any]:
+        if arguments.get("idempotency_key") == upload["id"]:
+            raise ConnectorError("render_video: upload refused")
+        return {"ok": True}
+
+    transport.outputs["render_video"] = [refused_once]
+    assert client.post(f"/api/runs/{run['id']}/decision", json={"choice": "idea 1"}).is_success
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "failed")
+    return client.get(f"/api/runs/{run['id']}").json()
+
+
+def test_a_rerun_of_a_failed_run_answers_with_the_fork_that_runs_only_that_stage_on(
+    running: TestClient, transport: FakeTransport
+) -> None:
+    run = failed_at_the_end(running, transport)
+    body = {"kind": "rerun", "stage": stage(run, "render_video")["id"], "payload": {"note": "Go."}}
+
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=body).json()
+    assert proposal["violations"] == [] and proposal["in_place"] is False
+    assert proposal["fork_from"] == "render_video"
+    applied = running.post(
+        f"/api/runs/{run['id']}/changes", json={**body, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 201, applied.text
+    fork_id = applied.json()["fork"]["id"]
+    until(lambda: running.get(f"/api/runs/{fork_id}").json()["status"] == "done")
+    calls = [c[2]["idempotency_key"] for c in transport.calls if c[1] == "render_video"]
+    assert len(calls) == 4, "render and tag ran once; only the upload runs again in the fork"
+    assert running.get(f"/api/runs/{run['id']}").json()["status"] == "failed"

@@ -426,9 +426,10 @@ def approvals_server(control: RunControl, asker: RunAssistant, registry: Connect
         description="Ask a run's Run Assistant, as a reply in a posted gate's thread: `run_id`"
         " as the gate carried it and the `message`. Answers its `reply` and its `proposals`,"
         " each an `id`, a `title`, the `violations` that would refuse it and what applying it"
-        " costs: `in_place` false when it continues as a Fork from `fork_from` and this run"
-        " ends, a Rerun's `resets` at `cost_usd` of the `budget_left_usd`, and `read_by`, the"
-        " stages that already read the file an Artifact Edit changes."
+        " costs: `in_place` false when it continues as a Fork from `fork_from`, `ends` when"
+        " that ends this run (it is still live), a Rerun's `resets` at `cost_usd` of the"
+        " `budget_left_usd`, and `read_by`, the stages that already read the file an Artifact"
+        " Edit changes."
     )
     async def ask_run(run_id: str, message: str) -> dict[str, Any]:
         run = assisted(run_id)
@@ -445,6 +446,7 @@ def approvals_server(control: RunControl, asker: RunAssistant, registry: Connect
                 "violations": p.violations,
                 "in_place": p.in_place,
                 "fork_from": p.fork_from,
+                "ends": not p.in_place and run.status not in ("done", "failed", "aborted"),
                 "resets": list(p.before) if p.change.kind == "rerun" else [],
                 "cost_usd": p.cost_usd,
                 "budget_left_usd": p.budget_left_usd,

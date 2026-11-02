@@ -467,15 +467,14 @@ class RunControl:
         after (a Rerun's or Skip's stages by name with their status, a Restructure's stage
         lists), and the violations that would refuse it, the run's state (a stage that has
         started, a run at work) and the workflow check of the run's stages with the change in
-        them; a Rerun's cost too. A Restructure, and a Stage Edit or Restructure of a run that
-        has ended, would continue as a Fork from `fork_from`. Raises KeyError for an unknown
-        run, Illegal when a Rerun, Skip or Artifact Edit targets a run that has ended, and
-        ValueError for a stage not in the run or a kind of change that cannot be applied yet."""
+        them; a Rerun's cost too. A Restructure, and any change to a run that has ended, would
+        continue as a Fork from `fork_from`. Raises KeyError for an unknown run and ValueError
+        for a stage not in the run or a kind of change that cannot be applied yet."""
         run = self._any(run_id)
         if change.kind == "artifact_edit":
-            return self._artifact_edit(live(run), change)[1]
+            return self._artifact_edit(run, change)[1]
         if change.kind in STEPS:
-            return self._propose_step(live(run), change)
+            return self._propose_step(run, change)
         stage, stages = edited(run, change)
         violations, checked = self._checked(run, change, stage, stages)
         problem, index = self._refusal(run, change, stage, stages)
@@ -498,9 +497,9 @@ class RunControl:
         if run.revision != revision:
             raise Illegal(moved(run, revision))
         if change.kind == "artifact_edit":
-            return self._apply_artifact_edit(live(run), change, by)
+            return self._apply_artifact_edit(run, change, by)
         if change.kind in STEPS:
-            return self._apply_step(live(run), change, by)
+            return self._apply_step(run, change, by)
         stage, stages = edited(run, change)
         violations, checked = self._checked(run, change, stage, stages)
         problem, index = self._refusal(run, change, stage, stages)
@@ -524,8 +523,9 @@ class RunControl:
         violations (a stage that has not finished, a later stage running that reads the file or
         one that made a newer file of its name, the text check) and the finished stages after
         it that already read the file: a swarm stage is shown every earlier artifact, a
-        connector reads its inputs. Raises ValueError for a file the stage did not make or one
-        that is not text."""
+        connector reads its inputs. On a run that has ended it continues as a Fork from the
+        stage after, whose stages all read the new text. Raises ValueError for a file the stage
+        did not make or one that is not text."""
         stage = next((s for s in run.stages if s.id == change.stage), None)
         if stage is None:
             raise ValueError(f"no stage {change.stage} in this run")
@@ -558,8 +558,15 @@ class RunControl:
             if (stage_folder(self.data_dir, run, s.index) / "artifacts" / name).is_file()
         ]
         problems += self.check_text(run, name, old, text)
-        read_by = [s.name for s in reads if s.status == "done"]
         before, after = {"path": name, "text": old}, {"path": name, "text": text}
+        if run.status in TERMINAL:
+            fork = stage.index + 1
+            problems += [p for p in [unforkable(run, fork)] if p]
+            return file, ChangeProposal(
+                change, stage.name, before, after, problems, run.revision, False,
+                fork_from=run.stages[fork].name if fork < len(run.stages) else None,
+            )  # fmt: skip
+        read_by = [s.name for s in reads if s.status == "done"]
         return file, ChangeProposal(
             change, stage.name, before, after, problems, run.revision, read_by=read_by
         )
@@ -567,13 +574,21 @@ class RunControl:
     def _apply_artifact_edit(self, run: Run, change: RunChange, by: str) -> AppliedChange:
         """Keep the file's text as it was in the stage's `previous/` folder, numbered, write the
         new text, record the change and emit `artifact.created` so the Library and Timeline
-        reload. A run that moved meanwhile gets the file back as it was."""
+        reload. A run that moved meanwhile gets the file back as it was. A run that has ended
+        keeps its file: the Fork gets the new text."""
         file, proposal = self._artifact_edit(run, change)
         stage = next(s for s in run.stages if s.id == change.stage)
-        if problem := not_finished(stage):
+        ended = run.status in TERMINAL
+        if problem := not_finished(stage) or (ended and unforkable(run, stage.index + 1)):
             raise Illegal(problem)
         if proposal.violations:
             raise ValueError("; ".join(proposal.violations))
+        if not proposal.in_place:
+            applied = AppliedChange(
+                new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
+                proposal.after, proposal.before, by, _now(), run.revision + 1,
+            )  # fmt: skip
+            return self._fork_with(run, stage.index + 1, defs(run), applied)
         world = self.data_dir / "worlds" / run.world_id
         previous = file.parent.parent / "previous"
         previous.mkdir(exist_ok=True)
@@ -609,37 +624,50 @@ class RunControl:
 
     def _step(
         self, run: Run, change: RunChange
-    ) -> tuple[RunStageView, RunEvent, dict[str, Any], str | None, list[str]]:
+    ) -> tuple[RunStageView, RunEvent, dict[str, Any], str | None, list[str], int | None]:
         """A Rerun or a Skip: its stage, the event the run's workflow takes for it, the stages
-        it changes by name with their status now, why the run cannot take it now, and the
-        workflow check's violations the change itself brings (a Skip's missing input or
-        ungated publish, ADR 0007)."""
+        it changes by name with their status now, why the run cannot take it now, the workflow
+        check's violations the change itself brings (a Skip's missing input or ungated
+        publish, ADR 0007), and on a run that has ended the stage its Fork runs anew from (the
+        Rerun's start, the skipped stage), else None. A run that has ended can re-run a stage
+        that failed, or skip it."""
         stage = target(run, change)
+        ended = run.status in TERMINAL
         violations: list[str] = []
         if change.kind == "rerun":
             event: RunEvent = Rerun(stage.index)
             start = rerun_from(kinds_of(run), [s.status for s in run.stages], stage.index)
             resets = [s for s in run.stages[start:] if s.status not in ("pending", "skipped")]
             before = {s.name: s.status for s in resets}
-            not_now = None if stage.status == "done" else f"{stage.name} has not finished"
+            if ended:
+                fine = stage.status in ("done", "failed")
+                not_now = None if fine else f"{stage.name} has not run"
+            else:
+                not_now = None if stage.status == "done" else f"{stage.name} has not finished"
         else:
-            event = Skip(stage.index)
+            event, start = Skip(stage.index), stage.index
             before = {stage.name: stage.status}
-            not_now = None if stage.status == "pending" else f"{stage.name} has started"
+            if ended:
+                fine = stage.status in ("pending", "failed")
+                not_now = None if fine else f"{stage.name} is {stage.status}"
+            else:
+                not_now = None if stage.status == "pending" else f"{stage.name} has started"
             kept = [s for s in run.stages if s.status != "skipped"]  # no longer gate or make
             every = [StageDef(s.name, s.type, s.config) for s in kept]
             known = set(self.check(run, every)[0])
             without = [d for d, s in zip(every, kept, strict=True) if s is not stage]
             violations = [v for v in self.check(run, without)[0] if v not in known]
+        if ended:
+            return stage, event, before, not_now or unforkable(run, start), violations, start
         if not_now is None:
             try:
                 transition(kinds_of(run), state_of(run), event)
             except Illegal as exc:
                 not_now = str(exc)
-        return stage, event, before, not_now, violations
+        return stage, event, before, not_now, violations, None
 
     def _propose_step(self, run: Run, change: RunChange) -> ChangeProposal:
-        stage, _, before, not_now, violations = self._step(run, change)
+        stage, _, before, not_now, violations, fork = self._step(run, change)
         after = dict.fromkeys(before, "pending" if change.kind == "rerun" else "skipped")
         problems = ([not_now] if not_now else []) + violations
         top = self.top(run)
@@ -650,14 +678,16 @@ class RunControl:
             reset = [s for s in run.stages if s.name in before]
             cost = sum(spent.get(s.id, 0.0) / visits(run, s) for s in reset)
         return ChangeProposal(
-            change, stage.name, before, after, problems, run.revision,
+            change, stage.name, before, after, problems, run.revision, fork is None,
             cost_usd=cost, budget_left_usd=left,
+            fork_from=None if fork is None else run.stages[fork].name,
         )  # fmt: skip
 
     def _apply_step(self, run: Run, change: RunChange, by: str) -> AppliedChange:
         """Record the Rerun or Skip, then tell the run's workflow, which resets or passes over
-        the stages once it is free (a Skip while a stage runs lands when it ends)."""
-        stage, event, before, not_now, violations = self._step(run, change)
+        the stages once it is free (a Skip while a stage runs lands when it ends). On a run that
+        has ended it starts the Fork instead."""
+        stage, event, before, not_now, violations, fork = self._step(run, change)
         if not_now:
             raise Illegal(not_now)
         if violations:
@@ -667,6 +697,8 @@ class RunControl:
             new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
             payload if change.kind == "rerun" else {}, before, by, _now(), run.revision + 1,
         )  # fmt: skip
+        if fork is not None:
+            return self._fork_with(run, fork, defs(run), applied)
         if not self.storage.add_change(applied, run.revision):
             raise Illegal(moved(self._run(run.id), run.revision))
         # ponytail: a DBOS outage here leaves the change recorded but not taken; the run page
@@ -735,6 +767,9 @@ class RunControl:
         if saved is None:
             raise Illegal(moved(self._any(source.id), change.revision - 1))
         copy_run_files(self.data_dir, source, saved, index)
+        if change.kind == "artifact_edit":  # the Fork's copy of the file gets the new text
+            path = stage_folder(self.data_dir, saved, change.stage_index) / "artifacts"
+            (path / change.payload["path"]).write_text(change.payload["text"])
         self._enqueue(saved)
         if source.status not in TERMINAL:
             with suppress(Illegal):  # it ended meanwhile; the change and its Fork still stand
@@ -992,6 +1027,19 @@ class RunControl:
 
 STEPS = ("rerun", "skip")
 """The Run Changes that move the run's stages rather than edit them, through its workflow."""
+
+
+def unforkable(run: Run, index: int) -> str | None:
+    """Why a Fork of the run cannot run anew from stage `index`: nothing is left to run, or a
+    stage before it has not finished, as a Fork copies only finished stages."""
+    if index >= len(run.stages):
+        return "the Fork would have nothing to run"
+    unfinished = next((s for s in run.stages[:index] if s.status not in ("done", "skipped")), None)
+    return None if unfinished is None else f"{unfinished.name} has not finished"
+
+
+def defs(run: Run) -> list[StageDef]:
+    return [StageDef(s.name, s.type, s.config) for s in run.stages]
 
 
 def target(run: Run, change: RunChange) -> RunStageView:

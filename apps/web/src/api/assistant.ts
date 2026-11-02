@@ -3,11 +3,12 @@
 import { type FormEvent, useState } from "react";
 
 import { api } from "./client";
-import { type Gate, refusal } from "./runs";
+import { type Gate, money, refusal } from "./runs";
 import type { components } from "./schema";
 
 export type Card = components["schemas"]["Card"];
 export type Said = components["schemas"]["Message-Output"];
+type Conversation = components["schemas"]["Conversation"];
 type Kind = components["schemas"]["ApplyChange"]["kind"];
 
 /** One turn: the assistant's reply, or why it did not answer. */
@@ -71,6 +72,13 @@ export async function markCard(runId: string, card: Card, state: "applied" | "di
     params: { path: { run_id: runId, proposal_id: card.id } },
     body: { state, change_id: changeId ?? null },
   });
+}
+
+/** What a question costs: the world's real average so far, against what its month has left. */
+export function askingCosts(c?: Pick<Conversation, "average_usd" | "month_left_usd"> | null): string {
+  const figure = c?.average_usd != null ? `Asking costs about ${money(c.average_usd)} a question` : "The first question sets what asking costs";
+  const from = c?.month_left_usd != null ? `from the ${money(c.month_left_usd)} the world has left this month` : "from the world's budget";
+  return `${figure}, ${from}.`;
 }
 
 /** A change card's title by kind, in the spec's words: "Edit metadata.md", "Re-run from Script". */

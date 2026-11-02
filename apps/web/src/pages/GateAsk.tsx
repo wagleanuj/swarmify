@@ -1,6 +1,6 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
-import { type Card, markCard, useGateAsk } from "../api/assistant";
+import { askingCosts, type Card, markCard, useGateAsk } from "../api/assistant";
 import { api } from "../api/client";
 import { reloadGates } from "../api/gates";
 import type { Gate, Run } from "../api/runs";
@@ -12,15 +12,26 @@ import { ProposedCard } from "./RunAssistant";
  * gates, so the preview shows what will really go out. */
 export function GateAsk({ gate, onFill }: { gate: Gate; onFill: (fields: Record<string, string>) => void }) {
   const [run, setRun] = useState<Run | null>(null);
+  const [costs, setCosts] = useState(() => askingCosts());
   const [dismissed, setDismissed] = useState<string[]>([]);
   const id = useId();
 
-  // The run the cards apply to, read again after each turn and change for its revision.
-  const load = () =>
+  const path = { params: { path: { run_id: gate.run_id } } };
+  // What asking costs, which each turn moves.
+  const loadCosts = () =>
     api
-      .GET("/api/runs/{run_id}", { params: { path: { run_id: gate.run_id } } })
+      .GET("/api/runs/{run_id}/assistant", path)
+      .then(({ data }) => data && setCosts(askingCosts(data)))
+      .catch(() => undefined);
+  useEffect(() => void loadCosts(), [gate.run_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The run the cards apply to, read again after each turn and change for its revision.
+  const load = () => {
+    void loadCosts();
+    return api
+      .GET("/api/runs/{run_id}", path)
       .then(({ data }) => data && setRun(data))
       .catch(() => undefined);
+  };
   const { turns, text, setText, asking, error, send, filled } = useGateAsk(gate, onFill, load);
 
   const shown = (card: Card) => !dismissed.includes(card.id) && run?.stages.find((s) => s.id === card.proposal.change.stage);
@@ -68,7 +79,7 @@ export function GateAsk({ gate, onFill }: { gate: Gate; onFill: (fields: Record<
           {asking ? "Reading the run..." : "Send"}
         </button>
       </form>
-      <p className="faint meta">Asking costs about $0.02 a question, from the world's budget.</p>
+      <p className="faint meta">{costs}</p>
     </section>
   );
 }

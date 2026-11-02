@@ -100,6 +100,9 @@ and its `payload`. Pick the kind by what the operator asks for:
   upload"). `stage` is the first stage that changes and `payload` is {"stages": the whole new
   list from that stage on}, each a stage's `name`, `type` and the rest of its config, as
   get_run shows them. It continues as a Fork and this run ends.
+On a run that has ended (done, failed, aborted) every kind continues as a Fork, a new run that
+keeps the stages before it: a rerun there can also redo the stage that failed ("re-run the
+upload"), and a skip can pass over it.
 It writes nothing: it answers what the change would do and what the check refuses. Fix a refused
 proposal and propose again, then list the ids of the proposals you present in `proposals`.
 Nothing changes until the operator presses Apply on a card. You cannot apply a change or answer
@@ -151,6 +154,11 @@ class Conversation(BaseModel):
     messages: list[Message]
     spent_usd: float
     """What asking this run has cost, from the world's monthly budget."""
+    average_usd: float | None = None
+    """What a question to the world's assistants has cost on average so far, None before the
+    first."""
+    month_left_usd: float | None = None
+    """What the world's Monthly Budget has left this month, None when it has none."""
 
 
 class Mark(BaseModel):
@@ -288,6 +296,17 @@ class Conversations:
                 (run_id,),
             ).fetchone()
         return float(total)
+
+    def average(self, world_id: str) -> float | None:
+        """The average cost of the world's assistant turns so far, failed ones too: each was
+        billed. None before the first."""
+        with self._conn() as conn:
+            (mean,) = conn.execute(
+                "SELECT avg(cost_usd) FROM assistant_messages WHERE world_id = ?"
+                " AND role != 'operator'",
+                (world_id,),
+            ).fetchone()
+        return mean
 
     def spent_in_month(self, world_id: str, month: str) -> float:
         with self._conn() as conn:
@@ -701,10 +720,17 @@ def router(
 
     @api.get("/runs/{run_id}/assistant", responses={404: {}})
     def conversation(run_id: str) -> Conversation:
-        """The run's conversation, oldest first, and what asking it has cost."""
+        """The run's conversation, oldest first, what asking it has cost, and what a question
+        costs on average against what the world's month has left."""
         run = get_run(run_id)
+        monthly = runner.monthly(run.world_id)
+        month = datetime.now(UTC).strftime("%Y-%m")
+        spent = runner.storage.spent_in_month(run.world_id, month)
         return Conversation(
-            messages=conversations.messages(run), spent_usd=conversations.spent(run_id)
+            messages=conversations.messages(run),
+            spent_usd=conversations.spent(run_id),
+            average_usd=conversations.average(run.world_id),
+            month_left_usd=None if monthly is None else max(0.0, monthly - spent),
         )
 
     @api.post(

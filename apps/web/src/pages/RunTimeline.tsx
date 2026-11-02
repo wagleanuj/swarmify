@@ -350,9 +350,13 @@ export function RunTimeline() {
       note: `Add, remove or reorder the stages from ${at.name} on; it continues as a new run`,
       onSelect: () => { setStepping(null); setEditing({ stageId: at.id, kind: "restructure" }); },
     });
-    if (!ended) items.push({ label: "Skip", note: `Shows the check first; ${at.name} is passed over once you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "skip" }); } });
   }
-  if (stage && !ended && stage.status === "done") {
+  // A run that ended re-runs or skips the step that failed too, as a new run.
+  if (stage && stage.type !== "retro" && (ended ? ["pending", "failed"] : ["pending"]).includes(stage.status)) {
+    const at = stage;
+    items.push({ label: "Skip", note: `Shows the check first; ${at.name} is passed over once you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "skip" }); } });
+  }
+  if (stage && (ended ? ["done", "failed"] : ["done"]).includes(stage.status)) {
     const at = stage;
     items.push({ label: "Re-run from here", note: `Shows what it resets and costs first; nothing changes until you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "rerun" }); } });
   }
@@ -525,7 +529,7 @@ export function RunTimeline() {
             call={calls[stage.id]}
             connectors={connectors}
             onTaskAdded={(task) => setTasks((prev) => upsert(prev, task))}
-            onEditFile={!ended && stage.status === "done" ? setEditingFile : undefined}
+            onEditFile={stage.status === "done" ? setEditingFile : undefined}
             lead={
               editingFile?.stage === stage.id ? (
                 <ChangeCard key={editingFile.path} run={run} stage={stage} file={editingFile} onClose={() => setEditingFile(null)} />
