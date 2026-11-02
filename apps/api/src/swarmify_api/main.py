@@ -40,6 +40,7 @@ from starlette.types import Receive, Scope, Send
 
 from swarmify_api import (
     agents,
+    assistant,
     auth,
     connectors,
     evals,
@@ -268,7 +269,8 @@ def notification_service(root: Path) -> Notifications:
 
 
 def run_storage(root: Path) -> RunStorage:
-    return RunStorage(migrated_db(root))
+    """The runs' storage, whose monthly spend counts the Run Assistant's too."""
+    return assistant.RunsWithAssistant(migrated_db(root))
 
 
 def task_board(root: Path) -> TaskStorage:
@@ -946,6 +948,12 @@ def create_app(
         world_svc, workflow_svc, whiteboard, runner, delete, memory=memory, retro=retro
     )
     app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
+    conversations = assistant.Conversations(migrated_db(root))
+    app.include_router(
+        assistant.router(
+            runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations
+        )
+    )
     # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
     # Stateless: each request stands alone, so nothing is lost when the api restarts.
     app.router.routes.append(Route("/mcp", McpEndpoint(tools)))
