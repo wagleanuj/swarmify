@@ -943,6 +943,9 @@ def create_app(
             runner.list_all,
             registry.list_all,
             workflow_svc,
+            runner.get,
+            lambda run, calls: registry.find(run.world_id, calls, pins(run)),
+            registry.call_for,
         )
     )
     app.include_router(notifications.router(channels, world_svc))

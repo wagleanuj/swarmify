@@ -14,7 +14,7 @@ from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from swarmify_connectors import Connector, FakeTransport
+from swarmify_connectors import Connector, ConnectorError, FakeTransport
 from swarmify_swarm.fake import Answer, Say, Script
 
 SKETCH = "packages/connectors/tests/fixtures/packages/sketch"
@@ -205,3 +205,76 @@ def test_the_workflow_check_flags_a_base_the_world_does_not_have(
     assert any("the Template bold is not one of this world's" in p for p in problems(w, "bold"))
     assert any("a Template's name, not a path" in p for p in problems(w, "../bold"))
     assert problems(other, "bold") == []
+
+
+def test_a_finished_build_is_saved_as_a_template_without_what_belonged_to_its_run(
+    running: TestClient, transport: FakeTransport, script: Script, tmp_path: Path
+) -> None:
+    """Issue 350: the sketch fixture declares Templates. Saving its finished build copies the
+    build folder, never its revisions, without the package's `strip` paths and node_modules,
+    checks `require`, and records the run and stage it came from."""
+    client = running
+
+    def builds(o: Any) -> None:
+        build = Path(o.cwd)
+        for name in ("page.css", "page.html", "scratch/notes.md", "node_modules/x/index.js"):
+            (build / name).parent.mkdir(parents=True, exist_ok=True)
+            (build / name).write_text("x")
+
+    script.scripts = [[Answer(builds), Say("Done.")]]
+    # the first run's render fails, so its build never finished
+    transport.outputs["finish"].insert(0, ConnectorError("the render broke"))
+    assert install(client, SKETCH).status_code == 201
+    w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    enabled = client.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"})
+    assert enabled.status_code == 200
+    flow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": FLOW}).json()["workflow_id"]
+
+    def ran() -> dict[str, Any]:
+        run = client.post(f"/api/workflows/{flow}/runs", json={}).json()
+        until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+        return client.get(f"/api/runs/{run['id']}").json()
+
+    failed = ran()
+    assert failed["status"] == "failed", failed
+    page = failed["stages"][2]["id"]
+    url = f"/api/runs/{failed['id']}/stages/{page}/template"
+    unfinished = client.post(url, json={"name": "loud"})
+    assert unfinished.status_code == 422 and "finished" in unfinished.json()["detail"]
+
+    script.scripts = [[Answer(builds), Say("Done.")]]
+    run = ran()
+    assert run["status"] == "done", run
+    copy, _, page = (s["id"] for s in run["stages"])
+    build = tmp_path / "worlds" / w / "runs" / run["id"] / page / "build"
+    (build.with_name("build.v1")).mkdir()  # a revision beside it is never part of it
+    url = f"/api/runs/{run['id']}/stages/{page}/template"
+    saved = client.post(url, json={"name": "loud"})
+    assert saved.status_code == 201, saved.json()
+    t = saved.json()
+    assert (t["name"], t["folder"], t["origin"], t["run_id"], t["stage"]) == (
+        "loud", "sketches", "run", run["id"], "page",
+    )  # fmt: skip
+    folder = tmp_path / "worlds" / w / "assets/sketches"
+    files = sorted(p.relative_to(folder / "loud").as_posix() for p in folder.rglob("*.*"))
+    assert files == [".template.json", "index.html", "page.css"]
+    assert len(t["fingerprint"]) == 64 and t["bytes"] == len("<html></html>\n") + 1
+    assert client.get(f"/api/worlds/{w}/templates").json() == [t]
+    assert (build / "page.html").is_file()  # the run's own build is untouched
+
+    # an existing name and a missing required file behave as on upload
+    taken = client.post(url, json={"name": "loud"})
+    assert taken.status_code == 409 and "loud is already" in taken.json()["detail"]
+    assert client.post(url, json={"name": "loud", "replace": True}).status_code == 201
+    assert client.post(url, json={"name": "a b"}).status_code == 422
+    (build / "index.html").unlink()
+    lacking = client.post(url, json={"name": "bare"})
+    assert lacking.status_code == 422 and "lacks index.html" in lacking.json()["detail"]
+    assert sorted(p.name for p in folder.iterdir()) == ["loud"]  # no leftovers
+
+    # a stage whose package declares no Templates, and stages that are not there
+    plain = client.post(f"/api/runs/{run['id']}/stages/{copy}/template", json={"name": "x"})
+    assert plain.status_code == 422 and "Templates" in plain.json()["detail"]
+    for missing in (f"/api/runs/{run['id']}/stages/nope", "/api/runs/nope/stages/nope"):
+        assert client.post(f"{missing}/template", json={"name": "x"}).status_code == 404

@@ -779,6 +779,12 @@ their files, and the package reads the folder through `assets_path` as before.
   `require` names; a single top folder is unwrapped. Its `.template.json` records its origin,
   added time, size and a fingerprint of its files' paths and bytes (`node_modules` aside), which
   `GET /api/worlds/<id>/templates` lists.
+- "Save as Template" on a finished build step of a package declaring Templates saves its build
+  folder as one, by name: `POST /api/runs/<id>/stages/<stage>/template` with `{name, replace}`.
+  The copy leaves out the `build.v<n>` revisions, `node_modules`, `.git`, links and the paths
+  the package's `strip` names, is refused for lacking a `require` file or for a name already
+  there (unless `replace`) as an upload is, and records the run and stage as its origin. A step
+  whose build call has not finished is refused.
 
 ## Publishing
 
