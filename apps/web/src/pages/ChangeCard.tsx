@@ -20,8 +20,8 @@ export const EDITABLE = /\.(md|markdown|json|ya?ml|txt)$/i;
 
 /** A Stage Edit as a change card (ADR 0027): the stage's config to edit, the diff, what the
  * check would refuse, and Apply only once it passes. Nothing changes until Apply. With a `file`
- * it is an Artifact Edit of that file the stage made: its text, a line diff, and the stages that
- * xx. */
+ * it is an Artifact Edit of that file the stage made: its text, a line diff, and the finished
+ * stages that already read the old version. */
 export function ChangeCard({ run, stage, file, onClose }: { run: Run; stage: Stage; file?: ArtifactFile; onClose: () => void }) {
   const [text, setText] = useState<string | null>(() => (file ? null : YAML.stringify(stage.config ?? {})));
   const [editing, setEditing] = useState(true);

@@ -105,14 +105,14 @@ def no_check(_run: Run, stages: list[StageDef]) -> tuple[list[str], list[StageDe
     return [], stages
 
 
-TextCheck = Callable[[Run, str, str], list[str]]
-"""(run, a file's name, its new text) to why an Artifact Edit of it would be refused: JSON or
-YAML that no longer parses, a markdown artifact that no longer fits the type its frontmatter
-declares at the run's pinned package versions. Runs cannot read the types; the composition root
-asks the Connectors registry."""
+TextCheck = Callable[[Run, str, str, str], list[str]]
+"""(run, a file's name, its text before, its new text) to why an Artifact Edit of it would be
+refused: JSON or YAML that no longer parses, a markdown artifact that drops or changes the type
+its frontmatter declared or no longer fits that type at the run's pinned package versions.
+Runs cannot read the types; the composition root asks the Connectors registry."""
 
 
-def no_text_check(_run: Run, _name: str, _text: str) -> list[str]:
+def no_text_check(_run: Run, _name: str, _old: str, _text: str) -> list[str]:
     return []
 
 
@@ -490,7 +490,8 @@ class RunControl:
 
     def _artifact_edit(self, run: Run, change: RunChange) -> tuple[Path, ChangeProposal]:
         """The file an Artifact Edit rewrites and its proposal: the text before and after, the
-        violations (a stage that has not finished, the text check) and the finished stages after
+        violations (a stage that has not finished, a later stage running that reads the file or
+        one that made a newer file of its name, the text check) and the finished stages after
         it that already read the file: a swarm stage is shown every earlier artifact, a
         connector reads its inputs. Raises ValueError for a file the stage did not make or one
         that is not text."""
@@ -512,12 +513,21 @@ class RunControl:
                 f"{name} is not a text file (markdown, JSON, YAML or plain text): a Rerun"
                 " remakes it"
             )
-        problems = [p for p in [not_finished(stage)] if p] + self.check_text(run, name, text)
-        read_by = [
-            s.name
-            for s in run.stages[stage.index + 1 :]
-            if s.status == "done" and (s.type == "swarm" or name in s.inputs)
+        later = run.stages[stage.index + 1 :]
+        reads = [s for s in later if s.type == "swarm" or name in s.inputs]
+        problems = [p for p in [not_finished(stage)] if p]
+        problems += [
+            f"{s.name} is running and reads {name}: pause first or add a task"
+            for s in reads
+            if s.status == "running"
         ]
+        problems += [
+            f"{s.name} made a newer {name}; edit that one"
+            for s in later
+            if (stage_folder(self.data_dir, run, s.index) / "artifacts" / name).is_file()
+        ]
+        problems += self.check_text(run, name, old, text)
+        read_by = [s.name for s in reads if s.status == "done"]
         before, after = {"path": name, "text": old}, {"path": name, "text": text}
         return file, ChangeProposal(
             change, stage.name, before, after, problems, run.revision, read_by=read_by
@@ -537,17 +547,20 @@ class RunControl:
         previous = file.parent.parent / "previous"
         previous.mkdir(exist_ok=True)
         kept = previous / f"{len(list(previous.glob(f'*-{file.name}'))) + 1}-{file.name}"
-        kept.write_text(proposal.before["text"])
-        file.write_text(proposal.after["text"])
         applied = AppliedChange(
             new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
             proposal.after, {**proposal.before, "kept": str(kept.relative_to(world))}, by,
             _now(), run.revision + 1,
         )  # fmt: skip
-        if not self.storage.add_change(applied, run.revision):
+        try:
+            kept.write_text(proposal.before["text"])
+            file.write_text(proposal.after["text"])
+            if not self.storage.add_change(applied, run.revision):
+                raise Illegal(moved(self._run(run.id), run.revision))
+        except BaseException:  # never leave the file changed with no change recorded
             file.write_text(proposal.before["text"])
-            kept.unlink()
-            raise Illegal(moved(self._run(run.id), run.revision))
+            kept.unlink(missing_ok=True)
+            raise
         self.storage.record(
             Event.new(
                 "artifact.created",
@@ -845,7 +858,7 @@ def artifact_type(text: str) -> str:
                 try:
                     return str(json.loads(line[6:]))
                 except ValueError:
-                    return line[6:].strip()
+                    return line[6:].strip().strip("'")
     return "file"
 
 

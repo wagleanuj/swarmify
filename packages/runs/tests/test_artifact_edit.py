@@ -3,6 +3,7 @@ rewritten, its earlier content kept, the stages that already read it named, and 
 still to come read the new text. Real DBOS on SQLite, fakes for the stage calls that write and
 read files in the run folder."""
 
+import threading
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
@@ -35,12 +36,14 @@ FIVE = "---\ntype: metadata\n---\n\n#one #two #three #four #five\n"
 
 class Files:
     """Stands in for both stage calls: `write` leaves metadata.md and a video in its
-    artifacts folder; every other stage reads the newest metadata.md of the run, as a
-    connector's `input` does."""
+    artifacts folder, `remake` a newer metadata.md; every other stage reads the newest
+    metadata.md of the run, as a connector's `input` does, once `hold` is set."""
 
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
         self.read: dict[str, str] = {}
+        self.hold = threading.Event()
+        self.hold.set()
 
     def __call__(self, run: Run, stage_id: str, stage: StageDef) -> None:
         if stage.name == "write":
@@ -48,6 +51,12 @@ class Files:
             folder.mkdir(parents=True)
             (folder / "metadata.md").write_text(METADATA)
             (folder / "short.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42\xff\xfe")
+            return
+        self.hold.wait(10)
+        if stage.name == "remake":
+            folder = run_folder(self.data_dir, run) / stage_id / "artifacts"
+            folder.mkdir(parents=True)
+            (folder / "metadata.md").write_text(FIVE)
             return
         found = run_folder(self.data_dir, run).rglob("metadata.md")
         self.read[stage.name] = max(found, key=lambda p: p.stat().st_mtime).read_text()
@@ -145,7 +154,7 @@ def test_a_binary_file_is_refused(runner: Runner) -> None:
 def test_an_artifact_that_no_longer_fits_its_type_is_refused_with_why(
     runner: Runner, tmp_path: Path
 ) -> None:
-    def check(_run: Run, name: str, text: str) -> list[str]:
+    def check(_run: Run, name: str, _old: str, text: str) -> list[str]:
         return [] if "#" in text else [f"{name} no longer fits type metadata: no tags"]
 
     runner.check_text = check
@@ -160,3 +169,45 @@ def test_an_artifact_that_no_longer_fits_its_type_is_refused_with_why(
     assert (folder / "metadata.md").read_text() == METADATA
     assert not (folder.parent / "previous").exists()
     assert fetch(runner, run.id).changes == []
+
+
+def test_a_file_a_running_stage_reads_is_refused(runner: Runner, files: Files) -> None:
+    files.hold.clear()
+    run = runner.start("world_1", "wf_1", 1, "Short", [WRITE, TAG, CONFIRM, UPLOAD])
+    wait_for(lambda: fetch(runner, run.id).stages[1].status == "running")
+    change = artifact_edit(fetch(runner, run.id), "metadata.md", FIVE)
+
+    proposal = runner.propose(run.id, change)
+    assert proposal.violations == [
+        "tag is running and reads metadata.md: pause first or add a task"
+    ]
+    with pytest.raises(ValueError, match="tag is running and reads metadata.md"):
+        runner.apply(run.id, change, proposal.revision, "operator")
+    files.hold.set()
+    wait_for(lambda: fetch(runner, run.id).status == "waiting_gate")
+    assert files.read == {"tag": METADATA}
+
+
+def test_a_file_a_later_stage_made_anew_is_refused(runner: Runner) -> None:
+    remake = StageDef("remake", "swarm", {"goal": "Remake it.", "done_when": "Remade."})
+    run = at_gate(runner, [WRITE, remake, CONFIRM, UPLOAD])
+
+    proposal = runner.propose(run.id, artifact_edit(run, "metadata.md", FIVE))
+    assert proposal.violations == ["remake made a newer metadata.md; edit that one"]
+
+
+def test_a_change_that_cannot_be_recorded_leaves_the_file_as_it_was(
+    runner: Runner, storage: SqliteStorage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = at_gate(runner, [WRITE, CONFIRM, UPLOAD])
+    change = artifact_edit(run, "metadata.md", FIVE)
+
+    def locked(*_: object) -> bool:
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(storage, "add_change", locked)
+    with pytest.raises(RuntimeError, match="locked"):
+        runner.apply(run.id, change, run.revision, "operator")
+    folder = stage_folder(tmp_path, run, 0)
+    assert (folder / "artifacts" / "metadata.md").read_text() == METADATA
+    assert list((folder / "previous").iterdir()) == []

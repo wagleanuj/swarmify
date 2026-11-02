@@ -102,7 +102,6 @@ from swarmify_runs import (
     RunControl,
     Runner,
     StageDef,
-    artifact_type,
 )
 from swarmify_runs import MIGRATIONS as RUNS_MIGRATIONS
 from swarmify_runs import SqliteStorage as RunStorage
@@ -359,12 +358,12 @@ FENCE = re.compile(r"```json[ \t]*\n(.*?)\n```", re.S)
 
 def text_check(
     registry: Connectors, pins: Callable[[Run], dict[str, str]]
-) -> Callable[[Run, str, str], list[str]]:
+) -> Callable[[Run, str, str, str], list[str]]:
     """An Artifact Edit's new text as its readers parse it: JSON and YAML must parse, and a
-    markdown artifact of a type a connector declares must carry fields that fit the type's
-    schema, at the package versions `pins` gives for the run."""
+    markdown artifact keeps the type it declared before the edit and, when a connector declares
+    that type, carries fields that fit its schema at the package versions `pins` gives."""
 
-    def check(run: Run, name: str, text: str) -> list[str]:
+    def check(run: Run, name: str, old: str, text: str) -> list[str]:
         suffix = Path(name).suffix.lower()
         try:
             if suffix == ".json":
@@ -373,8 +372,12 @@ def text_check(
                 yaml.safe_load(text)
         except (ValueError, yaml.YAMLError) as exc:
             return [f"{name} does not parse: {exc}"]
-        kind = artifact_type(text) if suffix == ".md" else "file"
-        schema = registry.type_schema(run.world_id, kind, pins(run)) if kind != "file" else None
+        kind = frontmatter(old).get("type") if suffix == ".md" else None
+        if kind is None:
+            return []
+        if frontmatter(text).get("type") != kind:
+            return [f"{name} must keep type {kind}"]
+        schema = registry.type_schema(run.world_id, str(kind), pins(run))
         if schema is None:
             return []
         try:

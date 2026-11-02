@@ -151,6 +151,12 @@ def test_a_typed_artifact_that_no_longer_fits_its_type_or_a_binary_is_refused(
         "metadata.md no longer fits type metadata: its fields need a JSON block"
     ]
 
+    for stripped in ("No fields.\n", "---\ntype: 'notes'\n---\n\nNo fields.\n"):
+        proposal = running.post(
+            f"/api/runs/{run['id']}/changes/propose", json=edit(run, "metadata.md", stripped)
+        ).json()
+        assert proposal["violations"] == ["metadata.md must keep type metadata"]
+
     video = running.post(
         f"/api/runs/{run['id']}/changes/propose", json=edit(run, "short.mp4", "not a video")
     )
