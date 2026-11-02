@@ -1,0 +1,11 @@
+{
+  "name": "swarmify-hyperframes-render",
+  "private": true,
+  "description": "What the install step puts beside the render connector: the HyperFrames CLI, for its browser, then ffmpeg and ffprobe (npm run ffmpeg)",
+  "scripts": {
+    "ffmpeg": "node ffmpeg.mjs"
+  },
+  "dependencies": {
+    "hyperframes": "0.9.0"
+  }
+}
