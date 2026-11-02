@@ -945,21 +945,21 @@ def create_app(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
     app.include_router(evals.router(world_svc, memory, swarm.runtime))
+    conversations = assistant.Conversations(migrated_db(root))
+    reads = (runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations)
     tools = mcp.server(
-        world_svc, workflow_svc, whiteboard, runner, delete, memory=memory, retro=retro
+        world_svc,
+        workflow_svc,
+        whiteboard,
+        runner,
+        delete,
+        memory=memory,
+        retro=retro,
+        ask=lambda run, message: assistant.answer(*reads, run, message),
     )
     app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
-    conversations = assistant.Conversations(migrated_db(root))
-    app.include_router(
-        assistant.router(
-            runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations
-        )
-    )
-    app.include_router(
-        save_to_workflow.router(
-            runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations
-        )
-    )
+    app.include_router(assistant.router(*reads))
+    app.include_router(save_to_workflow.router(*reads))
     # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
     # Stateless: each request stands alone, so nothing is lost when the api restarts.
     app.router.routes.append(Route("/mcp", McpEndpoint(tools)))
@@ -973,7 +973,7 @@ def create_app(
     )
     if password := os.environ.get("SWARMIFY_PASSWORD"):
         operator.set_password(password)
-    app.include_router(auth.router(operator))
+    app.include_router(auth.router(operator, world_exists=lambda w: world_svc.get(w) is not None))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
     if operator.enabled:

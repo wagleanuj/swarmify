@@ -345,6 +345,18 @@ async def run_turn(
     return end, hooks.session_id or end.session_id
 
 
+def read_run_text(run_folder: Path, base: Path, path: str) -> str:
+    """The start of a text file of the run's folder, by `path` from `base`. A ToolError when
+    it is not a file in the run's folder, or not text."""
+    found = (base.resolve() / path).resolve()
+    if not found.is_relative_to(run_folder.resolve()) or not found.is_file():
+        raise ToolError(f"{path} is not a file of this run")
+    try:
+        return found.read_text()[:MAX_READ]
+    except UnicodeDecodeError as exc:
+        raise ToolError(f"{path} is not text: ask about it, not its bytes") from exc
+
+
 def _schema(**properties: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": list(properties)}
 
@@ -435,14 +447,8 @@ class Reader:
         return json.dumps(seen)
 
     async def read_run_file(self, args: dict[str, Any]) -> str:
-        folder = self.folder(self.run()).resolve()
-        path = (folder / str(args.get("path", ""))).resolve()
-        if not path.is_relative_to(folder) or not path.is_file():
-            raise ToolError(f"{args.get('path')} is not a file of this run")
-        try:
-            return path.read_text()[:MAX_READ]
-        except UnicodeDecodeError as exc:
-            raise ToolError(f"{args['path']} is not text: ask about it, not its bytes") from exc
+        run = self.run()
+        return read_run_text(self.folder(run), self.folder(run), str(args.get("path", "")))
 
     async def tail_stage_log(self, args: dict[str, Any]) -> str:
         stage = str(args.get("stage", ""))
@@ -535,6 +541,42 @@ def parse_answer(
     return reply, sources, [str(p) for p in shown] if shown else None, fields
 
 
+class Unanswered(Exception):
+    """The session failed or did not answer in the shape asked."""
+
+
+async def answer(
+    runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage, index: GraphIndex,
+    runtime: AgentRuntime, conversations: Conversations, run: Run, message: str,
+) -> Message:  # fmt: skip
+    """One turn of the run's Run Assistant, for HTTP and MCP alike: `message` in, the reply
+    with its sources and proposals out. Raises Unanswered, with nothing kept but what the
+    session cost."""
+    reader = Reader(run.id, runner, worlds, workflows, board, index, conversations)
+    gate, preview = at_gate(runner, run)
+    named = f"The run is {run.name}, id {run.id}, in the world {run.world_id}."
+    system = "\n\n".join(filter(None, [SYSTEM, named, gate]))
+    end: SessionEnd | None = None
+    try:
+        end, sid = await run_turn(
+            runtime, worlds, conversations, run, system, message.strip(), reader.tools(),
+            ANSWER_SCHEMA,
+        )  # fmt: skip
+        if end.is_error:
+            raise RuntimeError(end.result or "the session failed")
+        reply, sources, shown, fields = parse_answer(end.output, run, preview)
+    except Exception as exc:
+        conversations.drop(reader.made)
+        if end is not None:
+            conversations.failed(run, str(exc), end.cost_usd)
+        log.warning("run assistant failed on run %s: %s", run.id, exc)
+        raise Unanswered(str(exc)) from exc
+    shown = [p for p in shown if p in reader.made] if shown is not None else reader.made
+    conversations.turn(run, message.strip(), reply, sources, shown, reader.made, sid, end.cost_usd)
+    answered = conversations.messages(runner.get(run.id) or run)[-1]
+    return answered.model_copy(update={"fields": fields})
+
+
 def router(
     runner: Runner,
     worlds: Worlds,
@@ -558,31 +600,12 @@ def router(
         and proposals out. 502 when the session fails or does not answer in the shape asked,
         with nothing kept but what the session cost; send the message again to retry."""
         run = get_run(run_id)
-        reader = Reader(run_id, runner, worlds, workflows, board, index, conversations)
-        gate, preview = at_gate(runner, run)
-        named = f"The run is {run.name}, id {run.id}, in the world {run.world_id}."
-        system = "\n\n".join(filter(None, [SYSTEM, named, gate]))
-        end: SessionEnd | None = None
         try:
-            end, sid = await run_turn(
-                runtime, worlds, conversations, run, system, body.message.strip(),
-                reader.tools(), ANSWER_SCHEMA,
-            )  # fmt: skip
-            if end.is_error:
-                raise RuntimeError(end.result or "the session failed")
-            reply, sources, shown, fields = parse_answer(end.output, run, preview)
-        except Exception as exc:
-            conversations.drop(reader.made)
-            if end is not None:
-                conversations.failed(run, str(exc), end.cost_usd)
-            log.warning("run assistant failed on run %s: %s", run_id, exc)
+            return await answer(
+                runner, worlds, workflows, board, index, runtime, conversations, run, body.message
+            )
+        except Unanswered as exc:
             raise HTTPException(502, f"The assistant did not answer: {exc}") from exc
-        shown = [p for p in shown if p in reader.made] if shown is not None else reader.made
-        conversations.turn(
-            run, body.message.strip(), reply, sources, shown, reader.made, sid, end.cost_usd
-        )
-        answered = conversations.messages(get_run(run_id))[-1]
-        return answered.model_copy(update={"fields": fields})
 
     @api.get("/runs/{run_id}/assistant", responses={404: {}})
     def conversation(run_id: str) -> Conversation:

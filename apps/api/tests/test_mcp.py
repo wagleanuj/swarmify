@@ -2,12 +2,16 @@
 
 import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 from api_fakes import studio
 from mcp import Client, StdioServerParameters
 
+from swarmify_api.auth import CALLER, Token
 from swarmify_api.main import (
     create_app,
     run_control,
@@ -18,6 +22,8 @@ from swarmify_api.main import (
 )
 from swarmify_api.mcp import server
 from swarmify_runs import Run, StageDef
+from swarmify_swarm import tool_id
+from swarmify_swarm.fake import Answer, Call, Script
 
 
 @pytest.mark.anyio
@@ -403,3 +409,150 @@ async def test_mcp_starts_a_run_lists_its_artifacts_and_forks_it(tmp_path: Path)
             assert (await client.call_tool("fork_run", {"run_id": run["id"], "stage": 9})).is_error
             assert (await client.call_tool("list_artifacts", {"run_id": "run_nope"})).is_error
     control.close()
+
+
+def tools_of(app: Any) -> Any:
+    """The MCP server the app serves at /mcp, for an in-process client."""
+    return next(r.app.tools for r in app.router.routes if getattr(r, "path", None) == "/mcp")
+
+
+@contextmanager
+def as_token(name: str, world_id: str | None = None) -> Iterator[None]:
+    """Call the tools as the API token `name`, as /mcp does for a Bearer token."""
+    reset = CALLER.set(Token(id="tok_1", name=name, created_at="t", world_id=world_id))
+    try:
+        yield
+    finally:
+        CALLER.reset(reset)
+
+
+@pytest.mark.anyio
+async def test_an_mcp_client_reads_a_run_proposes_applies_and_lists_its_changes(
+    app: Any, script: Script, tmp_path: Path
+) -> None:
+    """Stories 54 and 55: a token's client reads the run with its stages' config and revision,
+    proposes a Stage Edit, applies it with the revision, recorded as made by the token's name,
+    and lists it; a stale apply is refused; ask_run is one turn of the Run Assistant."""
+    from fastapi.testclient import TestClient
+    from test_run_changes_http import at_gate, change, stage
+
+    with TestClient(app) as http, as_token("Claude Code on the laptop"):
+        run = at_gate(http)
+        pick = stage(run, "pick")["id"]
+        notes = tmp_path / "worlds" / run["world_id"] / "runs" / run["id"] / pick / "notes.md"
+        notes.parent.mkdir(parents=True)
+        notes.write_text("Idea 1 won on hooks.")
+        edit = change(run, "render", params={"fps": 60})
+        script.scripts = [
+            [
+                Call(tool_id("propose_change"), change(run, "tag", params={"fps": 24})),
+                Answer({"reply": "Tag at 24.", "sources": [], "proposals": []}),
+            ]
+        ]
+
+        async with Client(tools_of(app)) as client:
+            names = {t.name for t in (await client.list_tools()).tools}
+            assert {"read_run_file", "propose_run_change", "apply_run_change"} <= names
+            assert {"list_run_changes", "ask_run"} <= names
+
+            got = (await client.call_tool("get_run", {"run_id": run["id"]})).structured_content
+            assert got and got["revision"] == run["revision"]
+            assert stage(got, "render")["config"]["params"] == {"fps": 30}
+
+            path = f"runs/{run['id']}/{pick}/notes.md"
+            read = await client.call_tool("read_run_file", {"run_id": run["id"], "path": path})
+            assert not read.is_error and read.structured_content == {
+                "result": "Idea 1 won on hooks."
+            }
+            escaped = {"run_id": run["id"], "path": f"runs/{run['id']}/../../../swarmify.db"}
+            assert (await client.call_tool("read_run_file", escaped)).is_error
+
+            proposed = await client.call_tool("propose_run_change", {"run_id": run["id"], **edit})
+            proposal = proposed.structured_content
+            assert not proposed.is_error and proposal
+            assert (proposal["before"]["params"], proposal["after"]["params"]) == (
+                {"fps": 30},
+                {"fps": 60},
+            )
+            assert proposal["violations"] == [] and proposal["revision"] == run["revision"]
+
+            apply = {"run_id": run["id"], **edit, "revision": proposal["revision"]}
+            applied = await client.call_tool("apply_run_change", apply)
+            assert not applied.is_error and applied.structured_content
+            assert applied.structured_content["by"] == "Claude Code on the laptop"
+            stale = await client.call_tool("apply_run_change", apply)
+            assert stale.is_error and "moved on" in str(stale.content)
+
+            listed = await client.call_tool("list_run_changes", {"run_id": run["id"]})
+            assert listed.structured_content
+            assert [(c["kind"], c["by"]) for c in listed.structured_content["result"]] == [
+                ("stage_edit", "Claude Code on the laptop")
+            ]
+            assert (
+                http.get(f"/api/runs/{run['id']}/changes").json()
+                == (listed.structured_content["result"])
+            )
+
+            asked = await client.call_tool("ask_run", {"run_id": run["id"], "message": "Tag?"})
+            reply = asked.structured_content
+            assert not asked.is_error and reply and reply["text"] == "Tag at 24."
+            [card] = reply["proposals"]
+            assert card["proposal"]["after"]["params"] == {"fps": 24}
+            conversation = http.get(f"/api/runs/{run['id']}/assistant").json()["messages"]
+            assert [m["text"] for m in conversation] == ["Tag?", "Tag at 24."]
+            assert (await client.call_tool("list_run_changes", {"run_id": "run_nope"})).is_error
+
+
+@pytest.mark.anyio
+async def test_a_token_scoped_to_one_world_is_refused_on_another_worlds_run(
+    app: Any, script: Script
+) -> None:
+    """Story 56: a token scoped to one world reads and changes its runs, and is refused on every
+    run, world and workflow of another."""
+    from fastapi.testclient import TestClient
+    from test_run_changes_http import at_gate, change
+
+    with TestClient(app) as http:
+        mine, theirs = at_gate(http), at_gate(http)
+        theirs_wf = http.get(f"/api/worlds/{theirs['world_id']}/workflows").json()[0]["id"]
+        edit = change(theirs, "render", params={"fps": 60})
+        with as_token("Scoped", world_id=mine["world_id"]):
+            async with Client(tools_of(app)) as client:
+                own = await client.call_tool("get_run", {"run_id": mine["id"]})
+                assert not own.is_error
+                proposed = await client.call_tool(
+                    "propose_run_change", {"run_id": mine["id"], **change(mine, "tag")}
+                )
+                assert not proposed.is_error
+                worlds = (await client.call_tool("list_worlds")).structured_content
+                assert worlds and [w["id"] for w in worlds["result"]] == [mine["world_id"]]
+                gates = (await client.call_tool("list_gates")).structured_content
+                assert gates and [g["run_id"] for g in gates["result"]] == [mine["id"]]
+
+                run = {"run_id": theirs["id"]}
+                refused = [
+                    ("get_run", run),
+                    ("list_artifacts", run),
+                    ("read_run_file", {**run, "path": f"runs/{theirs['id']}/x.md"}),
+                    ("propose_run_change", {**run, **edit}),
+                    ("apply_run_change", {**run, **edit, "revision": theirs["revision"]}),
+                    ("list_run_changes", run),
+                    ("ask_run", {**run, "message": "Hi"}),
+                    ("decide_gate", {**run, "choice": "idea 1"}),
+                    ("abort_run", run),
+                    ("fork_run", {**run, "stage": 1}),
+                    ("get_world", {"world_id": theirs["world_id"]}),
+                    ("delete_world", {"world_id": theirs["world_id"]}),
+                    ("list_workflows", {"world_id": theirs["world_id"]}),
+                    ("get_workflow", {"workflow_id": theirs_wf}),
+                    ("start_run", {"workflow_id": theirs_wf}),
+                    ("create_world", {"name": "Another"}),
+                ]
+                for tool, args in refused:
+                    answer = await client.call_tool(tool, args)
+                    assert answer.is_error, tool
+                    assert "reaches only" in str(answer.content), tool
+        assert script.sessions == []
+        after = http.get(f"/api/runs/{theirs['id']}").json()
+        assert after["status"] == "waiting_gate" and after["changes"] == []
+        assert len(http.get("/api/worlds").json()) == 2

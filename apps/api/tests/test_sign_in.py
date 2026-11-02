@@ -4,6 +4,7 @@ signed session cookie, and API tokens open the MCP server at /mcp and nothing el
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import anyio
 import httpx2 as httpx
@@ -12,24 +13,27 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from test_run_changes_http import at_gate, change
 
 from swarmify_api import main
 from swarmify_api.auth import COOKIE, Operator
 from swarmify_api.eval_harness import sign_in
 from swarmify_api.main import migrated_db
+from swarmify_connectors import FakeTransport
 
 PASSWORD = "aviato"
 
 
 @pytest.fixture
-def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    """The API behind sign-in, serving a stand-in skin. Replaces conftest's, so live_url uses it."""
+def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transport: FakeTransport) -> FastAPI:
+    """The API behind sign-in, serving a stand-in skin, with conftest's fake ConnectorTransport.
+    Replaces conftest's, so live_url uses it."""
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<div id=root></div>")
     monkeypatch.setattr(main, "WEB_DIST", dist)
     monkeypatch.setenv("SWARMIFY_PASSWORD", PASSWORD)
-    return main.create_app(tmp_path / "data", retro=False)
+    return main.create_app(tmp_path / "data", retro=False, transport=transport, poll_seconds=0.01)
 
 
 def signed_in(client: TestClient) -> TestClient:
@@ -159,6 +163,7 @@ def test_a_token_is_shown_once_and_never_opens_the_http_api(client: TestClient) 
             "name": "Claude Code",
             "created_at": token["created_at"],
             "scope": "mcp",
+            "world_id": None,
         }
     ]
     assert client.post("/api/tokens", json={"name": " "}).status_code == 422
@@ -195,6 +200,44 @@ def test_a_token_drives_the_mcp_server_until_it_is_revoked(live_url: str) -> Non
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
     )
     assert refused.status_code == 401
+
+
+async def _scoped(url: str, token: str, mine: dict[str, Any], other: dict[str, Any]) -> Any:
+    """What a world-scoped token sees over /mcp: the worlds it lists, the Run Change it applies
+    to its own world's run, and the refusals on the other world and its run."""
+    headers = {"Authorization": f"Bearer {token}"}
+    async with (
+        httpx.AsyncClient(headers=headers) as http,
+        Client(streamable_http_client(f"{url}/mcp", http_client=http)) as mcp,
+    ):
+        listed = await mcp.call_tool("list_worlds", {})
+        edit = change(mine, "render", params={"fps": 60})
+        apply = {"run_id": mine["id"], **edit, "revision": mine["revision"]}
+        applied = await mcp.call_tool("apply_run_change", apply)
+        refused = [
+            await mcp.call_tool("get_world", {"world_id": other["world_id"]}),
+            await mcp.call_tool("get_run", {"run_id": other["id"]}),
+        ]
+        assert all(r.is_error for r in refused)
+        seen = [w["id"] for w in (listed.structured_content or {})["result"]]
+        return seen, applied.structured_content, [str(r.content) for r in refused]
+
+
+def test_a_token_scoped_to_a_world_reaches_only_that_world_over_mcp(live_url: str) -> None:
+    """Stories 55 and 56 over real HTTP: the Bearer token's Run Change is recorded under its
+    name, and it reaches no other world; a token for a world that does not exist is refused."""
+    with httpx.Client(base_url=live_url, timeout=10) as http:
+        http.post("/api/session", json={"password": PASSWORD}).raise_for_status()
+        mine, other = at_gate(http), at_gate(http)  # pyright: ignore[reportArgumentType] (httpx2)
+        made = http.post("/api/tokens", json={"name": "Agent", "world_id": mine["world_id"]})
+        assert made.json()["world_id"] == mine["world_id"]
+        assert http.get("/api/tokens").json()[0]["world_id"] == mine["world_id"]
+        typo = http.post("/api/tokens", json={"name": "Agent", "world_id": "world_nope"})
+        assert typo.status_code == 404 and typo.json()["detail"] == "world not found"
+        assert len(http.get("/api/tokens").json()) == 1
+    seen, applied, refused = anyio.run(_scoped, live_url, made.json()["token"], mine, other)
+    assert seen == [mine["world_id"]] and applied["by"] == "Agent"
+    assert all("reaches only" in r for r in refused)
 
 
 def test_no_password_means_no_sign_in_for_a_native_mac(tmp_path: Path) -> None:
