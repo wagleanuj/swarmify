@@ -604,8 +604,8 @@ async def test_a_chat_threads_replies_ask_the_run_assistant_and_apply_or_dismiss
             said = (await ask(client, "Faster?")).structured_content
             assert said and said["reply"] == "At 60."
             [first] = said["proposals"]
-            assert (first["title"], first["violations"], first["in_place"]) == (
-                "Edit render", [], True
+            assert (first["title"], first["violations"], first["in_place"], first["ends"]) == (
+                "Edit render", [], True, False
             )  # fmt: skip
             one = {**rid, "proposal_id": first["id"]}
             assert (await client.call_tool("apply_proposal", {**one, "by": " "})).is_error

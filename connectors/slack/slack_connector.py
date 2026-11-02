@@ -220,7 +220,8 @@ def answered(said: dict[str, Any], link: str) -> tuple[str, list[dict[str, Any]]
 
 def consequences(proposal: dict[str, Any]) -> str:
     """What applying a proposal costs, as its card on the run page says it: who already read
-    the old file, what a Rerun resets for how much, and a Fork ending this run."""
+    the old file, what a Rerun resets for how much, and a Fork, ending this run when it is
+    still live."""
     said = ""
     if read_by := proposal.get("read_by"):
         said += f"\n{_esc(', '.join(read_by))} already read the old version."
@@ -229,7 +230,8 @@ def consequences(proposal: dict[str, Any]) -> str:
         of = f" of the ${left:.2f} left" if left is not None else ""
         said += f"\nResets {_esc(', '.join(proposal['resets']))}, about ${cost:.2f} more{of}."
     if proposal.get("in_place") is False:
-        said += f"\nContinues as a new run from {_esc(str(proposal['fork_from']))}; this one ends."
+        ends = "; this one ends." if proposal.get("ends") else "."
+        said += f"\nContinues as a new run from {_esc(str(proposal['fork_from']))}{ends}"
     return said
 
 

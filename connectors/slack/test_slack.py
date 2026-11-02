@@ -161,7 +161,8 @@ def test_a_thread_reply_asks_the_runs_assistant_and_its_proposals_come_with_appl
     consequences = [
         {"read_by": ["render", "tag"]},
         {"resets": ["draft", "review"], "cost_usd": 0.4, "budget_left_usd": 2.5},
-        {"in_place": False, "fork_from": "draft"},
+        {"in_place": False, "fork_from": "draft", "ends": True},
+        {"in_place": False, "fork_from": "upload", "ends": False},
     ]
     said["proposals"] += [
         {"id": f"proposal_{n}", "title": "Change", "violations": [], **c}
@@ -192,6 +193,7 @@ def test_a_thread_reply_asks_the_runs_assistant_and_its_proposals_come_with_appl
         "*Change*\nrender, tag already read the old version.",
         "*Change*\nResets draft, review, about $0.40 more of the $2.50 left.",
         "*Change*\nContinues as a new run from draft; this one ends.",
+        "*Change*\nContinues as a new run from upload.",  # the run had already ended
     ]
     labels = [[e["text"]["text"] for e in b["elements"]] for b in answer["blocks"][2::2]][:2]
     assert labels == [["Apply", "Not now"], ["Not now"]]  # a refused change cannot be applied

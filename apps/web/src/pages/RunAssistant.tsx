@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
-import { cardTitle } from "../api/assistant";
+import { askingCosts, cardTitle } from "../api/assistant";
 import { api } from "../api/client";
 import { refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
@@ -101,7 +101,7 @@ export function RunAssistant({ run, onSpent }: { run: Run; onSpent: (usd: number
           Send
         </button>
       </form>
-      <p className="faint meta">Asking costs about $0.02 a question, from the world's budget.</p>
+      <p className="faint meta">{askingCosts(conversation)}</p>
     </section>
   );
 }

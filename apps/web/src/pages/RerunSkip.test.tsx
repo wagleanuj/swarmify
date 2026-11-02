@@ -122,3 +122,36 @@ test("Skip on a step that has not started applies, and one the check refuses kee
   await expect.element(card).toMatchTextContent(/Applied by you at \d\d:\d\d/);
   expect(calls.filter((c) => c === "POST /api/runs/run_1/changes")).toHaveLength(1);
 });
+
+test("on a run that failed at its last step, Re-run from here continues as a new run and links it", async () => {
+  const failed = run(
+    "failed",
+    [
+      stage(0, "script", "swarm", "done", { started_at: ts, ended_at: ts }),
+      stage(1, "upload", "connector", "failed", { started_at: ts, ended_at: ts, calls: "youtube", error: "upload refused" }),
+    ],
+    { revision: 6 },
+  );
+  const sent: unknown[] = [];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(failed),
+    "POST /api/runs/run_1/changes/propose": async (req) =>
+      Response.json({ change: await req.json(), stage_name: "upload", before: { upload: "failed" }, after: { upload: "pending" }, violations: [], revision: 6, in_place: false, fork_from: "upload", cost_usd: 0, budget_left_usd: null }),
+    "POST /api/runs/run_1/changes": async (req) => {
+      const body = await req.json();
+      sent.push(body);
+      return Response.json({ ...applied("rerun", 1, "upload", body.payload), fork: { id: "run_2", world_id: "world_1", name: "Short" } }, { status: 201 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await screen.getByRole("button", { name: "Run actions" }).click();
+  await expect.element(screen.getByRole("menuitem", { name: /^Skip/ })).toBeVisible();
+  await screen.getByRole("menuitem", { name: /^Re-run from here/ }).click();
+
+  const card = screen.getByTestId("change-card");
+  await expect.element(card).toMatchTextContent(/Continues as a new run from upload\./);
+  await expect.element(card).not.toMatchTextContent(/this one ends/);
+  await card.getByRole("button", { name: "Apply" }).click();
+  await vi.waitFor(() => expect(sent).toEqual([{ kind: "rerun", stage: "stage_1", payload: { note: "" }, revision: 6 }]));
+  await expect.element(card.getByTestId("continues-in")).toMatchTextContent(/Continues in.*Short/);
+});

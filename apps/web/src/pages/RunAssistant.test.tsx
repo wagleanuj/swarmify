@@ -46,7 +46,7 @@ test("asking from the run header answers with source links and a change card tha
     "GET /api/runs/run_1/assistant": () => Response.json(conversation),
     "POST /api/runs/run_1/assistant": async (req) => {
       expect(await req.json()).toEqual({ message: "Render at 60 fps." });
-      conversation = { messages: [asked, answered(3)], spent_usd: 0.02 };
+      conversation = { messages: [asked, answered(3)], spent_usd: 0.02, average_usd: 0.19, month_left_usd: 41.2 };
       return Response.json(answered(3));
     },
     "POST /api/runs/run_1/changes": async (req) => {
@@ -69,7 +69,7 @@ test("asking from the run header answers with source links and a change card tha
   const panel = screen.getByTestId("assistant");
   await expect.element(panel.getByRole("heading", { name: "Ask this run" })).toBeVisible();
   await expect.element(panel).toMatchTextContent(/It reads the run and proposes changes\. Nothing changes until you apply\./);
-  await expect.element(panel).toMatchTextContent(/Asking costs about \$0\.02 a question, from the world's budget\./);
+  await expect.element(panel).toMatchTextContent(/The first question sets what asking costs, from the world's budget\./);
   const field = panel.getByPlaceholder("Ask about this run, or say what to change");
   await field.fill("Render at 60 fps.");
   await panel.getByRole("button", { name: "Send" }).click();
@@ -87,6 +87,7 @@ test("asking from the run header answers with source links and a change card tha
   expect(applied).toEqual([{ kind: "stage_edit", stage: "stage_1", payload: after, revision: 3 }]);
   await vi.waitFor(() => expect(marked).toEqual([{ state: "applied", change_id: "change_1" }]));
   await expect.element(screen.getByTestId("assistant-spend")).toHaveTextContent("Assistant $0.02, from the world's budget, not this run's.");
+  await expect.element(panel).toMatchTextContent(/Asking costs about \$0\.19 a question, from the \$41\.20 the world has left this month\./);
 });
 
 test("the conversation comes back on reload; a stale card asks again and Not now dismisses it", async () => {

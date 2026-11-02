@@ -211,3 +211,25 @@ def test_a_change_that_cannot_be_recorded_leaves_the_file_as_it_was(
     folder = stage_folder(tmp_path, run, 0)
     assert (folder / "artifacts" / "metadata.md").read_text() == METADATA
     assert list((folder / "previous").iterdir()) == []
+
+
+def test_an_artifact_edit_of_an_ended_run_continues_as_a_fork_that_reads_the_new_text(
+    runner: Runner, files: Files, tmp_path: Path
+) -> None:
+    run = at_gate(runner, [WRITE, TAG, CONFIRM, UPLOAD])
+    runner.abort(run.id)
+    wait_for(lambda: fetch(runner, run.id).status == "aborted")
+    run = fetch(runner, run.id)
+    change = artifact_edit(run, "metadata.md", FIVE)
+
+    proposal = runner.propose(run.id, change)
+    assert proposal.violations == [] and not proposal.in_place
+    assert proposal.fork_from == "tag" and proposal.read_by == [], "the fork reads it anew"
+    fork = runner.apply(run.id, change, proposal.revision, "operator").fork
+    assert fork is not None
+    wait_for(lambda: fetch(runner, fork.id).status == "waiting_gate")
+    runner.decide(fork.id)
+    wait_for(lambda: fetch(runner, fork.id).status == "done")
+    assert files.read == {"tag": FIVE, "upload": FIVE}
+    made = stage_folder(tmp_path, run, 0) / "artifacts" / "metadata.md"
+    assert made.read_text() == METADATA, "the run that ended stays as it ended"

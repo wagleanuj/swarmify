@@ -191,9 +191,15 @@ class Run:
 
     def send_back_note(self, stage_name: str) -> str:
         """The note of the send-back or Rerun that caused this visit, when it named
-        `stage_name`; empty when the stage reruns because it named an earlier stage."""
+        `stage_name`; empty when the stage reruns because it named an earlier stage. A Fork a
+        Rerun made counts that Rerun."""
         sent = [(d.decided_at, d.send_back_to, d.note) for d in self.decisions if d.send_back_to]
-        sent += [(c.at, c.stage_name, c.payload["note"]) for c in self.changes if c.kind == "rerun"]
+        made = [self.forked_by] if self.forked_by else []
+        sent += [
+            (c.at, c.stage_name, c.payload["note"])
+            for c in [*self.changes, *made]
+            if c.kind == "rerun"
+        ]
         last = max(sent, default=None)
         return last[2] if last and last[1] == stage_name else ""
 

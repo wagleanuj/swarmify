@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { money, refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { type AppliedChange, hhmm, who } from "./ChangeCard";
+import { RunRef } from "./Runs";
 import { SaveToWorkflow } from "./SaveToWorkflow";
 
 type Stage = Run["stages"][number];
@@ -23,7 +24,7 @@ const names = new Intl.ListFormat("en-GB", { type: "conjunction" });
 
 /** A Rerun or a Skip as a change card (ADR 0027): the steps it resets or passes over, what a
  * Rerun costs again against the budget left, what the check would refuse, and Apply only once it
- * passes. Nothing changes until Apply. `proposed` is one made already (by the Run Assistant):
+ * passes. On a run that has ended it continues as a new run, a Fork. Nothing changes until Apply. `proposed` is one made already (by the Run Assistant):
  * shown as it was, with its note, so it goes stale when the run moved. */
 export function StepChangeCard({
   run,
@@ -111,6 +112,7 @@ export function StepChangeCard({
           Resets {names.format(Object.keys(before))}, about {money(cost)} more{left != null && ` of the ${money(left)} left`}
         </p>
       )}
+      {proposal && !proposal.in_place && !applied && <p className="warn">Continues as a new run from {proposal.fork_from}.</p>}
       {refused && !applied && (
         <p className="stage-error" role="alert">
           {refused}
@@ -128,6 +130,11 @@ export function StepChangeCard({
         <>
           <p className="notice ok" role="status">
             Applied by {who(applied.by)} at {hhmm(applied.at)}
+            {applied.fork && (
+              <>
+                . <RunRef label="Continues in" run={applied.fork} testId="continues-in" />
+              </>
+            )}
           </p>
           <SaveToWorkflow run={run} change={applied} />
         </>

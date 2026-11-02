@@ -22,18 +22,22 @@ PRIVATE = StageDef("publish", "connector", {"calls": "youtube", "params": {"priv
 
 class Calls:
     """Stands in for both stage calls: records each stage that runs with the note it was given.
-    A stage named `slow` holds until `release` is set."""
+    A stage named `slow` holds until `release` is set; one named in `failing` fails once."""
 
     def __init__(self) -> None:
         self.ran: list[tuple[str, str]] = []
         self.started = threading.Event()
         self.release = threading.Event()
+        self.failing: set[str] = set()
 
     def __call__(self, run: Run, _stage_id: str, stage: StageDef) -> None:
         if stage.name == "slow":
             self.started.set()
             self.release.wait(10)
         self.ran.append((stage.name, run.send_back_note(stage.name)))
+        if stage.name in self.failing:
+            self.failing.discard(stage.name)
+            raise RuntimeError(f"{stage.name} was refused")
 
 
 def check(_run: Run, stages: list[StageDef]) -> tuple[list[str], list[StageDef]]:
@@ -186,8 +190,7 @@ def test_a_skip_passes_over_a_stage_that_has_not_started(runner: Runner, calls: 
     run = at(runner, run.id, "done")
     assert statuses(run) == ["done", "done", "skipped", "done"]
     assert [name for name, _ in calls.ran] == ["write", "render"]
-    with pytest.raises(Illegal, match="run is done"):
-        runner.propose(run.id, skip)
+    assert runner.propose(run.id, skip).violations == ["confirm is skipped"]
 
 
 def test_a_skip_of_a_stage_whose_output_is_needed_or_of_a_publish_gate_is_refused(
@@ -311,3 +314,50 @@ def test_a_skip_the_run_can_no_longer_take_is_not_kept(runner: Runner, calls: Ca
     wait_for(lambda: fetch(runner, run.id).changes == [])
     run = at(runner, run.id, "waiting_gate")
     assert statuses(run) == ["done", "done", "waiting"]
+
+
+def test_a_rerun_of_a_failed_run_continues_as_a_fork_that_runs_only_that_stage_and_later(
+    runner: Runner, calls: Calls
+) -> None:
+    """The upload was refused at the end: redo it without the stages before it."""
+    calls.failing = {"publish"}
+    run = runner.start(
+        "world_1", "wf_1", 1, "Short", [WRITE, RENDER, PRIVATE, PICK], budget_usd=2.0
+    )
+    run = at(runner, run.id, "failed")
+    runner.storage.set_spent(run.id, 2.5)  # over its Budget: the Fork starts afresh on 2 USD
+    rerun = change(run, "rerun", "publish", "Try the upload again.")
+
+    proposal = runner.propose(run.id, rerun)
+    assert proposal.violations == [] and not proposal.in_place
+    assert proposal.budget_left_usd == 2.0
+    assert (proposal.fork_from, proposal.before) == ("publish", {"publish": "failed"})
+    applied = runner.apply(run.id, rerun, proposal.revision, "operator")
+    assert applied.fork is not None
+    fork = at(runner, applied.fork.id, "waiting_gate")
+    assert calls.ran[3:] == [("publish", "Try the upload again.")]
+    assert statuses(fork) == ["done", "done", "done", "waiting"]
+    assert fork.forked_by == applied and fork.stages[2].notes == ["Try the upload again."]
+    assert fetch(runner, run.id).status == "failed", "a run that ended stays as it ended"
+
+
+def test_a_skip_of_a_failed_run_continues_as_a_fork_with_the_stage_skipped(
+    runner: Runner, calls: Calls
+) -> None:
+    calls.failing = {"publish"}
+    run = runner.start("world_1", "wf_1", 1, "Short", [WRITE, PRIVATE, RENDER])
+    run = at(runner, run.id, "failed")
+    skip = change(run, "skip", "publish")
+
+    proposal = runner.propose(run.id, skip)
+    assert proposal.violations == [] and (proposal.in_place, proposal.fork_from) == (
+        False, "publish",
+    )  # fmt: skip
+    applied = runner.apply(run.id, skip, proposal.revision, "operator")
+    assert applied.fork is not None
+    fork = at(runner, applied.fork.id, "done")
+    assert statuses(fork) == ["done", "skipped", "done"]
+    assert [name for name, _ in calls.ran] == ["write", "publish", "render"]
+    assert "write is done" in runner.propose(run.id, change(run, "skip", "write")).violations
+    late = change(run, "rerun", "render")
+    assert runner.propose(run.id, late).violations == ["render has not run"]

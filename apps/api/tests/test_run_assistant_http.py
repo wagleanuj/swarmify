@@ -13,8 +13,9 @@ from fastapi.testclient import TestClient
 from test_publish_http import SCRIPT, setup, weekly
 from test_publish_http import at_gate as publish_gate
 from test_rerun_skip_http import at_check, step
-from test_run_changes_http import at_gate, change, restructure, shape, stage
+from test_run_changes_http import at_gate, change, failed_at_the_end, restructure, shape, stage
 
+from swarmify_connectors import FakeTransport
 from swarmify_memory import FakeGraphIndex
 from swarmify_memory.ports import graph_file
 from swarmify_swarm import SqliteStorage, tool_id
@@ -190,6 +191,27 @@ def test_a_rerun_a_skip_and_a_restructure_come_back_as_proposals_that_apply_thro
     assert applied.json()["payload"] == {"note": "Stronger hook."}
 
 
+def test_asked_to_redo_a_stage_of_a_failed_run_it_proposes_a_rerun_that_continues_as_a_fork(
+    running: TestClient, script: Script, transport: FakeTransport
+) -> None:
+    run = failed_at_the_end(running, transport)
+    rerun = step(run, "rerun", "render_video", note="Upload it again.")
+    script.scripts = [
+        [Call(tool_id("propose_change"), rerun), Answer({"reply": "Re-run it.", "sources": []})]
+    ]
+    asked = running.post(f"/api/runs/{run['id']}/assistant", json={"message": "Redo the upload."})
+    assert asked.status_code == 200, asked.text
+    [card] = asked.json()["proposals"]
+    made = running.post(f"/api/runs/{run['id']}/changes/propose", json=rerun).json()
+    assert card["proposal"] == made and made["violations"] == []
+    assert (made["in_place"], made["fork_from"]) == (False, "render_video")
+    assert "has ended" in str(script.sessions[0].system_prompt)
+
+    body = {**rerun, "revision": made["revision"]}
+    applied = running.post(f"/api/runs/{run['id']}/changes", json=body)
+    assert applied.status_code == 201 and applied.json()["fork"]["id"], applied.text
+
+
 def test_the_assistant_cannot_apply_a_change_or_answer_a_gate(
     running: TestClient, script: Script
 ) -> None:
@@ -222,6 +244,8 @@ def test_asking_costs_the_worlds_month_never_the_runs_budget(
     run = at_gate(running)
     world = run["world_id"]
     before = running.get(f"/api/worlds/{world}/spend").json()["spent_usd"]
+    first = running.get(f"/api/runs/{run['id']}/assistant").json()
+    assert (first["average_usd"], first["month_left_usd"]) == (None, None)
     script.cost = 0.02
     script.scripts = [[Answer({"reply": "Nothing spent yet.", "sources": [], "proposals": []})]]
     for _ in range(2):
@@ -232,6 +256,14 @@ def test_asking_costs_the_worlds_month_never_the_runs_budget(
     assert running.get(f"/api/runs/{run['id']}").json()["spent_usd"] == run["spent_usd"]
     conversation = running.get(f"/api/runs/{run['id']}/assistant").json()
     assert conversation["spent_usd"] == pytest.approx(0.04)
+
+    # What a question costs is the world's real average, against what its month has left.
+    script.cost = 0.19
+    assert running.post(f"/api/runs/{run['id']}/assistant", json={"message": "?"}).is_success
+    running.patch(f"/api/worlds/{world}", json={"monthly_budget_usd": 10})
+    conversation = running.get(f"/api/runs/{run['id']}/assistant").json()
+    assert conversation["average_usd"] == pytest.approx((0.02 + 0.02 + 0.19) / 3)
+    assert conversation["month_left_usd"] == pytest.approx(10 - before - 0.04 - 0.19)
 
 
 def test_the_assistant_runs_on_the_worlds_planner_model_and_a_bad_turn_is_a_502(

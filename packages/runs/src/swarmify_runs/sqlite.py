@@ -82,7 +82,7 @@ class SqliteStorage:
             ).rowcount:
                 conn.execute("ROLLBACK")
                 return None
-            self._copy(conn, run, source, index, stages)
+            self._copy(conn, run, source, index, stages, change.kind == "skip")
             _insert_change(conn, change, run.id)
             saved, changed = self._read(conn, run.id), self._read(conn, source.id)
             assert saved is not None and changed is not None
@@ -105,9 +105,11 @@ class SqliteStorage:
         source: Run,
         index: int,
         stages: list[StageDef] | None = None,
+        skip: bool = False,
     ) -> None:
         """Insert `run` as a fork of `source` at `index`, with `stages` from `index` on when
-        given (a Restructure), else the source's own."""
+        given (a Run Change), else the source's own; with `skip` the stage at `index` is
+        skipped."""
         self._insert_run(conn, run, source.id, index)
         rows = conn.execute(
             "SELECT * FROM run_stages WHERE run_id = ? ORDER BY idx", (source.id,)
@@ -134,11 +136,13 @@ class SqliteStorage:
             )
         for i, stage in enumerate(stages or []):
             if i >= index:
+                status = "skipped" if skip and i == index else "pending"
                 conn.execute(
                     "INSERT INTO run_stages (id, run_id, idx, name, type, config, status)"
-                    " VALUES (?, ?, ?, ?, ?, ?, 'pending')",
-                    (new_id("stage"), run.id, i, stage.name, stage.type, json.dumps(stage.config)),
-                )
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (new_id("stage"), run.id, i, stage.name, stage.type,
+                     json.dumps(stage.config), status),
+                )  # fmt: skip
         decisions = conn.execute(
             "SELECT * FROM gate_decisions WHERE run_id = ? AND stage_index < ?"
             " ORDER BY decided_at, id",
@@ -524,6 +528,15 @@ class SqliteStorage:
                 "SELECT * FROM run_changes WHERE run_id = ? ORDER BY revision", (run_id,)
             )
         ]
+        forked_by = next(
+            (
+                _change(conn, c)
+                for c in conn.execute("SELECT * FROM run_changes WHERE fork_run_id = ?", (run_id,))
+            ),
+            None,
+        )
+        # A Fork a Rerun made carries its note to the stage it re-runs.
+        made = [forked_by] if forked_by else []
         return Run(
             row["id"],
             row["world_id"],
@@ -543,7 +556,7 @@ class SqliteStorage:
                     s["started_at"],
                     s["ended_at"],
                     s["error"],
-                    notes(decisions, changes, s["name"]),
+                    notes(decisions, [*changes, *made], s["name"]),
                     _link(conn, s["child_run_id"]),
                     json.loads(s["config"]).get("calls") if s["type"] == "connector" else None,
                     json.loads(s["config"]).get("ask") if s["type"] == "gate" else None,
@@ -574,15 +587,7 @@ class SqliteStorage:
             bool(row["baseline"]),
             row["revision"],
             changes,
-            next(
-                (
-                    _change(conn, c)
-                    for c in conn.execute(
-                        "SELECT * FROM run_changes WHERE fork_run_id = ?", (run_id,)
-                    )
-                ),
-                None,
-            ),
+            forked_by,
         )
 
 

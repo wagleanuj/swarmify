@@ -23,9 +23,10 @@ class Storage(Protocol):
         self, run: Run, source: Run, index: int, stages: list[StageDef], change: AppliedChange
     ) -> Run | None:
         """Insert `run` as a fork of `source` at `index` with `stages` (the whole list) from
-        `index` on, and record `change` on `source` as the change that made it, with its
-        `run.changed` and both runs' `run.updated` events, in one transaction. None, with
-        nothing written, when `source` moved past the revision before `change.revision`."""
+        `index` on, the stage at `index` skipped when `change` is a Skip, and record `change` on
+        `source` as the change that made it, with its `run.changed` and both runs'
+        `run.updated` events, in one transaction. None, with nothing written, when `source`
+        moved past the revision before `change.revision`."""
         ...
 
     def save_state(self, run_id: str, state: RunState, error: str | None = None) -> Run | None:
