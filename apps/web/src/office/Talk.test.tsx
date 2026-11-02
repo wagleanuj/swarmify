@@ -155,7 +155,7 @@ test("an answer posts the gate's decision, the asker reacts and the next steps u
 
 test("a publish gate shows what goes out before any choice and posts it as shown or edited", async () => {
   const field = (key: string, value: unknown, editable: boolean) => ({ key, label: key, value, editable, hint: "" });
-  const publish = { connector: "youtube", fields: [field("title", "Five hooks", true), field("visibility", "public", false)], problems: [] };
+  const publish = { connector: "youtube", fields: [field("title", "Five hooks", true), field("visibility", "public", false)], private: false, problems: [] };
   const posted = world1([bare], [], [gate("confirm", { run_id: "run_c", run_name: "Competitor scan", stage_index: 2, publish })]);
   const { screen } = await mountAt("/worlds/world_1/office/talk");
   const out = screen.getByRole("region", { name: "What goes out" });
@@ -171,7 +171,7 @@ test("a publish gate shows what goes out before any choice and posts it as shown
 });
 
 test("a post that cannot go out cannot be confirmed", async () => {
-  const publish = { connector: "youtube", fields: [], problems: ["no title"] };
+  const publish = { connector: "youtube", fields: [], private: false, problems: ["no title"] };
   world1([bare], [], [gate("confirm", { run_id: "run_c", stage_index: 2, publish })]);
   const { screen } = await mountAt("/worlds/world_1/office/talk");
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/This will not post:\s*no title/);
@@ -179,7 +179,7 @@ test("a post that cannot go out cannot be confirmed", async () => {
 });
 
 test("a post blocked by an editable field can be confirmed once that field is edited", async () => {
-  const publish = { connector: "youtube", fields: [{ key: "hashtags", label: "hashtags", value: "#a #b #c #d #e #f", editable: true, hint: "" }], problems: ["6 hashtags, at most 5"] };
+  const publish = { connector: "youtube", fields: [{ key: "hashtags", label: "hashtags", value: "#a #b #c #d #e #f", editable: true, hint: "" }], private: false, problems: ["6 hashtags, at most 5"] };
   const posted = world1([bare], [], [gate("confirm", { run_id: "run_c", stage_index: 2, publish })]);
   const { screen } = await mountAt("/worlds/world_1/office/talk");
   await expect.element(screen.getByRole("button", { name: "1 Confirm and post" })).toBeDisabled();
