@@ -331,6 +331,34 @@ def test_the_editor_refuses_a_publish_stage_without_a_gate(client: TestClient, c
     assert saved.status_code == 422
 
 
+def test_a_private_upload_with_no_gate_runs_and_posts(
+    running: TestClient, transport: FakeTransport, tmp_path: Path
+) -> None:
+    sign_in_youtube(tmp_path)
+    yaml = weekly().replace("  - gate: confirm\n    ask: Post it?\n    kind: confirm\n", "")
+    yaml = yaml.replace("visibility: public", "visibility: private").replace(
+        '      schedule: "2099-01-01T10:00:00+01:00"\n', ""
+    )
+    world, workflow = setup(running, yaml)
+
+    def render(args: dict) -> dict:  # what the render stage would leave in the run folder
+        out = Path(args["output_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"video")
+        return {"ok": True}
+
+    transport.outputs["maker.maker"] = [render]
+    transport.outputs["publish"] = [
+        {"id": "vid1", "url": "https://youtu.be/vid1", "status": "private"}
+    ]
+    run = running.post(f"/api/workflows/{workflow}/runs", json={}).json()
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    ended = running.get(f"/api/runs/{run['id']}").json()
+    assert ended["status"] == "done", ended["stages"][-1]["error"]
+    name, tool, args, _ = transport.calls[-1]
+    assert (name, tool, args["fields"]["visibility"]) == ("youtube", "publish", "private")
+
+
 def test_a_run_keeps_the_version_it_was_saved_with_when_a_later_one_turned_publish(
     running: TestClient, transport: FakeTransport
 ) -> None:

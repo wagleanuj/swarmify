@@ -653,7 +653,8 @@ def _execute(run_id: str, index: int) -> bool:
     run = runner.storage.get_run(run_id)
     if run is None:
         raise KeyError(f"run not found: {run_id}")
-    if stage.type == "connector" and runner.previews(run, stage, {}) is not None:
+    shown = runner.previews(run, stage, {}) if stage.type == "connector" else None
+    if shown is not None and not shown.private:
         before = run.stages[index - 1] if index > 0 else None
         if before is None or before.type != "gate" or before.status != "done":
             # The editor refuses this too, but a connector can turn publish after the save.

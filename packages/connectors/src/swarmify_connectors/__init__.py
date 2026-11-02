@@ -61,7 +61,7 @@ from swarmify_connectors.ports import ConnectorTransport, Storage
 from swarmify_connectors.sandbox import REGISTRIES, Confined, Grants, SandboxUnavailable, domain
 from swarmify_connectors.setup import SetupStore
 from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
-from swarmify_kernel import AGENT_TOOLS, new_id
+from swarmify_kernel import AGENT_TOOLS, new_id, posts_privately
 
 __all__ = [
     "KINDS",
@@ -1089,6 +1089,14 @@ class Connectors:
     ) -> bool:
         connector = self.find(world_id, str(config.get("calls", "")), pins)
         return connector is not None and connector.kind == "publish"
+
+    def posts_privately(
+        self, world_id: str, config: dict[str, Any], pins: Mapping[str, str] | None = None
+    ) -> bool:
+        """Whether the stage's own params keep its post private, by its connector's Manifest."""
+        connector = self.find(world_id, str(config.get("calls", "")), pins)
+        private_when = (connector.manifest or {}).get("private_when", {}) if connector else {}
+        return posts_privately(private_when, config.get("params") or {})
 
     def publish_preview(
         self,

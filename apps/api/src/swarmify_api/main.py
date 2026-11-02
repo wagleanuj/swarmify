@@ -342,7 +342,8 @@ def previews(
         if problem:
             shown["problems"].append(problem)
         fields = [PublishField(**f) for f in shown["fields"]]
-        return PublishPreview(shown["connector"], fields, shown["problems"])
+        private = registry.posts_privately(run.world_id, stage.config, recorded)
+        return PublishPreview(shown["connector"], fields, shown["problems"], private)
 
     return preview
 
