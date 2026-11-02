@@ -159,3 +159,83 @@ test("an Artifact Edit of a finished step's text file shows the line diff and wh
   await expect.element(card).toMatchTextContent(/Applied by you at \d\d:\d\d · Earlier version/);
   await expect.element(card.getByRole("link", { name: "Earlier version" })).toHaveAttribute("href", expect.stringContaining("previous%2F1-metadata.md"));
 });
+
+test("a Restructure shows the stages to come, says it continues as a new run and this one ends, and links the Fork it made", async () => {
+  const tag = { name: "tag", type: "connector", calls: "remotion_tag" };
+  const applied: unknown[] = [];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "POST /api/runs/run_1/changes/propose": async (req) => {
+      const change = await req.json();
+      const before = { stages: [{ name: "render", type: "connector", ...render.config }] };
+      return Response.json({ change, stage_name: "render", before, after: change.payload, violations: [], revision: 3, in_place: false, fork_from: "pick" });
+    },
+    "POST /api/runs/run_1/changes": async (req) => {
+      const body = await req.json();
+      applied.push(body);
+      const fork = { id: "run_2", world_id: "world_1", name: "Render then pick" };
+      return Response.json(
+        { id: "change_1", run_id: "run_1", kind: "restructure", stage_id: "stage_1", stage_index: 1, stage_name: "render", payload: body.payload, before: {}, by: "operator", at: ts, revision: 4, fork },
+        { status: 201 },
+      );
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await screen.getByRole("button", { name: "Run actions" }).click();
+  await screen.getByRole("menuitem", { name: /^Change the stages from here/ }).click();
+
+  const card = screen.getByTestId("change-card");
+  await expect.element(card.getByRole("heading", { name: "Change the stages from render on" })).toBeVisible();
+  const stages = card.getByLabelText("The stages from render on");
+  await expect.element(stages).toHaveValue("- name: render\n  type: connector\n  calls: remotion_render\n  params:\n    fps: 30\n");
+  await stages.fill("- name: tag\n  type: connector\n  calls: remotion_tag\n- name: render\n  type: connector\n  calls: remotion_render\n  params:\n    fps: 30\n");
+  await expect.element(card.getByRole("list", { name: "The change" })).toMatchTextContent(/2 render \(connector\)/);
+  await expect.element(card).toMatchTextContent(/Continues as a new run from pick; this one ends\./);
+
+  await card.getByRole("button", { name: "Apply" }).click();
+  await vi.waitFor(() => expect(applied).toHaveLength(1));
+  expect(applied[0]).toMatchObject({ kind: "restructure", stage: "stage_1", payload: { stages: [tag, { name: "render" }] }, revision: 3 });
+  await expect.element(card).toMatchTextContent(/Applied by you at \d\d:\d\d\. Continues in Render then pick/);
+  await expect.element(card.getByTestId("continues-in").getByRole("link")).toHaveAttribute("href", "/worlds/world_1/runs/run_2");
+});
+
+test("a failed run offers a Stage Edit as a Fork, and the Fork says which change made it", async () => {
+  const failed = run("failed", [stage(0, "pick", "gate", "done", { started_at: ts, ended_at: ts }), { ...render, status: "failed", error: "render said no" }], { revision: 9 });
+  const change = { id: "change_1", run_id: "run_1", kind: "stage_edit", stage_id: "stage_1", stage_index: 1, stage_name: "render", payload: {}, before: {}, by: "operator", at: ts, revision: 10 };
+  const fork = run("running", [stage(0, "pick", "gate", "done"), stage(1, "render", "connector", "running")], {
+    id: "run_2",
+    forked_from: { id: "run_1", world_id: "world_1", name: "Render then pick" },
+    fork_stage_index: 1,
+    forked_by: change,
+  });
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(failed),
+    "GET /api/runs/run_2": () => Response.json(fork),
+    "POST /api/runs/run_1/changes/propose": async (req) => {
+      const body = await req.json();
+      return Response.json({ change: body, stage_name: "render", before: render.config, after: body.payload, violations: [], revision: 9, in_place: false, fork_from: "render" });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await screen.getByRole("button", { name: "Run actions" }).click();
+  await screen.getByRole("menuitem", { name: /^Edit stage/ }).click();
+  const card = screen.getByTestId("change-card");
+  await card.getByLabelText("render's config").fill("calls: remotion_render\nparams:\n  fps: 24\n");
+  await expect.element(card).toMatchTextContent(/Continues as a new run from render\./);
+  await expect.element(card).not.toMatchTextContent(/this one ends/);
+
+  const { screen: forkPage } = await mountAt("/worlds/world_1/runs/run_2");
+  await expect
+    .element(forkPage.getByTestId("forked-from"))
+    .toMatchTextContent(/Forked from Render then pick at stage 2\..* Made by a Stage Edit of render, applied by you at \d\d:\d\d\./);
+});
+
+test("a run a Restructure ended says it was aborted and continued in its Fork", async () => {
+  const fork = { id: "run_2", world_id: "world_1", name: "Render then pick" };
+  const change = { id: "change_1", run_id: "run_1", kind: "restructure", stage_id: "stage_1", stage_index: 1, stage_name: "render", payload: {}, before: {}, by: "operator", at: ts, revision: 4, fork };
+  const ended = run("aborted", [stage(0, "pick", "gate", "done", { started_at: ts, ended_at: ts }), render], { revision: 5, changes: [change], forks: [fork] });
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(ended) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("continued-in")).toMatchTextContent(/continued in Render then pick/);
+  await expect.element(screen.getByTestId("continued-in").getByRole("link")).toHaveAttribute("href", "/worlds/world_1/runs/run_2");
+});

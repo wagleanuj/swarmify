@@ -64,70 +64,116 @@ class SqliteStorage:
     def fork(self, run: Run, source: Run, index: int) -> Run:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            self._insert_run(conn, run, source.id, index)
-            stages = conn.execute(
-                "SELECT * FROM run_stages WHERE run_id = ? ORDER BY idx", (source.id,)
-            ).fetchall()
-            renamed = {}
-            for s in stages:
-                copied = s["idx"] < index
-                renamed[s["id"]] = new_id("stage")
-                conn.execute(
-                    "INSERT INTO run_stages (id, run_id, idx, name, type, config, status,"
-                    " started_at, ended_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        renamed[s["id"]],
-                        run.id,
-                        s["idx"],
-                        s["name"],
-                        s["type"],
-                        s["config"],
-                        s["status"] if copied else "pending",
-                        s["started_at"] if copied else None,
-                        s["ended_at"] if copied else None,
-                        s["error"] if copied else None,
-                    ),
-                )
-            decisions = conn.execute(
-                "SELECT * FROM gate_decisions WHERE run_id = ? AND stage_index < ?"
-                " ORDER BY decided_at, id",
-                (source.id, index),
-            ).fetchall()
-            for d in decisions:
-                # The file was copied along with its stage folder, renamed to the fork's stage
-                # id; a copied visit is numbered below zero so it never collides with a visit
-                # the fork makes itself.
-                old_stage = stages[d["stage_index"]]["id"]
-                path = d["path"].replace(source.id, run.id).replace(old_stage, renamed[old_stage])
-                artifact = d["artifact"] and d["artifact"].replace(source.id, run.id)
-                for old, new in renamed.items():  # the artifact may be from any earlier stage
-                    artifact = artifact and artifact.replace(old, new)
-                conn.execute(
-                    "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
-                    " note, send_back_to, path, decided_at, visit, artifact, publish, answered_by)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        new_id("dec"),
-                        run.id,
-                        d["stage_index"],
-                        d["stage_name"],
-                        d["kind"],
-                        d["choice"],
-                        d["note"],
-                        d["send_back_to"],
-                        path,
-                        d["decided_at"],
-                        -1 - d["visit"],
-                        artifact,
-                        d["publish"],
-                        d["answered_by"],
-                    ),
-                )
+            self._copy(conn, run, source, index)
             saved = self._read(conn, run.id)
             assert saved is not None
             append(conn, _updated(saved))
             conn.execute("COMMIT")
             return saved
+
+    def fork_change(
+        self, run: Run, source: Run, index: int, stages: list[StageDef], change: AppliedChange
+    ) -> Run | None:
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute(
+                "UPDATE runs SET revision = ?, updated_at = ? WHERE id = ? AND revision = ?",
+                (change.revision, change.at, source.id, change.revision - 1),
+            ).rowcount:
+                conn.execute("ROLLBACK")
+                return None
+            self._copy(conn, run, source, index, stages)
+            _insert_change(conn, change, run.id)
+            saved, changed = self._read(conn, run.id), self._read(conn, source.id)
+            assert saved is not None and changed is not None
+            event = Event.new(
+                "run.changed",
+                world_id=source.world_id,
+                run_id=source.id,
+                payload=asdict(changed.changes[-1]),
+            )
+            append(conn, event)
+            append(conn, _updated(changed))
+            append(conn, _updated(saved))
+            conn.execute("COMMIT")
+            return saved
+
+    def _copy(
+        self,
+        conn: sqlite3.Connection,
+        run: Run,
+        source: Run,
+        index: int,
+        stages: list[StageDef] | None = None,
+    ) -> None:
+        """Insert `run` as a fork of `source` at `index`, with `stages` from `index` on when
+        given (a Restructure), else the source's own."""
+        self._insert_run(conn, run, source.id, index)
+        rows = conn.execute(
+            "SELECT * FROM run_stages WHERE run_id = ? ORDER BY idx", (source.id,)
+        ).fetchall()
+        renamed = {}
+        for s in rows if stages is None else rows[:index]:
+            copied = s["idx"] < index
+            renamed[s["id"]] = new_id("stage")
+            conn.execute(
+                "INSERT INTO run_stages (id, run_id, idx, name, type, config, status,"
+                " started_at, ended_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    renamed[s["id"]],
+                    run.id,
+                    s["idx"],
+                    s["name"],
+                    s["type"],
+                    s["config"],
+                    s["status"] if copied else "pending",
+                    s["started_at"] if copied else None,
+                    s["ended_at"] if copied else None,
+                    s["error"] if copied else None,
+                ),
+            )
+        for i, stage in enumerate(stages or []):
+            if i >= index:
+                conn.execute(
+                    "INSERT INTO run_stages (id, run_id, idx, name, type, config, status)"
+                    " VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+                    (new_id("stage"), run.id, i, stage.name, stage.type, json.dumps(stage.config)),
+                )
+        decisions = conn.execute(
+            "SELECT * FROM gate_decisions WHERE run_id = ? AND stage_index < ?"
+            " ORDER BY decided_at, id",
+            (source.id, index),
+        ).fetchall()
+        for d in decisions:
+            # The file was copied along with its stage folder, renamed to the fork's stage
+            # id; a copied visit is numbered below zero so it never collides with a visit
+            # the fork makes itself.
+            old_stage = rows[d["stage_index"]]["id"]
+            path = d["path"].replace(source.id, run.id).replace(old_stage, renamed[old_stage])
+            artifact = d["artifact"] and d["artifact"].replace(source.id, run.id)
+            for old, new in renamed.items():  # the artifact may be from any earlier stage
+                artifact = artifact and artifact.replace(old, new)
+            conn.execute(
+                "INSERT INTO gate_decisions (id, run_id, stage_index, stage_name, kind, choice,"
+                " note, send_back_to, path, decided_at, visit, artifact, publish, answered_by)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    new_id("dec"),
+                    run.id,
+                    d["stage_index"],
+                    d["stage_name"],
+                    d["kind"],
+                    d["choice"],
+                    d["note"],
+                    d["send_back_to"],
+                    path,
+                    d["decided_at"],
+                    -1 - d["visit"],
+                    artifact,
+                    d["publish"],
+                    d["answered_by"],
+                ),
+            )
 
     @staticmethod
     def _insert_run(
@@ -304,24 +350,7 @@ class SqliteStorage:
             if moved:
                 conn.execute("ROLLBACK")
                 return False
-            conn.execute(
-                "INSERT INTO run_changes (id, run_id, kind, stage_id, stage_index, stage_name,"
-                " payload, before_json, applied_by, applied_at, revision)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    change.id,
-                    change.run_id,
-                    change.kind,
-                    change.stage_id,
-                    change.stage_index,
-                    change.stage_name,
-                    json.dumps(change.payload),
-                    json.dumps(change.before),
-                    change.by,
-                    change.at,
-                    change.revision,
-                ),
-            )
+            _insert_change(conn, change)
             saved = self._read(conn, change.run_id)
             assert saved is not None
             append(
@@ -490,19 +519,7 @@ class SqliteStorage:
             ).fetchall()
         ]
         changes = [
-            AppliedChange(
-                c["id"],
-                c["run_id"],
-                c["kind"],
-                c["stage_id"],
-                c["stage_index"],
-                c["stage_name"],
-                json.loads(c["payload"]),
-                json.loads(c["before_json"]),
-                c["applied_by"],
-                c["applied_at"],
-                c["revision"],
-            )
+            _change(conn, c)
             for c in conn.execute(
                 "SELECT * FROM run_changes WHERE run_id = ? ORDER BY revision", (run_id,)
             )
@@ -557,7 +574,57 @@ class SqliteStorage:
             bool(row["baseline"]),
             row["revision"],
             changes,
+            next(
+                (
+                    _change(conn, c)
+                    for c in conn.execute(
+                        "SELECT * FROM run_changes WHERE fork_run_id = ?", (run_id,)
+                    )
+                ),
+                None,
+            ),
         )
+
+
+def _insert_change(
+    conn: sqlite3.Connection, change: AppliedChange, fork_run_id: str | None = None
+) -> None:
+    conn.execute(
+        "INSERT INTO run_changes (id, run_id, kind, stage_id, stage_index, stage_name, payload,"
+        " before_json, applied_by, applied_at, revision, fork_run_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            change.id,
+            change.run_id,
+            change.kind,
+            change.stage_id,
+            change.stage_index,
+            change.stage_name,
+            json.dumps(change.payload),
+            json.dumps(change.before),
+            change.by,
+            change.at,
+            change.revision,
+            fork_run_id,
+        ),
+    )
+
+
+def _change(conn: sqlite3.Connection, c: sqlite3.Row) -> AppliedChange:
+    return AppliedChange(
+        c["id"],
+        c["run_id"],
+        c["kind"],
+        c["stage_id"],
+        c["stage_index"],
+        c["stage_name"],
+        json.loads(c["payload"]),
+        json.loads(c["before_json"]),
+        c["applied_by"],
+        c["applied_at"],
+        c["revision"],
+        _link(conn, c["fork_run_id"]),
+    )
 
 
 def _link(conn: sqlite3.Connection, run_id: str | None) -> RunLink | None:

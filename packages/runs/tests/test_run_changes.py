@@ -19,6 +19,7 @@ from swarmify_runs import (
     PublishPreview,
     Run,
     RunChange,
+    RunLink,
     Runner,
     SqliteStorage,
     StageDef,
@@ -31,11 +32,12 @@ RENDER = StageDef("render", "connector", {"calls": "remotion_render", "params": 
 
 
 class Calls:
-    """Stands in for both stage calls: records each stage's config as it runs. A stage named
-    `slow` holds until `release` is set."""
+    """Stands in for both stage calls: records each stage's config as it runs, and which ran.
+    A stage named `slow` holds until `release` is set; one whose config says `fail` fails."""
 
     def __init__(self) -> None:
         self.configs: dict[str, dict[str, Any]] = {}
+        self.ran: list[str] = []
         self.started = threading.Event()
         self.release = threading.Event()
 
@@ -43,6 +45,9 @@ class Calls:
         if stage.name == "slow":
             self.started.set()
             self.release.wait(10)
+        self.ran.append(stage.name)
+        if stage.config.get("fail"):
+            raise RuntimeError(f"{stage.name} said no")
         self.configs[stage.name] = stage.config
 
 
@@ -103,6 +108,12 @@ def edit(run: Run, name: str, config: dict[str, Any]) -> RunChange:
     return RunChange("stage_edit", stage.id, config)
 
 
+def restructure(run: Run, name: str, stages: list[StageDef]) -> RunChange:
+    stage = next(s for s in run.stages if s.name == name)
+    shape = [{"name": d.name, "type": d.type, **d.config} for d in stages]
+    return RunChange("restructure", stage.id, {"stages": shape})
+
+
 def events(storage: SqliteStorage, kind: str) -> list[dict[str, Any]]:
     with closing(connect(storage.path)) as conn:
         return [e.payload for e in read_after(conn, "world_1", 0) if e.type == kind]
@@ -155,8 +166,7 @@ def test_a_stage_edit_of_the_running_stage_or_a_finished_one_is_refused(
 
     calls.release.set()
     run = at(runner, run.id, "done")
-    with pytest.raises(Illegal, match="run is done"):
-        runner.propose(run.id, change)
+    assert not runner.propose(run.id, change).in_place, "a run that ended changes as a Fork"
     assert calls.configs["slow"] == slow.config
 
 
@@ -215,3 +225,129 @@ def test_a_stage_edit_of_the_publish_a_waiting_gate_is_confirming_is_refused(
     runner.decide(run.id)
     at(runner, run.id, "done")
     assert calls.configs["publish"] == publish.config, "what posts is what was confirmed"
+
+
+def test_a_restructure_that_adds_a_stage_continues_as_a_fork_and_the_original_ends_linked_to_it(
+    runner: Runner, storage: SqliteStorage, calls: Calls, check: Check
+) -> None:
+    run = runner.start("world_1", "wf_1", 1, "Short", [WRITE, PICK, RENDER])
+    run = at(runner, run.id, "waiting_gate")
+    tag = StageDef("tag", "connector", {"calls": "remotion_tag"})
+    change = restructure(run, "render", [tag, RENDER])
+
+    proposal = runner.propose(run.id, change)
+    assert proposal.violations == [] and not proposal.in_place
+    assert proposal.fork_from == "pick", "a Fork copies finished stages, so the gate opens anew"
+    assert proposal.before == {"stages": [{"name": "render", "type": "connector", **RENDER.config}]}
+    assert [s["name"] for s in proposal.after["stages"]] == ["tag", "render"]
+    assert [s.name for s in check.seen[-1]] == ["write", "pick", "tag", "render"]
+    assert runner.list_all("world_1") == [fetch(runner, run.id)], "a proposal writes nothing"
+
+    applied = runner.apply(run.id, change, proposal.revision, "operator")
+    assert applied.fork is not None and applied.kind == "restructure"
+    original = at(runner, run.id, "aborted")
+    assert original.forks == [applied.fork] and original.changes == [applied]
+    fork = at(runner, applied.fork.id, "waiting_gate")
+    assert fork.forked_from == RunLink(run.id, "world_1", "Short")
+    assert fork.forked_by == applied, "the Fork says which change made it"
+    assert [(s.name, s.status) for s in fork.stages] == [
+        ("write", "done"), ("pick", "waiting"), ("tag", "pending"), ("render", "pending"),
+    ]  # fmt: skip
+
+    runner.decide(fork.id, choice="idea 1")
+    at(runner, fork.id, "done")
+    assert calls.ran == ["write", "tag", "render"], "write was copied, not run again"
+    changed = events(storage, "run.changed")
+    assert [(c["run_id"], c["fork"]["id"]) for c in changed] == [(run.id, fork.id)]
+
+
+def test_a_stage_edit_to_a_failed_run_continues_as_a_fork_from_that_stage_and_the_fork_runs(
+    runner: Runner, calls: Calls
+) -> None:
+    broken = StageDef("render", "connector", {"calls": "remotion_render", "fail": True})
+    run = at(runner, runner.start("world_1", "wf_1", 1, "Short", [WRITE, broken]).id, "failed")
+    change = edit(run, "render", RENDER.config)
+
+    proposal = runner.propose(run.id, change)
+    assert proposal.violations == [] and not proposal.in_place
+    assert (proposal.fork_from, proposal.after) == ("render", RENDER.config)
+
+    applied = runner.apply(run.id, change, proposal.revision, "operator")
+    assert applied.fork is not None
+    fork = at(runner, applied.fork.id, "done")
+    assert calls.configs["render"] == RENDER.config
+    assert calls.ran == ["write", "render", "render"], "the fork runs only the edited stage"
+    assert fork.forked_by == applied
+    assert fetch(runner, run.id).status == "failed", "a run that ended stays as it ended"
+
+
+def test_a_restructure_that_breaks_a_rule_or_changes_a_started_stage_is_refused(
+    runner: Runner,
+) -> None:
+    run = at(runner, runner.start("world_1", "wf_1", 1, "Short", [PICK, RENDER]).id, "waiting_gate")
+    nobody = restructure(run, "render", [StageDef("render", "connector", {"calls": "nobody"})])
+
+    proposal = runner.propose(run.id, nobody)
+    assert proposal.violations == ["no connector named 'nobody'"]
+    with pytest.raises(ValueError, match="no connector named 'nobody'"):
+        runner.apply(run.id, nobody, proposal.revision, "operator")
+
+    dropped = restructure(run, "pick", [RENDER])
+    refused = "pick has started; a Restructure changes only the stages to come"
+    assert runner.propose(run.id, dropped).violations == [refused]
+    with pytest.raises(Illegal, match=refused):
+        runner.apply(run.id, dropped, proposal.revision, "operator")
+    same = restructure(run, "render", [RENDER])
+    assert runner.propose(run.id, same).violations == ["nothing would change"]
+    assert [r.id for r in runner.list_all("world_1")] == [run.id]
+    assert fetch(runner, run.id).status == "waiting_gate" and fetch(runner, run.id).changes == []
+
+
+def test_a_stage_edit_of_a_failed_publish_forks_from_its_gate_so_a_person_confirms_again(
+    runner: Runner, calls: Calls
+) -> None:
+    def previews(_run: Run, stage: StageDef, _edits: dict[str, Any]) -> PublishPreview | None:
+        title = str(stage.config["params"]["title"])
+        return PublishPreview("youtube", [PublishField("title", "Title", title)])
+
+    runner.previews = previews
+    publish = StageDef("publish", "connector", {"calls": "youtube", "params": {"title": "Hooks"}})
+    broken = StageDef("publish", "connector", {**publish.config, "fail": True})
+    run = at(
+        runner, runner.start("world_1", "wf_1", 1, "Short", [CONFIRM, broken]).id, "waiting_gate"
+    )
+    runner.decide(run.id)
+    run = at(runner, run.id, "failed")
+
+    proposal = runner.propose(run.id, edit(run, "publish", publish.config))
+    assert proposal.violations == [] and proposal.fork_from == "confirm"
+    applied = runner.apply(run.id, edit(run, "publish", publish.config), run.revision, "operator")
+    assert applied.fork is not None
+    fork = at(runner, applied.fork.id, "waiting_gate")
+    assert [(s.name, s.status) for s in fork.stages] == [
+        ("confirm", "waiting"),
+        ("publish", "pending"),
+    ]
+    assert calls.ran == ["publish"], "nothing posts until a person confirms the new values"
+
+
+def test_a_restructure_never_touches_the_running_stage_and_needs_a_stage(
+    runner: Runner, calls: Calls
+) -> None:
+    slow = StageDef("slow", "connector", {"calls": "remotion_render"})
+    run = runner.start("world_1", "wf_1", 1, "Short", [slow, RENDER])
+    assert calls.started.wait(10)
+    run = fetch(runner, run.id)
+    tag = StageDef("tag", "connector", {"calls": "remotion_tag"})
+    change = restructure(run, "render", [tag, RENDER])
+
+    refused = "slow is running: pause first or add a task"
+    assert runner.propose(run.id, change).violations == [refused]
+    with pytest.raises(Illegal, match=refused):
+        runner.apply(run.id, change, run.revision, "operator")
+    with pytest.raises(ValueError, match="a Restructure needs at least one stage"):
+        runner.propose(run.id, restructure(run, "render", []))
+
+    calls.release.set()
+    at(runner, run.id, "done")
+    assert calls.ran == ["slow", "render"] and runner.list_all("world_1") == [fetch(runner, run.id)]
