@@ -8,10 +8,19 @@ kind = "stage"
 stage_types = ["connector"]
 runtime = "uv"
 command = ["python3", "server.py"]
-capabilities = ["build_session"]
+capabilities = ["build_session", "templates"]
 
 [permissions]
 network = ["pypi.org"]
+
+# Each world's sketch Templates (ADR 0028), one subfolder each.
+[[owned_folders]]
+folder = "sketches"
+label = "Sketches"
+
+[templates]
+folder = "sketches"
+guide = "GUIDE.md"
 
 [build_session]
 system = "session/system.md"
@@ -25,6 +34,8 @@ arguments = { site = "$folder", tone = "$tone" }
 
 [params]
 type = "object"
+[params.properties.base]
+type = "string"
 [params.properties.tone]
 type = "string"
 default = "calm"

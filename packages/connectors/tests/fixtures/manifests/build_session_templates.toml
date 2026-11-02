@@ -1,0 +1,17 @@
+# error: build_session.templates: is not a Manifest field
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture. A build's Templates are the templates Capability's (ADR 0028)."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+capabilities = ["build_session"]
+
+[build_session]
+system = "system.md"
+brief = "brief.md"
+starter = "starter"
+tool = "finish"
+templates = "remotion"

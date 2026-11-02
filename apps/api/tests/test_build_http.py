@@ -10,7 +10,7 @@ import shlex
 import shutil
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +76,12 @@ def build_run(
     inputs: str = "input: script.md",
     after: str = "",
     calls: str = "remotion_build",
+    before: Callable[[Path], None] = lambda _: None,
 ) -> tuple[TestClient, dict]:
     """`inputs` is the build stage's input line; a notes stage writing notes.md runs before it
     when it names notes.md. `after` is YAML for stages after it; the run is returned once it
-    ends or waits at a gate. `calls` is the build package; HyperFrames' are enabled first."""
+    ends or waits at a gate. `calls` is the build package; HyperFrames' are enabled first.
+    `before` gets the world's folder before the run starts."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     (data / ".env").write_text("UPLOAD_POST_API_KEY=k3y\n")
@@ -89,6 +91,7 @@ def build_run(
     client.__enter__()
     opened.append(client)
     w = client.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
+    before(data / "worlds" / w)
     server = shlex.join([sys.executable, str(HERE / "script_server.py")])
     added = client.post(
         f"/api/worlds/{w}/connectors",
@@ -304,15 +307,19 @@ def test_a_hyperframes_build_writes_the_project_and_hyperframes_render_makes_the
 
 
 @pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
-def test_a_hyperframes_build_starts_from_a_base_template_the_check_finds(
+def test_a_hyperframes_build_starts_from_a_world_template_the_check_finds(
     tmp_path: Path, fake_cli: None, opened: list[TestClient]
 ) -> None:
-    promo = tmp_path / "data/hyperframes/promo"
-    promo.mkdir(parents=True)
-    (promo / "index.html").write_text("<!-- promo -->\n")
+    def promo(world: Path) -> None:
+        folder = world / "assets/hyperframes_templates/promo"
+        folder.mkdir(parents=True)
+        (folder / "index.html").write_text("<!-- promo -->\n")
+
     script = Script([Answer(_installs_hyperframes), Say("Done.")])
     runtime = SdkRuntime(transport=script.transport)
-    client, run = build_run(tmp_path, runtime, "{base: promo}", opened, calls="hyperframes_build")
+    client, run = build_run(
+        tmp_path, runtime, "{base: promo}", opened, calls="hyperframes_build", before=promo
+    )
     assert run["status"] == "done", run
     folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
     assert (folder / run["stages"][1]["id"] / "build/index.html").read_text() == "<!-- promo -->\n"
@@ -322,7 +329,7 @@ def test_a_hyperframes_build_starts_from_a_base_template_the_check_finds(
         "    input: script.md\n    params: {base: promu}\n"
     )
     checked = client.post(f"/api/worlds/{run['world_id']}/workflows/check", json={"yaml": yaml})
-    missing = f"the template promu does not exist in {tmp_path / 'data/hyperframes'}"
+    missing = "the Template promu is not one of this world's HyperFrames build Templates"
     assert any(missing in v["message"] for v in checked.json()["violations"]), checked.text
 
 

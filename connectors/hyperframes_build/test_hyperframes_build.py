@@ -39,7 +39,7 @@ def test_it_requests_a_build_session_and_renders_through_hyperframes_render() ->
         "video.mp4",
     )
     assert session["arguments"] == {"project": "$folder", "composition": "$composition"}
-    assert session["templates"] == "hyperframes"
+    assert "templates" not in session  # its Templates are the world's (ADR 0028)
     assert MANIFEST["permissions"]["network"] == [
         "registry.npmjs.org",
         "fonts.googleapis.com",

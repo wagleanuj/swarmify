@@ -123,3 +123,85 @@ def test_a_package_requesting_a_build_session_gets_one_then_its_tool_runs_on_the
     assert (call["connector"], call["tool"], call["status"]) == ("sketch", "finish", "done")
     [artifact] = client.get(f"/api/runs/{run['id']}/stages/{page_id}/artifacts").json()
     assert artifact["name"] == "page.html"
+
+
+@pytest.mark.parametrize("guided", [True, False])
+def test_a_build_with_a_base_starts_from_a_copy_of_the_worlds_template(
+    running: TestClient, transport: FakeTransport, script: Script, tmp_path: Path, guided: bool
+) -> None:
+    """Issue 348: `base` names a Template in the world's Templates folder of the package (ADR
+    0028). The build starts from a copy, the Template stays as it was, the call records its name
+    and fingerprint, and the brief names its guide file when it has one."""
+    client = running
+    script.scripts = [[Answer(lambda o: (Path(o.cwd) / "page.css").write_text("x")), Say("Done.")]]
+    assert install(client, SKETCH).status_code == 201
+    w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    enabled = client.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"})
+    assert enabled.status_code == 200, enabled.text
+    bold = tmp_path / "worlds" / w / "assets/sketches/bold"
+    (bold / "node_modules/x").mkdir(parents=True)
+    (bold / "index.html").write_text("<h1>bold</h1>")
+    (bold / ".template.json").write_text('{"origin": "upload"}')
+    if guided:
+        (bold / "GUIDE.md").write_text("Shout.")
+    before = sorted((p.relative_to(bold), p.read_bytes()) for p in bold.rglob("*") if p.is_file())
+    flow = FLOW.replace("{tone: loud,", "{base: bold, tone: loud,")
+    saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": flow})
+    assert saved.status_code == 201, saved.text
+    run = client.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    run = client.get(f"/api/runs/{run['id']}").json()
+    assert run["status"] == "done", run
+
+    page_id = run["stages"][2]["id"]
+    build = tmp_path / "worlds" / w / "runs" / run["id"] / page_id / "build"
+    assert (build / "index.html").read_text() == "<h1>bold</h1>"
+    assert (build / "page.css").is_file() and not (build / "node_modules").exists()
+    after = sorted((p.relative_to(bold), p.read_bytes()) for p in bold.rglob("*") if p.is_file())
+    assert after == before  # the builder wrote its copy, never the Template
+
+    prompt = script.prompts[0]
+    guide = f"Read {build / 'GUIDE.md'} first: the guide of the Template bold this build starts"
+    assert (guide in prompt) is guided
+    assert prompt.startswith("Write a loud page for the copy at ")
+    call = client.get(f"/api/stages/{page_id}/call").json()
+    assert call["template"]["name"] == "bold"
+    fingerprint = call["template"]["fingerprint"]
+    assert len(fingerprint) == 64
+
+    # the same files make the same fingerprint, whatever node_modules or the record hold
+    (bold / ".template.json").write_text('{"origin": "run"}')
+    (bold / "node_modules/y").mkdir()
+    script.scripts = [[Say("Done.")]]
+    again = client.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{again['id']}").json()["status"] in ("done", "failed"))
+    second = client.get(f"/api/runs/{again['id']}").json()["stages"][2]["id"]
+    assert client.get(f"/api/stages/{second}/call").json()["template"]["fingerprint"] == fingerprint
+
+
+def test_the_workflow_check_flags_a_base_the_world_does_not_have(
+    running: TestClient, tmp_path: Path
+) -> None:
+    """Issue 348: the base resolves in the world's own Templates, never another world's or the
+    data directory's."""
+    client = running
+    assert install(client, SKETCH).status_code == 201
+    w, other = (client.post("/api/worlds", json={"name": n}).json()["id"] for n in ("A", "B"))
+    for world in (w, other):
+        enabled = client.put(f"/api/worlds/{world}/packages/sketch", json={"version": "1.0.0"})
+        assert enabled.status_code == 200, enabled.text
+    (tmp_path / "worlds" / other / "assets/sketches/bold").mkdir(parents=True)
+    (tmp_path / "sketches/bold").mkdir(parents=True)
+    yaml = "name: P\nstages:\n  - connector: page\n    calls: sketch\n    input: copy.md\n"
+
+    def problems(world: str, base: str) -> list[str]:
+        """Its violations about the base; its input from no earlier stage is beside the point."""
+        flow = f"{yaml}    params: {{base: {base}}}\n"
+        checked = client.post(f"/api/worlds/{world}/workflows/check", json={"yaml": flow})
+        assert checked.status_code == 200, checked.text
+        return [v["message"] for v in checked.json()["violations"] if "Template" in v["message"]]
+
+    assert any("the Template bold is not one of this world's" in p for p in problems(w, "bold"))
+    assert any("a Template's name, not a path" in p for p in problems(w, "../bold"))
+    assert problems(other, "bold") == []

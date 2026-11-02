@@ -221,7 +221,6 @@ SCHEMA: dict[str, Any] = {
                 "brief": _inside,
                 "starter": _inside,
                 "notes": {"type": "object", "additionalProperties": _inside},
-                "templates": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,59}$"},
                 "output": {"type": "string", "pattern": "^[^/\\\\]+$"},
                 "connector": {"type": "string", "pattern": _SNAKE},
                 "tool": {"type": "string", "pattern": _TOOL},

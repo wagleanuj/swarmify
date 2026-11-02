@@ -33,7 +33,7 @@ Chrome Headless Shell (800 MB) for both.
     # or inputs: [script.md, timings.json], the script first, the rest named to the builder
     output: video.mp4           # the default
     params:                     # all optional
-      base: shorts              # a template in <data dir>/remotion/ to start from (a name, not a path)
+      base: shorts              # one of the world's Templates to start from (a name)
       composition: Main         # the default
       brief: Bold captions, 20 seconds, a cold open.
       model: claude-sonnet-5-5  # over the world's worker model (the Cast), else the default
@@ -41,8 +41,11 @@ Chrome Headless Shell (800 MB) for both.
       minutes: 20               # the session's time limit, the default
 ```
 
-`base` copies a template by name from the data directory's `remotion/` folder instead of the
-starter; the workflow check reports one that is not there.
+`base` copies a Template by name from the world's `assets/remotion_templates/` folder (ADR 0028, on the
+world's Assets page) instead of the starter, without its `node_modules`; the workflow check
+reports one the world does not have. The stage's call records the Template's name and
+fingerprint, the run page shows the name, and when the Template has a `TEMPLATE.md` the brief
+tells the builder to read it first.
 
 When one of `inputs` is a `timings.json` (the speech package's), the brief turns voice
 first, as the spike on branch `spike/voice-first-video` proved: copy the timings and their takes

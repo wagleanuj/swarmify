@@ -35,7 +35,6 @@ prepare_network = ["registry.npmjs.org"]
 system = "system.md"
 brief = "brief.md"
 starter = "starter"
-templates = "remotion"   # params.base names a template under <data dir>/remotion/ instead
 output = "video.mp4"
 # The render is remotion_render's own code path, so the two never drift and share one browser.
 connector = "remotion_render"
@@ -49,7 +48,7 @@ arguments = { project = "$folder", composition = "$composition" }
 type = "object"
 [params.properties.base]
 type = "string"
-description = "a template's name under the data directory's remotion folder to start from, else a minimal starter"
+description = "one of the world's Templates of this package to start from, else a minimal starter"
 [params.properties.composition]
 type = "string"
 default = "Main"
