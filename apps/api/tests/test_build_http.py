@@ -1,7 +1,8 @@
-"""A script stage then a `remotion_build` stage, end to end through the API: real DBOS on SQLite,
-the real MCP transport and render wrapper, the Agent SDK client with a scripted CLI as the
-builder, and a fake Remotion CLI on PATH rendering inside the OS sandbox. One real build, on the
-subscription and the real Remotion CLI, runs when you opt in with SWARMIFY_REAL_BUILD=1."""
+"""A script stage then a `remotion_build` (or `hyperframes_build`) stage, end to end through the
+API: real DBOS on SQLite, the real MCP transport and render wrapper, the Agent SDK client with a
+scripted CLI as the builder, and a fake Remotion (or HyperFrames) CLI as the project's own,
+rendering inside the OS sandbox. One real build of each, on the subscription and the real CLI,
+runs when you opt in with SWARMIFY_REAL_BUILD=1."""
 
 import json
 import os
@@ -26,18 +27,22 @@ real_default_installs = True
 
 HERE = Path(__file__).parent
 FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
+FAKE_HYPERFRAMES = HERE.parents[2] / "connectors/hyperframes_render/fake_hyperframes.py"
+HYPERFRAMES = ("hyperframes_build", "hyperframes_render")
+"""Installed with Swarmify but not defaults: a world enables both to build with HyperFrames."""
 SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")
 
 
 @pytest.fixture
 def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A Chrome Headless Shell on PATH, as the image has; the Remotion CLI is the project's own,
+    """A Chrome Headless Shell, ffmpeg and ffprobe on PATH, as the image has the first and an
+    operator running natively all three; the Remotion or HyperFrames CLI is the project's own,
     which `_installs` fakes."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    shell = bin_dir / "chrome-headless-shell"
-    shell.write_text("#!/bin/sh\n")
-    shell.chmod(0o755)
+    for name in ("chrome-headless-shell", "ffmpeg", "ffprobe"):
+        (bin_dir / name).write_text("#!/bin/sh\n")
+        (bin_dir / name).chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
 
@@ -50,13 +55,17 @@ def opened() -> Iterator[list[TestClient]]:
         client.__exit__(None, None, None)
 
 
-def _installs(options: Any) -> None:
+def _installs(options: Any, name: str = "remotion", fake: Path = FAKE_NPX) -> None:
     """What `npm install` leaves, done by the scripted builder: the project's Remotion CLI, a
-    fake one (fake_npx.py)."""
-    cli = Path(options.cwd) / "node_modules" / ".bin" / "remotion"
+    fake one (fake_npx.py), or its HyperFrames CLI (fake_hyperframes.py)."""
+    cli = Path(options.cwd) / "node_modules" / ".bin" / name
     cli.parent.mkdir(parents=True)
-    cli.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
+    cli.write_text(f"#!{sys.executable}\n" + fake.read_text())
     cli.chmod(0o755)
+
+
+def _installs_hyperframes(options: Any) -> None:
+    _installs(options, "hyperframes", FAKE_HYPERFRAMES)
 
 
 def build_run(
@@ -66,10 +75,11 @@ def build_run(
     opened: list[TestClient],
     inputs: str = "input: script.md",
     after: str = "",
+    calls: str = "remotion_build",
 ) -> tuple[TestClient, dict]:
     """`inputs` is the build stage's input line; a notes stage writing notes.md runs before it
     when it names notes.md. `after` is YAML for stages after it; the run is returned once it
-    ends or waits at a gate."""
+    ends or waits at a gate. `calls` is the build package; HyperFrames' are enabled first."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     (data / ".env").write_text("UPLOAD_POST_API_KEY=k3y\n")
@@ -90,6 +100,10 @@ def build_run(
         },
     )
     assert added.status_code == 201, added.text
+    if calls in HYPERFRAMES:
+        for name in HYPERFRAMES:
+            enabled = client.put(f"/api/worlds/{w}/packages/{name}", json={"version": "1.0.0"})
+            assert enabled.status_code == 200, enabled.text
     notes = "  - connector: notes\n    calls: script_writer\n    output: notes.md\n"
     yaml = f"""name: Script then build
 stages:
@@ -97,7 +111,7 @@ stages:
     calls: script_writer
     output: script.md
 {notes if "notes.md" in inputs else ""}  - connector: video
-    calls: remotion_build
+    calls: {calls}
     {inputs}
     params: {params}
 {after}"""
@@ -251,6 +265,67 @@ def test_a_failed_render_fails_the_stage_with_the_cli_output(
     assert "remotion render exited with 1" in error and "No composition with the ID Broken" in error
 
 
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_hyperframes_build_writes_the_project_and_hyperframes_render_makes_the_video(
+    tmp_path: Path, fake_cli: None, opened: list[TestClient]
+) -> None:
+    script = Script(
+        [
+            Call("Bash", {"command": "npm install"}),
+            Answer(_installs_hyperframes),
+            Say("A title card over black."),
+        ]
+    )
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened, calls="hyperframes_build"
+    )
+    assert run["status"] == "done", run
+    script_id, video_id = run["stages"][0]["id"], run["stages"][1]["id"]
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    project = folder / video_id / "build"
+    rendered = json.loads((folder / video_id / "artifacts/video.mp4").read_text())
+    assert rendered["project"] == str(project) and rendered["flags"]["composition"] == "index.html"
+    assert rendered["script"].startswith("# Why the chase")
+    assert rendered["scriptPath"] == str(folder / script_id / "artifacts/script.md")
+    assert rendered["env"]["HYPERFRAMES_NO_TELEMETRY"] == "1"
+    assert (folder / video_id / "artifacts/video.mp4.md").is_file()
+
+    # the session: seeded from the starter, told HyperFrames, reaching only its own hosts
+    (options,) = script.sessions
+    assert options.cwd == project and "HyperFrames" in str(options.system_prompt)
+    hosts = ["registry.npmjs.org", "fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"]
+    assert (options.sandbox or {}).get("network", {}).get("allowedDomains") == hosts
+    assert f"composition `index.html` turns the script at {folder / script_id}" in script.prompts[0]
+    starter = HERE.parents[2] / "connectors/hyperframes_build/starter/index.html"
+    assert (project / "index.html").read_text() == starter.read_text()
+    assert not (project / "node_modules").exists()
+    call = client.get(f"/api/stages/{video_id}/call").json()
+    assert call["connector"] == "hyperframes_render" and call["request"]["project"] == str(project)
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_hyperframes_build_starts_from_a_base_template_the_check_finds(
+    tmp_path: Path, fake_cli: None, opened: list[TestClient]
+) -> None:
+    promo = tmp_path / "data/hyperframes/promo"
+    promo.mkdir(parents=True)
+    (promo / "index.html").write_text("<!-- promo -->\n")
+    script = Script([Answer(_installs_hyperframes), Say("Done.")])
+    runtime = SdkRuntime(transport=script.transport)
+    client, run = build_run(tmp_path, runtime, "{base: promo}", opened, calls="hyperframes_build")
+    assert run["status"] == "done", run
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    assert (folder / run["stages"][1]["id"] / "build/index.html").read_text() == "<!-- promo -->\n"
+
+    yaml = (
+        "name: Typo\nstages:\n  - connector: video\n    calls: hyperframes_build\n"
+        "    input: script.md\n    params: {base: promu}\n"
+    )
+    checked = client.post(f"/api/worlds/{run['world_id']}/workflows/check", json={"yaml": yaml})
+    missing = f"the template promu does not exist in {tmp_path / 'data/hyperframes'}"
+    assert any(missing in v["message"] for v in checked.json()["violations"]), checked.text
+
+
 @pytest.mark.skipif(not os.environ.get("SWARMIFY_REAL_BUILD"), reason="set SWARMIFY_REAL_BUILD=1")
 def test_a_real_build_renders_a_tiny_composition(tmp_path: Path, opened: list[TestClient]) -> None:
     """The real model on the subscription writes a real Remotion project, and Remotion renders
@@ -265,3 +340,19 @@ def test_a_real_build_renders_a_tiny_composition(tmp_path: Path, opened: list[Te
     video = folder / run["stages"][1]["id"] / "artifacts/video.mp4"
     assert video.stat().st_size > 1000 and video.read_bytes()[4:8] == b"ftyp"
     print(f"\nreal build: ${run['spent_usd']:.2f}, video {video}")
+
+
+@pytest.mark.skipif(not os.environ.get("SWARMIFY_REAL_BUILD"), reason="set SWARMIFY_REAL_BUILD=1")
+def test_a_real_hyperframes_build_renders_offline(tmp_path: Path, opened: list[TestClient]) -> None:
+    """The real model on the subscription writes a real HyperFrames project from the starter, and
+    hyperframes_render's real install renders it in its sandbox with no network. Several minutes:
+    npm installs, ffmpeg and Chrome download once, into the temp data directory."""
+    os.environ.setdefault("SWARMIFY_BUILD_WAIT", "1800")
+    brief = "A 2 second video, 360x640: the script's title on a plain background."
+    params = f"{{brief: {json.dumps(brief)}, max_turns: 40}}"
+    client, run = build_run(tmp_path, SdkRuntime(), params, opened, calls="hyperframes_build")
+    assert run["status"] == "done", run["stages"][1].get("error")
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    video = folder / run["stages"][1]["id"] / "artifacts/video.mp4"
+    assert video.stat().st_size > 1000 and video.read_bytes()[4:8] == b"ftyp"
+    print(f"\nreal hyperframes build: ${run['spent_usd']:.2f}, video {video}")

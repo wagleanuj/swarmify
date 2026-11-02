@@ -1,0 +1,62 @@
+# The HyperFrames build connector (README.md beside this file). Installed with Swarmify from this
+# folder but not enabled by default: Remotion stays a world's video engine until it enables this
+# and hyperframes_render. It has no server of its own: it asks the core for a Build Session, then
+# renders through hyperframes_render.
+name = "hyperframes_build"
+version = "1.0.0"
+label = "HyperFrames build"
+about = "Writes a HyperFrames project (HTML and GSAP) from the script in a sandboxed coding session, then renders it. Needs Node 22."
+kind = "stage"
+stage_types = ["connector"]
+enable_by_default = false
+runtime = "npm"
+
+planner_notes = "Makes a video from HTML, CSS and a GSAP timeline: one sandboxed coding session writes a HyperFrames project for the script, reading the run's gate decisions, then swarmify renders it through hyperframes_render. It renders through hyperframes_render, so use it only where the world enabled both and the brief suits HTML motion graphics; else remotion_build. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read."
+
+capabilities = ["build_session"]
+
+# The session's network (ADR 0018): npm installs, Google Fonts files and jsDelivr, which the
+# builder downloads into the project, since the render has none.
+[permissions]
+network = ["registry.npmjs.org", "fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"]
+
+[build_session]
+system = "system.md"
+brief = "brief.md"
+starter = "starter"
+templates = "hyperframes"   # params.base names a template under <data dir>/hyperframes/ instead
+output = "video.mp4"
+# The render is hyperframes_render's own code path, so the two never drift and share one browser.
+connector = "hyperframes_render"
+tool = "hyperframes_render"
+arguments = { project = "$folder", composition = "$composition" }
+
+[params]
+type = "object"
+[params.properties.base]
+type = "string"
+description = "a template's name under the data directory's hyperframes folder to start from, else a minimal starter"
+[params.properties.composition]
+type = "string"
+default = "index.html"
+description = "the composition file in the project"
+[params.properties.brief]
+type = "string"
+description = "free text for the builder: style, length, pacing"
+[params.properties.model]
+type = "string"
+[params.properties.max_turns]
+type = "integer"
+default = 80
+[params.properties.minutes]
+type = "integer"
+default = 20
+description = "the session's time limit"
+
+[[inputs]]
+description = "the script"
+media_type = "text/markdown"
+
+[[outputs]]
+description = "the video, video.mp4 by default"
+media_type = "video/mp4"
