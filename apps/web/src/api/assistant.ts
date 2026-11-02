@@ -1,7 +1,9 @@
 /** Asking a run's Run Assistant from a gate, shared by the Needs you page and a skin's own gate
  * screen (Talk), so both ask, apply and dismiss alike. */
+import { type FormEvent, useState } from "react";
+
 import { api } from "./client";
-import { refusal } from "./runs";
+import { type Gate, refusal } from "./runs";
 import type { components } from "./schema";
 
 export type Card = components["schemas"]["Card"];
@@ -16,6 +18,42 @@ export async function askRun(runId: string, message: string): Promise<{ said?: S
   });
   return data ? { said: data } : { refused: refusal(error, response, "The assistant did not answer") ?? undefined };
 }
+
+/** A gate's turns with its run's assistant, for each skin to show alike: the message being
+ * written, `send` to ask it, and why the last ask failed. A reply's fields go to `onFill`, and
+ * `filled` says which ones it filled; `onSaid` runs after each answer. */
+export function useGateAsk(gate: Gate, onFill: (fields: Record<string, string>) => void, onSaid?: () => Promise<unknown>) {
+  const [turns, setTurns] = useState<{ asked: string; said: Said }[]>([]);
+  const [text, setText] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    const asked = text.trim();
+    if (!asked || asking) return;
+    setError(null);
+    setAsking(true);
+    const { said, refused } = await askRun(gate.run_id, asked);
+    if (said) {
+      setText("");
+      setTurns((t) => [...t, { asked, said }]);
+      if (Object.keys(said.fields ?? {}).length > 0) onFill(said.fields ?? {});
+      await onSaid?.();
+    } else setError(refused ?? "The assistant did not answer");
+    setAsking(false);
+  }
+
+  const labelOf = (key: string) => gate.publish?.fields?.find((f) => f.key === key)?.label ?? key;
+  const filled = (said: Said) => {
+    const keys = Object.keys(said.fields ?? {});
+    return keys.length > 0 ? `Filled ${keys.map(labelOf).join(", ")} in the form above. Check it, then answer.` : null;
+  };
+  return { turns, text, setText, asking, error, send, filled };
+}
+
+/** Whether the change card can show a proposal: a Stage Edit or an Artifact Edit. */
+export const cardable = (card: Card) => card.proposal.change.kind === "stage_edit" || card.proposal.change.kind === "artifact_edit";
 
 /** Apply a proposal as proposed, through the Run Change seam, and record it on the card. Resolves
  * to the refusal (the run moved on, the check failed), or null once applied. */

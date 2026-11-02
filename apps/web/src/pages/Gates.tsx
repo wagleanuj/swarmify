@@ -3,11 +3,9 @@ import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStor
 
 import {
   blocked,
-  changedFields,
   choosable,
   decision,
   editable,
-  fill,
   GATE_KIND,
   gateArtifacts,
   gateProposal,
@@ -17,6 +15,7 @@ import {
   staysOpen,
   topUpSuggestion,
   underReview,
+  useGateForm,
 } from "../api/answer";
 import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
@@ -251,9 +250,8 @@ export function GateCard({
   const [chosen, setChosen] = useState("");
   // The earlier step a Send back menu item chose; the form then submits with it.
   const sendBack = useRef<string | null>(null);
-  const form = useRef<HTMLFormElement>(null);
-  // Whether an editable field of the post differs from what the gate showed.
-  const [changed, setChanged] = useState(false);
+  // The gate's form, and whether an editable field of the post differs from what the gate shows.
+  const { form, changed, edited, fill } = useGateForm(gate);
   // What the earlier stages made: the cards a pick chooses from, the piece an approve reviews
   // (stories 53 and 54). null until loaded, so the pick's fallback field does not flash.
   const [artifacts, setArtifacts] = useState<ArtifactFile[] | null>(null);
@@ -265,8 +263,6 @@ export function GateCard({
       .then(setArtifacts)
       .catch(() => setArtifacts([]));
   }, [shows, gate.run_id, gate.stage_index, gate.send_backs_left]);
-  // A change applied at the gate reloads its preview, shown afresh below: compare with that.
-  useEffect(() => setChanged(changedFields(gate, form.current)), [gate]);
 
   const cards = gate.kind === "pick" && artifacts ? choosable(artifacts) : [];
   const reviewed = gate.kind === "approve" && artifacts ? underReview(artifacts) : [];
@@ -343,7 +339,7 @@ export function GateCard({
         onChange={(e) => {
           const f = e.target as unknown as HTMLInputElement;
           if (f.name === "artifact" || f.name === "choice") setChosen(f.value.trim());
-          if (f.name.startsWith("edit:")) setChanged(changedFields(gate, form.current));
+          if (f.name.startsWith("edit:")) edited();
         }}
         className="gate-form"
         aria-label={`Answer ${gate.stage_name}`}
@@ -453,7 +449,7 @@ export function GateCard({
       </form>
       )}
       {/* The run page has its own Ask this run. */}
-      {!bare && <GateAsk gate={gate} onFill={(fields) => setChanged(fill(gate, form.current, fields))} />}
+      {!bare && <GateAsk gate={gate} onFill={fill} />}
     </li>
   );
 }

@@ -471,7 +471,7 @@ test("an approve gate shows a typed script's top-level text, as the voice its ju
   await expect.element(typed).not.toMatchTextContent(/scenes/);
 });
 
-test("asking at a publish gate answers there, fills the form, and an applied file change refreshes what goes out", async () => {
+test("asking at a publish gate answers there, fills the form, and an applied file change refreshes what goes out, keeping the fills it left alone", async () => {
   const field = (key: string, label: string, value: unknown, editable: boolean) => ({ key, label, value, editable, hint: "" });
   const seven = "#a #b #c #d #e #f #g";
   const five = "#a #b #c #d #e";
@@ -486,7 +486,7 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
   const meta = (tags: string) => `---\nhashtags: ${tags}\n---\n`;
   const change = { kind: "artifact_edit", stage: "stage_0", payload: { path: "metadata.md", text: meta(five) } };
   const proposal = { change, stage_name: "write", before: { path: "metadata.md", text: meta(seven) }, after: change.payload, violations: [], revision: 3, in_place: true, read_by: [] };
-  const reply = { id: "message_2", role: "assistant", text: "Cut to five, here and in metadata.md.", at: ts, sources: [], cost_usd: 0.02, fields: { hashtags: five } };
+  const reply = { id: "message_2", role: "assistant", text: "Cut to five, here and in metadata.md.", at: ts, sources: [], cost_usd: 0.02, fields: { title: "Owls, in five tags", hashtags: five } };
   const asked: unknown[] = [];
   const applied: unknown[] = [];
   const marked: unknown[] = [];
@@ -500,7 +500,7 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
     },
     "POST /api/runs/run_1/changes": async (req) => {
       applied.push(await req.json());
-      publish = preview("Owls, explained", five, []); // what metadata.md now says
+      publish = preview("Owls", five, []); // what metadata.md now says; the title stays
       const done = { id: "change_1", run_id: "run_1", kind: "artifact_edit", stage_id: "stage_0", stage_index: 0, stage_name: "write" };
       return Response.json({ ...done, payload: change.payload, before: proposal.before, by: "operator", at: ts, revision: 4 }, { status: 201 });
     },
@@ -520,7 +520,7 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
   expect(asked).toEqual([{ message: "Cut the hashtags to five" }]);
   // The gate field fills the form instead of a card, and Confirm unlocks.
   await expect.element(card.getByLabelText("Hashtags")).toHaveValue(five);
-  await expect.element(card).toMatchTextContent(/Filled Hashtags in the form above\./);
+  await expect.element(card).toMatchTextContent(/Filled Title, Hashtags in the form above\./);
   await expect.element(confirm).toBeEnabled();
 
   // The file edit is a card; applying it refreshes the preview from the server.
@@ -533,7 +533,8 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
   await vi.waitFor(() => expect(marked).toEqual([{ state: "applied", change_id: "change_1" }]));
   await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(2));
   await expect.element(card.getByText("7 hashtags, at most 5")).not.toBeInTheDocument();
-  await expect.element(card.getByLabelText("Title")).toHaveValue("Owls, explained");
+  // The filled title outlives the refresh, since the change left the post's title alone.
+  await expect.element(card.getByLabelText("Title")).toHaveValue("Owls, in five tags");
   await expect.element(card.getByLabelText("Hashtags")).toHaveValue(five);
   await expect.element(confirm).toBeEnabled();
 });

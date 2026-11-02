@@ -1,5 +1,7 @@
 /** Answering a gate: its choices and the decision each one posts, shared by every view that
  * answers gates (the plain Gates and run pages, and a skin's own screens), so they behave alike. */
+import { useEffect, useRef, useState } from "react";
+
 import { api } from "./client";
 import type { ArtifactFile } from "./events";
 import { actOn, decide, type Decide, type Gate, money, refusal, setBudget } from "./runs";
@@ -67,15 +69,40 @@ export const changedFields = (gate: Gate, form: HTMLFormElement | null) =>
     return input instanceof HTMLTextAreaElement && input.value !== String(f.value ?? "");
   });
 
-/** Fill the fields of `form` the gate lets the person edit with `values` by key (what the Run
- * Assistant answered), as if typed; others are left alone. Returns whether the form now differs
- * from what the gate showed. */
-export function fill(gate: Gate, form: HTMLFormElement | null, values: Record<string, string>): boolean {
-  for (const [key, value] of Object.entries(values)) {
-    const input = form?.elements.namedItem(`edit:${key}`);
-    if (input instanceof HTMLTextAreaElement) input.value = value;
-  }
-  return changedFields(gate, form);
+/** The gate's form and whether an editable field of the post differs from what the gate shows.
+ * `edited` is called on each change; `fill` puts values by key in the editable fields (what the
+ * Run Assistant answered), as if typed. When an applied change reloads the preview, its fields
+ * show afresh: what was typed or filled stays in each field whose shown value the change left
+ * alone, while a field it changed takes the new value. */
+export function useGateForm(gate: Gate) {
+  const form = useRef<HTMLFormElement>(null);
+  const [changed, setChanged] = useState(false);
+  const typed = useRef<Record<string, string>>({});
+  const shown = useRef(gate.publish);
+  const put = (values: Record<string, string>) => {
+    for (const [key, value] of Object.entries(values)) {
+      const input = form.current?.elements.namedItem(`edit:${key}`);
+      if (input instanceof HTMLTextAreaElement) input.value = value;
+    }
+  };
+  const edited = () => {
+    const fields = gate.publish?.fields ?? [];
+    typed.current = Object.fromEntries(
+      fields.flatMap((f) => {
+        const input = form.current?.elements.namedItem(`edit:${f.key}`);
+        return input instanceof HTMLTextAreaElement && input.value !== String(f.value ?? "") ? [[f.key, input.value]] : [];
+      }),
+    );
+    setChanged(changedFields(gate, form.current));
+  };
+  useEffect(() => {
+    const valueOf = (p: Gate["publish"], key: string) => JSON.stringify(p?.fields?.find((f) => f.key === key)?.value ?? null);
+    const before = shown.current;
+    shown.current = gate.publish;
+    put(Object.fromEntries(Object.entries(typed.current).filter(([k]) => valueOf(before, k) === valueOf(gate.publish, k))));
+    edited();
+  }, [gate]);
+  return { form, changed, edited, fill: (values: Record<string, string>) => (put(values), edited()) };
 }
 
 /** A field the gate lets the person change: the connector marks it editable and it is text. */

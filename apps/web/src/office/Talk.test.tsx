@@ -268,7 +268,7 @@ test("a refused answer says why and keeps the asker up", async () => {
   await expect.element(screen.getByRole("heading", { name: "Rex Judge", level: 1 })).toBeVisible();
 });
 
-test("asking at a publish gate in Talk answers there, fills the form, and an applied file change refreshes what goes out", async () => {
+test("asking at a publish gate in Talk answers there, fills the form, and an applied file change refreshes what goes out, problems and all", async () => {
   const field = (key: string, label: string, value: unknown) => ({ key, label, value, editable: true, hint: "" });
   const seven = "#a #b #c #d #e #f #g";
   const five = "#a #b #c #d #e";
@@ -287,7 +287,7 @@ test("asking at a publish gate in Talk answers there, fills the form, and an app
       }),
     "POST /api/runs/run_c/changes": async (req) => {
       applied.push(await req.json());
-      open[0] = { ...open[0]!, publish: preview("Owls, explained", five, []) }; // what metadata.md now says
+      open[0] = { ...open[0]!, publish: preview("Owls, explained", five, ["Title too long"]) }; // what metadata.md now says
       return Response.json({ id: "change_1" }, { status: 201 });
     },
     "POST /api/runs/run_c/assistant/proposals/proposal_1": async (req) => {
@@ -315,6 +315,11 @@ test("asking at a publish gate in Talk answers there, fills the form, and an app
   expect(marked).toEqual([{ state: "applied", change_id: "change_1" }]);
   await expect.element(screen.getByLabelText("Title")).toHaveValue("Owls, explained");
   await expect.element(screen.getByText("7 hashtags, at most 5")).not.toBeInTheDocument();
+  // The form now matches a preview that still cannot post, so Confirm locks again until edited.
+  await expect.element(screen.getByText("Title too long")).toBeVisible();
+  await expect.element(confirm).toBeDisabled();
+  await screen.getByLabelText("Title").fill("Owls");
+  await expect.element(confirm).toBeEnabled();
   await confirm.click();
   await vi.waitFor(() => expect(posted.map((p) => p.key)).toEqual(["POST /api/runs/run_c/decision"]));
 });

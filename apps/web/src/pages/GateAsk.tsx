@@ -1,6 +1,6 @@
-import { type FormEvent, useId, useState } from "react";
+import { useId, useState } from "react";
 
-import { askRun, type Card, markCard, type Said } from "../api/assistant";
+import { type Card, cardable, cardTitle, markCard, useGateAsk } from "../api/assistant";
 import { api } from "../api/client";
 import { reloadGates } from "../api/gates";
 import type { Gate, Run } from "../api/runs";
@@ -11,11 +11,7 @@ import { ChangeCard } from "./ChangeCard";
  * into the gate's form through `onFill`, for the person to confirm. An applied change reloads the
  * gates, so the preview shows what will really go out. */
 export function GateAsk({ gate, onFill }: { gate: Gate; onFill: (fields: Record<string, string>) => void }) {
-  const [turns, setTurns] = useState<{ asked: string; said: Said }[]>([]);
   const [run, setRun] = useState<Run | null>(null);
-  const [text, setText] = useState("");
-  const [asking, setAsking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const id = useId();
 
@@ -25,24 +21,8 @@ export function GateAsk({ gate, onFill }: { gate: Gate; onFill: (fields: Record<
       .GET("/api/runs/{run_id}", { params: { path: { run_id: gate.run_id } } })
       .then(({ data }) => data && setRun(data))
       .catch(() => undefined);
+  const { turns, text, setText, asking, error, send, filled } = useGateAsk(gate, onFill, load);
 
-  async function send(e: FormEvent) {
-    e.preventDefault();
-    const asked = text.trim();
-    if (!asked || asking) return;
-    setError(null);
-    setAsking(true);
-    const { said, refused } = await askRun(gate.run_id, asked);
-    if (said) {
-      setText("");
-      setTurns((t) => [...t, { asked, said }]);
-      if (Object.keys(said.fields ?? {}).length > 0) onFill(said.fields ?? {});
-      await load();
-    } else setError(refused ?? "The assistant did not answer");
-    setAsking(false);
-  }
-
-  const labelOf = (key: string) => gate.publish?.fields?.find((f) => f.key === key)?.label ?? key;
   const shown = (card: Card) => !dismissed.includes(card.id) && run?.stages.find((s) => s.id === card.proposal.change.stage);
   return (
     <section className="gate-ask" aria-label="Ask or change">
@@ -52,12 +32,11 @@ export function GateAsk({ gate, onFill }: { gate: Gate; onFill: (fields: Record<
             <li key={said.id} className="said said-assistant">
               <p className="faint">{asked}</p>
               <p>{said.text}</p>
-              {Object.keys(said.fields ?? {}).length > 0 && (
-                <p className="notice">Filled {Object.keys(said.fields ?? {}).map(labelOf).join(", ")} in the form above. Check it, then answer.</p>
-              )}
+              {filled(said) && <p className="notice">{filled(said)}</p>}
               {run &&
                 (said.proposals ?? []).map((card) => {
                   const stage = shown(card);
+                  if (stage && !cardable(card)) return <p key={card.id} className="faint">Proposed: {cardTitle(card)}.</p>;
                   return (
                     stage && (
                       <ChangeCard

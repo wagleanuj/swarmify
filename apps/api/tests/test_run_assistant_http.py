@@ -239,6 +239,9 @@ def test_at_a_publish_gate_the_assistant_reads_the_form_and_fills_its_fields(
     assert asked.status_code == 200, asked.text
     # Only the fields the gate's form edits: the rest is a Run Change or not the gate's.
     assert asked.json()["fields"] == {"hashtags": "#Owls"}
+    # Never kept: the form is the operator's to confirm.
+    kept = running.get(f"/api/runs/{run['id']}/assistant").json()["messages"][-1]
+    assert kept["fields"] == {}
     told = str(script.sessions[0].system_prompt)
     assert "hashtags" in told and "#Owls #AnimalFacts" in told and "artifact_edit" in told
 
