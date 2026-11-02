@@ -1,8 +1,9 @@
 """The HyperFrames render connector: the package installed through the real install path (with
 the suite's fake `npm` and `npx`), enabled for a world, started over stdio MCP in the connector
 sandbox and rendering with a fake HyperFrames CLI as the project's own (`fake_hyperframes.py`),
-its project a build folder of the run. `SWARMIFY_REAL_BUILD=1` with
-`SWARMIFY_HYPERFRAMES_PROJECT` opts in to one real install and render."""
+its project a template in the templates folder or a build folder of the run.
+`SWARMIFY_REAL_BUILD=1` with `SWARMIFY_HYPERFRAMES_PROJECT` opts in to one real install and
+render."""
 
 import json
 import os
@@ -156,6 +157,8 @@ def test_the_manifest_passes_off_by_default_reaching_only_its_loopback() -> None
         "stage",
         ["connector"],
     )
+    assert m["capabilities"] == ["check"]
+    assert "hyperframes_build" in m["planner_notes"]
     assert (m["runtime"], m["enable_by_default"]) == ("uv", False)
     assert m["permissions"]["network"] == ["localhost"]
     assert m["params"]["required"] == ["project"]
@@ -210,6 +213,61 @@ def test_a_world_has_it_only_once_its_operator_enables_it(installed: Path, tmp_p
     assert connectors.find(W, "remotion_render") is not None
     connectors.enable(W, "hyperframes_render", "1.0.0")
     assert connectors.find(W, "hyperframes_render") is not None
+
+
+def test_its_settings_reach_the_process_the_templates_folder_from_the_data_directory(
+    given: Given, tmp_path: Path
+) -> None:
+    connectors = given(FakeTransport())
+    render = connectors.find(W, "hyperframes_render")
+    assert render is not None
+    assert connectors._env(render) == {"HYPERFRAMES_TEMPLATES": str(tmp_path / "hyperframes")}
+    connectors.save_setup(W, "hyperframes_render", {"templates": "elsewhere"}, {"workers": "2"})
+    assert connectors._env(render) == {
+        "HYPERFRAMES_TEMPLATES": str(tmp_path / "elsewhere"),
+        "SWARMIFY_HYPERFRAMES_WORKERS": "2",
+    }
+    connectors.save_setup(W, "hyperframes_render", {"templates": "/srv/hf"}, {"workers": "auto"})
+    assert connectors._env(render)["HYPERFRAMES_TEMPLATES"] == "/srv/hf"
+    assert connectors._env(render)["SWARMIFY_HYPERFRAMES_WORKERS"] == "auto"
+    for bad in ("0", "--docker", "-2", "many"):
+        with pytest.raises(ValueError, match="Render workers: does not match"):
+            connectors.save_setup(W, "hyperframes_render", {}, {"workers": bad})
+
+
+# The workflow check, through the package's `check` tool
+
+
+def test_a_saved_render_stage_names_its_project(given: Given, tmp_path: Path) -> None:
+    connectors = given(McpTransport())
+    render = {"calls": "hyperframes_render", "input": "script.md", "output": "short.mp4"}
+    assert connectors.stage_problems(W, render) == [
+        "hyperframes_render needs params.project, the HyperFrames project folder"
+    ]
+    gone = tmp_path / "nope"
+    assert connectors.stage_problems(W, {**render, "params": {"project": str(gone)}}) == [
+        f"the HyperFrames project {gone} does not exist"
+    ]
+    (tmp_path / "hyperframes" / "promo").mkdir(parents=True)
+    ok = {"project": str(tmp_path / "hyperframes" / "promo")}
+    assert connectors.stage_problems(W, {**render, "params": ok}) == []
+    named = {"project": "shorts"}
+    assert connectors.stage_problems(W, {**render, "params": named}) == [
+        f"the HyperFrames project shorts does not exist in {tmp_path / 'hyperframes'}"
+    ]
+    (tmp_path / "hyperframes" / "shorts").mkdir()
+    assert connectors.stage_problems(W, {**render, "params": named}) == []
+    assert connectors.stage_problems(W, {"calls": "hyperframes_render", "params": named}) == [
+        "hyperframes_render needs an input, the script",
+        "hyperframes_render needs an output, the video",
+    ]
+
+
+def test_a_check_that_cannot_run_is_a_problem(given: Given) -> None:
+    connectors = given(FakeTransport(outputs={"check": [ConnectorError("it crashed")]}))
+    params = {"project": "shorts"}
+    config = {"calls": "hyperframes_render", "input": "s.md", "output": "v.mp4", "params": params}
+    assert connectors.stage_problems(W, config) == ["hyperframes_render check failed: it crashed"]
 
 
 # Rendering over stdio
@@ -308,6 +366,36 @@ def test_a_render_without_chrome_or_ffmpeg_fails_saying_to_reinstall(
     assert not Path(stage(tmp_path, project)["params"]["output_path"]).exists()
 
 
+def test_the_render_workers_setting_caps_the_cli_workers(
+    tmp_path: Path, real: Connectors, project: Path
+) -> None:
+    """Unset, HyperFrames picks (a Chrome of about 256 MB each); a small Docker VM sets 1 or 2."""
+    config = stage(tmp_path, project)
+    real.run_stage(W, "run_1", "stage_2", config)
+    assert "workers" not in rendered(config)["flags"]
+
+    real.save_setup(W, "hyperframes_render", {"workers": "2"}, {})
+    config = stage(tmp_path, project, at="stage_3")
+    real.run_stage(W, "run_1", "stage_3", config)
+    assert rendered(config)["flags"]["workers"] == "2"
+
+
+def test_a_relative_project_is_a_template_in_the_templates_folder(
+    tmp_path: Path, real: Connectors, project: Path
+) -> None:
+    """The templates folder is the data directory's hyperframes/. A symlink there is followed,
+    its target readable in the sandbox too, so a template can stay in its own folder."""
+    kept = tmp_path / "kept" / "promo"
+    kept.parent.mkdir()
+    project.rename(kept)
+    (tmp_path / "hyperframes").mkdir()
+    (tmp_path / "hyperframes" / "promo").symlink_to(kept)
+    config = stage(tmp_path, Path("promo"))
+    assert real.run_stage(W, "run_1", "stage_2", config).status == "done"
+    assert rendered(config)["project"] == str(tmp_path / "hyperframes" / "promo")
+    assert rendered(config)["script"].startswith("# Why the chase works")
+
+
 def test_a_project_without_node_modules_is_refused_saying_how_to_install_them(
     tmp_path: Path, real: Connectors, project: Path
 ) -> None:
@@ -373,7 +461,7 @@ def test_a_render_that_writes_nothing_fails(
     [
         ({"input_path": "/nope/script.md"}, "the script /nope/script.md does not exist"),
         ({"project": "/nope"}, "the HyperFrames project /nope does not exist"),
-        ({"project": "."}, "project must be an absolute path, got '.'"),
+        ({"project": "gone"}, "the HyperFrames project .*hyperframes/gone does not exist"),
         ({"input_path": ""}, "the render stage needs an `input`"),
         ({"composition": "--output=/etc/x"}, "composition must be a plain value"),
         ({"quality": "--docker"}, "quality must be a plain value"),

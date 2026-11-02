@@ -69,10 +69,12 @@ services:
     volumes:
       - sandbox-socket:/run/swarmify
       # The same paths as in the api, which passes them: packages, the worlds' runs and assets,
-      # Remotion templates, the npm cache of a Build Session and the sandbox's scratch folders.
+      # Remotion and HyperFrames templates, the npm cache of a Build Session and the sandbox's
+      # scratch folders.
       - { type: volume, source: data, target: /data/packages, volume: { subpath: packages } }
       - { type: volume, source: data, target: /data/worlds, volume: { subpath: worlds } }
       - { type: volume, source: data, target: /data/remotion, volume: { subpath: remotion } }
+      - { type: volume, source: data, target: /data/hyperframes, volume: { subpath: hyperframes } }
       - { type: volume, source: data, target: /data/npm-cache, volume: { subpath: npm-cache } }
       - { type: volume, source: data, target: /data/sandbox, volume: { subpath: sandbox } }
     environment:
@@ -90,7 +92,7 @@ services:
     build: .
     volumes:
       - data:/data
-    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/remotion", "/data/npm-cache", "/data/sandbox"]
+    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/remotion", "/data/hyperframes", "/data/npm-cache", "/data/sandbox"]
     command: []
     healthcheck:
       disable: true
