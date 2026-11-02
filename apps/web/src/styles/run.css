@@ -169,3 +169,13 @@ svg.glyph { color: var(--accent); }
 .diff ins { text-decoration: none; background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .edited { color: var(--accent); }
 .changes { margin: 0; padding-left: 20px; font-size: 13px; }
+.run-grid.asking { grid-template-columns: 264px minmax(0, 1fr) minmax(280px, 340px); }
+.assistant h2 { margin: 0; font-size: 15px; }
+.conversation { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.said { display: grid; gap: 6px; }
+.said-operator > p:first-child { justify-self: end; max-width: 85%; padding: 6px 10px; border-radius: 10px; background: var(--raised); }
+.sources { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+.ask { display: grid; gap: 8px; }
+.ask textarea { width: 100%; }
+.ask button { justify-self: end; }
+.assistant .meta { font-size: 12px; }

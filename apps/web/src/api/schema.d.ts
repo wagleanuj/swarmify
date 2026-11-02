@@ -1648,6 +1648,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Conversation
+         * @description The run's conversation, oldest first, and what asking it has cost.
+         */
+        get: operations["conversation_api_runs__run_id__assistant_get"];
+        put?: never;
+        /**
+         * Ask
+         * @description One turn of the Run Assistant: the operator's message in, the reply with its sources
+         *     and proposals out. 502 when the session fails or does not answer in the shape asked,
+         *     with nothing kept but what the session cost; send the message again to retry.
+         */
+        post: operations["ask_api_runs__run_id__assistant_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/assistant/proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark
+         * @description Record what became of an open proposal: applied through the Run Change seam (naming
+         *     the change it recorded, 422 unless the run has that change for the proposal's stage and
+         *     kind) or dismissed with Not now. 409 once it was already applied or dismissed.
+         */
+        post: operations["mark_api_runs__run_id__assistant_proposals__proposal_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session": {
         parameters: {
             query?: never;
@@ -1910,6 +1958,11 @@ export interface components {
              */
             pinned: boolean;
         };
+        /** Ask */
+        Ask: {
+            /** Message */
+            message: string;
+        };
         /** Asset */
         Asset: {
             /** Path */
@@ -1978,6 +2031,23 @@ export interface components {
              * @default 0
              */
             visit: number;
+        };
+        /**
+         * Card
+         * @description A Run Change the assistant proposed, as `RunControl.propose` returned it. `stale` once
+         *     the run moved past the proposal's revision while it was open.
+         */
+        Card: {
+            /** Id */
+            id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "applied" | "dismissed" | "stale";
+            proposal: components["schemas"]["ChangeProposal"];
+            /** Change Id */
+            change_id?: string | null;
         };
         /**
          * CastChange
@@ -2242,6 +2312,13 @@ export interface components {
             sign_in: string[];
             /** Version */
             version: string;
+        };
+        /** Conversation */
+        Conversation: {
+            /** Messages */
+            messages: components["schemas"]["Message-Output"][];
+            /** Spent Usd */
+            spent_usd: number;
         };
         /** CopyBody */
         CopyBody: {
@@ -2659,6 +2736,16 @@ export interface components {
             /** Catchphrase */
             catchphrase?: string | null;
         };
+        /** Mark */
+        Mark: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "applied" | "dismissed";
+            /** Change Id */
+            change_id?: string | null;
+        };
         /**
          * MediaFile
          * @description A file a connector makes or takes, as its Manifest declares it.
@@ -2670,7 +2757,7 @@ export interface components {
             media_type: string;
         };
         /** Message */
-        Message: {
+        "Message-Input": {
             /** Message */
             message: string;
             /** Yaml */
@@ -2679,6 +2766,35 @@ export interface components {
             workflow_id?: string | null;
             /** Session Id */
             session_id?: string | null;
+        };
+        /** Message */
+        "Message-Output": {
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "operator" | "assistant";
+            /** Text */
+            text: string;
+            /** At */
+            at: string;
+            /**
+             * Sources
+             * @default []
+             */
+            sources: components["schemas"]["Source"][];
+            /**
+             * Proposals
+             * @default []
+             */
+            proposals: components["schemas"]["Card"][];
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
         };
         /** Models */
         Models: {
@@ -3580,6 +3696,13 @@ export interface components {
             cast: {
                 [key: string]: components["schemas"]["LookSetting"];
             };
+        };
+        /** Source */
+        Source: {
+            /** Label */
+            label: string;
+            /** Stage */
+            stage: string;
         };
         /**
          * Spend
@@ -7221,7 +7344,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Message"];
+                "application/json": components["schemas"]["Message-Input"];
             };
         };
         responses: {
@@ -7252,6 +7375,141 @@ export interface operations {
             };
             /** @description Bad Gateway */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    conversation_api_runs__run_id__assistant_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_api_runs__run_id__assistant_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ask"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Message-Output"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mark_api_runs__run_id__assistant_proposals__proposal_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Mark"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

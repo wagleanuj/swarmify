@@ -13,9 +13,11 @@ import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
 import { the } from "../skin";
+import { usePhone } from "../usePhone";
 import { ChangeCard, type ChangeKind, changeLabel, hhmm, who } from "./ChangeCard";
 import { changed, changedStage, StepChangeCard, type StepKind } from "./StepChangeCard";
 import { type Answer, GateCard } from "./Gates";
+import { RunAssistant } from "./RunAssistant";
 import { RunRef, version } from "./Runs";
 import { type MenuItem, Menu } from "./Menu";
 import { kindOf, Result, resultStage, StagePanel, stepMeta } from "./StagePanel";
@@ -70,6 +72,10 @@ export function RunTimeline() {
   const [changesOpen, setChangesOpen] = useState(false);
   // The step whose Rerun or Skip card is open.
   const [stepping, setStepping] = useState<{ id: string; kind: StepKind } | null>(null);
+  // The Run Assistant: a third column on a wide screen, a sheet on a phone; what asking cost.
+  const [askOpen, setAskOpen] = useState(false);
+  const [askedUsd, setAskedUsd] = useState(0);
+  const phone = usePhone();
   // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
   const [topbar, setTopbar] = useState<Element | null>(null);
   useEffect(() => setTopbar(document.getElementById("topbar-slot")), []);
@@ -107,6 +113,13 @@ export function RunTimeline() {
       .then(({ data }) => setWorld(data ?? null))
       .catch(() => undefined);
   }, [worldId]);
+
+  useEffect(() => {
+    api
+      .GET("/api/runs/{run_id}/assistant", { params: { path: { run_id: runId } } })
+      .then(({ data }) => data && setAskedUsd(data.spent_usd))
+      .catch(() => undefined);
+  }, [runId]);
 
   useEffect(() => {
     api
@@ -386,7 +399,7 @@ export function RunTimeline() {
           })}
         </ol>
       </nav>
-      <Spend run={run} baseline={baseline} />
+      <Spend run={run} baseline={baseline} asked={askedUsd} />
     </aside>
   );
   return (
@@ -428,6 +441,9 @@ export function RunTimeline() {
               Open the post
             </a>
           )}
+          <button type="button" aria-expanded={askOpen} onClick={() => setAskOpen(!askOpen)}>
+            Ask this run
+          </button>
           {items.length > 0 && (
             <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />
           )}
@@ -490,7 +506,10 @@ export function RunTimeline() {
           select(id);
         })}
       </Sheet>
-      <div className="run-grid">
+      <Sheet open={askOpen && phone} onClose={() => setAskOpen(false)} label="Ask this run">
+        <RunAssistant run={run} onSpent={setAskedUsd} />
+      </Sheet>
+      <div className={askOpen && !phone ? "run-grid asking" : "run-grid"}>
         {side(select)}
         {stage && (
           <StagePanel
@@ -535,6 +554,7 @@ export function RunTimeline() {
             resultShown={isResult}
           />
         )}
+        {askOpen && !phone && <RunAssistant run={run} onSpent={setAskedUsd} />}
       </div>
     </main>
   );
@@ -634,7 +654,7 @@ function Lineage({ run, worldId }: { run: Run; worldId: string }) {
 
 /** Part 5: what the run spent against its budget, what is left before the pause, and a link to
  * the one-agent comparison. */
-function Spend({ run, baseline }: { run: Run; baseline: Run | null }) {
+function Spend({ run, baseline, asked }: { run: Run; baseline: Run | null; asked: number }) {
   const budget = run.budget_usd;
   const spent = run.spent_usd ?? 0;
   let note = "";
@@ -666,6 +686,11 @@ function Spend({ run, baseline }: { run: Run; baseline: Run | null }) {
       {note && (
         <span className={run.over_budget ? "stage-error" : budget != null && spent >= 0.8 * budget ? "warn" : "faint"} data-testid="budget-line">
           {note}
+        </span>
+      )}
+      {asked > 0 && (
+        <span className="faint" data-testid="assistant-spend">
+          Assistant {money(asked)}, from the world's budget, not this run's.
         </span>
       )}
       {run.baseline ? (

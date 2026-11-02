@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import YAML from "yaml";
 
 import { api } from "../api/client";
@@ -32,31 +32,42 @@ const shaped = (s: Stage) => ({ name: s.name, type: s.type, ...(s.config ?? {}) 
  * from it on, to edit, the diff, what the check would refuse, and Apply only once it passes.
  * A change that continues as a Fork says so. Nothing changes until Apply. With a `file` it is
  * an Artifact Edit of that file the stage made: its text, a line diff, and the finished stages
- * that already read the old version. */
+ * that already read the old version. `proposed` is a Stage Edit made already (by the Run
+ * Assistant): shown as it was, so it goes stale when the run moved. */
 export function ChangeCard({
   run,
   stage,
   file,
   kind: edit = "stage_edit",
   onClose,
+  proposed,
+  onApplied,
 }: {
   run: Run;
   stage: Stage;
   file?: ArtifactFile;
   kind?: ChangeKind;
   onClose: () => void;
+  proposed?: Proposal;
+  onApplied?: (change: AppliedChange) => void;
 }) {
   const restructure = !file && edit === "restructure";
-  const [text, setText] = useState<string | null>(() =>
-    file ? null : YAML.stringify(restructure ? run.stages.slice(stage.index).filter((s) => s.type !== "retro").map(shaped) : (stage.config ?? {})),
+  const [start] = useState<string | null>(() =>
+    file
+      ? null
+      : YAML.stringify(
+          restructure ? run.stages.slice(stage.index).filter((s) => s.type !== "retro").map(shaped) : (proposed?.after ?? stage.config ?? {}),
+        ),
   );
-  const [editing, setEditing] = useState(true);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [text, setText] = useState(start);
+  const [editing, setEditing] = useState(!proposed);
+  const [proposal, setProposal] = useState<Proposal | null>(proposed ?? null);
   const [problem, setProblem] = useState<string | null>(null);
   const [applied, setApplied] = useState<AppliedChange | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const [asked, setAsked] = useState(0);
   const kind = file ? "artifact_edit" : edit;
+  const configId = useId();
 
   useEffect(() => {
     if (!file) return;
@@ -72,6 +83,7 @@ export function ChangeCard({
   }, [file, run.world_id]);
 
   useEffect(() => {
+    if (proposed && asked === 0 && text === start) return; // as proposed, until edited or asked again
     setRefused(null);
     if (text === null) return;
     let payload: unknown;
@@ -100,7 +112,7 @@ export function ChangeCard({
       stale = true;
       clearTimeout(timer);
     };
-  }, [text, run.id, stage.id, asked, file, kind, restructure]);
+  }, [text, run.id, stage.id, asked, file, kind, restructure, proposed, start]);
 
   async function apply() {
     if (!proposal) return;
@@ -108,7 +120,10 @@ export function ChangeCard({
       params: { path: { run_id: run.id } },
       body: { kind, stage: stage.id, payload: proposal.after, revision: proposal.revision },
     });
-    if (data) return setApplied(data);
+    if (data) {
+      onApplied?.(data);
+      return setApplied(data);
+    }
     setRefused(refusal(error, response, "The change was refused"));
   }
 
@@ -197,8 +212,8 @@ export function ChangeCard({
         <>
           {editing && (
             <>
-              <label htmlFor="stage-config">{file ? `${file.name}'s text` : restructure ? `The stages from ${stage.name} on` : `${stage.name}'s config`}</label>
-              <textarea id="stage-config" value={text ?? ""} disabled={text === null} spellCheck={false} rows={10} onChange={(e) => setText(e.target.value)} />
+              <label htmlFor={configId}>{file ? `${file.name}'s text` : restructure ? `The stages from ${stage.name} on` : `${stage.name}'s config`}</label>
+              <textarea id={configId} value={text ?? ""} disabled={text === null} spellCheck={false} rows={10} onChange={(e) => setText(e.target.value)} />
             </>
           )}
           <div className="answer-bar">
