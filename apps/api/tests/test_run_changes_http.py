@@ -171,3 +171,55 @@ def test_a_stale_revision_or_a_started_stage_is_refused(running: TestClient) -> 
     assert running.post(f"/api/runs/{run['id']}/changes/propose", json=other).status_code == 422
     bare = {"kind": "stage_edit", "stage": gate["stage"]}
     assert running.post(f"/api/runs/{run['id']}/changes/propose", json=bare).status_code == 422
+
+
+def restructure(run: dict[str, Any], name: str, stages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"kind": "restructure", "stage": stage(run, name)["id"], "payload": {"stages": stages}}
+
+
+def shape(run: dict[str, Any], name: str) -> dict[str, Any]:
+    s = stage(run, name)
+    return {"name": s["name"], "type": s["type"], **s["config"]}
+
+
+def test_a_restructure_answers_with_the_fork_it_continues_in_and_ends_the_run(
+    running: TestClient,
+) -> None:
+    run = at_gate(running)
+    added = {"name": "thumb", "type": "connector", "calls": "render_video"}
+    body = restructure(run, "tag", [shape(run, "tag"), added, shape(run, "render_video")])
+
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=body).json()
+    assert proposal["violations"] == [] and proposal["in_place"] is False
+    assert proposal["fork_from"] == "pick"
+    applied = running.post(
+        f"/api/runs/{run['id']}/changes", json={**body, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 201, applied.text
+    fork_id = applied.json()["fork"]["id"]
+
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "aborted")
+    original = running.get(f"/api/runs/{run['id']}").json()
+    assert [f["id"] for f in original["forks"]] == [fork_id]
+    fork = running.get(f"/api/runs/{fork_id}").json()
+    assert fork["forked_from"]["id"] == run["id"]
+    assert fork["forked_by"]["id"] == applied.json()["id"]
+    names = ["pick", "render", "tag", "thumb", "render_video"]
+    assert [s["name"] for s in fork["stages"]] == names
+
+
+def test_a_restructure_that_breaks_a_workflow_rule_is_refused_with_the_rules_message(
+    running: TestClient,
+) -> None:
+    run = at_gate(running)
+    reads = {"name": "thumb", "type": "connector", "calls": "render_video", "input": "nothing.md"}
+    body = restructure(run, "tag", [reads])
+    refused = "input 'nothing.md' is not produced by an earlier stage"
+
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=body).json()
+    assert any(refused in v for v in proposal["violations"]), proposal["violations"]
+    applied = running.post(
+        f"/api/runs/{run['id']}/changes", json={**body, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 422 and refused in applied.json()["detail"]
+    assert running.get(f"/api/runs/{run['id']}").json()["forks"] == []

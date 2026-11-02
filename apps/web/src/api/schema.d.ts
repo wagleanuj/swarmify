@@ -623,9 +623,10 @@ export interface paths {
         put?: never;
         /**
          * Apply Change
-         * @description Apply a proposed Run Change, checked again. 409 when the run moved on since the
-         *     proposal's revision, naming what moved, or the stage has started; 422 with the check's
-         *     violations.
+         * @description Apply a proposed Run Change, checked again. A Restructure, or any change to a run that
+         *     has ended, answers with the Fork it continues in as `fork`. 409 when the run moved on
+         *     since the proposal's revision, naming what moved, or the stage has started; 422 with the
+         *     check's violations.
          */
         post: operations["apply_change_api_runs__run_id__changes_post"];
         delete?: never;
@@ -1813,6 +1814,7 @@ export interface components {
             at: string;
             /** Revision */
             revision: number;
+            fork?: components["schemas"]["RunLink"] | null;
         };
         /** ApplyChange */
         ApplyChange: {
@@ -1820,7 +1822,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "stage_edit" | "artifact_edit" | "rerun" | "skip";
+            kind: "stage_edit" | "artifact_edit" | "rerun" | "skip" | "restructure";
             /** Stage */
             stage: string;
             /** Payload */
@@ -2052,14 +2054,16 @@ export interface components {
          *     its `payload` is the stage's whole new config. An `artifact_edit` targets a finished stage
          *     and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`.
          *     A `rerun` targets a finished stage and its `payload` holds the `note` the stage reruns
-         *     with; a `skip` targets a stage that has not started and has none.
+         *     with; a `skip` targets a stage that has not started and has none. A `restructure`'s
+         *     `payload` is `stages`, the new list from the target stage on, each a stage's `name`, `type`
+         *     and config fields.
          */
         Change: {
             /**
              * Kind
              * @enum {string}
              */
-            kind: "stage_edit" | "artifact_edit" | "rerun" | "skip";
+            kind: "stage_edit" | "artifact_edit" | "rerun" | "skip" | "restructure";
             /** Stage */
             stage: string;
             /** Payload */
@@ -2100,6 +2104,8 @@ export interface components {
             cost_usd?: number | null;
             /** Budget Left Usd */
             budget_left_usd?: number | null;
+            /** Fork From */
+            fork_from?: string | null;
         };
         /** Changes */
         Changes: {
@@ -3211,13 +3217,15 @@ export interface components {
             revision: number;
             /** Changes */
             changes?: components["schemas"]["AppliedChange"][];
+            forked_by?: components["schemas"]["AppliedChange"] | null;
         };
         /**
          * RunChange
          * @description One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
          *     `stage_edit`'s `payload` is the stage's new config, an `artifact_edit`'s the `path` of a file
-         *     in the stage's artifacts folder and its new `text`, a `rerun`'s its `note` and a `skip` has
-         *     none.
+         *     in the stage's artifacts folder and its new `text`, a `rerun`'s its `note`, a `skip` has
+         *     none and a `restructure`'s is `stages`, the new list from that stage on, each a workflow
+         *     stage's fields (`name`, `type` and its config).
          */
         RunChange: {
             /** Kind */

@@ -13,7 +13,7 @@ import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
 import { the } from "../skin";
-import { ChangeCard, hhmm, who } from "./ChangeCard";
+import { ChangeCard, type ChangeKind, changeLabel, hhmm, who } from "./ChangeCard";
 import { changed, changedStage, StepChangeCard, type StepKind } from "./StepChangeCard";
 import { type Answer, GateCard } from "./Gates";
 import { RunRef, version } from "./Runs";
@@ -64,7 +64,7 @@ export function RunTimeline() {
   const [answered, setAnswered] = useState<{ stageId: string; said: string; at: string } | null>(null);
   const [stepsOpen, setStepsOpen] = useState(false);
   // The step whose Stage Edit card is open, and whether the run's changes are listed.
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ stageId: string; kind: ChangeKind } | null>(null);
   // The file whose Artifact Edit card is open.
   const [editingFile, setEditingFile] = useState<ArtifactFile | null>(null);
   const [changesOpen, setChangesOpen] = useState(false);
@@ -328,10 +328,16 @@ export function RunTimeline() {
       onSelect: () => fork(at.index),
     });
   }
-  if (stage && !ended && stage.status === "pending") {
+  // A run that ended changes as a Fork from any of its stages; a live one only in the stages to come.
+  if (stage && stage.type !== "retro" && (ended || stage.status === "pending")) {
     const at = stage;
-    items.push({ label: "Edit stage", note: `Shows the change to ${at.name} and its check first; nothing changes until you apply`, onSelect: () => { setStepping(null); setEditing(at.id); } });
-    items.push({ label: "Skip", note: `Shows the check first; ${at.name} is passed over once you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "skip" }); } });
+    items.push({ label: "Edit stage", note: `Shows the change to ${at.name} and its check first; nothing changes until you apply`, onSelect: () => { setStepping(null); setEditing({ stageId: at.id, kind: "stage_edit" }); } });
+    items.push({
+      label: "Change the stages from here",
+      note: `Add, remove or reorder the stages from ${at.name} on; it continues as a new run`,
+      onSelect: () => { setStepping(null); setEditing({ stageId: at.id, kind: "restructure" }); },
+    });
+    if (!ended) items.push({ label: "Skip", note: `Shows the check first; ${at.name} is passed over once you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "skip" }); } });
   }
   if (stage && !ended && stage.status === "done") {
     const at = stage;
@@ -451,7 +457,8 @@ export function RunTimeline() {
           <ol className="changes">
             {changes.map((c) => (
               <li key={c.id}>
-                {changedStage(c)} · by {who(c.by)} at {hhmm(c.at)}
+                {c.kind === "restructure" ? `Restructured from ${c.stage_name}` : changedStage(c)} · by {who(c.by)} at {hhmm(c.at)}
+                {c.fork && <RunRef label=" · continues in" run={c.fork} />}
               </li>
             ))}
           </ol>
@@ -503,8 +510,8 @@ export function RunTimeline() {
             lead={
               editingFile?.stage === stage.id ? (
                 <ChangeCard key={editingFile.path} run={run} stage={stage} file={editingFile} onClose={() => setEditingFile(null)} />
-              ) : editing === stage.id ? (
-                <ChangeCard key={stage.id} run={run} stage={stage} onClose={() => setEditing(null)} />
+              ) : editing?.stageId === stage.id ? (
+                <ChangeCard key={`${stage.id}-${editing.kind}`} run={run} stage={stage} kind={editing.kind} onClose={() => setEditing(null)} />
               ) : stepping?.id === stage.id ? (
                 <StepChangeCard key={`${stepping.kind} ${stage.id}`} run={run} stage={stage} kind={stepping.kind} onClose={() => setStepping(null)} />
               ) : open ? (
@@ -584,6 +591,7 @@ function Lineage({ run, worldId }: { run: Run; worldId: string }) {
       <p className="sub lineage" data-testid="forked-from" key="fork">
         <RunRef label="Forked from" run={run.forked_from} />
         {run.fork_stage_index != null && ` at stage ${run.fork_stage_index + 1}. The earlier stages were copied, not run again.`}
+        {run.forked_by && ` Made by a ${changeLabel(run.forked_by)}, applied by ${who(run.forked_by.by)} at ${hhmm(run.forked_by.at)}.`}
       </p>,
     );
   }
@@ -595,6 +603,14 @@ function Lineage({ run, worldId }: { run: Run; worldId: string }) {
           library
         </Link>
         ; the skipped stages never ran.
+      </p>,
+    );
+  }
+  const continued = (run.changes ?? []).filter((c) => c.fork).at(-1)?.fork;
+  if (run.status === "aborted" && continued) {
+    lines.push(
+      <p className="sub lineage" key="continued">
+        Aborted: <RunRef label="continued in" run={continued} testId="continued-in" />, with the change applied.
       </p>,
     );
   }

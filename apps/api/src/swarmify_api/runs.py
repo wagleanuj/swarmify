@@ -109,15 +109,17 @@ class Change(BaseModel):
     its `payload` is the stage's whole new config. An `artifact_edit` targets a finished stage
     and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`.
     A `rerun` targets a finished stage and its `payload` holds the `note` the stage reruns
-    with; a `skip` targets a stage that has not started and has none."""
+    with; a `skip` targets a stage that has not started and has none. A `restructure`'s
+    `payload` is `stages`, the new list from the target stage on, each a stage's `name`, `type`
+    and config fields."""
 
-    kind: Literal["stage_edit", "artifact_edit", "rerun", "skip"]
+    kind: Literal["stage_edit", "artifact_edit", "rerun", "skip", "restructure"]
     stage: str
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _edits_carry_a_payload(self) -> "Change":
-        if self.kind in ("stage_edit", "artifact_edit") and not self.payload:
+        if self.kind in ("stage_edit", "artifact_edit", "restructure") and not self.payload:
             raise ValueError(f"a {self.kind} needs a payload")
         return self
 
@@ -507,9 +509,10 @@ def router(
 
     @api.post("/runs/{run_id}/changes", status_code=201, responses={**ACTION_ERRORS, 422: {}})
     def apply_change(run_id: str, body: ApplyChange) -> AppliedChange:
-        """Apply a proposed Run Change, checked again. 409 when the run moved on since the
-        proposal's revision, naming what moved, or the stage has started; 422 with the check's
-        violations."""
+        """Apply a proposed Run Change, checked again. A Restructure, or any change to a run that
+        has ended, answers with the Fork it continues in as `fork`. 409 when the run moved on
+        since the proposal's revision, naming what moved, or the stage has started; 422 with the
+        check's violations."""
         return act(lambda: runner.apply(run_id, body.value(), body.revision, OPERATOR))
 
     @api.get("/runs/{run_id}/changes", responses={404: {}})

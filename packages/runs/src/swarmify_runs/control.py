@@ -12,6 +12,7 @@ import json
 import logging
 import shutil
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,6 +49,7 @@ from swarmify_runs.model import (
     PublishPreview,
     Run,
     RunChange,
+    RunLink,
     RunStageView,
     StageDef,
 )
@@ -153,7 +155,7 @@ def copy_run_files(data_dir: Path, source: Run, run: Run, index: int) -> None:
     src, dst = run_folder(data_dir, source), run_folder(data_dir, run)
     if not src.is_dir():
         return
-    renamed = {s.id: run.stages[s.index].id for s in source.stages}
+    renamed = {s.id: run.stages[s.index].id for s in source.stages[:index]}
     skip = {source.stages[i].id for i in range(index, len(source.stages))}
     dst.mkdir(parents=True, exist_ok=True)
     for child in src.iterdir():
@@ -287,17 +289,21 @@ class RunControl:
             )
         if source.workflow_id is not None and self.pin is not None:
             self.pin(source.workflow_id, source.workflow_version)  # today's check, or raises
-        # A fork copies the run, its Budget included, as the workflow's default.
-        budget_usd = self.budget_for(source.world_id, workflow=source.budget_usd)
-        now = datetime.now(UTC).isoformat()
-        run = Run(
-            new_id("run"), source.world_id, source.workflow_id, source.workflow_version,
-            source.name, "queued", now, now, [], budget_usd=budget_usd,
-        )  # fmt: skip
-        run = self.storage.fork(run, source, index)
+        run = self.storage.fork(self._new_fork(source), source, index)
         copy_run_files(self.data_dir, source, run, index)
         self._enqueue(run)
         return run
+
+    def _new_fork(self, source: Run) -> Run:
+        """The Fork of `source` to insert, queued. A fork copies the run, its Budget included,
+        as the workflow's default. A Run Change's Fork skips `pin`: the change was just checked
+        against the run's own stages."""
+        budget_usd = self.budget_for(source.world_id, workflow=source.budget_usd)
+        now = _now()
+        return Run(
+            new_id("run"), source.world_id, source.workflow_id, source.workflow_version,
+            source.name, "queued", now, now, [], budget_usd=budget_usd,
+        )  # fmt: skip
 
     def _enqueue(self, run: Run) -> None:
         """A process that does not host DBOS leaves the queued run to the API's `Runner.adopt`,
@@ -458,46 +464,57 @@ class RunControl:
 
     def propose(self, run_id: str, change: RunChange) -> ChangeProposal:
         """What `change` would do to the run, writing nothing: the stage's config before and
-        after (a Rerun's or Skip's stages by name with their status), and the violations that
-        would refuse it, the run's state (a stage that has started, a run at work) and the
-        workflow check of the run's stages with the change in them; a Rerun's cost too. Raises
-        KeyError for an unknown run, Illegal when it has ended, and ValueError for a stage not
-        in the run or a kind of change that cannot be applied yet."""
-        run = self._run(run_id)
+        after (a Rerun's or Skip's stages by name with their status, a Restructure's stage
+        lists), and the violations that would refuse it, the run's state (a stage that has
+        started, a run at work) and the workflow check of the run's stages with the change in
+        them; a Rerun's cost too. A Restructure, and a Stage Edit or Restructure of a run that
+        has ended, would continue as a Fork from `fork_from`. Raises KeyError for an unknown
+        run, Illegal when a Rerun, Skip or Artifact Edit targets a run that has ended, and
+        ValueError for a stage not in the run or a kind of change that cannot be applied yet."""
+        run = self._any(run_id)
         if change.kind == "artifact_edit":
-            return self._artifact_edit(run, change)[1]
+            return self._artifact_edit(live(run), change)[1]
         if change.kind in STEPS:
-            return self._propose_step(run, change)
-        stage, stages, at = edited(run, change)
-        violations, checked = self.check(run, stages)
-        problems = [p for p in [self._not_editable(run, stage)] if p] + violations
+            return self._propose_step(live(run), change)
+        stage, stages = edited(run, change)
+        violations, checked = self._checked(run, change, stage, stages)
+        problem, index = self._refusal(run, change, stage, stages)
+        before, after = shown(run, change, stage, checked)
         return ChangeProposal(
-            change, stage.name, stage.config, checked[at].config, problems, run.revision
-        )
+            change, stage.name, before, after, [p for p in [problem] if p] + violations,
+            run.revision, index is None,
+            fork_from=None if index is None else checked[index].name,
+        )  # fmt: skip
 
     def apply(self, run_id: str, change: RunChange, revision: int, by: str) -> AppliedChange:
         """Apply `change` as `by` (the operator, a token's name, a Remote Approval's person),
         checked again: write the stage's new config, record the change and emit `run.changed`.
+        A Restructure, or any change to a run that has ended, starts a Fork with the change in
+        it instead, which the change records as `fork`; a live run then ends aborted.
         `revision` is the proposal's; raises Illegal, naming what moved, when the run moved on
         since, or when the stage has started, ValueError with the check's violations, and as
         `propose` does otherwise."""
-        run = self._run(run_id)
+        run = self._any(run_id)
         if run.revision != revision:
             raise Illegal(moved(run, revision))
         if change.kind == "artifact_edit":
-            return self._apply_artifact_edit(run, change, by)
+            return self._apply_artifact_edit(live(run), change, by)
         if change.kind in STEPS:
-            return self._apply_step(run, change, by)
-        stage, stages, at = edited(run, change)
-        if problem := self._not_editable(run, stage):
+            return self._apply_step(live(run), change, by)
+        stage, stages = edited(run, change)
+        violations, checked = self._checked(run, change, stage, stages)
+        problem, index = self._refusal(run, change, stage, stages)
+        if problem:
             raise Illegal(problem)
-        violations, checked = self.check(run, stages)
         if violations:
             raise ValueError("; ".join(violations))
+        before, after = shown(run, change, stage, checked)
         applied = AppliedChange(
             new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
-            checked[at].config, stage.config, by, _now(), revision + 1,
+            after, before, by, _now(), revision + 1,
         )  # fmt: skip
+        if index is not None:
+            return self._fork_with(run, index, checked, applied)
         if not self.storage.add_change(applied, revision):
             raise Illegal(moved(self._run(run_id), revision))  # it moved while being checked
         return applied
@@ -659,6 +676,70 @@ class RunControl:
         else:
             self._send(run.id, {"action": "skip", "index": stage.index, "change": applied.id})
         return applied
+
+    def _checked(
+        self, run: Run, change: RunChange, stage: RunStageView, stages: list[StageDef]
+    ) -> tuple[list[str], list[StageDef]]:
+        """The workflow check of `stages`, the run's with `change` in, and `stages` as it parsed
+        them. The run's skipped stages, but for the target, are left out of the check: they no
+        longer gate or make anything. A Restructure's stages from the target on are all new."""
+        mine = len(stages) if change.kind == "stage_edit" else stage.index
+        kept = [
+            i
+            for i in range(len(stages))
+            if i >= mine or i == stage.index or run.stages[i].status != "skipped"
+        ]
+        violations, parsed = self.check(run, [stages[i] for i in kept])
+        checked = list(stages)
+        for i, d in zip(kept, parsed, strict=True):
+            checked[i] = d
+        return violations, checked
+
+    def _refusal(
+        self, run: Run, change: RunChange, stage: RunStageView, stages: list[StageDef]
+    ) -> tuple[str | None, int | None]:
+        """Why the run's state refuses the change, and the index a Fork would run anew from, None
+        when it applies in place. `stages` are the run's with the change in, as given, so the
+        stages before it compare equal. A change never touches the running stage, and a Fork
+        never starts at a publish: it opens the gate before it again (ADR 0007)."""
+        if change.kind != "restructure" and run.status not in TERMINAL:
+            return self._not_editable(run, stage), None
+        old = [StageDef(s.name, s.type, s.config) for s in run.stages]
+        pairs = enumerate(zip(old, stages, strict=False))
+        first = next((i for i, (a, b) in pairs if a != b), min(len(old), len(stages)))
+        unfinished = next((s for s in run.stages if s.status not in ("done", "skipped")), None)
+        index = min(first, len(stages) if unfinished is None else unfinished.index)
+        if old == stages:
+            return "nothing would change", index
+        if index >= len(stages):
+            return "the Fork would have nothing to run", index
+        if index and (shown := self.previews(run, stages[index], {})) and not shown.private:
+            index -= 1  # the gate the publish follows asks a person again, with a fresh preview
+        if run.status in TERMINAL:
+            return None, index
+        if unfinished is not None and unfinished.status == "running":
+            return f"{unfinished.name} is running: pause first or add a task", index
+        started = [s.name for s in run.stages[first:] if s.status not in ("pending", "skipped")]
+        if started:
+            return f"{started[0]} has started; a Restructure changes only the stages to come", index
+        return None, index
+
+    def _fork_with(
+        self, source: Run, index: int, stages: list[StageDef], change: AppliedChange
+    ) -> AppliedChange:
+        """Start the Fork a change continues in, from stage `index` with `stages`, record the
+        change on `source` with a link to it, and end `source` if it is still live."""
+        fork = self._new_fork(source)
+        change = replace(change, fork=RunLink(fork.id, fork.world_id, fork.name))
+        saved = self.storage.fork_change(fork, source, index, stages, change)
+        if saved is None:
+            raise Illegal(moved(self._any(source.id), change.revision - 1))
+        copy_run_files(self.data_dir, source, saved, index)
+        self._enqueue(saved)
+        if source.status not in TERMINAL:
+            with suppress(Illegal):  # it ended meanwhile; the change and its Fork still stand
+                self.abort(source.id)
+        return change
 
     def _not_editable(self, run: Run, stage: RunStageView) -> str | None:
         """Why the stage cannot be edited now: it has started, or it is the publish the waiting
@@ -873,11 +954,13 @@ class RunControl:
         return run
 
     def _run(self, run_id: str) -> Run:
+        return live(self._any(run_id))
+
+    def _any(self, run_id: str) -> Run:
+        """The run, live or ended; KeyError when there is none."""
         run = self.storage.get_run(run_id)
         if run is None:
             raise KeyError(f"run not found: {run_id}")
-        if run.status in TERMINAL:
-            raise Illegal(f"run is {run.status}")
         return run
 
     def _send(self, run_id: str, message: dict[str, Any]) -> None:
@@ -931,15 +1014,55 @@ def visits(run: Run, stage: RunStageView) -> int:
     return 1 + back + sum(1 for c in run.changes if c.kind == "rerun" and stage.name in c.before)
 
 
-def edited(run: Run, change: RunChange) -> tuple[RunStageView, list[StageDef], int]:
-    """The stage a Stage Edit targets, the run's stages with the edit in them and its place
-    among them. A skipped stage is left out: it no longer gates or makes anything."""
-    if change.kind != "stage_edit":
+def edited(run: Run, change: RunChange) -> tuple[RunStageView, list[StageDef]]:
+    """The stage a Run Change targets and the run's stages with the change in them. A
+    Restructure's stages replace the run's from the target on; the run's Retro stays last."""
+    if change.kind not in ("stage_edit", "restructure"):
         raise ValueError(f"a {change.kind} cannot be applied yet")
     stage = target(run, change)
-    kept = [s for s in run.stages if s.status != "skipped" or s is stage]
-    defs = [StageDef(s.name, s.type, change.payload if s is stage else s.config) for s in kept]
-    return stage, defs, kept.index(stage)
+    defs = [StageDef(s.name, s.type, s.config) for s in run.stages]
+    if change.kind == "stage_edit":
+        return stage, [
+            replace(d, config=change.payload) if d is defs[stage.index] else d for d in defs
+        ]
+    new = change.payload.get("stages")
+    if not isinstance(new, list) or not all(
+        isinstance(d, dict) and d.get("name") and d.get("type") for d in new
+    ):
+        raise ValueError("a Restructure's stages each need a name and a type")
+    tail = [
+        StageDef(d["name"], d["type"], {k: v for k, v in d.items() if k not in ("name", "type")})
+        for d in new
+    ]
+    if not tail:
+        raise ValueError("a Restructure needs at least one stage")
+    retro = [d for d in defs[stage.index :] if d.type == "retro"]
+    return stage, [*defs[: stage.index], *tail, *retro]
+
+
+def shown(
+    run: Run, change: RunChange, stage: RunStageView, stages: list[StageDef]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A change's before and after: the stage's config, or for a Restructure the stages from
+    the target on (the Retro left out) in the workflow's stage shape."""
+    if change.kind != "restructure":
+        return stage.config, stages[stage.index].config
+
+    def listed(defs: list[RunStageView] | list[StageDef]) -> dict[str, Any]:
+        return {
+            "stages": [
+                {"name": d.name, "type": d.type, **d.config} for d in defs if d.type != "retro"
+            ]
+        }
+
+    return listed(run.stages[stage.index :]), listed(stages[stage.index :])
+
+
+def live(run: Run) -> Run:
+    """The run, while it has not ended; Illegal once it has."""
+    if run.status in TERMINAL:
+        raise Illegal(f"run is {run.status}")
+    return run
 
 
 def not_pending(stage: RunStageView) -> str | None:

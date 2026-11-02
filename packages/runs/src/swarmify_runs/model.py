@@ -97,8 +97,9 @@ class RunStageView:
 class RunChange:
     """One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
     `stage_edit`'s `payload` is the stage's new config, an `artifact_edit`'s the `path` of a file
-    in the stage's artifacts folder and its new `text`, a `rerun`'s its `note` and a `skip` has
-    none."""
+    in the stage's artifacts folder and its new `text`, a `rerun`'s its `note`, a `skip` has
+    none and a `restructure`'s is `stages`, the new list from that stage on, each a workflow
+    stage's fields (`name`, `type` and its config)."""
 
     kind: str
     stage: str
@@ -125,6 +126,9 @@ class ChangeProposal:
     """A Rerun's estimate: the stages it resets at their average cost so far."""
     budget_left_usd: float | None = None
     """What the run's Budget has left, None when it has none."""
+    fork_from: str | None = None
+    """The stage the Fork runs anew from: the first one changed, or the first that has not
+    finished when that comes earlier, since a Fork copies only finished stages."""
 
 
 @dataclass(frozen=True)
@@ -143,6 +147,8 @@ class AppliedChange:
     by: str
     at: str
     revision: int
+    fork: RunLink | None = None
+    """The Fork the run continues in, for a Restructure or a change to a run that had ended."""
 
 
 @dataclass(frozen=True)
@@ -180,6 +186,8 @@ class Run:
     against an older one is refused."""
     changes: list[AppliedChange] = field(default_factory=list)
     """Every Run Change applied to the run, oldest first."""
+    forked_by: AppliedChange | None = None
+    """The Run Change, applied to `forked_from`, that made this Fork."""
 
     def send_back_note(self, stage_name: str) -> str:
         """The note of the send-back or Rerun that caused this visit, when it named
