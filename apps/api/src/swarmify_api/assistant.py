@@ -302,6 +302,33 @@ class _Hooks:
         return None
 
 
+async def run_turn(
+    runtime: AgentRuntime, worlds: Worlds, conversations: Conversations, run: Run, system: str,
+    prompt: str, tools: list[AgentTool], schema: dict[str, Any],
+) -> tuple[SessionEnd, str]:  # fmt: skip
+    """One turn of the run's conversation on the world's planner model, resumed from its last
+    session and allowed only `tools`: how it ended and its session id."""
+    allowed = [tool_id(t.name) for t in tools]
+    folder = worlds.folder(run.world_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    world = worlds.get(run.world_id)
+    spec = SessionSpec(
+        system_prompt=system,
+        prompt=prompt,
+        cwd=folder,
+        plugin=None,
+        tools=tools,
+        allowed=allowed,
+        resume=conversations.session(run.id),
+        max_turns=MAX_TURNS,
+        output_schema=schema,
+        model=world.model_for("planner") if world else None,
+    )
+    hooks = _Hooks(allowed)
+    end = await runtime.run(spec, hooks)
+    return end, hooks.session_id or end.session_id
+
+
 def _schema(**properties: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": list(properties)}
 
@@ -492,30 +519,14 @@ def router(
         and proposals out. 502 when the session fails or does not answer in the shape asked,
         with nothing kept but what the session cost; send the message again to retry."""
         run = get_run(run_id)
-        world = worlds.get(run.world_id)
         reader = Reader(run_id, runner, worlds, workflows, board, index, conversations)
-        tools = reader.tools()
-        allowed = [tool_id(t.name) for t in tools]
-        folder = worlds.folder(run.world_id)
-        folder.mkdir(parents=True, exist_ok=True)
-        spec = SessionSpec(
-            system_prompt="\n\n".join(
-                [SYSTEM, f"The run is {run.name}, id {run.id}, in the world {run.world_id}."]
-            ),
-            prompt=body.message.strip(),
-            cwd=folder,
-            plugin=None,
-            tools=tools,
-            allowed=allowed,
-            resume=conversations.session(run_id),
-            max_turns=MAX_TURNS,
-            output_schema=ANSWER_SCHEMA,
-            model=world.model_for("planner") if world else None,
-        )
-        hooks = _Hooks(allowed)
+        system = f"{SYSTEM}\n\nThe run is {run.name}, id {run.id}, in the world {run.world_id}."
         end: SessionEnd | None = None
         try:
-            end = await runtime.run(spec, hooks)
+            end, sid = await run_turn(
+                runtime, worlds, conversations, run, system, body.message.strip(),
+                reader.tools(), ANSWER_SCHEMA,
+            )  # fmt: skip
             if end.is_error:
                 raise RuntimeError(end.result or "the session failed")
             reply, sources, shown = parse_answer(end.output, run)
@@ -526,7 +537,6 @@ def router(
             log.warning("run assistant failed on run %s: %s", run_id, exc)
             raise HTTPException(502, f"The assistant did not answer: {exc}") from exc
         shown = [p for p in shown if p in reader.made] if shown is not None else reader.made
-        sid = hooks.session_id or end.session_id
         conversations.turn(
             run, body.message.strip(), reply, sources, shown, reader.made, sid, end.cost_usd
         )

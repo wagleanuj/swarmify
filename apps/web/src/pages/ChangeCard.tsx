@@ -7,6 +7,7 @@ import { refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { FileLink, fileUrl } from "./Artifacts";
 import { RunRef } from "./Runs";
+import { SaveToWorkflow } from "./SaveToWorkflow";
 
 type Stage = Run["stages"][number];
 type Proposal = components["schemas"]["ChangeProposal"];
@@ -192,22 +193,25 @@ export function ChangeCard({
         </p>
       )}
       {applied ? (
-        <p className="notice ok" role="status">
-          Applied by {who(applied.by)} at {hhmm(applied.at)}
-          {file && typeof applied.before.kept === "string" && (
-            <>
-              {" · "}
-              <FileLink a={{ path: applied.before.kept, name: file.name }} worldId={run.world_id}>
-                Earlier version
-              </FileLink>
-            </>
-          )}
-          {applied.fork && (
-            <>
-              . <RunRef label="Continues in" run={applied.fork} testId="continues-in" />
-            </>
-          )}
-        </p>
+        <>
+          <p className="notice ok" role="status">
+            Applied by {who(applied.by)} at {hhmm(applied.at)}
+            {file && typeof applied.before.kept === "string" && (
+              <>
+                {" · "}
+                <FileLink a={{ path: applied.before.kept, name: file.name }} worldId={run.world_id}>
+                  Earlier version
+                </FileLink>
+              </>
+            )}
+            {applied.fork && (
+              <>
+                . <RunRef label="Continues in" run={applied.fork} testId="continues-in" />
+              </>
+            )}
+          </p>
+          <SaveToWorkflow run={run} change={applied} />
+        </>
       ) : (
         <>
           {editing && (
@@ -235,7 +239,7 @@ export function ChangeCard({
 
 /** The lines that differ, `-` before and `+` after, around the lines both share at the top and
  * bottom: enough for the one place a person edits a file. */
-function lines(before: string, after: string): string[] {
+export function lines(before: string, after: string): string[] {
   const a = before.split("\n");
   const b = after.split("\n");
   let top = 0;
