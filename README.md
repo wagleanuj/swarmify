@@ -746,6 +746,8 @@ stage and its params, what it answers, the Services it calls and how its V1 sett
   template.
 - [`remotion_build`](connectors/remotion_build/README.md): a Build Session that writes a video
   project for the script, then renders it.
+- [`hyperframes_render`](connectors/hyperframes_render/README.md): renders a script through a
+  HyperFrames template; off until a world enables it.
 - [`youtube`](connectors/youtube/README.md) and [`upload_post`](connectors/upload_post/README.md):
   publish connectors, with Outcomes.
 - [`slack`](connectors/slack/README.md): Remote Approvals, a gate answered from chat.
@@ -1370,8 +1372,8 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   installed on each host) and `systempaths=unconfined` (the kernel refuses a fresh `/proc` over a
   masked one). It holds nothing at rest worth stealing: no token, password or `setup.json`, only
   the folders of `data` the sandboxed processes use (`packages`, `worlds`, `remotion`,
-  `npm-cache` and `sandbox`, which the one-shot `folders` service makes first), each process
-  bringing the values it is given. A folder a `path` Setting names must be one of those to exist
+  `hyperframes`, `npm-cache` and `sandbox`, which the one-shot `folders` service makes first),
+  each process bringing the values it is given. A folder a `path` Setting names must be one of those to exist
   there. It needs Docker Engine 26 or later for volume subpaths, and on an Ubuntu 23.10 or later
   host `sudo tools/allow-bwrap-userns.sh` once (see The connector sandbox).
 - A file a package reads from the data directory (a template, say) must be inside the container:
