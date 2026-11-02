@@ -295,4 +295,5 @@ def test_a_session_takes_messages_past_the_sdks_1_mb_default(data: Path) -> None
     """A builder reading a few full-size frame previews sends the CLI a tool result of several
     MB of base64; at the SDK's 1 MB default the session died (run_01M6AV36W27XBFFJWRS4MG1AEG)."""
     plain = SessionSpec("system", "prompt", data, None, [], [])
-    assert options_for(plain, cast(Any, None)).max_buffer_size >= 32 * 1024 * 1024
+    size = options_for(plain, cast(Any, None)).max_buffer_size
+    assert size is not None and size >= 32 * 1024 * 1024
