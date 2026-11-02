@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { api } from "../api/client";
 import { money, refusal, type Run } from "../api/runs";
@@ -41,6 +41,7 @@ export function StepChangeCard({
   onApplied?: (change: AppliedChange) => void;
 }) {
   const [note, setNote] = useState(() => String(proposed?.change.payload?.note ?? ""));
+  const noteId = useId();
   const [editing, setEditing] = useState(kind === "rerun" && !proposed);
   const [proposal, setProposal] = useState<Proposal | null>(proposed ?? null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -134,8 +135,8 @@ export function StepChangeCard({
         <>
           {editing && kind === "rerun" && (
             <>
-              <label htmlFor="rerun-note">Note for {stage.name}</label>
-              <textarea id="rerun-note" value={note} rows={3} placeholder="What to do differently" onChange={(e) => setNote(e.target.value)} />
+              <label htmlFor={noteId}>Note for {stage.name}</label>
+              <textarea id={noteId} value={note} rows={3} placeholder="What to do differently" onChange={(e) => setNote(e.target.value)} />
             </>
           )}
           <div className="answer-bar">
