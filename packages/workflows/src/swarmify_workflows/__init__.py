@@ -5,12 +5,13 @@ immutable Workflow Version. Connectors belong to another context, so the composi
 in a function from world id to the connectors that world allows.
 """
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
+from typing import Any
 
 from swarmify_kernel import Event, new_id
-from swarmify_workflows.dump import dump_workflow
+from swarmify_workflows.dump import dump_workflow, restage
 from swarmify_workflows.model import (
     ConnectorRef,
     ConnectorStage,
@@ -39,6 +40,7 @@ __all__ = [
     "Draft",
     "GateStage",
     "Invalid",
+    "RunDraft",
     "SqliteStorage",
     "Stage",
     "Starter",
@@ -62,6 +64,24 @@ class Draft:
 
     model: WorkflowModel | None
     violations: list[Violation]
+
+
+@dataclass(frozen=True)
+class RunDraft:
+    """A Run Change as the workflow's next version would take it: the current version's text
+    `before` and the `yaml` with the change in it, the check's violations, and the `conflicts`,
+    how the current version differs from the run's in the stages the change touches. `saved` is
+    the new version once saved."""
+
+    workflow_id: str
+    version: int
+    """The current version the change applies to."""
+    run_version: int
+    before: str
+    yaml: str
+    violations: list[Violation]
+    conflicts: list[str]
+    saved: WorkflowVersion | None = None
 
 
 class Invalid(ValueError):
@@ -132,6 +152,47 @@ class Workflows:
             version = added
         self.on_saved(version)
         return version
+
+    def save_from_run(
+        self,
+        workflow_id: str,
+        run_version: int,
+        before: Sequence[Mapping[str, Any]],
+        after: Sequence[Mapping[str, Any]],
+        *,
+        save: bool = False,
+        confirmed: bool = False,
+    ) -> RunDraft:
+        """A Run Change applied to the workflow's current version, matching stages by name: the
+        stages `before`, each a `name`, `type` and fields as the run of `run_version` had them,
+        give way to the stages `after`. A Stage Edit is one stage before and after, a Skip one
+        before and none after, a Restructure the stages from its target on. With `save` it
+        appends the draft as a new version, unless the check refuses it or it has conflicts not
+        `confirmed`. Raises KeyError for an unknown workflow or version."""
+        workflow = self.get(workflow_id)
+        current = self.version(workflow_id, workflow.current_version) if workflow else None
+        pinned = self.version(workflow_id, run_version)
+        if workflow is None or current is None or pinned is None:
+            raise KeyError(workflow_id)
+        texts = restage(current.yaml, before, after)
+        violations: list[Violation] = []
+        if texts is None:
+            name = before[0]["name"] if before else ""
+            violations.append(
+                Violation("run_change", f"v{current.number} has no stage named {name}", name)
+            )
+            texts = (current.yaml, current.yaml)
+        else:
+            violations += self.check(workflow.world_id, texts[1], workflow_id).violations
+        conflicts = [
+            f"Since this run's v{pinned.number}, v{current.number} {what}."
+            for s in before
+            if (what := _changed(s["name"], pinned.model, current.model))
+        ]
+        draft = RunDraft(workflow_id, current.number, run_version, *texts, violations, conflicts)
+        if save and not violations and (confirmed or not conflicts):
+            return replace(draft, saved=self.save(workflow.world_id, draft.yaml, workflow_id))
+        return draft
 
     def copy(self, workflow_id: str, world_id: str) -> WorkflowVersion:
         """A new workflow in `world_id` from this one's current YAML. Raises KeyError for an
@@ -204,6 +265,17 @@ class Workflows:
             stages = model.stages if model else []
             refs[workflow_id] = [s.runs for s in stages if isinstance(s, WorkflowStage)]
         return refs
+
+
+def _changed(name: str, was: WorkflowModel, now: WorkflowModel) -> str | None:
+    """How stage `name` of `was` differs in `now`, None when it is the same or `was` lacks it."""
+    old = next((asdict(s) for s in was.stages if s.name == name), None)
+    new = next((asdict(s) for s in now.stages if s.name == name), None)
+    if old is None or old == new:
+        return None
+    if new is None:
+        return f"removed {name}"
+    return f"changed {name} ({', '.join(k for k in new if new[k] != old.get(k))})"
 
 
 def _saved(workflow_id: str, world_id: str, name: str, number: int) -> Event:

@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { money, refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { type AppliedChange, hhmm, who } from "./ChangeCard";
+import { SaveToWorkflow } from "./SaveToWorkflow";
 
 type Stage = Run["stages"][number];
 type Proposal = components["schemas"]["ChangeProposal"];
@@ -104,9 +105,12 @@ export function StepChangeCard({ run, stage, kind, onClose }: { run: Run; stage:
         </p>
       )}
       {applied ? (
-        <p className="notice ok" role="status">
-          Applied by {who(applied.by)} at {hhmm(applied.at)}
-        </p>
+        <>
+          <p className="notice ok" role="status">
+            Applied by {who(applied.by)} at {hhmm(applied.at)}
+          </p>
+          <SaveToWorkflow run={run} change={applied} />
+        </>
       ) : (
         <>
           {editing && kind === "rerun" && (

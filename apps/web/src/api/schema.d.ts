@@ -1696,6 +1696,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/changes/{change_id}/save-to-workflow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save To Workflow
+         * @description Draft an applied Run Change as the workflow's next version, matched by stage name,
+         *     and with `save` save it. An Artifact Edit is drafted by the Run Assistant as a Stage
+         *     Edit to the stage that made the file (502 when it does not answer), and saved with that
+         *     `config`. 409 for a Rerun or an Ad Hoc Run, which have no workflow form, or when saving
+         *     a workflow changed since the run's version without `confirmed`; 422 when the check
+         *     refuses the draft.
+         */
+        post: operations["save_to_workflow_api_runs__run_id__changes__change_id__save_to_workflow_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session": {
         parameters: {
             query?: never;
@@ -3442,6 +3467,23 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** SaveToWorkflow */
+        SaveToWorkflow: {
+            /**
+             * Save
+             * @default false
+             */
+            save: boolean;
+            /**
+             * Confirmed
+             * @default false
+             */
+            confirmed: boolean;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** SavedSetup */
         SavedSetup: {
             /** Package */
@@ -4001,6 +4043,39 @@ export interface components {
             current_version: number;
             /** Created At */
             created_at: string;
+        };
+        /**
+         * WorkflowDraft
+         * @description The workflow's next version with the change in it, as the check sees it. `stage` is the
+         *     stage it changes; `saved` the new version once saved.
+         */
+        WorkflowDraft: {
+            /** Stage */
+            stage: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Version */
+            version: number;
+            /** Run Version */
+            run_version: number;
+            /** Before */
+            before: string;
+            /** Yaml */
+            yaml: string;
+            /** Violations */
+            violations: components["schemas"]["Violation"][];
+            /** Conflicts */
+            conflicts: string[];
+            saved?: components["schemas"]["WorkflowVersion"] | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Reply
+             * @default
+             */
+            reply: string;
         };
         /** WorkflowModel */
         WorkflowModel: {
@@ -7510,6 +7585,61 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    save_to_workflow_api_runs__run_id__changes__change_id__save_to_workflow_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveToWorkflow"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDraft"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -163,6 +163,7 @@ svg.glyph { color: var(--accent); }
 .answer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 16px; border-top: 1px solid var(--rule); }
 .change-card { display: grid; gap: 10px; padding: 12px 16px; border-radius: var(--radius-card); background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
 .change-card h3 { margin: 0; }
+.save-draft { display: grid; gap: 8px; }
 .change-card textarea { width: 100%; font-family: var(--mono); font-size: 13px; }
 .diff { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
 .diff del { color: var(--muted); }

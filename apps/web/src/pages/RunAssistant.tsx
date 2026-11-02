@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
 import { ChangeCard, hhmm, who } from "./ChangeCard";
+import { SaveToWorkflow } from "./SaveToWorkflow";
 
 type Conversation = components["schemas"]["Conversation"];
 type Card = components["schemas"]["Card"];
@@ -111,9 +112,12 @@ function Proposed({ run, card, onMark }: { run: Run; card: Card; onMark: (state:
   if (card.state === "applied") {
     const change = (run.changes ?? []).find((c) => c.id === card.change_id);
     return (
-      <p className="notice ok">
-        Edit {card.proposal.stage_name}. {change ? `Applied by ${who(change.by)} at ${hhmm(change.at)}` : "Applied"}
-      </p>
+      <>
+        <p className="notice ok">
+          Edit {card.proposal.stage_name}. {change ? `Applied by ${who(change.by)} at ${hhmm(change.at)}` : "Applied"}
+        </p>
+        {change && <SaveToWorkflow run={run} change={change} />}
+      </>
     );
   }
   return <ChangeCard run={run} stage={stage} proposed={card.proposal} onClose={() => onMark("dismissed")} onApplied={(c) => onMark("applied", c.id)} />;

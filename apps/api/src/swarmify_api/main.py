@@ -52,6 +52,7 @@ from swarmify_api import (
     planner,
     remote,
     runs,
+    save_to_workflow,
     tasks,
     upkeep,
     workflows,
@@ -951,6 +952,11 @@ def create_app(
     conversations = assistant.Conversations(migrated_db(root))
     app.include_router(
         assistant.router(
+            runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations
+        )
+    )
+    app.include_router(
+        save_to_workflow.router(
             runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations
         )
     )
