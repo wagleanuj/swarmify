@@ -3,7 +3,7 @@ import { page } from "vitest/browser";
 
 import "../index.css";
 
-import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
+import { artifact, FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const ts = "2026-10-26T10:02:00+00:00";
@@ -96,4 +96,66 @@ test("Not now closes the card with nothing applied, and a stage that has started
   await screen.getByRole("button", { name: "Run actions" }).click();
   await expect.element(screen.getByRole("menuitem", { name: /^Pause/ })).toBeVisible();
   expect(screen.getByRole("menuitem", { name: /^Edit stage/ }).elements()).toHaveLength(0);
+});
+
+test("an Artifact Edit of a finished step's text file shows the line diff and who read it, refuses a bad type, applies and links the earlier version", async () => {
+  const seven = '---\ntype: "metadata"\n---\n\n#a #b #c #d #e #f #g\n';
+  const five = '---\ntype: "metadata"\n---\n\n#a #b #c #d #e\n';
+  const done = { started_at: ts, ended_at: ts };
+  const stages = [
+    stage(0, "write", "connector", "done", { calls: "tagger", ...done }),
+    stage(1, "check", "connector", "done", { calls: "tagger", inputs: ["metadata.md"], ...done }),
+    stage(2, "confirm", "gate", "waiting", { started_at: ts }),
+    stage(3, "upload", "connector", "pending", { calls: "tagger", inputs: ["metadata.md"] }),
+  ];
+  const tagged = run("waiting_gate", stages, { revision: 7 });
+  const metadata = artifact({ name: "metadata.md", path: "runs/run_1/stage_0/artifacts/metadata.md", type: "metadata", title: "metadata.md", body: "#a #b #c #d #e #f #g\n" });
+  const video = artifact({ name: "short.mp4", path: "runs/run_1/stage_0/artifacts/short.mp4.md", type: "video", title: "short.mp4" });
+  const applied: unknown[] = [];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(tagged),
+    "GET /api/runs/run_1/artifacts": () => Response.json([metadata, video]),
+    "GET /api/worlds/world_1/files/runs/run_1/stage_0/artifacts/metadata.md": () => new Response(seven),
+    "POST /api/runs/run_1/changes/propose": async (req) => {
+      const change = await req.json();
+      const violations = change.payload.text.includes("#h") ? ["metadata.md no longer fits type metadata at tags: the list is too long"] : [];
+      const before = { path: "metadata.md", text: seven };
+      return Response.json({ change, stage_name: "write", before, after: change.payload, violations, revision: 7, in_place: true, read_by: ["check"] });
+    },
+    "POST /api/runs/run_1/changes": async (req) => {
+      const body = await req.json();
+      applied.push(body);
+      const before = { path: "metadata.md", text: seven, kept: "runs/run_1/stage_0/previous/1-metadata.md" };
+      return Response.json(
+        { id: "change_1", run_id: "run_1", kind: body.kind, stage_id: "stage_0", stage_index: 0, stage_name: "write", payload: body.payload, before, by: "operator", at: ts, revision: 8 },
+        { status: 201 },
+      );
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
+  await screen.getByTestId("all-files").getByText("All files (2)").click();
+  expect(screen.getByRole("button", { name: "Edit file short.mp4" }).elements()).toHaveLength(0);
+  await screen.getByRole("button", { name: "Edit file metadata.md" }).click();
+
+  const card = screen.getByTestId("change-card");
+  await expect.element(card.getByRole("heading", { name: "Edit metadata.md" })).toBeVisible();
+  const text = card.getByLabelText("metadata.md's text");
+  await expect.element(text).toHaveValue(seven);
+  const apply = card.getByRole("button", { name: "Apply" });
+  await expect.element(apply).toBeDisabled();
+
+  await text.fill(seven.replace("#g", "#g #h"));
+  await expect.element(card).toMatchTextContent(/This would not pass: metadata.md no longer fits type metadata at tags: the list is too long\./);
+  await expect.element(apply).toBeDisabled();
+
+  await text.fill(five);
+  const diff = card.getByRole("list", { name: "The change" });
+  await expect.element(diff.getByRole("deletion")).toHaveTextContent("#a #b #c #d #e #f #g");
+  await expect.element(diff.getByRole("insertion")).toHaveTextContent("#a #b #c #d #e");
+  await expect.element(card).toMatchTextContent(/check already read the old version\. Re-run it\?/);
+  await expect.element(apply).toBeEnabled();
+  await apply.click();
+  await vi.waitFor(() => expect(applied).toEqual([{ kind: "artifact_edit", stage: "stage_0", payload: { path: "metadata.md", text: five }, revision: 7 }]));
+  await expect.element(card).toMatchTextContent(/Applied by you at \d\d:\d\d · Earlier version/);
+  await expect.element(card.getByRole("link", { name: "Earlier version" })).toHaveAttribute("href", expect.stringContaining("previous%2F1-metadata.md"));
 });

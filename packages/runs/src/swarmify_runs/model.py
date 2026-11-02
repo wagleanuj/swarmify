@@ -96,7 +96,8 @@ class RunStageView:
 @dataclass(frozen=True)
 class RunChange:
     """One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
-    `stage_edit`'s `payload` is the stage's new config."""
+    `stage_edit`'s `payload` is the stage's new config, an `artifact_edit`'s the `path` of a file
+    in the stage's artifacts folder and its new `text`."""
 
     kind: str
     stage: str
@@ -117,6 +118,8 @@ class ChangeProposal:
     revision: int
     in_place: bool = True
     """Applies to this run; False once it would continue as a Fork."""
+    read_by: list[str] = field(default_factory=list)
+    """The finished stages that already read the file an Artifact Edit changes, to re-run."""
 
 
 @dataclass(frozen=True)

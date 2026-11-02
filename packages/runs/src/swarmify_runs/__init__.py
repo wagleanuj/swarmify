@@ -12,6 +12,7 @@ from swarmify_runs.control import (
     Previews,
     RunControl,
     Spend,
+    artifact_type,
     run_folder,
     stage_folder,
 )
@@ -96,6 +97,7 @@ __all__ = [
     "Swarm",
     "Take",
     "queue_name",
+    "artifact_type",
     "run_folder",
     "stage_folder",
 ]

@@ -106,9 +106,10 @@ class Decide(BaseModel):
 
 class Change(BaseModel):
     """A Run Change (ADR 0027). A `stage_edit` targets a stage that has not started, by id, and
-    its `payload` is the stage's whole new config."""
+    its `payload` is the stage's whole new config. An `artifact_edit` targets a finished stage
+    and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`."""
 
-    kind: Literal["stage_edit"]
+    kind: Literal["stage_edit", "artifact_edit"]
     stage: str
     payload: dict[str, Any]
 
@@ -492,7 +493,8 @@ def router(
     @api.post("/runs/{run_id}/changes/propose", responses={**ACTION_ERRORS, 422: {}})
     def propose_change(run_id: str, body: Change) -> ChangeProposal:
         """What the Run Change would do, with nothing written: before and after, the violations
-        that would refuse it, and the run's revision to apply it with."""
+        that would refuse it, the finished stages that already read a file it changes, and the
+        run's revision to apply it with."""
         return act(lambda: runner.propose(run_id, body.value()))
 
     @api.post("/runs/{run_id}/changes", status_code=201, responses={**ACTION_ERRORS, 422: {}})

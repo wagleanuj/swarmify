@@ -598,7 +598,8 @@ export interface paths {
         /**
          * Propose Change
          * @description What the Run Change would do, with nothing written: before and after, the violations
-         *     that would refuse it, and the run's revision to apply it with.
+         *     that would refuse it, the finished stages that already read a file it changes, and the
+         *     run's revision to apply it with.
          */
         post: operations["propose_change_api_runs__run_id__changes_propose_post"];
         delete?: never;
@@ -1817,9 +1818,9 @@ export interface components {
         ApplyChange: {
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "stage_edit";
+            kind: "stage_edit" | "artifact_edit";
             /** Stage */
             stage: string;
             /** Payload */
@@ -2048,14 +2049,15 @@ export interface components {
         /**
          * Change
          * @description A Run Change (ADR 0027). A `stage_edit` targets a stage that has not started, by id, and
-         *     its `payload` is the stage's whole new config.
+         *     its `payload` is the stage's whole new config. An `artifact_edit` targets a finished stage
+         *     and its `payload` is `{"path": <a text file in its artifacts folder>, "text": <new text>}`.
          */
         Change: {
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "stage_edit";
+            kind: "stage_edit" | "artifact_edit";
             /** Stage */
             stage: string;
             /** Payload */
@@ -2090,6 +2092,8 @@ export interface components {
              * @default true
              */
             in_place: boolean;
+            /** Read By */
+            read_by?: string[];
         };
         /** Changes */
         Changes: {
@@ -3205,7 +3209,8 @@ export interface components {
         /**
          * RunChange
          * @description One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
-         *     `stage_edit`'s `payload` is the stage's new config.
+         *     `stage_edit`'s `payload` is the stage's new config, an `artifact_edit`'s the `path` of a file
+         *     in the stage's artifacts folder and its new `text`.
          */
         RunChange: {
             /** Kind */
