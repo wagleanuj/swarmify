@@ -1,12 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
-import { cardable, cardTitle } from "../api/assistant";
+import { cardTitle } from "../api/assistant";
 import { api } from "../api/client";
 import { refusal, type Run } from "../api/runs";
 import type { components } from "../api/schema";
-import { ChangeCard, hhmm, who } from "./ChangeCard";
+import { type AppliedChange, ChangeCard, hhmm, who } from "./ChangeCard";
 import { SaveToWorkflow } from "./SaveToWorkflow";
+import { StepChangeCard } from "./StepChangeCard";
 
 type Conversation = components["schemas"]["Conversation"];
 type Card = components["schemas"]["Card"];
@@ -115,12 +116,33 @@ function Proposed({ run, card, onMark }: { run: Run; card: Card; onMark: (state:
     return (
       <>
         <p className="notice ok">
-          Edit {card.proposal.stage_name}. {change ? `Applied by ${who(change.by)} at ${hhmm(change.at)}` : "Applied"}
+          {cardTitle(card)}. {change ? `Applied by ${who(change.by)} at ${hhmm(change.at)}` : "Applied"}
         </p>
         {change && <SaveToWorkflow run={run} change={change} />}
       </>
     );
   }
-  if (!cardable(card)) return <p className="faint">Proposed: {cardTitle(card)}.</p>;
-  return <ChangeCard run={run} stage={stage} proposed={card.proposal} onClose={() => onMark("dismissed")} onApplied={(c) => onMark("applied", c.id)} />;
+  return <ProposedCard run={run} stage={stage} card={card} onClose={() => onMark("dismissed")} onApplied={(c) => onMark("applied", c.id)} />;
+}
+
+/** The change card for a proposal of any kind, as proposed: a Rerun or a Skip as a step change,
+ * the others as a change card. Shared by the run page and the gate panel. */
+export function ProposedCard({
+  run,
+  stage,
+  card,
+  onClose,
+  onApplied,
+}: {
+  run: Run;
+  stage: Run["stages"][number];
+  card: Card;
+  onClose: () => void;
+  onApplied: (change: AppliedChange) => void;
+}) {
+  const { kind } = card.proposal.change;
+  if (kind === "rerun" || kind === "skip")
+    return <StepChangeCard run={run} stage={stage} kind={kind} proposed={card.proposal} onClose={onClose} onApplied={onApplied} />;
+  const edit = kind === "restructure" ? "restructure" : "stage_edit";
+  return <ChangeCard run={run} stage={stage} kind={edit} proposed={card.proposal} onClose={onClose} onApplied={onApplied} />;
 }

@@ -86,19 +86,31 @@ memory of earlier runs). Ground every answer in what you read and list each plac
 with the stage's id and a short label such as "from script.md" or "Research, log 14:02". When
 you cannot see something, say so plainly; never guess.
 
-To change the run, call propose_change with a Run Change: `kind` stage_edit, `stage` the id of a
-stage that has not started, `payload` its whole new config. It writes nothing: it answers what
-the change would do and what the check refuses. Fix a refused proposal and propose again, then
-list the ids of the proposals you present in `proposals`. Nothing changes until the operator
-presses Apply on a card. You cannot apply a change or answer a gate, and never say you did."""
+To change the run, call propose_change with a Run Change: a `kind`, the `stage` it targets by id
+and its `payload`. Pick the kind by what the operator asks for:
+- stage_edit: change how a stage that has not started will run. `payload` is its whole new
+  config.
+- artifact_edit: fix a text file (markdown, JSON, YAML, plain text) a finished stage made.
+  `payload` is {"path": the file's name, "text": its whole new text}.
+- rerun: redo a finished stage, and every stage after it, with a note ("redo the script with a
+  stronger hook"). `payload` is {"note": what to do differently}. A run at work must be paused
+  first: when a stage is running, tell the operator to pause the run, then propose the Rerun.
+- skip: pass over a stage that has not started ("skip the upload"). `payload` is {}.
+- restructure: add, remove or reorder the stages still to come ("add a review gate before
+  upload"). `stage` is the first stage that changes and `payload` is {"stages": the whole new
+  list from that stage on}, each a stage's `name`, `type` and the rest of its config, as
+  get_run shows them. It continues as a Fork and this run ends.
+It writes nothing: it answers what the change would do and what the check refuses. Fix a refused
+proposal and propose again, then list the ids of the proposals you present in `proposals`.
+Nothing changes until the operator presses Apply on a card. You cannot apply a change or answer
+a gate, and never say you did."""
 GATE = """The publish stage after the gate sends this, as the gate's form shows it, with what would
 stop the post: {preview}
 
 To change an editable field of the form (title, description, hashtags, tags), answer it in
 `fields` by key with its whole new value: it fills the gate's form for the operator to confirm,
-so propose no change for it. To change a file the post reads (like metadata.md), call
-propose_change with `kind` artifact_edit, `stage` the id of the finished stage that made it and
-`payload` {{"path": its name, "text": its whole new text}}."""
+so propose no change for it. To change a file the post reads (like metadata.md), propose an
+artifact_edit of it."""
 
 
 class Ask(BaseModel):

@@ -34,8 +34,8 @@ const shaped = (s: Stage) => ({ name: s.name, type: s.type, ...(s.config ?? {}) 
  * from it on, to edit, the diff, what the check would refuse, and Apply only once it passes.
  * A change that continues as a Fork says so. Nothing changes until Apply. With a `file` it is
  * an Artifact Edit of that file the stage made: its text, a line diff, and the finished stages
- * that already read the old version. `proposed` is a Stage Edit or an Artifact Edit made
- * already (by the Run Assistant): shown as it was, so it goes stale when the run moved. */
+ * that already read the old version. `proposed` is a change made already (by the Run Assistant):
+ * shown as it was, a Restructure with its proposed stages, so it goes stale when the run moved. */
 export function ChangeCard({
   run,
   stage,
@@ -62,7 +62,9 @@ export function ChangeCard({
         ? String(proposed.after.text ?? "")
         : null
       : YAML.stringify(
-          restructure ? run.stages.slice(stage.index).filter((s) => s.type !== "retro").map(shaped) : (proposed?.after ?? stage.config ?? {}),
+          restructure
+            ? (proposed?.after.stages ?? run.stages.slice(stage.index).filter((s) => s.type !== "retro").map(shaped))
+            : (proposed?.after ?? stage.config ?? {}),
         ),
   );
   const [text, setText] = useState(start);

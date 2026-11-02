@@ -1,10 +1,10 @@
 import { useId, useState } from "react";
 
-import { type Card, cardable, cardTitle, markCard, useGateAsk } from "../api/assistant";
+import { type Card, markCard, useGateAsk } from "../api/assistant";
 import { api } from "../api/client";
 import { reloadGates } from "../api/gates";
 import type { Gate, Run } from "../api/runs";
-import { ChangeCard } from "./ChangeCard";
+import { ProposedCard } from "./RunAssistant";
 
 /** Ask or change at a gate (spec Run Assistant): under the gate's own form, a turn with the run's
  * assistant. Its proposals land here as change cards; at a publish gate the fields it fills go
@@ -36,14 +36,13 @@ export function GateAsk({ gate, onFill }: { gate: Gate; onFill: (fields: Record<
               {run &&
                 (said.proposals ?? []).map((card) => {
                   const stage = shown(card);
-                  if (stage && !cardable(card)) return <p key={card.id} className="faint">Proposed: {cardTitle(card)}.</p>;
                   return (
                     stage && (
-                      <ChangeCard
+                      <ProposedCard
                         key={card.id}
                         run={run}
                         stage={stage}
-                        proposed={card.proposal}
+                        card={card}
                         onClose={() => {
                           setDismissed((d) => [...d, card.id]);
                           void markCard(gate.run_id, card, "dismissed");
