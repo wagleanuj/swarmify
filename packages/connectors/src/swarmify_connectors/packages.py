@@ -98,6 +98,9 @@ SCHEMA: dict[str, Any] = {
         },
         # Planning
         "params": {"type": "object"},
+        # A publish connector's params that keep a post private; a stage setting them all needs
+        # no gate before it (ADR 0007 amended).
+        "private_when": {"type": "object", "minProperties": 1},
         "planner_notes": _text,
         "inputs": {"type": "array", "items": _file},
         "outputs": {"type": "array", "items": _file},
@@ -375,6 +378,13 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     for i, folder in enumerate(folders):
         if folder in folders[:i]:
             bad(f"owned_folders[{i}].folder", f"{folder} is declared twice")
+    if "private_when" in manifest:
+        if manifest["kind"] != "publish":
+            bad("private_when", "says when a post stays private, so the kind is publish")
+        declared = manifest.get("params", {}).get("properties", {})
+        for key in manifest["private_when"]:
+            if key not in declared:
+                bad("private_when", f"{key} is not one of its params")
     if "primary_metric" in manifest and "outcomes" not in manifest.get("capabilities", []):
         bad("primary_metric", "names an outcome, so the package offers the outcomes capability")
     if "outcomes" in manifest.get("capabilities", []):

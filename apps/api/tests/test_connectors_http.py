@@ -128,7 +128,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         ("slack", "1.0.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
-        ("youtube", "1.0.0", "connectors/youtube"),
+        ("youtube", "1.1.0", "connectors/youtube"),
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
@@ -136,7 +136,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
-        {"name": "youtube", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.1.0"},
     ]
     form = client.get(f"/api/worlds/{w}/packages/fal_video/setup")
     (field,) = form.json()["fields"]
@@ -494,7 +494,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
-        {"name": "youtube", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.1.0"},
     ]
     echo = next(
         c for c in client.get(f"/api/worlds/{one}/connectors").json() if c["name"] == "echo"
@@ -510,7 +510,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
-        {"name": "youtube", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.1.0"},
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
@@ -518,7 +518,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "remotion_render", "version": "1.0.0"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
-        {"name": "youtube", "version": "1.0.0"},
+        {"name": "youtube", "version": "1.1.0"},
     ]
     assert client.post(f"/api/worlds/{one}/workflows", json={"yaml": ECHO}).status_code == 422
     assert client.post(f"/api/worlds/{two}/workflows", json={"yaml": ECHO}).status_code == 201

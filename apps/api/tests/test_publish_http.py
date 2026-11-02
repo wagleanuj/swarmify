@@ -88,7 +88,7 @@ def test_youtube_is_a_package_whose_account_is_signed_in_from_the_connectors_pag
 ) -> None:
     world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
     listed = {c["name"]: c for c in running.get(f"/api/worlds/{world}/connectors").json()}
-    assert listed["youtube"]["version"] == "1.0.0"
+    assert listed["youtube"]["version"] == "1.1.0"
     assert listed["youtube"]["missing"] == ["youtube"]  # the account, not keys
     assert listed["upload_post"]["missing"] == ["api_key"]
 

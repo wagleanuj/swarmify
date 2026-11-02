@@ -105,6 +105,9 @@ class ConnectorRef:
     version: str | None = None
     """The Connector Package version the world pins; None for a connector that is no package.
     A saved version records it for every package it calls."""
+    private_when: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    """For a publish connector, the params that keep a post private (a draft only the operator
+    sees). A stage that sets every one of them needs no gate before it (ADR 0007 amended)."""
 
 
 @dataclass(frozen=True)

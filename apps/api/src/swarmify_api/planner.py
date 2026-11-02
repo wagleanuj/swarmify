@@ -62,7 +62,8 @@ plus its fields:
   inputs (a list of artifact names, each produced by an earlier stage) instead of input when
   the connector takes several files.
 - workflow: runs (a workflow id); optional take (artifact names to copy from the child).
-Rules: a publish connector must come right after a gate; a connector's input must be produced
+Rules: a publish connector must come right after a gate, unless the stage posts privately (the
+check names the params); a connector's input must be produced
 by an earlier stage; connectors must exist in the world. Swarm agents write text only, so a swarm
 stage produces text files (script.md, ideas.json), never video, audio or an image: such a file
 comes from a connector stage whose output has that media type (the world's connectors, below).

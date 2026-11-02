@@ -6,6 +6,7 @@ workflow ids its current version runs. Every broken rule is returned, none raise
 
 from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath
+from typing import Any
 
 from swarmify_kernel import AGENT_TOOLS
 from swarmify_workflows.model import (
@@ -99,11 +100,23 @@ def validate(
         elif isinstance(stage, ConnectorStage):
             ref = check_connector(stage.calls, "connector", stage.name)
             gated = index > 0 and isinstance(model.stages[index - 1], GateStage)
-            if ref is not None and ref.kind == "publish" and not gated:
+            # A private post (a draft only the operator sees) needs no gate; the stage must set
+            # the params itself, so a connector's default never decides it.
+            private = (
+                ref is not None
+                and bool(ref.private_when)
+                and all(stage.params.get(k) == v for k, v in ref.private_when.items())
+            )
+            if ref is not None and ref.kind == "publish" and not gated and not private:
                 out.append(
                     Violation(
                         "publish_without_gate",
-                        f"publish connector '{stage.calls}' must come right after a gate",
+                        f"publish connector '{stage.calls}' must come right after a gate"
+                        + (
+                            f" unless it posts privately ({_said(ref.private_when)})"
+                            if ref.private_when
+                            else ""
+                        ),
                         stage.name,
                     )
                 )
@@ -188,3 +201,7 @@ def _down(graph: Mapping[str, Sequence[str]], node: str, seen: frozenset[str] = 
 def _up(graph: Mapping[str, Sequence[str]], node: str, seen: frozenset[str] = frozenset()) -> int:
     parents = [p for p, kids in graph.items() if node in kids and p not in seen and p != node]
     return max((1 + _up(graph, p, seen | {node}) for p in parents), default=0)
+
+
+def _said(params: Mapping[str, Any]) -> str:
+    return ", ".join(f"{k}: {v}" for k, v in params.items())

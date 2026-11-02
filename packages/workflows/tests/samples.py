@@ -19,7 +19,9 @@ CONNECTORS = {
     c.name: c
     for c in [
         ConnectorRef("remotion_render", "stage", frozenset({"connector"})),
-        ConnectorRef("youtube", "publish", frozenset({"connector"})),
+        ConnectorRef(
+            "youtube", "publish", frozenset({"connector"}), private_when={"visibility": "private"}
+        ),
     ]
 }
 

@@ -1,7 +1,7 @@
 # The YouTube connector (README.md beside this file). A default package: Swarmify installs it from
 # this folder and enables it for every world that has not decided otherwise.
 name = "youtube"
-version = "1.0.0"
+version = "1.1.0"
 label = "YouTube"
 about = "Uploads to YouTube through the Data API; a schedule keeps it private until then."
 kind = "publish"
@@ -32,6 +32,10 @@ description = "ISO 8601 with a timezone, or 09:00, or +1d 09:00; needs public"
 [params.properties.made_for_kids]
 type = "boolean"
 default = false
+
+# A private upload is a draft only the channel sees, so a stage that says so needs no gate.
+[private_when]
+visibility = "private"
 
 [[inputs]]
 description = "the video"

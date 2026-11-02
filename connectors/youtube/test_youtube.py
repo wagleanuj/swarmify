@@ -469,7 +469,7 @@ def v1(tmp_path: Path, provider: FakeProvider) -> Callable[[Any], Connectors]:
 
     def make(transport: Any) -> Connectors:
         connectors = registry(tmp_path, transport)
-        assert connectors.install_defaults()["youtube"] == "1.0.0"
+        assert connectors.install_defaults()["youtube"] == "1.1.0"
         connectors.offer_defaults("w")
         return connectors
 
@@ -480,13 +480,13 @@ def test_a_v1_sign_in_is_carried_over_so_no_new_sign_in_is_needed(
     v1: Callable[[Any], Connectors], provider: FakeProvider, tmp_path: Path
 ) -> None:
     connectors = v1(FakeTransport())
-    folder = tmp_path / "packages" / "youtube" / "1.0.0"
+    folder = tmp_path / "packages" / "youtube" / "1.1.0"
     assert (folder / ".venv" / "bin" / "python").is_file() and (folder / "youtube.py").is_file()
     shared, _ = connectors.setups.values("youtube", "w")
     assert (shared["youtube_client_id"], shared["youtube_client_secret"]) == ("yt-app", "yt-secret")
     assert shared["youtube"]["refresh_token"] == "rt-from-v1"
     youtube = connectors.find("w", "youtube")
-    assert youtube is not None and youtube.version == "1.0.0"
+    assert youtube is not None and youtube.version == "1.1.0"
     assert connectors.missing(youtube) == [] and connectors.sign_in_needed(youtube) == []
 
     env = connectors._env(youtube)  # the first start refreshes the V1 token

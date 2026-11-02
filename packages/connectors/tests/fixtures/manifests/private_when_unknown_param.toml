@@ -1,0 +1,15 @@
+# error: private_when: privacy is not one of its params
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "publish"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+
+[params.properties.visibility]
+enum = ["public", "private"]
+
+[private_when]
+privacy = "private"
