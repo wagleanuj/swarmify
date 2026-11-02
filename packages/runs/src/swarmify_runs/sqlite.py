@@ -282,9 +282,7 @@ class SqliteStorage:
             conn.execute("UPDATE runs SET revision = revision + 1 WHERE id = ?", (run_id,))
             conn.execute("COMMIT")
 
-    def add_change(
-        self, change: AppliedChange, config: dict[str, Any], revision: int
-    ) -> Run | None:
+    def add_change(self, change: AppliedChange, revision: int) -> bool:
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
             moved = (
@@ -294,12 +292,12 @@ class SqliteStorage:
                 ).rowcount
                 or not conn.execute(
                     "UPDATE run_stages SET config = ? WHERE id = ? AND status = 'pending'",
-                    (json.dumps(config), change.stage_id),
+                    (json.dumps(change.payload), change.stage_id),
                 ).rowcount
             )
             if moved:
                 conn.execute("ROLLBACK")
-                return None
+                return False
             conn.execute(
                 "INSERT INTO run_changes (id, run_id, kind, stage_id, stage_index, stage_name,"
                 " payload, before_json, applied_by, applied_at, revision)"
@@ -328,7 +326,7 @@ class SqliteStorage:
             )
             append(conn, _updated(saved))
             conn.execute("COMMIT")
-            return saved
+            return True
 
     def set_child(self, run_id: str, index: int, child_run_id: str) -> None:
         with self._conn() as conn:

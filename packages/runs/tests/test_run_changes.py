@@ -13,7 +13,16 @@ import pytest
 from runs_fakes import FakeNotifier, wait_for
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
-from swarmify_runs import Illegal, Run, RunChange, Runner, SqliteStorage, StageDef
+from swarmify_runs import (
+    Illegal,
+    PublishField,
+    PublishPreview,
+    Run,
+    RunChange,
+    Runner,
+    SqliteStorage,
+    StageDef,
+)
 
 PICK = StageDef("pick", "gate", {"ask": "Pick one.", "kind": "pick"})
 WRITE = StageDef("write", "swarm", {"goal": "Write a script.", "done_when": "It reads well."})
@@ -44,13 +53,13 @@ class Check:
     def __init__(self) -> None:
         self.seen: list[list[StageDef]] = []
 
-    def __call__(self, _run: Run, stages: list[StageDef]) -> list[str]:
+    def __call__(self, _run: Run, stages: list[StageDef]) -> tuple[list[str], list[StageDef]]:
         self.seen.append(stages)
         return [
             f"no connector named '{s.config['calls']}'"
             for s in stages
             if s.config.get("calls") == "nobody"
-        ]
+        ], stages
 
 
 @pytest.fixture
@@ -182,3 +191,27 @@ def test_a_stale_revision_is_refused_naming_what_moved(runner: Runner) -> None:
     with pytest.raises(Illegal, match="moved on since this was proposed: it is now at confirm"):
         runner.apply(run.id, fps, seen, "operator")
     assert [c.by for c in fetch(runner, run.id).changes] == ["anuj in chat"]
+
+
+def test_a_stage_edit_of_the_publish_a_waiting_gate_is_confirming_is_refused(
+    runner: Runner, calls: Calls
+) -> None:
+    def previews(_run: Run, stage: StageDef, _edits: dict[str, Any]) -> PublishPreview | None:
+        title = str(stage.config["params"]["title"])
+        return PublishPreview("youtube", [PublishField("title", "Title", title)])
+
+    runner.previews = previews
+    publish = StageDef("publish", "connector", {"calls": "youtube", "params": {"title": "Hooks"}})
+    run = runner.start("world_1", "wf_1", 1, "Short", [CONFIRM, publish])
+    run = at(runner, run.id, "waiting_gate")
+    change = edit(run, "publish", {"calls": "youtube", "params": {"title": "Something else"}})
+
+    proposal = runner.propose(run.id, change)
+    refused = "confirm is confirming publish: answer or send back the gate first"
+    assert proposal.violations == [refused]
+    with pytest.raises(Illegal, match=refused):
+        runner.apply(run.id, change, proposal.revision, "anuj in chat")
+
+    runner.decide(run.id)
+    at(runner, run.id, "done")
+    assert calls.configs["publish"] == publish.config, "what posts is what was confirmed"

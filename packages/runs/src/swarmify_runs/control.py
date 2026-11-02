@@ -94,14 +94,15 @@ def no_previews(_run: Run, _stage: StageDef, _edits: dict[str, Any]) -> PublishP
     return None
 
 
-Check = Callable[[Run, list[StageDef]], list[str]]
+Check = Callable[[Run, list[StageDef]], tuple[list[str], list[StageDef]]]
 """(run, its whole stage list with a Run Change in it) to the violations of the workflow check
-at the run's pinned package versions, every rule a workflow save meets. Runs cannot read the
-rules; the composition root checks the list as a workflow model through Workflows."""
+at the run's pinned package versions, every rule a workflow save meets, and the stages as the
+check parsed them, defaults filled in, in the same places. Runs cannot read the rules; the
+composition root checks the list as a workflow model through Workflows."""
 
 
-def no_check(_run: Run, _stages: list[StageDef]) -> list[str]:
-    return []
+def no_check(_run: Run, stages: list[StageDef]) -> tuple[list[str], list[StageDef]]:
+    return [], stages
 
 
 def _now() -> str:
@@ -437,9 +438,10 @@ class RunControl:
         in the run or a kind of change that cannot be applied yet."""
         run = self._run(run_id)
         stage, stages = edited(run, change)
-        violations = [p for p in [not_pending(stage)] if p] + self.check(run, stages)
+        violations, checked = self.check(run, stages)
+        problems = [p for p in [self._not_editable(run, stage)] if p] + violations
         return ChangeProposal(
-            change, stage.name, stage.config, change.payload, violations, run.revision
+            change, stage.name, stage.config, checked[stage.index].config, problems, run.revision
         )
 
     def apply(self, run_id: str, change: RunChange, revision: int, by: str) -> AppliedChange:
@@ -452,17 +454,28 @@ class RunControl:
         if run.revision != revision:
             raise Illegal(moved(run, revision))
         stage, stages = edited(run, change)
-        if problem := not_pending(stage):
+        if problem := self._not_editable(run, stage):
             raise Illegal(problem)
-        if violations := self.check(run, stages):
+        violations, checked = self.check(run, stages)
+        if violations:
             raise ValueError("; ".join(violations))
         applied = AppliedChange(
             new_id("change"), run.id, change.kind, stage.id, stage.index, stage.name,
-            change.payload, stage.config, by, _now(), revision + 1,
+            checked[stage.index].config, stage.config, by, _now(), revision + 1,
         )  # fmt: skip
-        if self.storage.add_change(applied, change.payload, revision) is None:
+        if not self.storage.add_change(applied, revision):
             raise Illegal(moved(self._run(run_id), revision))  # it moved while being checked
         return applied
+
+    def _not_editable(self, run: Run, stage: RunStageView) -> str | None:
+        """Why the stage cannot be edited now: it has started, or it is the publish the waiting
+        gate is confirming, whose preview was sent when the gate opened (ADR 0007)."""
+        if problem := not_pending(stage):
+            return problem
+        gate = run.stages[stage.index - 1] if stage.index else None
+        if gate and gate.status == "waiting" and self.preview_after(run, gate.index):
+            return f"{gate.name} is confirming {stage.name}: answer or send back the gate first"
+        return None
 
     def pause(self, run_id: str) -> Run:
         """Pause takes effect at once at a gate, otherwise at the running stage's next agent

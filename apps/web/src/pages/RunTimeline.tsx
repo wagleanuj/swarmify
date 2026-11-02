@@ -360,12 +360,7 @@ export function RunTimeline() {
                     {s.name}
                     <small>
                       {s.status === "waiting" ? "waiting for you" : kind(s)}
-                      {edit && (
-                        <span className="edited" title={`Edited by ${who(edit.by)} at ${hhmm(edit.at)}`}>
-                          {" "}
-                          · Edited
-                        </span>
-                      )}
+                      {edit && <span className="edited"> · Edited by {who(edit.by)} {hhmm(edit.at)}</span>}
                     </small>
                   </span>
                   <span className="step-meta">{s.status === "pending" ? "-" : meta}</span>

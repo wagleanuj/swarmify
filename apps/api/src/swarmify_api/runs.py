@@ -195,22 +195,31 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
     return pin
 
 
-def checker(workflows: Workflows) -> Callable[[Run, list[StageDef]], list[str]]:
+def checker(
+    workflows: Workflows,
+) -> Callable[[Run, list[StageDef]], tuple[list[str], list[StageDef]]]:
     """The workflow check of a run's stages with a Run Change in them, as a workflow save meets
-    it, at the package versions the run's version recorded (an Ad Hoc Run has none). The Retro
-    is the run's own, never written in a workflow (`with_retro`)."""
+    it, at the package versions and worker count the run's version recorded (an Ad Hoc Run has
+    none), and the stages as parsed, defaults filled in as a run of a version holds them. The
+    Retro is the run's own, never written in a workflow (`with_retro`), and stays as it is."""
 
-    def check(run: Run, stages: list[StageDef]) -> list[str]:
+    def check(run: Run, stages: list[StageDef]) -> tuple[list[str], list[StageDef]]:
         version = None
         if run.workflow_id and run.workflow_version:
             version = workflows.version(run.workflow_id, run.workflow_version)
         yaml = dump_workflow(
-            run.name, [(d.type, d.name, d.config) for d in stages if d.type != RETRO.type]
+            run.name,
+            [(d.type, d.name, d.config) for d in stages if d.type != RETRO.type],
+            agents=version.model.agents if version else None,
         )
         draft = workflows.check(
             run.world_id, yaml, run.workflow_id, version.packages if version else None
         )
-        return [v.message for v in draft.violations]
+        violations = [v.message for v in draft.violations]
+        if draft.model is None:
+            return violations, stages
+        parsed = iter(stage_def(s) for s in draft.model.stages)
+        return violations, [d if d.type == RETRO.type else next(parsed) for d in stages]
 
     return check
 

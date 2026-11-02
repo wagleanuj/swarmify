@@ -34,6 +34,7 @@ stages:
       fps: 30
   - connector: tag
     calls: render_video
+  - connector: render_video
 """
 
 
@@ -97,6 +98,27 @@ def test_a_stage_edit_is_proposed_applied_listed_and_streamed_and_the_stage_runs
     until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     render = next(c for c in transport.calls if c[2].get("idempotency_key") == edit["stage"])
     assert render[2]["fps"] == 60
+
+
+def test_a_partial_stage_edit_is_stored_with_the_defaults_a_workflow_fills_in(
+    running: TestClient, transport: FakeTransport
+) -> None:
+    run = at_gate(running)
+    target = stage(run, "render_video")
+    edit = {"kind": "stage_edit", "stage": target["id"], "payload": {"params": {"fps": 24}}}
+
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=edit).json()
+    assert proposal["violations"] == [] and proposal["after"]["calls"] == "render_video"
+    applied = running.post(
+        f"/api/runs/{run['id']}/changes", json={**edit, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["payload"] == proposal["after"]
+
+    assert running.post(f"/api/runs/{run['id']}/decision", json={"choice": "idea 1"}).is_success
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    call = next(c for c in transport.calls if c[2].get("idempotency_key") == target["id"])
+    assert call[2]["fps"] == 24
 
 
 @pytest.mark.parametrize(

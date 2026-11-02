@@ -1,7 +1,7 @@
 """Ports of the Runs context (ADR 0012): Storage (SQLite now, Postgres is the seam) and
 Notifier (Slack in the Notifications context, a log line standalone, a recording fake in tests)."""
 
-from typing import Any, Protocol
+from typing import Protocol
 
 from swarmify_kernel import Event
 from swarmify_runs.machine import RunState
@@ -32,11 +32,9 @@ class Storage(Protocol):
         Illegal when this visit already has a decision."""
         ...
 
-    def add_change(
-        self, change: AppliedChange, config: dict[str, Any], revision: int
-    ) -> Run | None:
-        """Write `config` to the change's stage, record the change and its `run.changed` and
-        `run.updated` events in one transaction, moving the run to `change.revision`. None, with
+    def add_change(self, change: AppliedChange, revision: int) -> bool:
+        """Write the change's payload to its stage, record the change and its `run.changed` and
+        `run.updated` events in one transaction, moving the run to `change.revision`. False, with
         nothing written, when the run is no longer at `revision` or the stage has started."""
         ...
 

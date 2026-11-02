@@ -15,4 +15,4 @@ CREATE TABLE run_changes (
   applied_at  TEXT NOT NULL,
   revision    INTEGER NOT NULL
 );
-CREATE INDEX run_changes_run ON run_changes (run_id, applied_at);
+CREATE INDEX run_changes_run ON run_changes (run_id, revision);
