@@ -11,11 +11,25 @@ runtime = "npm"
 
 planner_notes = "This is how a workflow makes a video. One sandboxed coding session writes a Remotion project for the script, reading the run's gate decisions, then swarmify renders it. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read (as speech's timings.json)."
 
-capabilities = ["build_session"]
+capabilities = ["build_session", "templates"]
 
 # The session's network (ADR 0018): npm installs and Google Fonts files.
 [permissions]
 network = ["registry.npmjs.org", "fonts.googleapis.com", "fonts.gstatic.com"]
+
+# Each world's Remotion Templates (ADR 0028), one subfolder each.
+[[owned_folders]]
+folder = "remotion_templates"
+label = "Remotion templates"
+about = "Projects a build starts from instead of the starter."
+
+[templates]
+folder = "remotion_templates"
+require = ["package.json", "src/index.ts"]
+strip = ["video.mp4", "public/narration", "public/timings.json", "node_modules"]
+guide = "TEMPLATE.md"
+prepare = ["npm", "ci"]
+prepare_network = ["registry.npmjs.org"]
 
 [build_session]
 system = "system.md"

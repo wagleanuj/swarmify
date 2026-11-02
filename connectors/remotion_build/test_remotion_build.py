@@ -24,7 +24,9 @@ def _task(*inputs: Path) -> str:
 
 def test_it_requests_a_build_session_and_renders_through_remotion_render() -> None:
     session = MANIFEST["build_session"]
-    assert MANIFEST["capabilities"] == ["build_session"] and "command" not in MANIFEST
+    assert MANIFEST["capabilities"] == ["build_session", "templates"] and "command" not in MANIFEST
+    assert MANIFEST["templates"]["folder"] == "remotion_templates"  # one of its owned_folders
+    assert [f["folder"] for f in MANIFEST["owned_folders"]] == ["remotion_templates"]
     assert (session["connector"], session["tool"], session["output"]) == (
         "remotion_render",
         "remotion_render",

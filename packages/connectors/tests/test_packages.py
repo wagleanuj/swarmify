@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from swarmify_connectors import InstallError, ManifestError, Packages, read_manifest
-from swarmify_connectors.packages import MANIFEST, RECORD
+from swarmify_connectors.packages import MANIFEST, RECORD, check_manifest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INVALID = sorted((FIXTURES / "manifests").glob("*.toml"))
@@ -28,6 +28,21 @@ def test_an_invalid_manifest_is_refused_naming_the_field(fixture: Path, tmp_path
     with pytest.raises(ManifestError) as raised:
         read_manifest(tmp_path)
     assert str(raised.value).startswith(expected)
+
+
+def test_a_templates_table_naming_an_owned_folder_passes_with_its_reserved_form() -> None:
+    manifest = read_manifest(FIXTURES / "packages/echo")
+    manifest["capabilities"] = ["check", "templates"]
+    manifest["templates"] = {
+        "folder": "echoes",
+        "require": ["package.json", "src/index.ts"],
+        "strip": ["video.mp4", "node_modules"],
+        "guide": "TEMPLATE.md",
+        "prepare": ["npm", "ci"],
+        "prepare_network": ["registry.npmjs.org"],
+        "form": {"fields": [{"key": "character", "type": "string"}]},
+    }
+    assert check_manifest(manifest)["templates"]["folder"] == "echoes"
 
 
 def test_a_folder_without_a_manifest_is_refused(tmp_path: Path) -> None:

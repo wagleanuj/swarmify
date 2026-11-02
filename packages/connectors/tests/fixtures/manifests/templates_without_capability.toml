@@ -1,0 +1,16 @@
+# error: templates: is the [templates] of the templates capability, both or none
+name = "bad"
+version = "1.0.0"
+label = "Bad"
+about = "A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["uv", "run", "server.py"]
+
+[[owned_folders]]
+folder = "clips"
+label = "Clips"
+
+[templates]
+folder = "clips"

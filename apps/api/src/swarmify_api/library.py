@@ -3,12 +3,17 @@ with the run and stage that made it so the page can filter by type, workflow, st
 date; Pins, the flag that makes an artifact required reading for later swarm stages; and the
 world's Assets, the operator's reusable files (music beds, sound effects, logos) that agents read
 and never write, with the Owned Folders of the packages it enables (ADR 0025): folders of its
-assets a package gives meaning, as a folder of voices, that the Assets page shows as groups."""
+assets a package gives meaning, as a folder of voices, that the Assets page shows as groups.
+An Owned Folder a package's `[templates]` names holds its Templates (ADR 0028), one subfolder
+each."""
 
+import json
 import mimetypes
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -21,6 +26,8 @@ from swarmify_runs import Run
 from swarmify_worlds import Worlds
 
 _DECISION_FOLDER = re.compile(r"^(\d{2})-")
+TEMPLATE_RECORD = ".template.json"
+"""A Template's own record, in its folder: where it came from and when it was added."""
 
 
 @dataclass(frozen=True)
@@ -70,19 +77,63 @@ class OwnedFolder:
     """What the operator affirms before an upload, as the right to use a voice; "" for none."""
     package: str
     """The label of the package that owns it."""
+    templates: bool
+    """Whether it holds a package's Templates, one subfolder each, rather than loose files."""
+
+
+@dataclass(frozen=True)
+class Template:
+    """A Template of a world: a subfolder of a Templates folder, with its record when it has one."""
+
+    name: str
+    folder: str
+    """The Owned Folder's `folder` it is in."""
+    path: str
+    """Relative to the world folder, ending in `/`."""
+    bytes: int
+    origin: str
+    """`upload`, `run` (saved from a run's stage), or `folder` when placed there by hand."""
+    run_id: str
+    stage: str
+    added: str
+    """ISO time it was added; for one placed by hand, its folder's modified time."""
 
 
 def owned_folders(connectors: list[Connector]) -> list[OwnedFolder]:
     """The Owned Folders the Manifests of these connectors declare, the first package to claim
     a folder keeping it."""
     found: dict[str, OwnedFolder] = {}
+    held = {c.manifest["templates"]["folder"] for c in connectors if "templates" in c.manifest}
     for c in connectors:
         for f in c.manifest.get("owned_folders", []):
             found.setdefault(f["folder"], OwnedFolder(
                 f"{ASSETS}/{f['folder']}/", f["folder"], f["label"], f.get("about", ""),
                 f.get("accept", []), f.get("confirm", ""), c.manifest["label"],
+                f["folder"] in held,
             ))  # fmt: skip
     return list(found.values())
+
+
+def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
+    """The Templates in the world folder's Templates folders, by folder then name."""
+    found = []
+    for f in (f for f in folders if f.templates):
+        for d in sorted((world / f.path).glob("*/")):
+            if d.name.startswith(".") or d.is_symlink():
+                continue
+            files = [p for p in d.rglob("*") if p.is_file() and not p.is_symlink()]
+            record = d / TEMPLATE_RECORD
+            try:
+                meta = json.loads(record.read_text()) if record.is_file() else {}
+            except ValueError:  # a record mangled by hand: the Template is still there
+                meta = {}
+            found.append(Template(
+                d.name, f.folder, f"{f.path}{d.name}/",
+                sum(p.stat().st_size for p in files if p != record),
+                meta.get("origin", "folder"), meta.get("run_id", ""), meta.get("stage", ""),
+                meta.get("added") or datetime.fromtimestamp(d.stat().st_mtime, UTC).isoformat(),
+            ))  # fmt: skip
+    return found
 
 
 def accepted(name: str, accept: list[str]) -> bool:
@@ -177,6 +228,13 @@ def router(
         page; their files are in the assets list under each one's `path`."""
         world_or_404(world_id)
         return owned(world_id)
+
+    @api.get("/worlds/{world_id}/templates")
+    def list_templates(world_id: str) -> list[Template]:
+        """The Templates of the packages the world enables, each a subfolder of its package's
+        Templates folder, those placed there by hand included."""
+        world_or_404(world_id)
+        return templates(memory.world_folder(world_id), owned(world_id))
 
     @api.put("/worlds/{world_id}/assets/{name}", status_code=201, responses={422: {}})
     async def add_asset(

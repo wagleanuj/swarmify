@@ -9,6 +9,7 @@ import { Menu } from "./Menu";
 
 type Asset = components["schemas"]["Asset"];
 type Folder = components["schemas"]["OwnedFolder"];
+type Template = components["schemas"]["Template"];
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/;
 
@@ -53,12 +54,13 @@ export async function toWav(blob: Blob, maxSeconds = Infinity): Promise<{ wav: B
   return { wav: new Blob([out.buffer], { type: "audio/wav" }), seconds: n / audio.sampleRate };
 }
 
-/** A world's Assets: the folders its packages own (ADR 0025), each a group of cards you can play
- * first, then the files its builds read. */
+/** A world's Assets: the folders its packages own (ADR 0025), each a group of cards you can play,
+ * or of Templates (ADR 0028) for a package's Templates folder, first, then the files its builds read. */
 export function Assets() {
   const { worldId } = assetsRoute.useParams();
   const [folders, setFolders] = useState<Folder[] | null>(null);
   const [files, setFiles] = useState<Asset[] | null>(null);
+  const [templates, setTemplates] = useState<Template[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [adding, setAdding] = useState<Folder | null>(null);
@@ -78,6 +80,10 @@ export function Assets() {
     api
       .GET("/api/worlds/{world_id}/assets", path)
       .then(({ data }) => setFiles(data ?? []))
+      .catch(() => undefined);
+    api
+      .GET("/api/worlds/{world_id}/templates", path)
+      .then(({ data }) => setTemplates(data ?? []))
       .catch(() => undefined);
   }, [worldId, seen]);
 
@@ -115,19 +121,23 @@ export function Assets() {
       {said && <p role="status">{said}</p>}
       <audio ref={player} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} hidden />
 
-      {folders?.map((f) => (
-        <OwnedGroup
-          key={f.path}
-          worldId={worldId}
-          folder={f}
-          files={files && files.filter((a) => a.path.startsWith(f.path))}
-          playing={playing}
-          onPlay={play}
-          onAdd={() => setAdding(f)}
-          onChanged={reload}
-          onError={setError}
-        />
-      ))}
+      {folders?.map((f) =>
+        f.templates ? (
+          <TemplatesGroup key={f.path} folder={f} templates={templates && templates.filter((t) => t.folder === f.folder)} />
+        ) : (
+          <OwnedGroup
+            key={f.path}
+            worldId={worldId}
+            folder={f}
+            files={files && files.filter((a) => a.path.startsWith(f.path))}
+            playing={playing}
+            onPlay={play}
+            onAdd={() => setAdding(f)}
+            onChanged={reload}
+            onError={setError}
+          />
+        ),
+      )}
 
       <Files worldId={worldId} files={rest} onChanged={reload} onError={setError} />
 
@@ -146,6 +156,44 @@ export function Assets() {
         )}
       </Sheet>
     </main>
+  );
+}
+
+const origin = (t: Template) =>
+  t.origin === "run" ? `Saved from run ${t.run_id}, stage ${t.stage}` : t.origin === "upload" ? "Uploaded" : "Placed by hand";
+
+/** A package's Templates folder: one row per Template, each a subfolder a build can start from. */
+function TemplatesGroup({ folder: f, templates }: { folder: Folder; templates: Template[] | null }) {
+  const head = `owned-${f.folder}`;
+  return (
+    <section className="panel" aria-labelledby={head}>
+      <div className="panel-head">
+        <h2 id={head}>{f.label}</h2>
+        <span className="faint">{f.package}</span>
+      </div>
+      {templates === null ? (
+        <p className="faint">Loading {f.label.toLowerCase()}...</p>
+      ) : templates.length === 0 ? (
+        <div className="empty">
+          <p>
+            No Templates in {f.label} yet. {f.about}
+          </p>
+        </div>
+      ) : (
+        <ul className="file-rows">
+          {templates.map((t) => (
+            <li key={t.path} aria-label={t.name}>
+              <span className="file-name">
+                <span className="mono">{t.name}</span>
+                <span className="faint">
+                  {size(t.bytes)} · {origin(t)} · added {new Date(t.added).toLocaleDateString()}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
