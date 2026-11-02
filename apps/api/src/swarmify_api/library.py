@@ -7,9 +7,15 @@ assets a package gives meaning, as a folder of voices, that the Assets page show
 An Owned Folder a package's `[templates]` names holds its Templates (ADR 0028), one subfolder
 each."""
 
+import hashlib
 import json
 import mimetypes
+import os
 import re
+import secrets
+import shutil
+import stat
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,6 +25,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from swarmify_connectors import Connector
 from swarmify_memory import ASSETS, ArtifactFile, Memory
@@ -28,6 +35,12 @@ from swarmify_worlds import Worlds
 _DECISION_FOLDER = re.compile(r"^(\d{2})-")
 TEMPLATE_RECORD = ".template.json"
 """A Template's own record, in its folder: where it came from and when it was added."""
+_TEMPLATE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$")
+
+
+def template_cap() -> int:
+    """The most bytes a Template upload may unpack to: `SWARMIFY_TEMPLATE_MAX_BYTES`, else 1 GB."""
+    return int(os.environ.get("SWARMIFY_TEMPLATE_MAX_BYTES") or 10**9)
 
 
 @dataclass(frozen=True)
@@ -79,6 +92,8 @@ class OwnedFolder:
     """The label of the package that owns it."""
     templates: bool
     """Whether it holds a package's Templates, one subfolder each, rather than loose files."""
+    require: list[str]
+    """The paths each of its Templates must hold, as its package's `[templates]` declares."""
 
 
 @dataclass(frozen=True)
@@ -97,19 +112,25 @@ class Template:
     stage: str
     added: str
     """ISO time it was added; for one placed by hand, its folder's modified time."""
+    fingerprint: str
+    """A hash of its files' paths and bytes, `node_modules` aside, from when it was added; ""
+    for one placed by hand."""
 
 
 def owned_folders(connectors: list[Connector]) -> list[OwnedFolder]:
     """The Owned Folders the Manifests of these connectors declare, the first package to claim
     a folder keeping it."""
     found: dict[str, OwnedFolder] = {}
-    held = {c.manifest["templates"]["folder"] for c in connectors if "templates" in c.manifest}
+    held: dict[str, list[str]] = {}
+    for c in connectors:
+        if declared := c.manifest.get("templates"):
+            held.setdefault(declared["folder"], declared.get("require", []))
     for c in connectors:
         for f in c.manifest.get("owned_folders", []):
             found.setdefault(f["folder"], OwnedFolder(
                 f"{ASSETS}/{f['folder']}/", f["folder"], f["label"], f.get("about", ""),
                 f.get("accept", []), f.get("confirm", ""), c.manifest["label"],
-                f["folder"] in held,
+                f["folder"] in held, held.get(f["folder"], []),
             ))  # fmt: skip
     return list(found.values())
 
@@ -132,8 +153,66 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
                 sum(p.stat().st_size for p in files if p != record),
                 meta.get("origin", "folder"), meta.get("run_id", ""), meta.get("stage", ""),
                 meta.get("added") or datetime.fromtimestamp(d.stat().st_mtime, UTC).isoformat(),
+                meta.get("fingerprint", ""),
             ))  # fmt: skip
     return found
+
+
+def fingerprint(folder: Path) -> str:
+    """A hash of the Template's files, paths and bytes, without `node_modules` or its record, so
+    the same project added twice has the same one."""
+    digest = hashlib.sha256()
+    files = {p.relative_to(folder).as_posix(): p for p in folder.rglob("*") if p.is_file()}
+    for rel, p in sorted(files.items()):
+        if rel == TEMPLATE_RECORD or "node_modules" in rel.split("/") or p.is_symlink():
+            continue
+        with p.open("rb") as f:
+            digest.update(f"{rel}\0".encode() + hashlib.file_digest(f, "sha256").digest())
+    return digest.hexdigest()
+
+
+def _gb(n: int) -> str:
+    return f"{n / 1e9:g} GB" if n >= 10**9 else f"{n / 1e6:g} MB"
+
+
+def unpack(upload: Path, into: Path, cap: int) -> Path:
+    """Extract the zip `upload` into the new folder `into`, every entry checked first, and return
+    the Template's root: its single top folder when it has one. Raises ValueError naming the
+    problem: an entry outside the folder, a link or device file, more than `cap` bytes."""
+    try:
+        z = zipfile.ZipFile(upload)
+    except zipfile.BadZipFile as exc:
+        raise ValueError("the upload is not a zip file") from exc
+    with z:
+        entries = [i for i in z.infolist() if not i.filename.startswith("__MACOSX/")]
+        for i in entries:
+            parts = re.split(r"[/\\]", i.filename)
+            if i.filename.startswith(("/", "\\")) or ".." in parts or ":" in parts[0]:
+                raise ValueError(f"the zip holds {i.filename}, outside the Template")
+            if stat.S_IFMT(i.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR):
+                raise ValueError(f"the zip holds {i.filename}, a link or special file")
+        if sum(i.file_size for i in entries) > cap:
+            raise ValueError(f"the zip unpacks to more than the {_gb(cap)} cap")
+        into.mkdir()
+        try:
+            for i in entries:
+                z.extract(i, into)
+        except (zipfile.BadZipFile, OSError) as exc:  # a size or CRC that lies, a full disk
+            raise ValueError(f"the zip could not be unpacked ({exc})") from exc
+    top = list(into.iterdir())
+    return top[0] if len(top) == 1 and top[0].is_dir() else into
+
+
+async def received(request: Request, file: Path, cap: int | None = None) -> None:
+    """Stream the request body to `file`, never holding it in memory, refusing more than `cap`
+    bytes."""
+    size = 0
+    with file.open("xb") as out:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if cap is not None and size > cap:
+                raise ValueError(f"the upload is more than the {_gb(cap)} cap")
+            out.write(chunk)
 
 
 def accepted(name: str, accept: list[str]) -> bool:
@@ -236,6 +315,65 @@ def router(
         world_or_404(world_id)
         return templates(memory.world_folder(world_id), owned(world_id))
 
+    def add_template(
+        world_id: str, f: OwnedFolder, name: str, upload: Path, replace: bool
+    ) -> Template:
+        work = upload.parent
+        root = unpack(upload, work / "unpacked", template_cap())
+        if missing := [r for r in f.require if not (root / r).exists()]:
+            raise ValueError(f"the Template lacks {', '.join(missing)}, which {f.package} requires")
+        files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
+        (root / TEMPLATE_RECORD).write_text(json.dumps({
+            "origin": "upload",
+            "added": datetime.now(UTC).isoformat(),
+            "bytes": sum(p.stat().st_size for p in files),
+            "fingerprint": fingerprint(root),
+        }))  # fmt: skip
+        target = upload.parent.parent / name
+        if target.exists():
+            if not replace:
+                raise FileExistsError(name)
+            target.rename(work / "replaced")  # removed with the work folder
+        root.rename(target)
+        world = memory.world_folder(world_id)
+        return next(t for t in templates(world, [f]) if t.name == name)
+
+    @api.put(
+        "/worlds/{world_id}/templates/{folder}/{name}",
+        status_code=201,
+        responses={404: {}, 409: {}, 422: {}},
+    )
+    async def upload_template(
+        world_id: str, folder: str, name: str, request: Request, replace: bool = False
+    ) -> Template:
+        """Upload a zip as the Template `name` of the Templates folder `folder`: streamed to
+        disk, its entries checked, unpacked (a single top folder unwrapped) and checked for the
+        files its package requires, then moved into place. A name already there is refused
+        unless `replace`."""
+        world_or_404(world_id)
+        f = next((f for f in owned(world_id) if f.folder == folder and f.templates), None)
+        if f is None:
+            raise HTTPException(422, f"{folder} is not a Templates folder of this world")
+        if not _TEMPLATE_NAME.match(name):
+            raise HTTPException(422, f"a Template needs a plain name like cat-shorts, got {name}")
+        root = memory.world_folder(world_id) / f.path
+        taken = HTTPException(409, f"{name} is already in {f.label}; replace it or pick a name")
+        if (root / name).exists() and not replace:
+            raise taken
+        work = root / f".upload-{secrets.token_hex(8)}"
+        work.mkdir(parents=True)
+        try:
+            await received(request, work / "upload.zip", template_cap())
+            return await run_in_threadpool(
+                add_template, world_id, f, name, work / "upload.zip", replace
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except FileExistsError as exc:
+            raise taken from exc
+        finally:
+            await run_in_threadpool(shutil.rmtree, work, True)
+
     @api.put("/worlds/{world_id}/assets/{name}", status_code=201, responses={422: {}})
     async def add_asset(
         world_id: str,
@@ -253,12 +391,16 @@ def router(
                 raise HTTPException(422, f"{folder} is not an Owned Folder of this world")
             if not accepted(name, into.accept):
                 raise HTTPException(422, f"{into.label} takes {', '.join(into.accept)} only")
-        # ponytail: the whole body in memory; stream it to disk if assets grow past a few
-        # hundred MB.
+        assets = memory.world_folder(world_id) / ASSETS
+        assets.mkdir(parents=True, exist_ok=True)
+        upload = assets / f".upload-{secrets.token_hex(8)}"
         try:
-            path = memory.add_asset(world_id, name, await request.body(), folder)
+            await received(request, upload)
+            path = memory.add_asset(world_id, name, upload, folder)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        finally:
+            upload.unlink(missing_ok=True)
         return asset(world_id, path)
 
     def own_asset(world_id: str, path: str) -> None:

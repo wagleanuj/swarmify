@@ -18,6 +18,7 @@ const voices = {
   confirm: "This is my voice, or I have the speaker's permission",
   package: "Speech",
   templates: false,
+  require: [],
 };
 const files = [
   { path: "assets/bed-calm.mp3", name: "bed-calm.mp3", bytes: 2_400_000 },
@@ -112,6 +113,7 @@ test("a package's Templates folder is a group of Templates, one row each, not lo
     confirm: "",
     package: "Remotion build",
     templates: true,
+    require: ["package.json"],
   };
   const at = { folder: "remotion_templates", run_id: "", stage: "" };
   const kids = { ...at, name: "kids", path: "assets/remotion_templates/kids/", bytes: 1_200_000, origin: "folder", added: "2026-10-30T09:00:00+00:00" };
@@ -131,6 +133,44 @@ test("a package's Templates folder is a group of Templates, one row each, not lo
   await expect.element(group.getByRole("listitem", { name: "office" })).toMatchTextContent(`office85.0 MB · Saved from run run_1, stage build · added ${added(office.added)}`);
   await expect.element(screen.getByRole("listitem", { name: "bed-calm.mp3" })).toBeVisible();
   expect(screen.getByRole("listitem", { name: /package\.json/ }).elements()).toEqual([]);
+});
+
+test("Add a Template uploads a zip under a name from its file, replacing one of that name only when asked", async () => {
+  const remotion = { ...voices, path: "assets/remotion_templates/", folder: "remotion_templates", label: "Remotion templates", about: "Projects a build starts from.", accept: [], confirm: "", package: "Remotion build", templates: true, require: ["package.json", "src/index.ts"] };
+  const kids = { folder: "remotion_templates", name: "kids", path: "assets/remotion_templates/kids/", bytes: 1_200_000, origin: "upload", run_id: "", stage: "", added: "2026-10-30T09:00:00+00:00", fingerprint: "ab12" };
+  const puts: Request[] = [];
+  routes({
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([remotion]),
+    "GET /api/worlds/world_1/templates": () => Response.json([kids]),
+    "PUT /api/worlds/world_1/templates/remotion_templates/Cat-Shorts": (req) => {
+      puts.push(req);
+      return Response.json({ detail: "the Template lacks src/index.ts, which Remotion build requires" }, { status: 422 });
+    },
+    "PUT /api/worlds/world_1/templates/remotion_templates/kids": (req) => {
+      puts.push(req);
+      return Response.json(kids, { status: 201 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  await screen.getByRole("region", { name: "Remotion templates" }).getByRole("button", { name: "Add a Template" }).click();
+  const sheet = screen.getByRole("dialog", { name: "Add to Remotion templates" });
+  await expect.element(sheet).toMatchTextContent(/It must hold package\.json, src\/index\.ts\./);
+  const save = sheet.getByRole("button", { name: "Upload", exact: true });
+  await expect.element(save).toBeDisabled();
+  await sheet.getByLabelText("Zip").upload(new File(["PK"], "Cat Shorts.zip", { type: "application/zip" }));
+  await expect.element(sheet.getByLabelText("Name")).toHaveValue("Cat-Shorts");
+  await save.click();
+  await expect.element(sheet.getByRole("alert")).toHaveTextContent("Not uploaded: the Template lacks src/index.ts, which Remotion build requires.");
+  expect(new URL(puts[0]?.url ?? "").search).toBe("");
+
+  await sheet.getByLabelText("Name").fill("kids");
+  await expect.element(sheet).toMatchTextContent(/kids is already in Remotion templates\./);
+  await expect.element(save).toBeDisabled();
+  await sheet.getByLabelText("Replace kids").click();
+  await save.click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Replaced kids in Remotion templates.");
+  expect(new URL(puts[1]?.url ?? "").search).toBe("?replace=true");
+  expect(await puts[1]!.text()).toBe("PK");
 });
 
 test("a world with no Templates says so in its Templates group", async () => {
