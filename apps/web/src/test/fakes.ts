@@ -28,6 +28,7 @@ const pkg = (name: string, label: string, kind: Connector["kind"], over: Partial
   world_types: null,
   label,
   capabilities: [],
+  templates: "",
   outputs: [],
   missing: [],
   sign_in: [],
@@ -39,7 +40,7 @@ const video = [{ description: "the video", media_type: "video/mp4" }];
  * fakeFetch answers unless a test routes it itself. */
 export const CONNECTORS: Connector[] = [
   pkg("remotion_render", "Remotion render", "stage", { outputs: video }),
-  pkg("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session"], outputs: video }),
+  pkg("remotion_build", "Remotion build", "stage", { command: [], capabilities: ["build_session", "templates"], templates: "remotion_templates", outputs: video }),
   pkg("youtube", "YouTube", "publish", { capabilities: ["publish"] }),
   pkg("upload_post", "Upload-Post", "publish", { capabilities: ["publish"] }),
   pkg("speech", "Speech", "stage", {

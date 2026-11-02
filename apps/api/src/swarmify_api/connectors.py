@@ -89,6 +89,8 @@ class ConnectorView(BaseModel):
     """What a person reads for it: its Manifest's label, else its name."""
     capabilities: list[str]
     """The core-owned contracts it offers, as `build_session` (Manifest `capabilities`)."""
+    templates: str
+    """The Owned Folder its Templates are in (Manifest `[templates]`); "" when it has none."""
     outputs: list[MediaFile]
     """What a stage of it makes, which a skin picks a step's panel by (ADR 0025)."""
     missing: list[str]
@@ -279,6 +281,7 @@ def router(connectors: Connectors, worlds: Worlds, workflows: Workflows) -> APIR
             **asdict(connector),
             label=m.get("label") or connector.name,
             capabilities=m.get("capabilities", []),
+            templates=m.get("templates", {}).get("folder", ""),
             services=[s["name"] for s in m.get("services", [])],
             outputs=m.get("outputs", []),
             missing=connectors.missing(connector),

@@ -2351,6 +2351,8 @@ export interface components {
             label: string;
             /** Capabilities */
             capabilities: string[];
+            /** Templates */
+            templates: string;
             /** Outputs */
             outputs: components["schemas"]["MediaFile"][];
             /** Missing */
