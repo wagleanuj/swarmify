@@ -6,7 +6,15 @@ which works from any process; Runner is the RunControl that also hosts the DBOS 
 enqueues the runs another process recorded queued (`Runner.adopt`).
 """
 
-from swarmify_runs.control import OverBudget, Previews, RunControl, Spend, run_folder, stage_folder
+from swarmify_runs.control import (
+    Check,
+    OverBudget,
+    Previews,
+    RunControl,
+    Spend,
+    run_folder,
+    stage_folder,
+)
 from swarmify_runs.machine import (
     MAX_SEND_BACKS,
     RUN_STATUSES,
@@ -18,12 +26,15 @@ from swarmify_runs.machine import (
     StageStatus,
 )
 from swarmify_runs.model import (
+    AppliedChange,
+    ChangeProposal,
     Decision,
     Gate,
     Pinned,
     PublishField,
     PublishPreview,
     Run,
+    RunChange,
     RunLink,
     RunStageView,
     StageDef,
@@ -50,7 +61,9 @@ __all__ = [
     "MIGRATIONS",
     "RUN_STATUSES",
     "STAGE_STATUSES",
+    "AppliedChange",
     "CapFor",
+    "Check",
     "Connector",
     "Decision",
     "Gate",
@@ -63,10 +76,12 @@ __all__ = [
     "Pin",
     "Pinned",
     "Previews",
+    "ChangeProposal",
     "PublishField",
     "PublishPreview",
     "Retro",
     "Run",
+    "RunChange",
     "RunControl",
     "RunLink",
     "RunStageView",

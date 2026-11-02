@@ -1,13 +1,13 @@
 """HTTP face of the Runs context: start a run of a workflow version or an Ad Hoc Run from a
 typed goal, fork a run or promote a Library artifact into one, list runs, read one, act on one
-(decide at its gate, pause, resume, abort, set its Budget), read the baseline it is measured
-against, the world's spend this month, list every open gate and save a finished run as a
-workflow."""
+(decide at its gate, pause, resume, abort, set its Budget), propose, apply and list its Run
+Changes, read the baseline it is measured against, the world's spend this month, list every open
+gate and save a finished run as a workflow."""
 
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -15,7 +15,18 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from swarmify_api.workflows import INVALID, Report
-from swarmify_runs import Gate, Illegal, Pinned, Run, RunControl, Runner, StageDef
+from swarmify_runs import (
+    AppliedChange,
+    ChangeProposal,
+    Gate,
+    Illegal,
+    Pinned,
+    Run,
+    RunChange,
+    RunControl,
+    Runner,
+    StageDef,
+)
 from swarmify_swarm import OPERATOR, Task
 from swarmify_workflows import Invalid, Stage, Workflows, WorkflowVersion, dump_workflow
 from swarmify_worlds import MAX_AGENTS, Worlds
@@ -93,6 +104,23 @@ class Decide(BaseModel):
     with 422, so the inbox can show it again."""
 
 
+class Change(BaseModel):
+    """A Run Change (ADR 0027). A `stage_edit` targets a stage that has not started, by id, and
+    its `payload` is the stage's whole new config."""
+
+    kind: Literal["stage_edit"]
+    stage: str
+    payload: dict[str, Any]
+
+    def value(self) -> RunChange:
+        return RunChange(self.kind, self.stage, self.payload)
+
+
+class ApplyChange(Change):
+    revision: int
+    """The run's revision the proposal was made against: a run that moved on since refuses it."""
+
+
 class Fork(BaseModel):
     stage: int = Field(ge=0)
     """The first stage that runs anew; every stage before it is copied from the run."""
@@ -167,6 +195,35 @@ def pinner(workflows: Workflows) -> Callable[..., Pinned]:
     return pin
 
 
+def checker(
+    workflows: Workflows,
+) -> Callable[[Run, list[StageDef]], tuple[list[str], list[StageDef]]]:
+    """The workflow check of a run's stages with a Run Change in them, as a workflow save meets
+    it, at the package versions and worker count the run's version recorded (an Ad Hoc Run has
+    none), and the stages as parsed, defaults filled in as a run of a version holds them. The
+    Retro is the run's own, never written in a workflow (`with_retro`), and stays as it is."""
+
+    def check(run: Run, stages: list[StageDef]) -> tuple[list[str], list[StageDef]]:
+        version = None
+        if run.workflow_id and run.workflow_version:
+            version = workflows.version(run.workflow_id, run.workflow_version)
+        yaml = dump_workflow(
+            run.name,
+            [(d.type, d.name, d.config) for d in stages if d.type != RETRO.type],
+            agents=version.model.agents if version else None,
+        )
+        draft = workflows.check(
+            run.world_id, yaml, run.workflow_id, version.packages if version else None
+        )
+        violations = [v.message for v in draft.violations]
+        if draft.model is None:
+            return violations, stages
+        parsed = iter(stage_def(s) for s in draft.model.stages)
+        return violations, [d if d.type == RETRO.type else next(parsed) for d in stages]
+
+    return check
+
+
 def with_retro(stages: list[StageDef], baseline: bool = False) -> list[StageDef]:
     """The run's stages plus the Retro at the end. A baseline run has no judge to learn from."""
     return stages if baseline else [*stages, RETRO]
@@ -205,7 +262,7 @@ def start_pinned(
     )
 
 
-def act(action: Callable[[], Run]) -> Run:
+def act[T](action: Callable[[], T]) -> T:
     """The control layer's refusals as HTTP: unknown run 404, wrong moment 409 (a spent Monthly
     Budget too), bad input 422."""
     try:
@@ -431,6 +488,27 @@ def router(
                 seen=body.seen,
             )
         )
+
+    @api.post("/runs/{run_id}/changes/propose", responses={**ACTION_ERRORS, 422: {}})
+    def propose_change(run_id: str, body: Change) -> ChangeProposal:
+        """What the Run Change would do, with nothing written: before and after, the violations
+        that would refuse it, and the run's revision to apply it with."""
+        return act(lambda: runner.propose(run_id, body.value()))
+
+    @api.post("/runs/{run_id}/changes", status_code=201, responses={**ACTION_ERRORS, 422: {}})
+    def apply_change(run_id: str, body: ApplyChange) -> AppliedChange:
+        """Apply a proposed Run Change, checked again. 409 when the run moved on since the
+        proposal's revision, naming what moved, or the stage has started; 422 with the check's
+        violations."""
+        return act(lambda: runner.apply(run_id, body.value(), body.revision, OPERATOR))
+
+    @api.get("/runs/{run_id}/changes", responses={404: {}})
+    def list_changes(run_id: str) -> list[AppliedChange]:
+        """Every Run Change applied to the run, oldest first."""
+        run = runner.get(run_id)
+        if run is None:
+            raise HTTPException(404, "run not found")
+        return run.changes
 
     @api.post("/runs/{run_id}/pause", responses=ACTION_ERRORS)
     def pause(run_id: str) -> Run:

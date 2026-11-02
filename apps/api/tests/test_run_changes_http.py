@@ -1,0 +1,171 @@
+"""Run Changes over HTTP (ADR 0027), Stage Edit first: propose shows the edit and the workflow
+check at the run's pinned versions, apply writes it and records who, a stale revision is refused,
+and every applied change is listed and streamed. Real DBOS on SQLite, the fake ConnectorTransport
+behind the stage calls."""
+
+from collections.abc import Iterator
+from typing import Any
+
+import httpx
+import pytest
+from api_fakes import until
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from sse import sse_events
+from swarmify_connectors import FakeTransport
+
+RENDER = {
+    "name": "render_video",
+    "kind": "stage",
+    "server": "uvx render-mcp",
+    "stage_types": ["connector"],
+}
+
+SHORT = """name: Pick then render
+stages:
+  - gate: pick
+    ask: Which idea?
+    kind: pick
+  - connector: render
+    calls: render_video
+    output: short.mp4
+    params:
+      fps: 30
+  - connector: tag
+    calls: render_video
+  - connector: render_video
+"""
+
+
+@pytest.fixture
+def running(app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(app) as client:
+        yield client
+
+
+def at_gate(client: httpx.Client | TestClient) -> dict[str, Any]:
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    assert client.post(f"/api/worlds/{world}/connectors", json=RENDER).status_code == 201
+    workflow = client.post(f"/api/worlds/{world}/workflows", json={"yaml": SHORT}).json()
+    run = client.post(f"/api/workflows/{workflow['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "waiting_gate")
+    return client.get(f"/api/runs/{run['id']}").json()
+
+
+def stage(run: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(s for s in run["stages"] if s["name"] == name)
+
+
+def change(run: dict[str, Any], name: str, **config: Any) -> dict[str, Any]:
+    edited = {**stage(run, name)["config"], **config}
+    return {"kind": "stage_edit", "stage": stage(run, name)["id"], "payload": edited}
+
+
+def test_a_stage_edit_is_proposed_applied_listed_and_streamed_and_the_stage_runs_with_it(
+    live_url: str, transport: FakeTransport
+) -> None:
+    client = httpx.Client(base_url=live_url, timeout=10)
+    run = at_gate(client)
+    edit = change(run, "render", params={"fps": 60})
+
+    proposed = client.post(f"/api/runs/{run['id']}/changes/propose", json=edit)
+    assert proposed.status_code == 200, proposed.text
+    proposal = proposed.json()
+    assert proposal["before"]["params"] == {"fps": 30}
+    assert proposal["after"]["params"] == {"fps": 60}
+    assert proposal["violations"] == [] and proposal["in_place"] is True
+    assert proposal["revision"] == run["revision"]
+    assert client.get(f"/api/runs/{run['id']}/changes").json() == []
+
+    applied = client.post(
+        f"/api/runs/{run['id']}/changes", json={**edit, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["by"] == "operator" and applied.json()["stage_name"] == "render"
+    listed = client.get(f"/api/runs/{run['id']}/changes").json()
+    assert [(c["kind"], c["payload"]["params"]) for c in listed] == [("stage_edit", {"fps": 60})]
+    after = client.get(f"/api/runs/{run['id']}").json()
+    assert after["changes"] == listed and after["revision"] > run["revision"]
+
+    with httpx.stream("GET", f"{live_url}/api/worlds/{run['world_id']}/events", timeout=10) as r:
+        changed = next(data for kind, _, data in sse_events(r) if kind == "run.changed")
+    assert changed["run_id"] == run["id"]
+    assert changed["payload"]["id"] == applied.json()["id"]
+
+    decided = client.post(f"/api/runs/{run['id']}/decision", json={"choice": "idea 1"})
+    assert decided.status_code == 200, decided.text
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    render = next(c for c in transport.calls if c[2].get("idempotency_key") == edit["stage"])
+    assert render[2]["fps"] == 60
+
+
+def test_a_partial_stage_edit_is_stored_with_the_defaults_a_workflow_fills_in(
+    running: TestClient, transport: FakeTransport
+) -> None:
+    run = at_gate(running)
+    target = stage(run, "render_video")
+    edit = {"kind": "stage_edit", "stage": target["id"], "payload": {"params": {"fps": 24}}}
+
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=edit).json()
+    assert proposal["violations"] == [] and proposal["after"]["calls"] == "render_video"
+    applied = running.post(
+        f"/api/runs/{run['id']}/changes", json={**edit, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["payload"] == proposal["after"]
+
+    assert running.post(f"/api/runs/{run['id']}/decision", json={"choice": "idea 1"}).is_success
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    call = next(c for c in transport.calls if c[2].get("idempotency_key") == target["id"])
+    assert call[2]["fps"] == 24
+
+
+@pytest.mark.parametrize(
+    ("config", "refused"),
+    [
+        (
+            {"calls": "youtube", "input": "short.mp4", "params": {"title": "Hooks",
+             "visibility": "public"}},
+            "publish connector 'youtube' must come right after a gate",
+        ),
+        ({"input": "nothing.md"}, "input 'nothing.md' is not produced by an earlier stage"),
+        ({"calls": "nobody"}, "no connector named 'nobody'"),
+    ],
+)  # fmt: skip
+def test_a_stage_edit_that_breaks_a_workflow_rule_is_refused_at_propose_and_at_apply(
+    running: TestClient, config: dict[str, Any], refused: str
+) -> None:
+    run = at_gate(running)
+    edit = change(run, "tag", **config)
+
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=edit).json()
+    assert any(refused in v for v in proposal["violations"]), proposal["violations"]
+    applied = running.post(
+        f"/api/runs/{run['id']}/changes", json={**edit, "revision": proposal["revision"]}
+    )
+    assert applied.status_code == 422 and refused in applied.json()["detail"]
+    assert running.get(f"/api/runs/{run['id']}/changes").json() == []
+
+
+def test_a_stale_revision_or_a_started_stage_is_refused(running: TestClient) -> None:
+    run = at_gate(running)
+    edit = change(run, "render", params={"fps": 60})
+    revision = running.post(f"/api/runs/{run['id']}/changes/propose", json=edit).json()["revision"]
+    first = running.post(f"/api/runs/{run['id']}/changes", json={**edit, "revision": revision})
+    assert first.status_code == 201
+
+    again = running.post(f"/api/runs/{run['id']}/changes", json={**edit, "revision": revision})
+    assert again.status_code == 409
+    assert again.json()["detail"] == (
+        "The run moved on since this was proposed: render was edited by operator."
+    )
+
+    gate = change(run, "pick", ask="Which one?")
+    proposal = running.post(f"/api/runs/{run['id']}/changes/propose", json=gate).json()
+    assert proposal["violations"] == [
+        "pick is waiting; only a stage that has not started can be edited"
+    ]
+    assert running.post("/api/runs/run_nope/changes/propose", json=gate).status_code == 404
+    other = {**gate, "kind": "skip"}
+    assert running.post(f"/api/runs/{run['id']}/changes/propose", json=other).status_code == 422

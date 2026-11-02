@@ -586,6 +586,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/changes/propose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose Change
+         * @description What the Run Change would do, with nothing written: before and after, the violations
+         *     that would refuse it, and the run's revision to apply it with.
+         */
+        post: operations["propose_change_api_runs__run_id__changes_propose_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Changes
+         * @description Every Run Change applied to the run, oldest first.
+         */
+        get: operations["list_changes_api_runs__run_id__changes_get"];
+        put?: never;
+        /**
+         * Apply Change
+         * @description Apply a proposed Run Change, checked again. 409 when the run moved on since the
+         *     proposal's revision, naming what moved, or the stage has started; 422 with the check's
+         *     violations.
+         */
+        post: operations["apply_change_api_runs__run_id__changes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/pause": {
         parameters: {
             query?: never;
@@ -1733,6 +1780,55 @@ export interface components {
             /** Answer */
             answer: string;
         };
+        /**
+         * AppliedChange
+         * @description A Run Change as recorded: who applied it and when. `revision` is the run's revision it
+         *     made.
+         */
+        AppliedChange: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Kind */
+            kind: string;
+            /** Stage Id */
+            stage_id: string;
+            /** Stage Index */
+            stage_index: number;
+            /** Stage Name */
+            stage_name: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            };
+            /** By */
+            by: string;
+            /** At */
+            at: string;
+            /** Revision */
+            revision: number;
+        };
+        /** ApplyChange */
+        ApplyChange: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "stage_edit";
+            /** Stage */
+            stage: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Revision */
+            revision: number;
+        };
         /** ArmSummary */
         ArmSummary: {
             /** Arm */
@@ -1948,6 +2044,52 @@ export interface components {
             colour?: string | null;
             /** Catchphrase */
             catchphrase?: string | null;
+        };
+        /**
+         * Change
+         * @description A Run Change (ADR 0027). A `stage_edit` targets a stage that has not started, by id, and
+         *     its `payload` is the stage's whole new config.
+         */
+        Change: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "stage_edit";
+            /** Stage */
+            stage: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ChangeProposal
+         * @description What a Run Change would do, with nothing written: the stage's config before and after,
+         *     the `violations` that would refuse it, and the run's `revision` it was made against, which
+         *     applying it must name.
+         */
+        ChangeProposal: {
+            change: components["schemas"]["RunChange"];
+            /** Stage Name */
+            stage_name: string;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            };
+            /** After */
+            after: {
+                [key: string]: unknown;
+            };
+            /** Violations */
+            violations: string[];
+            /** Revision */
+            revision: number;
+            /**
+             * In Place
+             * @default true
+             */
+            in_place: boolean;
         };
         /** Changes */
         Changes: {
@@ -3052,6 +3194,28 @@ export interface components {
              * @default false
              */
             baseline: boolean;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Changes */
+            changes?: components["schemas"]["AppliedChange"][];
+        };
+        /**
+         * RunChange
+         * @description One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
+         *     `stage_edit`'s `payload` is the stage's new config.
+         */
+        RunChange: {
+            /** Kind */
+            kind: string;
+            /** Stage */
+            stage: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * RunLink
@@ -3132,6 +3296,10 @@ export interface components {
             ask?: string | null;
             /** Inputs */
             inputs?: string[];
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
         };
         /** SaveAsWorkflow */
         SaveAsWorkflow: {
@@ -5014,6 +5182,138 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    propose_change_api_runs__run_id__changes_propose_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Change"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeProposal"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_changes_api_runs__run_id__changes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppliedChange"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_change_api_runs__run_id__changes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppliedChange"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The run is not in a state where this action applies */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

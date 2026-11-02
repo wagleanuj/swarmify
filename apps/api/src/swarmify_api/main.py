@@ -777,6 +777,7 @@ def create_app(
     )
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
+    runner.check = runs.checker(workflow_svc)
     # On upgrade: versions saved before they recorded package versions take the world's pins.
     workflow_svc.stamp(registry.enabled)
 

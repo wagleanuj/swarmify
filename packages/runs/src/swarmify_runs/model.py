@@ -89,6 +89,52 @@ class RunStageView:
     inputs: list[str] = field(default_factory=list)
     """The artifact names a connector stage takes (its `input` or `inputs`), so a skin can show
     what went in."""
+    config: dict[str, Any] = field(default_factory=dict)
+    """The stage's definition as this run holds it, Stage Edits included."""
+
+
+@dataclass(frozen=True)
+class RunChange:
+    """One edit to a live run, as proposed (ADR 0027). `stage` is the target stage's id; a
+    `stage_edit`'s `payload` is the stage's new config."""
+
+    kind: str
+    stage: str
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ChangeProposal:
+    """What a Run Change would do, with nothing written: the stage's config before and after,
+    the `violations` that would refuse it, and the run's `revision` it was made against, which
+    applying it must name."""
+
+    change: RunChange
+    stage_name: str
+    before: dict[str, Any]
+    after: dict[str, Any]
+    violations: list[str]
+    revision: int
+    in_place: bool = True
+    """Applies to this run; False once it would continue as a Fork."""
+
+
+@dataclass(frozen=True)
+class AppliedChange:
+    """A Run Change as recorded: who applied it and when. `revision` is the run's revision it
+    made."""
+
+    id: str
+    run_id: str
+    kind: str
+    stage_id: str
+    stage_index: int
+    stage_name: str
+    payload: dict[str, Any]
+    before: dict[str, Any]
+    by: str
+    at: str
+    revision: int
 
 
 @dataclass(frozen=True)
@@ -121,6 +167,11 @@ class Run:
     """The Budget is spent and the waiting stage is a budget gate: add money or abort."""
     baseline: bool = False
     """Baseline mode: one agent and no graph, to measure the swarm against."""
+    revision: int = 0
+    """Counts every stage status change, gate answer and applied Run Change, so a proposal made
+    against an older one is refused."""
+    changes: list[AppliedChange] = field(default_factory=list)
+    """Every Run Change applied to the run, oldest first."""
 
     def send_back_note(self, stage_name: str) -> str:
         """The note of the send-back that caused this visit, when it named `stage_name`; empty

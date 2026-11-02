@@ -5,7 +5,7 @@ from typing import Protocol
 
 from swarmify_kernel import Event
 from swarmify_runs.machine import RunState
-from swarmify_runs.model import Decision, Gate, Run, StageDef
+from swarmify_runs.model import AppliedChange, Decision, Gate, Run, StageDef
 
 
 class Storage(Protocol):
@@ -30,6 +30,12 @@ class Storage(Protocol):
     def add_decision(self, run_id: str, decision: Decision, visit: int) -> None:
         """`visit` is the run's send-back count, which tells visits to one gate apart. Raises
         Illegal when this visit already has a decision."""
+        ...
+
+    def add_change(self, change: AppliedChange, revision: int) -> bool:
+        """Write the change's payload to its stage, record the change and its `run.changed` and
+        `run.updated` events in one transaction, moving the run to `change.revision`. False, with
+        nothing written, when the run is no longer at `revision` or the stage has started."""
         ...
 
     def set_spent(self, run_id: str, usd: float) -> Run | None:
