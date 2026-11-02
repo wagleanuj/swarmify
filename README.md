@@ -768,7 +768,17 @@ their files, and the package reads the folder through `assets_path` as before.
   `accept`, `confirm`, and `package`, its label; the first package to claim a folder keeps it),
   and their files are in `GET /api/worlds/<id>/assets` under each `path`.
   `PUT /api/worlds/<id>/assets/<name>?folder=<folder>` uploads into one, refused unless `name`
-  is one of its `accept` types; renaming and deleting are the assets endpoints below.
+  is one of its `accept` types; renaming and deleting are the assets endpoints below. The body
+  is streamed to disk, never held in memory.
+- An Owned Folder a package's `[templates]` names holds its Templates (ADR 0028), one subfolder
+  each, a group of rows on the Assets page. "Add a Template" uploads a zip, named from its file
+  and editable, replacing a Template of that name only when Replace is ticked:
+  `PUT /api/worlds/<id>/templates/<folder>/<name>[?replace=true]`. The zip is streamed to disk,
+  refused for an entry outside its folder, a link or a device file, for unpacking to more than
+  `SWARMIFY_TEMPLATE_MAX_BYTES` (1 GB by default), or for lacking a file the package's
+  `require` names; a single top folder is unwrapped. Its `.template.json` records its origin,
+  added time, size and a fingerprint of its files' paths and bytes (`node_modules` aside), which
+  `GET /api/worlds/<id>/templates` lists.
 
 ## Publishing
 

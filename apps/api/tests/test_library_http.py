@@ -1,7 +1,9 @@
 """The Library, pins, forks and promotes over HTTP: real DBOS on SQLite, a scripted agent CLI
 behind the Agent SDK and the fake ConnectorTransport."""
 
+import io
 import json
+import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -328,3 +330,95 @@ def test_a_world_lists_the_templates_in_its_packages_templates_folders(
     assert office["added"] == "2026-11-01T10:00:00+00:00" and office["bytes"] == 2
     assert client.get(f"/api/worlds/{other}/templates").json() == []
     assert client.get("/api/worlds/world_nope/templates").status_code == 404
+
+
+def zipped(files: dict[str, bytes], links: tuple[str, ...] = ()) -> bytes:
+    """A zip of these files, and of symlinks by these names."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in files.items():
+            z.writestr(name, data)
+        for name in links:
+            link = zipfile.ZipInfo(name)
+            link.external_attr = 0o120777 << 16
+            z.writestr(link, "/etc/passwd")
+    return out.getvalue()
+
+
+PROJECT = {"package.json": b"{}", "src/index.ts": b"export {};", "public/cat.png": b"PNG"}
+
+
+def test_a_zip_uploaded_as_a_template_is_listed_with_its_size_and_fingerprint(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Issue 347: the zip is unpacked into the package's Templates folder, a single top folder
+    unwrapped, and the record says where it came from and what it holds."""
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    url = f"/api/worlds/{world}/templates/remotion_templates"
+    put = client.put(f"{url}/cats", content=zipped({f"cats/{k}": v for k, v in PROJECT.items()}))
+    assert put.status_code == 201, put.json()
+    cats = put.json()
+    assert (cats["name"], cats["path"], cats["origin"]) == (
+        "cats", "assets/remotion_templates/cats/", "upload",
+    )  # fmt: skip
+    assert cats["bytes"] == 15 and len(cats["fingerprint"]) == 64
+    folder = tmp_path / "worlds" / world / "assets/remotion_templates"
+    assert (folder / "cats/src/index.ts").read_text() == "export {};"
+    record = json.loads((folder / "cats/.template.json").read_text())
+    assert record["origin"] == "upload" and record["fingerprint"] == cats["fingerprint"]
+    assert record["bytes"] == 15 and record["added"].startswith("20")
+    flat = client.put(f"{url}/again", content=zipped(PROJECT))
+    assert flat.status_code == 201 and flat.json()["fingerprint"] == cats["fingerprint"]
+    assert [t["name"] for t in client.get(f"/api/worlds/{world}/templates").json()] == [
+        "again",
+        "cats",
+    ]
+    listed = client.get(f"/api/worlds/{world}/templates").json()[1]
+    assert listed == cats
+    assert sorted(p.name for p in folder.iterdir()) == ["again", "cats"]  # no leftovers
+    assert client.put(f"{url}/x", content=b"not a zip").status_code == 422
+    assert client.put(f"/api/worlds/{world}/templates/voices/x", content=b"").status_code == 422
+    assert client.put(f"{url}/..%2Fx", content=zipped(PROJECT)).status_code in (404, 422)
+    assert client.put(f"{url}/a%20b", content=zipped(PROJECT)).status_code == 422
+    assert client.put("/api/worlds/world_nope/templates/x/y", content=b"").status_code == 404
+
+
+def test_an_unsafe_an_over_cap_or_an_incomplete_zip_is_refused_and_leaves_nothing(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    url = f"/api/worlds/{world}/templates/remotion_templates/cats"
+    for bad, problem in [
+        (zipped({**PROJECT, "/etc/cron.d/x": b"x"}), "/etc/cron.d/x"),
+        (zipped({**PROJECT, "../escape.txt": b"x"}), "../escape.txt"),
+        (zipped(PROJECT, links=("src/link",)), "src/link"),
+        (zipped({"package.json": b"{}"}), "src/index.ts"),
+    ]:
+        refused = client.put(url, content=bad)
+        assert refused.status_code == 422 and problem in refused.json()["detail"], refused.json()
+    monkeypatch.setenv("SWARMIFY_TEMPLATE_MAX_BYTES", "1000000")
+    big = zipped({**PROJECT, "public/big.bin": bytes(1_000_001)})
+    assert len(big) < 1_000_000  # zeros compress: the cap is on what it unpacks to
+    over = client.put(url, content=big)
+    assert over.status_code == 422 and "1 MB" in over.json()["detail"]
+    assert client.get(f"/api/worlds/{world}/templates").json() == []
+    folder = tmp_path / "worlds" / world / "assets/remotion_templates"
+    assert not folder.exists() or list(folder.iterdir()) == []
+    assert not (tmp_path / "worlds" / world / "escape.txt").exists()
+
+
+def test_a_template_name_already_there_is_refused_unless_replace_is_asked(
+    client: TestClient, tmp_path: Path
+) -> None:
+    world = client.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    url = f"/api/worlds/{world}/templates/remotion_templates/cats"
+    first = client.put(url, content=zipped(PROJECT)).json()
+    changed = zipped({"package.json": b"{}", "src/index.ts": b"export const cat = 1;"})
+    taken = client.put(url, content=changed)
+    assert taken.status_code == 409 and "cats is already" in taken.json()["detail"]
+    replaced = client.put(f"{url}?replace=true", content=changed)
+    assert replaced.status_code == 201 and replaced.json()["fingerprint"] != first["fingerprint"]
+    folder = tmp_path / "worlds" / world / "assets/remotion_templates"
+    assert (folder / "cats/src/index.ts").read_text() == "export const cat = 1;"
+    assert not (folder / "cats/public").exists()  # replaced, not merged
+    assert sorted(p.name for p in folder.iterdir()) == ["cats"]

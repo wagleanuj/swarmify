@@ -123,7 +123,7 @@ export function Assets() {
 
       {folders?.map((f) =>
         f.templates ? (
-          <TemplatesGroup key={f.path} folder={f} templates={templates && templates.filter((t) => t.folder === f.folder)} />
+          <TemplatesGroup key={f.path} folder={f} templates={templates && templates.filter((t) => t.folder === f.folder)} onAdd={() => setAdding(f)} />
         ) : (
           <OwnedGroup
             key={f.path}
@@ -142,7 +142,19 @@ export function Assets() {
       <Files worldId={worldId} files={rest} onChanged={reload} onError={setError} />
 
       <Sheet open={!!adding} onClose={() => setAdding(null)} label={`Add to ${adding?.label ?? ""}`} className="sheet-form">
-        {adding && (
+        {adding?.templates && (
+          <AddTemplate
+            worldId={worldId}
+            folder={adding}
+            taken={(templates ?? []).filter((t) => t.folder === adding.folder).map((t) => t.name)}
+            onClose={() => setAdding(null)}
+            onAdded={(said) => {
+              setAdding(null);
+              reload(said);
+            }}
+          />
+        )}
+        {adding && !adding.templates && (
           <AddFile
             worldId={worldId}
             folder={adding}
@@ -163,13 +175,16 @@ const origin = (t: Template) =>
   t.origin === "run" ? `Saved from run ${t.run_id}, stage ${t.stage}` : t.origin === "upload" ? "Uploaded" : "Placed by hand";
 
 /** A package's Templates folder: one row per Template, each a subfolder a build can start from. */
-function TemplatesGroup({ folder: f, templates }: { folder: Folder; templates: Template[] | null }) {
+function TemplatesGroup({ folder: f, templates, onAdd }: { folder: Folder; templates: Template[] | null; onAdd: () => void }) {
   const head = `owned-${f.folder}`;
   return (
     <section className="panel" aria-labelledby={head}>
       <div className="panel-head">
         <h2 id={head}>{f.label}</h2>
         <span className="faint">{f.package}</span>
+        <button type="button" onClick={onAdd}>
+          Add a Template
+        </button>
       </div>
       {templates === null ? (
         <p className="faint">Loading {f.label.toLowerCase()}...</p>
@@ -471,6 +486,81 @@ function AddFile({ worldId, folder: f, taken, onAdded, onClose }: { worldId: str
       <div className="actions">
         <button type="submit" className="primary" disabled={!ready}>
           {busy ? "Adding..." : "Add"}
+        </button>
+        <button type="button" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** The Add sheet of a Templates folder: a zip, named from its file, which replaces a Template of
+ * that name only when the operator ticks Replace. */
+function AddTemplate({ worldId, folder: f, taken, onAdded, onClose }: { worldId: string; folder: Folder; taken: string[]; onAdded: (said: string) => void; onClose: () => void }) {
+  const [zip, setZip] = useState<File | null>(null);
+  const [name, setName] = useState("");
+  const [replace, setReplace] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const exists = taken.includes(name);
+  const nameProblem = !name ? null : !NAME.test(name) ? "Letters, digits, _ or - only, no spaces." : exists ? `${name} is already in ${f.label}.` : null;
+  const ready = zip && name && NAME.test(name) && (!exists || replace) && !busy;
+
+  function pick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setZip(file);
+    setName(plainName(stem(file.name)).replace(/\./g, "-").slice(0, 60));
+  }
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!ready || !zip) return;
+    setBusy(true);
+    setError(null);
+    // the body is the zip itself, which the typed client cannot send
+    const url = `/api/worlds/${encodeURIComponent(worldId)}/templates/${encodeURIComponent(f.folder)}/${encodeURIComponent(name)}${exists ? "?replace=true" : ""}`;
+    const response = await globalThis.fetch(url, { method: "PUT", body: zip }).catch(() => null);
+    setBusy(false);
+    if (response?.ok) return onAdded(exists ? `Replaced ${name} in ${f.label}.` : `Added ${name} to ${f.label}.`);
+    const detail = await response?.json().then((b: { detail?: unknown }) => b.detail).catch(() => null);
+    setError(typeof detail === "string" ? `Not uploaded: ${detail}.` : `Could not upload to ${f.label}. Is the API running?`);
+  }
+
+  return (
+    <form className="add-voice" onSubmit={save}>
+      <h2>Add to {f.label}</h2>
+      <p className="faint">
+        A zip of a project.{f.require.length > 0 && ` It must hold ${f.require.join(", ")}.`}
+      </p>
+      <div className="field">
+        <label className="button">
+          {zip ? "Choose another zip" : "Choose a zip"}
+          <input type="file" accept=".zip,application/zip" className="visually-hidden" onChange={pick} aria-label="Zip" />
+        </label>
+        {zip && <span className="mono">{zip.name}</span>}
+      </div>
+      <div className="field">
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" aria-invalid={!!nameProblem && !(exists && replace)} aria-describedby="template-name-hint" />
+        </label>
+        <small id="template-name-hint" className="faint">
+          {nameProblem ?? `Plain and unique in ${f.label}.`}
+        </small>
+      </div>
+      {exists && (
+        <label className="check">
+          <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+          Replace {name}
+        </label>
+      )}
+      {error && <p role="alert">{error}</p>}
+      <div className="actions">
+        <button type="submit" className="primary" disabled={!ready}>
+          {busy ? "Uploading..." : "Upload"}
         </button>
         <button type="button" onClick={onClose}>
           Cancel

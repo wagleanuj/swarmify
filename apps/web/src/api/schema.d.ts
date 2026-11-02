@@ -1367,6 +1367,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/worlds/{world_id}/templates/{folder}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload Template
+         * @description Upload a zip as the Template `name` of the Templates folder `folder`: streamed to
+         *     disk, its entries checked, unpacked (a single top folder unwrapped) and checked for the
+         *     files its package requires, then moved into place. A name already there is refused
+         *     unless `replace`.
+         */
+        put: operations["upload_template_api_worlds__world_id__templates__folder___name__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/assets/{name}": {
         parameters: {
             query?: never;
@@ -3005,6 +3028,8 @@ export interface components {
             package: string;
             /** Templates */
             templates: boolean;
+            /** Require */
+            require: string[];
         };
         /**
          * Package
@@ -3961,6 +3986,8 @@ export interface components {
             stage: string;
             /** Added */
             added: string;
+            /** Fingerprint */
+            fingerprint: string;
         };
         /** Tested */
         Tested: {
@@ -6916,6 +6943,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    upload_template_api_worlds__world_id__templates__folder___name__put: {
+        parameters: {
+            query?: {
+                replace?: boolean;
+            };
+            header?: never;
+            path: {
+                world_id: string;
+                folder: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

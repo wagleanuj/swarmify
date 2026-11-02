@@ -321,9 +321,10 @@ class Memory:
             if not any(part.startswith(".") for part in p.relative_to(world).parts)
         )
 
-    def add_asset(self, world_id: str, name: str, data: bytes, folder: str = "") -> str:
+    def add_asset(self, world_id: str, name: str, data: bytes | Path, folder: str = "") -> str:
         """Write (or replace) the asset `name`, a plain file name, in the assets folder or its
-        subfolder `folder`, a plain name too. Returns its path relative to the world folder.
+        subfolder `folder`, a plain name too, from `data` or by moving the file `data` (on the
+        same disk), as an upload streamed there. Returns its path relative to the world folder.
         Raises ValueError for a name that is a path or a dotfile."""
         for plain in (name, folder) if folder else (name,):
             if not _NAME.match(plain):
@@ -331,7 +332,10 @@ class Memory:
         path = f"{ASSETS}/{folder}/{name}" if folder else f"{ASSETS}/{name}"
         file = self.world_folder(world_id) / path
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_bytes(data)
+        if isinstance(data, Path):
+            data.replace(file)
+        else:
+            file.write_bytes(data)
         return path
 
     def remove_asset(self, world_id: str, path: str) -> None:
