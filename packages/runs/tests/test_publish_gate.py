@@ -40,6 +40,7 @@ def previews(_run: Run, stage: StageDef, edits: dict[str, Any]) -> PublishPrevie
             PublishField("schedule", "When", RESOLVED["schedule"]),
         ],
         problems,
+        private=params.get("visibility") == "private",
     )
 
 
@@ -162,6 +163,19 @@ def test_the_runner_refuses_a_publish_stage_no_gate_precedes(
     error = failed.stages[-1].error or ""
     assert "calls a publish connector, so it runs only right after an answered gate" in error
     assert "publish" not in [name for _, name in connector.calls]
+
+
+def test_a_private_publish_stage_runs_without_a_gate(
+    runner: Runner, connector: FakeConnector
+) -> None:
+    draft = StageDef(
+        "publish",
+        "connector",
+        {"calls": "youtube", "params": {"title": "Hooks", "visibility": "private"}},
+    )
+    run = runner.start("world_1", "wf_1", 1, "Draft", [RENDER, draft])
+    wait_for(lambda: status(runner, run.id) == "done")
+    assert [name for _, name in connector.calls] == ["render", "publish"]
 
 
 @pytest.mark.parametrize("kind", ["approve", "confirm"])

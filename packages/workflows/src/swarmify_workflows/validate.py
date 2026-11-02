@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath
 from typing import Any
 
-from swarmify_kernel import AGENT_TOOLS
+from swarmify_kernel import AGENT_TOOLS, posts_privately
 from swarmify_workflows.model import (
     ConnectorRef,
     ConnectorStage,
@@ -100,13 +100,8 @@ def validate(
         elif isinstance(stage, ConnectorStage):
             ref = check_connector(stage.calls, "connector", stage.name)
             gated = index > 0 and isinstance(model.stages[index - 1], GateStage)
-            # A private post (a draft only the operator sees) needs no gate; the stage must set
-            # the params itself, so a connector's default never decides it.
-            private = (
-                ref is not None
-                and bool(ref.private_when)
-                and all(stage.params.get(k) == v for k, v in ref.private_when.items())
-            )
+            # A private post (a draft only the operator sees) needs no gate.
+            private = ref is not None and posts_privately(ref.private_when, stage.params)
             if ref is not None and ref.kind == "publish" and not gated and not private:
                 out.append(
                     Violation(

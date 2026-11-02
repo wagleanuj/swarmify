@@ -150,6 +150,8 @@ class PublishPreview:
     connector: str
     fields: list[PublishField] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    private: bool = False
+    """The stage posts privately (its connector's `private_when`), so no gate need precede it."""
 
     def values(self) -> dict[str, Any]:
         return {f.key: f.value for f in self.fields}

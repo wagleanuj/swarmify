@@ -2875,6 +2875,11 @@ export interface components {
             fields?: components["schemas"]["PublishField"][];
             /** Problems */
             problems?: string[];
+            /**
+             * Private
+             * @default false
+             */
+            private: boolean;
         };
         /** Question */
         Question: {
