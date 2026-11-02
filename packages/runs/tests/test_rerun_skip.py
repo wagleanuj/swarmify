@@ -321,12 +321,16 @@ def test_a_rerun_of_a_failed_run_continues_as_a_fork_that_runs_only_that_stage_a
 ) -> None:
     """The upload was refused at the end: redo it without the stages before it."""
     calls.failing = {"publish"}
-    run = runner.start("world_1", "wf_1", 1, "Short", [WRITE, RENDER, PRIVATE, PICK])
+    run = runner.start(
+        "world_1", "wf_1", 1, "Short", [WRITE, RENDER, PRIVATE, PICK], budget_usd=2.0
+    )
     run = at(runner, run.id, "failed")
+    runner.storage.set_spent(run.id, 2.5)  # over its Budget: the Fork starts afresh on 2 USD
     rerun = change(run, "rerun", "publish", "Try the upload again.")
 
     proposal = runner.propose(run.id, rerun)
     assert proposal.violations == [] and not proposal.in_place
+    assert proposal.budget_left_usd == 2.0
     assert (proposal.fork_from, proposal.before) == ("publish", {"publish": "failed"})
     applied = runner.apply(run.id, rerun, proposal.revision, "operator")
     assert applied.fork is not None

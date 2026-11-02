@@ -494,6 +494,7 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
     "GET /api/worlds": () => Response.json([video]),
     "GET /api/gates": () => Response.json([gate("confirm", { publish })]),
     "GET /api/runs/run_1": () => Response.json(atGate),
+    "GET /api/runs/run_1/assistant": () => Response.json({ messages: [], spent_usd: 0, average_usd: 0.19, month_left_usd: 41.2 }),
     "POST /api/runs/run_1/assistant": async (req) => {
       asked.push(await req.json());
       return Response.json({ ...reply, proposals: [{ id: "proposal_1", state: "open", proposal, change_id: null }] });
@@ -513,6 +514,7 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
   const card = screen.getByTestId("gate-run_1");
   const confirm = card.getByRole("button", { name: "Confirm and post" });
   await expect.element(confirm).toBeDisabled();
+  await expect.element(card).toMatchTextContent(/Asking costs about \$0\.19 a question, from the \$41\.20 the world has left this month\./);
 
   await card.getByLabelText("Ask or change before you answer").fill("Cut the hashtags to five");
   await card.getByRole("button", { name: "Send" }).click();

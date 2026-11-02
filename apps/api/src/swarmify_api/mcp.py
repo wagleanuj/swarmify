@@ -19,7 +19,7 @@ from swarmify_api.auth import CALLER
 from swarmify_api.runs import checker, pinner, start_pinned
 from swarmify_connectors import Connectors
 from swarmify_memory import Memory
-from swarmify_runs import Illegal, Run, RunChange, RunControl
+from swarmify_runs import TERMINAL, Illegal, Run, RunChange, RunControl
 from swarmify_swarm import OPERATOR, Refused, Storage
 from swarmify_swarm import ToolError as AgentToolError
 from swarmify_workflows import Invalid, Workflows
@@ -446,7 +446,7 @@ def approvals_server(control: RunControl, asker: RunAssistant, registry: Connect
                 "violations": p.violations,
                 "in_place": p.in_place,
                 "fork_from": p.fork_from,
-                "ends": not p.in_place and run.status not in ("done", "failed", "aborted"),
+                "ends": not p.in_place and run.status not in TERMINAL,
                 "resets": list(p.before) if p.change.kind == "rerun" else [],
                 "cost_usd": p.cost_usd,
                 "budget_left_usd": p.budget_left_usd,

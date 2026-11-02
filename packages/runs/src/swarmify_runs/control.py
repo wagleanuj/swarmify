@@ -672,6 +672,12 @@ class RunControl:
         problems = ([not_now] if not_now else []) + violations
         top = self.top(run)
         left = None if top.budget_usd is None else max(0.0, top.budget_usd - top.spent_usd)
+        if fork is not None:  # the Fork starts afresh, on the Budget `_new_fork` gives it
+            try:
+                left = self.budget_for(run.world_id, workflow=run.budget_usd)
+            except MonthSpent as exc:
+                left = 0.0
+                problems.append(str(exc))
         cost = None
         if change.kind == "rerun":
             spent = self.stage_spend(run.id)
