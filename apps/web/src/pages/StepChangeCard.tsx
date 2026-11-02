@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { api } from "../api/client";
 import { money, refusal, type Run } from "../api/runs";
@@ -23,17 +23,34 @@ const names = new Intl.ListFormat("en-GB", { type: "conjunction" });
 
 /** A Rerun or a Skip as a change card (ADR 0027): the steps it resets or passes over, what a
  * Rerun costs again against the budget left, what the check would refuse, and Apply only once it
- * passes. Nothing changes until Apply. */
-export function StepChangeCard({ run, stage, kind, onClose }: { run: Run; stage: Stage; kind: StepKind; onClose: () => void }) {
-  const [note, setNote] = useState("");
-  const [editing, setEditing] = useState(kind === "rerun");
-  const [proposal, setProposal] = useState<Proposal | null>(null);
+ * passes. Nothing changes until Apply. `proposed` is one made already (by the Run Assistant):
+ * shown as it was, with its note, so it goes stale when the run moved. */
+export function StepChangeCard({
+  run,
+  stage,
+  kind,
+  onClose,
+  proposed,
+  onApplied,
+}: {
+  run: Run;
+  stage: Stage;
+  kind: StepKind;
+  onClose: () => void;
+  proposed?: Proposal;
+  onApplied?: (change: AppliedChange) => void;
+}) {
+  const [note, setNote] = useState(() => String(proposed?.change.payload?.note ?? ""));
+  const noteId = useId();
+  const [editing, setEditing] = useState(kind === "rerun" && !proposed);
+  const [proposal, setProposal] = useState<Proposal | null>(proposed ?? null);
   const [problem, setProblem] = useState<string | null>(null);
   const [applied, setApplied] = useState<AppliedChange | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const [asked, setAsked] = useState(0);
 
   useEffect(() => {
+    if (proposed && asked === 0) return; // as proposed, until asked again
     let stale = false; // a slower answer for an earlier ask must not land
     (async () => {
       const { data, error, response } = await api.POST("/api/runs/{run_id}/changes/propose", {
@@ -48,7 +65,7 @@ export function StepChangeCard({ run, stage, kind, onClose }: { run: Run; stage:
     return () => {
       stale = true;
     };
-  }, [run.id, stage.id, kind, asked]);
+  }, [run.id, stage.id, kind, asked, proposed]);
 
   async function apply() {
     if (!proposal) return;
@@ -56,7 +73,10 @@ export function StepChangeCard({ run, stage, kind, onClose }: { run: Run; stage:
       params: { path: { run_id: run.id } },
       body: { kind, stage: stage.id, payload: kind === "rerun" ? { note: note.trim() } : {}, revision: proposal.revision },
     });
-    if (data) return setApplied(data);
+    if (data) {
+      onApplied?.(data);
+      return setApplied(data);
+    }
     setRefused(refusal(error, response, "The change was refused"));
   }
 
@@ -115,8 +135,8 @@ export function StepChangeCard({ run, stage, kind, onClose }: { run: Run; stage:
         <>
           {editing && kind === "rerun" && (
             <>
-              <label htmlFor="rerun-note">Note for {stage.name}</label>
-              <textarea id="rerun-note" value={note} rows={3} placeholder="What to do differently" onChange={(e) => setNote(e.target.value)} />
+              <label htmlFor={noteId}>Note for {stage.name}</label>
+              <textarea id={noteId} value={note} rows={3} placeholder="What to do differently" onChange={(e) => setNote(e.target.value)} />
             </>
           )}
           <div className="answer-bar">

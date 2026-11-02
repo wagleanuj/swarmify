@@ -12,7 +12,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from test_publish_http import SCRIPT, setup, weekly
 from test_publish_http import at_gate as publish_gate
-from test_run_changes_http import at_gate, change, stage
+from test_rerun_skip_http import at_check, step
+from test_run_changes_http import at_gate, change, restructure, shape, stage
 
 from swarmify_memory import FakeGraphIndex
 from swarmify_memory.ports import graph_file
@@ -154,6 +155,39 @@ def test_a_change_comes_back_as_the_proposal_propose_makes_and_applies_through_t
         f"/api/runs/{run['id']}/assistant/proposals/{card['id']}", json={"state": "dismissed"}
     )
     assert again.status_code == 409
+
+
+def test_a_rerun_a_skip_and_a_restructure_come_back_as_proposals_that_apply_through_the_seam(
+    running: TestClient, script: Script
+) -> None:
+    run = at_check(running)
+    review = {"name": "review", "type": "gate", "ask": "Ready to upload?"}
+    rest = [review, shape(run, "confirm"), shape(run, "publish")]
+    asks = {
+        "Redo the render, stronger hook.": step(run, "rerun", "render", note="Stronger hook."),
+        "Skip the tagging.": step(run, "skip", "tag"),
+        "Add a review gate before upload.": restructure(run, "confirm", rest),
+    }
+    script.scripts = [
+        [Call(tool_id("propose_change"), c), Answer({"reply": "Here it is.", "sources": []})]
+        for c in asks.values()
+    ]
+    for n, (message, proposed) in enumerate(asks.items()):
+        asked = running.post(f"/api/runs/{run['id']}/assistant", json={"message": message})
+        assert asked.status_code == 200, asked.text
+        [card] = asked.json()["proposals"]
+        made = running.post(f"/api/runs/{run['id']}/changes/propose", json=proposed).json()
+        assert card["proposal"] == made and made["violations"] == []
+        assert card["proposal"]["change"]["kind"] == proposed["kind"]
+        told = str(script.sessions[n].system_prompt)
+        assert all(k in told for k in ("rerun", "skip", "restructure", '{"note"', '{"stages"'))
+
+    # The Rerun applies with its note, at the revision it was proposed against.
+    [rerun] = running.get(f"/api/runs/{run['id']}/assistant").json()["messages"][1]["proposals"]
+    body = {**rerun["proposal"]["change"], "revision": rerun["proposal"]["revision"]}
+    applied = running.post(f"/api/runs/{run['id']}/changes", json=body)
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["payload"] == {"note": "Stronger hook."}
 
 
 def test_the_assistant_cannot_apply_a_change_or_answer_a_gate(

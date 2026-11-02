@@ -52,16 +52,13 @@ export function useGateAsk(gate: Gate, onFill: (fields: Record<string, string>) 
   return { turns, text, setText, asking, error, send, filled };
 }
 
-/** Whether the change card can show a proposal: a Stage Edit or an Artifact Edit. */
-export const cardable = (card: Card) => card.proposal.change.kind === "stage_edit" || card.proposal.change.kind === "artifact_edit";
-
 /** Apply a proposal as proposed, through the Run Change seam, and record it on the card. Resolves
  * to the refusal (the run moved on, the check failed), or null once applied. */
 export async function applyCard(runId: string, card: Card): Promise<string | null> {
-  const { change, after, revision } = card.proposal;
+  const { change, revision } = card.proposal;
   const { data, error, response } = await api.POST("/api/runs/{run_id}/changes", {
     params: { path: { run_id: runId } },
-    body: { kind: change.kind as Kind, stage: change.stage, payload: after, revision },
+    body: { kind: change.kind as Kind, stage: change.stage, payload: change.payload, revision },
   });
   if (!data) return refusal(error, response, "The change was refused");
   await markCard(runId, card, "applied", data.id);

@@ -138,3 +138,90 @@ test("on a phone the assistant opens as a sheet from the run header", async () =
   await expect.element(sheet.getByRole("button", { name: "Send" })).toBeVisible();
   expect(screen.getByTestId("assistant").elements()).toHaveLength(1); // the sheet's, no column
 });
+
+const script = stage(0, "script", "swarm", "done", { config: {} });
+const speech = stage(2, "speech", "connector", "pending", { config: { calls: "tts" } });
+const upload = stage(3, "upload", "connector", "pending", { config: { calls: "youtube" } });
+const atCheck = run("waiting_gate", [script, stage(1, "check", "gate", "waiting", { config: { ask: "Good?" } }), speech, upload], { revision: 3, budget_usd: 5 });
+const review = { name: "review", type: "gate", ask: "Ready to upload?" };
+const shape = (s: typeof speech) => ({ name: s.name, type: s.type, ...s.config });
+const proposed = {
+  rerun: {
+    change: { kind: "rerun", stage: "stage_0", payload: { note: "Stronger hook." } },
+    stage_name: "script",
+    before: { script: "done", check: "waiting" },
+    after: { script: "pending", check: "pending" },
+    cost_usd: 0.4,
+    budget_left_usd: 2,
+  },
+  skip: { change: { kind: "skip", stage: "stage_3", payload: {} }, stage_name: "upload", before: { upload: "pending" }, after: { upload: "skipped" } },
+  restructure: {
+    change: { kind: "restructure", stage: "stage_2", payload: { stages: [shape(speech), review, shape(upload)] } },
+    stage_name: "speech",
+    before: { stages: [shape(speech), shape(upload)] },
+    after: { stages: [shape(speech), review, shape(upload)] },
+    in_place: false,
+    fork_from: "speech",
+  },
+};
+const cards = (state: string) =>
+  Object.entries(proposed).map(([kind, p]) => ({
+    id: `proposal_${kind}`,
+    state,
+    proposal: { violations: [], revision: 3, in_place: true, ...p },
+    change_id: state === "applied" ? `change_${kind}` : null,
+  }));
+const offered = (state: string) => ({ ...answered(3), text: "Three ways to go.", sources: [], proposals: cards(state) });
+const appliedAs = (kind: string, stage_name: string) => ({ id: `change_${kind}`, run_id: "run_1", kind, stage_id: "stage_0", stage_index: 0, stage_name, payload: {}, before: {}, by: "operator", at: ts, revision: 4 });
+
+test("a proposed Rerun, Skip and Restructure each come as an Apply card that applies through the Run Change seam", async () => {
+  await page.viewport(1280, 800);
+  const applied: { kind: string }[] = [];
+  const calls = fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(atCheck),
+    "GET /api/runs/run_1/assistant": () => Response.json({ messages: [asked, offered("open")], spent_usd: 0.02 }),
+    "POST /api/runs/run_1/changes": async (req) => {
+      const body = await req.json();
+      applied.push(body);
+      return Response.json(appliedAs(body.kind, "script"), { status: 201 });
+    },
+    ...Object.fromEntries(Object.keys(proposed).map((k) => [`POST /api/runs/run_1/assistant/proposals/proposal_${k}`, () => Response.json({})])),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await screen.getByRole("button", { name: "Ask this run" }).click();
+  const panel = screen.getByTestId("assistant");
+
+  const rerun = panel.getByRole("region", { name: "Re-run from script" });
+  await expect.element(rerun.getByRole("list", { name: "The change" })).toHaveTextContent("script done pendingcheck waiting pending");
+  await expect.element(rerun).toMatchTextContent(/Resets script and check, about \$0\.40 more of the \$2\.00 left/);
+  const skip = panel.getByRole("region", { name: "Skip upload" });
+  await expect.element(skip.getByRole("list", { name: "The change" })).toHaveTextContent("upload pending skipped");
+  // The Restructure shows the stages it proposes, not the run's current ones.
+  const restructure = panel.getByRole("region", { name: "Change the stages from speech on" });
+  await expect.element(restructure.getByRole("list", { name: "The change" })).toMatchTextContent(/review \(gate\) \{"ask":"Ready to upload\?"\}/);
+  await expect.element(restructure).toMatchTextContent(/Continues as a new run from speech; this one ends\./);
+  expect(calls).not.toContain("POST /api/runs/run_1/changes/propose"); // shown as proposed
+
+  for (const card of [rerun, skip, restructure]) {
+    await card.getByRole("button", { name: "Apply" }).click();
+    await expect.element(card).toMatchTextContent(/Applied by you at \d\d:\d\d/);
+  }
+  const { rerun: r, skip: k, restructure: s } = proposed;
+  expect(applied).toEqual([{ ...r.change, revision: 3 }, { ...k.change, revision: 3 }, { ...s.change, payload: s.after, revision: 3 }]);
+});
+
+test("an applied card of any kind reads its own title", async () => {
+  await page.viewport(1280, 800);
+  const changes = [appliedAs("rerun", "script"), appliedAs("skip", "upload"), appliedAs("restructure", "speech")];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json({ ...atCheck, changes }),
+    "GET /api/runs/run_1/assistant": () => Response.json({ messages: [asked, offered("applied")], spent_usd: 0.02 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await screen.getByRole("button", { name: "Ask this run" }).click();
+  const panel = screen.getByTestId("assistant");
+  await expect.element(panel).toMatchTextContent(/Re-run from script\. Applied by you at \d\d:\d\d/);
+  await expect.element(panel).toMatchTextContent(/Skip upload\. Applied by you at \d\d:\d\d/);
+  await expect.element(panel).toMatchTextContent(/Change the stages from speech on\. Applied by you at \d\d:\d\d/);
+  await expect.element(panel).not.toMatchTextContent(/Edit (script|upload|speech)/);
+});

@@ -539,6 +539,57 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
   await expect.element(confirm).toBeEnabled();
 });
 
+test("asking at a gate offers a Rerun, a Skip and a Restructure as Apply cards there", async () => {
+  const atGate = run("waiting_gate", [stage(0, "script", "swarm", "done"), stage(1, "pick", "gate", "waiting"), stage(2, "upload", "connector", "pending", { config: { calls: "youtube" } })], { revision: 3 });
+  const review = { name: "review", type: "gate", ask: "Ready to upload?" };
+  const upload = { name: "upload", type: "connector", calls: "youtube" };
+  const proposal = (kind: string, stage: string, stage_name: string, payload: object, before: object, after: object) => ({
+    change: { kind, stage, payload },
+    stage_name,
+    before,
+    after,
+    violations: [],
+    revision: 3,
+    in_place: kind !== "restructure",
+    fork_from: kind === "restructure" ? "upload" : null,
+  });
+  const proposals = [
+    proposal("rerun", "stage_0", "script", { note: "Stronger hook." }, { script: "done", pick: "waiting" }, { script: "pending", pick: "pending" }),
+    proposal("skip", "stage_2", "upload", {}, { upload: "pending" }, { upload: "skipped" }),
+    proposal("restructure", "stage_2", "upload", { stages: [review, upload] }, { stages: [upload] }, { stages: [review, upload] }),
+  ].map((p, n) => ({ id: `proposal_${n}`, state: "open", proposal: p, change_id: null }));
+  const applied: { kind: string }[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([gate("pick")]),
+    "GET /api/runs/run_1": () => Response.json(atGate),
+    "POST /api/runs/run_1/assistant": () => Response.json({ id: "message_2", role: "assistant", text: "Three ways.", at: ts, sources: [], cost_usd: 0.02, proposals }),
+    "POST /api/runs/run_1/changes": async (req) => {
+      const body = await req.json();
+      applied.push(body);
+      return Response.json({ id: "change_1", run_id: "run_1", kind: body.kind, stage_id: body.stage, stage_index: 0, stage_name: "script", payload: {}, before: {}, by: "operator", at: ts, revision: 4 }, { status: 201 });
+    },
+    ...Object.fromEntries(proposals.map((p) => [`POST /api/runs/run_1/assistant/proposals/${p.id}`, () => Response.json({})])),
+  });
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_1");
+  await card.getByLabelText("Ask or change before you answer").fill("Redo the script with a stronger hook");
+  await card.getByRole("button", { name: "Send" }).click();
+
+  const rerun = card.getByRole("region", { name: "Re-run from script" });
+  await expect.element(rerun.getByRole("list", { name: "The change" })).toHaveTextContent("script done pendingpick waiting pending");
+  await expect.element(card.getByRole("region", { name: "Skip upload" })).toBeVisible();
+  const restructure = card.getByRole("region", { name: "Change the stages from upload on" });
+  await expect.element(restructure.getByRole("list", { name: "The change" })).toMatchTextContent(/review \(gate\)/);
+  for (const name of ["Re-run from script", "Skip upload", "Change the stages from upload on"]) {
+    const change = card.getByRole("region", { name });
+    await change.getByRole("button", { name: "Apply" }).click();
+    await expect.element(change).toMatchTextContent(/Applied by you at \d\d:\d\d/);
+  }
+  expect(applied.map((a) => a.kind)).toEqual(["rerun", "skip", "restructure"]);
+  expect(applied[0]).toEqual({ kind: "rerun", stage: "stage_0", payload: { note: "Stronger hook." }, revision: 3 });
+});
+
 test("the run page's own gate has no second assistant: Ask this run covers it", async () => {
   fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
