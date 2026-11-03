@@ -11,9 +11,10 @@ The planner chat, told apart by its system prompt too, drafts GOLDEN. The Remoti
 speech and YouTube connectors answer from a fake ConnectorTransport (render writes the video and
 its sidecar, as the real wrapper does; speech writes timings.json and a silent take per scene;
 YouTube posts and counts 1,234 views, while its preview is the youtube package's own, over MCP);
-a connector a test adds, and the render package's workflow check, go through the real MCP
-transport. remotion_render installs with an `npm` and `npx` that do nothing, so each app does not
-fetch the Remotion CLI and Chrome (800 MB) its fake renders never use. Upkeep runs every second.
+a connector a test adds goes through the real MCP transport. Every world has the Remotion
+Template `shorts` its workflows render. remotion_render installs with an `npm` and `npx` that do
+nothing, so each app does not fetch the Remotion CLI and Chrome (800 MB) its fake renders never
+use. Upkeep runs every second.
 
 The GraphWriter's extract writes a fixed graph instead of calling graphify's model, a second
 after the last change; the real graphify MCP process answers queries over it."""
@@ -38,6 +39,7 @@ from swarmify_learning import SYSTEM as RETRO_SYSTEM
 from swarmify_memory import GRAPH_OUT
 from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script, ScriptedTransport
+from swarmify_worlds import World, Worlds
 
 BUILDER_SYSTEM = (Path(__file__).parents[2] / "connectors/remotion_build/system.md").read_text()
 """The remotion_build package's system prompt for its Build Session."""
@@ -258,6 +260,19 @@ def _no_node_installs() -> None:
     packages._install_env = install_env
 
 
+def _with_shorts_template() -> None:
+    """Every world made gets the Remotion Template `shorts` the e2e workflows render (ADR 0028),
+    as if its operator had placed it."""
+    made = Worlds.create
+
+    def create(self: Worlds, name: str, purpose: str = "") -> World:
+        world = made(self, name, purpose)
+        (self.folder(world.id) / "assets/remotion_templates/shorts").mkdir(parents=True)
+        return world
+
+    Worlds.create = create  # type: ignore[method-assign]
+
+
 def create_app() -> FastAPI:
     _no_node_installs()
     retro = PROPOSE if os.environ.get("SWARMIFY_E2E_RETRO") == "propose" else RETRO
@@ -275,10 +290,7 @@ def create_app() -> FastAPI:
         script = next(s for marker, s in scripts.items() if marker in prompt)
         return script.transport(options)
 
-    # The template the e2e workflows render, where the render package's templates folder is:
-    # its sandbox lets it read nothing else of the data directory.
-    template = Path(os.environ["SWARMIFY_DATA_DIR"]) / "remotion" / "shorts"
-    template.mkdir(parents=True, exist_ok=True)
+    _with_shorts_template()
     return real_app(
         transport=Transport(),
         runtime=SdkRuntime(transport=transport),

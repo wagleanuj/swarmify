@@ -1,7 +1,7 @@
 """The Remotion render connector: the package installed through the real install path (with the
 suite's fake `npm` and `npx`), given to a world as a default, started over stdio MCP in the
 connector sandbox and rendering with a fake Remotion CLI as the project's own (`fake_npx.py`),
-its project a template in the templates folder or a build folder of the run.
+its project one of the world's Templates (ADR 0028) or a build folder of the run.
 `SWARMIFY_REMOTION_PROJECT` opts in to one real render."""
 
 import json
@@ -81,16 +81,16 @@ def real(given: Given) -> Connectors:
 
 @pytest.fixture
 def fake_npx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A ready template in the templates folder (the data directory's `remotion/`), its
-    dependencies installed: a fake Remotion CLI (`fake_npx.py`) as its own. A Chrome Headless
-    Shell goes on PATH, as Swarmify's image has one."""
+    """A ready Template of world `w`, its dependencies installed: a fake Remotion CLI
+    (`fake_npx.py`) as its own. A Chrome Headless Shell goes on PATH, as Swarmify's image has
+    one."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     shell = bin_dir / "chrome-headless-shell"
     shell.write_text("#!/bin/sh\n")
     shell.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    project = tmp_path / "remotion" / "video"
+    project = tmp_path / TEMPLATES / "video"
     (project / "src").mkdir(parents=True)
     cli = project / rr.CLI
     cli.parent.mkdir(parents=True)
@@ -100,7 +100,10 @@ def fake_npx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 RUN = Path("worlds") / W / "runs" / "run_1"
-"""Where the run's files are under the data directory: all a render may read of it."""
+"""Where the run's files are under the data directory: with its Templates, all a render may read
+of it."""
+TEMPLATES = Path("worlds") / W / "assets" / "remotion_templates"
+"""The world's Remotion Templates, which the core resolves a stage's `project` in."""
 
 
 def stage(
@@ -133,10 +136,14 @@ def rendered(config: dict) -> dict:
 # The package
 
 
-def test_the_manifest_passes_and_declares_the_check_capability() -> None:
+def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
     m = read_manifest(HERE)
-    assert (m["name"], m["kind"], m["capabilities"]) == ("remotion_render", "stage", ["check"])
+    assert (m["name"], m["kind"], m["capabilities"]) == ("remotion_render", "stage", ["templates"])
     assert m["params"]["required"] == ["project", "composition"]
+    build = read_manifest(HERE.parent / "remotion_build")
+    assert m["owned_folders"] == build["owned_folders"]
+    keys = ("folder", "require", "prepare", "prepare_network")
+    assert m["templates"] == {k: build["templates"][k] for k in keys}
 
 
 def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
@@ -150,61 +157,49 @@ def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     ]
 
 
-def test_its_settings_reach_the_process_the_templates_folder_from_the_data_directory(
-    given: Given, tmp_path: Path
-) -> None:
+def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Given) -> None:
+    """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
     assert render is not None and render.version == "1.0.0"
-    assert connectors._env(render) == {"REMOTION_TEMPLATES": str(tmp_path / "remotion")}
-    connectors.save_setup(W, "remotion_render", {"templates": "elsewhere"}, {"concurrency": "2"})
-    assert connectors._env(render) == {
-        "REMOTION_TEMPLATES": str(tmp_path / "elsewhere"),
-        "SWARMIFY_RENDER_CONCURRENCY": "2",
-    }
-    connectors.save_setup(W, "remotion_render", {"templates": "/srv/templates"}, {})
-    assert connectors._env(render)["REMOTION_TEMPLATES"] == "/srv/templates"
+    assert connectors._env(render) == {}
+    connectors.save_setup(W, "remotion_render", {}, {"concurrency": "2"})
+    assert connectors._env(render) == {"SWARMIFY_RENDER_CONCURRENCY": "2"}
+    with pytest.raises(ValueError, match="templates"):
+        connectors.save_setup(W, "remotion_render", {"templates": "elsewhere"}, {})
     with pytest.raises(ValueError, match="Render concurrency: does not match"):
         connectors.save_setup(W, "remotion_render", {}, {"concurrency": "--gl=angle"})
 
 
-# The workflow check, through the package's `check` tool
+# The workflow check: its project is one of the world's Templates
 
 
-def test_a_saved_render_stage_names_its_project_and_composition(
+def test_a_saved_render_stage_names_one_of_the_worlds_templates_and_a_composition(
     given: Given, tmp_path: Path
 ) -> None:
-    connectors = given(McpTransport())
+    connectors = given(FakeTransport())  # the core checks it: its process never starts
     render = {"calls": "remotion_render", "input": "script.md", "output": "short.mp4"}
     assert connectors.stage_problems(W, render) == [
         "remotion_render needs params.project, the Remotion project folder",
         "remotion_render needs params.composition, the composition ID",
     ]
-    gone = tmp_path / "nope"
-    assert connectors.stage_problems(W, {**render, "params": {"project": str(gone)}}) == [
-        "remotion_render needs params.composition, the composition ID",  # its params schema
-        f"the Remotion project {gone} does not exist",  # its check
-    ]
-    (tmp_path / "remotion" / "video").mkdir(parents=True)
-    ok = {"project": str(tmp_path / "remotion" / "video"), "composition": "Short"}
-    assert connectors.stage_problems(W, {**render, "params": ok}) == []
     named = {"project": "shorts", "composition": "Short"}
     assert connectors.stage_problems(W, {**render, "params": named}) == [
-        f"the Remotion project shorts does not exist in {tmp_path / 'remotion'}"
+        "the Template shorts is not one of this world's Remotion render Templates"
     ]
-    (tmp_path / "remotion" / "shorts").mkdir()
+    (tmp_path / "remotion" / "shorts").mkdir(parents=True)  # the old data directory folder
+    (tmp_path / "worlds/other/assets/remotion_templates/shorts").mkdir(parents=True)
+    assert len(connectors.stage_problems(W, {**render, "params": named})) == 1
+    path = {"project": str(tmp_path / "remotion" / "shorts"), "composition": "Short"}
+    assert connectors.stage_problems(W, {**render, "params": path}) == [
+        f"project must be a Template's name, not a path: {tmp_path / 'remotion' / 'shorts'}"
+    ]
+    (tmp_path / TEMPLATES / "shorts").mkdir(parents=True)
     assert connectors.stage_problems(W, {**render, "params": named}) == []
     assert connectors.stage_problems(W, {"calls": "remotion_render", "params": named}) == [
         "remotion_render needs an input, the script",
         "remotion_render needs an output, the video",
     ]
-
-
-def test_a_check_that_cannot_run_is_a_problem(given: Given) -> None:
-    connectors = given(FakeTransport(outputs={"check": [ConnectorError("it crashed")]}))
-    params = {"project": "shorts", "composition": "Short"}
-    config = {"calls": "remotion_render", "input": "s.md", "output": "v.mp4", "params": params}
-    assert connectors.stage_problems(W, config) == ["remotion_render check failed: it crashed"]
 
 
 # Rendering over stdio
@@ -289,18 +284,13 @@ def test_the_render_concurrency_setting_caps_the_tabs_rendering_at_once(
     assert rendered(config)["concurrency"] == "2"
 
 
-def test_a_relative_project_is_a_template_in_the_templates_folder(
+def test_a_project_that_is_not_a_full_path_is_refused(
     tmp_path: Path, real: Connectors, fake_npx: Path
 ) -> None:
-    """The templates folder is the data directory's remotion/. A symlink there is followed, its
-    target readable in the sandbox too, so a template can stay in its own folder."""
-    kept = tmp_path / "kept" / "shorts"
-    kept.parent.mkdir()
-    fake_npx.rename(kept)
-    (tmp_path / "remotion" / "shorts").symlink_to(kept)
-    config = stage(tmp_path, Path("shorts"))
-    assert real.run_stage(W, "run_1", "stage_2", config).status == "done"
-    assert rendered(config)["composition"] == "Short"
+    """The core resolves a stage's Template to its folder: a bare name reaching the connector
+    is never looked up beside it."""
+    with pytest.raises(ConnectorError, match="project must be a folder's full path"):
+        real.run_stage(W, "run_1", "stage_2", stage(tmp_path, Path("video")))
 
 
 def test_a_project_without_node_modules_is_refused_saying_how_to_install_them(
@@ -411,10 +401,10 @@ def test_a_repeated_call_attaches_to_the_render_instead_of_starting_another(
     reason="set SWARMIFY_REMOTION_PROJECT (and SWARMIFY_REMOTION_COMPOSITION) for a real render",
 )
 def test_a_real_render(tmp_path: Path, real: Connectors) -> None:
-    (tmp_path / "remotion").mkdir()  # linked in the templates folder, where its sandbox reads
-    (tmp_path / "remotion" / "real").symlink_to(Path(os.environ["SWARMIFY_REMOTION_PROJECT"]))
+    real_project = tmp_path / TEMPLATES / "real"  # a world's Template, where its sandbox reads
+    shutil.copytree(os.environ["SWARMIFY_REMOTION_PROJECT"], real_project, symlinks=True)
     composition = os.environ.get("SWARMIFY_REMOTION_COMPOSITION", "Main")
-    config = stage(tmp_path, Path("real"), composition, frames="0-9")
+    config = stage(tmp_path, real_project, composition, frames="0-9")
     call = real.run_stage(W, "run_1", "stage_2", config)
     video = Path(config["params"]["output_path"])
     assert call.status == "done" and video.stat().st_size > 1000
@@ -451,10 +441,11 @@ def test_a_built_project_renders_in_a_sandbox_it_cannot_leave(
     """The agent's code tries to read the data directory's keys, plant a file outside its
     stage and reach the internet: each is refused, and each is in the stage's run log."""
     connectors, config, project = _built(tmp_path, fake_npx, given)
+    (tmp_path / "worlds" / W / "assets" / "notes.md").write_text("the world's own")
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
     snooped = rendered(config)["snooped"]
-    assert set(snooped) == {"read_keys", "write_outside", "network"}
     assert snooped["read_keys"].startswith("refused") and snooped["network"].startswith("refused")
+    assert snooped["read_world"].startswith("refused"), snooped
     # Linux hides the data directory behind an empty folder of the sandbox's own, which takes
     # the write and is gone with it; macOS refuses it
     if sys.platform != "linux":
@@ -465,6 +456,22 @@ def test_a_built_project_renders_in_a_sandbox_it_cannot_leave(
     assert f"read {(tmp_path / '.env').resolve()}" in lines, lines
     assert f"write {(tmp_path / 'planted.txt').resolve()}" in lines, lines
     assert any(line.startswith("connect example.com") for line in lines), lines
+
+
+def test_a_template_renders_in_a_sandbox_that_reads_nothing_else_of_the_world(
+    tmp_path: Path, given: Given, fake_npx: Path
+) -> None:
+    """Issue 353: a direct render reads the world's Templates in place, but neither writes them
+    nor reads the world's other assets."""
+    connectors = given(McpTransport())
+    (tmp_path / "worlds" / W / "assets" / "notes.md").write_text("the world's own")
+    config = stage(tmp_path, fake_npx, "Snoop")
+    assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
+    snooped = rendered(config)["snooped"]
+    assert snooped["read_world"].startswith("refused"), snooped
+    assert snooped["write_project"].startswith("refused"), snooped
+    assert snooped["read_keys"].startswith("refused") and snooped["network"].startswith("refused")
+    assert not (fake_npx / "planted.txt").exists()
 
 
 @pytest.fixture

@@ -56,7 +56,7 @@ def test_stage_list_and_yaml_stay_in_step_and_every_rule_shows(page: Page, base_
         expect(yaml).to_contain_text("kind: approve")
         expect(yaml).to_contain_text("connector: new step")
         # A render stage names its script, Remotion project and composition before it can be
-        # saved; the project rules are the render package's own check.
+        # saved; its project is one of the world's Templates.
         expect(page.get_by_test_id("problems")).to_contain_text("needs params.project")
         expect(page.get_by_test_id("problems")).to_contain_text("needs an input, the script")
         fixed = re.sub(

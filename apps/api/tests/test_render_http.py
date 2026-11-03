@@ -1,9 +1,11 @@
 """A script stage then the Remotion render stage, end to end through the API: real DBOS on
-SQLite, the real MCP transport and render wrapper, and a fake Remotion CLI on PATH."""
+SQLite, the real MCP transport and render wrapper, and a fake Remotion CLI on PATH. The render's
+`project` is one of the world's Templates (ADR 0028)."""
 
 import json
 import os
 import shlex
+import shutil
 import sys
 import time
 from collections.abc import Iterator
@@ -15,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from swarmify_api.main import create_app, with_files
 from swarmify_connectors import ConnectorError
+from swarmify_connectors.build_session import fingerprint
 from swarmify_runs import Run, RunStageView
 
 # These tests start a default package's real `.venv` process, so its install step runs.
@@ -31,15 +34,16 @@ def app(tmp_path: Path) -> FastAPI:
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A template in the templates folder (the data directory's remotion/), its dependencies
-    installed (a fake Remotion CLI, fake_npx.py), and a Chrome Headless Shell on PATH."""
+    """A Template, its dependencies installed (a fake Remotion CLI, fake_npx.py), which
+    `render_run` puts in its world's Remotion Templates as `video`, and a Chrome Headless Shell
+    on PATH."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     shell = bin_dir / "chrome-headless-shell"
     shell.write_text("#!/bin/sh\n")
     shell.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    template = tmp_path / "data" / "remotion" / "video"
+    template = tmp_path / "video"
     cli = template / "node_modules" / ".bin" / "remotion"
     cli.parent.mkdir(parents=True)
     cli.write_text(f"#!{sys.executable}\n" + FAKE_NPX.read_text())
@@ -53,8 +57,16 @@ def running(app: FastAPI) -> Iterator[TestClient]:
         yield client
 
 
-def render_run(client: TestClient, project: Path, composition: str, review: str = "") -> dict:
+def render_run(
+    client: TestClient, project: Path, composition: str, review: str = "", record: str = ""
+) -> dict:
+    """A run of the script then the render of the Template `video`, `project` copied there with
+    the Template record `record` when there is one."""
     w = client.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
+    world = project.parent / "data/worlds" / w  # the app's data directory is tmp_path's data
+    shutil.copytree(project, world / "assets/remotion_templates/video", symlinks=True)
+    if record:
+        (world / "assets/remotion_templates/video/.template.json").write_text(record)
     server = shlex.join([sys.executable, str(HERE / "script_server.py")])
     added = client.post(
         f"/api/worlds/{w}/connectors",
@@ -75,7 +87,7 @@ stages:
     calls: remotion_render
     input: script.md
     output: short.mp4
-    params: {{project: "{project}", composition: {composition}}}
+    params: {{project: video, composition: {composition}}}
 {review}"""
     workflow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
     assert workflow.status_code == 201, workflow.text
@@ -157,6 +169,67 @@ def test_a_failed_render_puts_the_cli_output_on_the_timeline(
     assert call["status"] == "failed" and "Bundling" in call["error"]
 
 
+def test_the_render_records_the_world_template_it_rendered(
+    running: TestClient, project: Path
+) -> None:
+    """Issue 353: `project` names a Template of the world, rendered in place once prepared."""
+    record = json.dumps({"origin": "upload", "prepare": "ready", "prepare_error": ""})
+    run = render_run(running, project, "Short", record=record)
+    assert run["status"] == "done", run
+    render_id = run["stages"][1]["id"]
+    call = running.get(f"/api/stages/{render_id}/call").json()
+    template = project.parent / "data/worlds" / run["world_id"] / "assets/remotion_templates/video"
+    assert call["request"]["project"] == str(template)
+    assert call["template"] == {"name": "video", "fingerprint": fingerprint(template)}
+
+
+@pytest.mark.parametrize(
+    ("record", "said"),
+    [
+        ({"prepare": "preparing"}, "the Template video is still being prepared"),
+        (
+            {"prepare": "failed", "prepare_error": "npm ci failed: no lockfile"},
+            "the Template video failed to prepare: npm ci failed: no lockfile",
+        ),
+    ],
+)
+def test_a_template_not_prepared_is_refused_with_its_state(
+    running: TestClient, project: Path, record: dict, said: str
+) -> None:
+    run = render_run(running, project, "Short", record=json.dumps({"origin": "upload", **record}))
+    assert run["status"] == "failed", run
+    render = run["stages"][1]
+    assert render["status"] == "failed" and said in render["error"], render["error"]
+    video = project.parent / "data/worlds" / run["world_id"] / "runs" / run["id"] / render["id"]
+    assert not (video / "artifacts/short.mp4").exists()
+
+
+def test_the_workflow_check_flags_a_project_the_world_has_no_template_of(
+    running: TestClient, project: Path, tmp_path: Path
+) -> None:
+    """The Template is the world's own: one in another world, or a path, is not one."""
+    w, other = (running.post("/api/worlds", json={"name": n}).json()["id"] for n in "ab")
+    shutil.copytree(project, tmp_path / "data/worlds" / other / "assets/remotion_templates/video")
+
+    def problems(name: str) -> list[str]:
+        yaml = f"""name: Render only
+stages:
+  - connector: render
+    calls: remotion_render
+    input: script.md
+    output: short.mp4
+    params: {{project: "{name}", composition: Short}}
+"""
+        checked = running.post(f"/api/worlds/{w}/workflows/check", json={"yaml": yaml}).json()
+        return [v["message"] for v in checked["violations"] if "input" not in v["message"]]
+
+    missing = "the Template video is not one of this world's Remotion render Templates"
+    assert problems("video") == [missing]
+    assert problems("/tmp") == ["project must be a Template's name, not a path: /tmp"]
+    shutil.copytree(project, tmp_path / "data/worlds" / w / "assets/remotion_templates/video")
+    assert problems("video") == []
+
+
 def test_a_render_without_an_input_is_refused(running: TestClient, project: Path) -> None:
     w = running.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
     yaml = """name: Render only
@@ -164,8 +237,9 @@ stages:
   - connector: render
     calls: remotion_render
     output: short.mp4
-    params: {project: /tmp, composition: Short}
+    params: {project: video, composition: Short}
 """
+    shutil.copytree(project, project.parent / "data/worlds" / w / "assets/remotion_templates/video")
     refused = running.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
     assert refused.status_code == 422
     assert [v["message"] for v in refused.json()["violations"]] == [

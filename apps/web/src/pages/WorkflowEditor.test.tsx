@@ -322,6 +322,31 @@ test("a connector stage whose package has Templates picks one as its base; the s
   expect(screen.getByLabelText("Template of voice").elements()).toHaveLength(0);
 });
 
+test("a direct render stage picks one of its package's Templates as its project", async () => {
+  fake({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "POST /api/worlds/world_1/workflows/check": check,
+    "GET /api/worlds/world_1/templates": () =>
+      Response.json([
+        { name: "cat_kit", folder: "remotion_templates", path: "assets/remotion_templates/cat_kit/", bytes: 1, origin: "upload", run_id: "", stage: "", added: video.created_at },
+        { name: "slides", folder: "hyperframes_templates", path: "assets/hyperframes_templates/slides/", bytes: 1, origin: "upload", run_id: "", stage: "", added: video.created_at },
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows/new?tab=yaml");
+  await screen.getByLabelText("Workflow YAML").fill("name: Clip\nstages:\n  - connector: render\n    calls: remotion_render\n");
+  await screen.getByRole("tab", { name: "Stages" }).click();
+
+  // it renders a Template in place, so it has no starter to fall back on
+  const picker = screen.getByLabelText("Template of render");
+  const options = picker.getByRole("option").elements().map((o) => o.textContent);
+  expect(options).toEqual(["Pick a Template", "cat_kit"]);
+  await picker.selectOptions("cat_kit");
+  await screen.getByRole("tab", { name: "YAML" }).click();
+  await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(
+    "name: Clip\nstages:\n  - connector: render\n    calls: remotion_render\n    params:\n      project: cat_kit\n",
+  );
+});
+
 test("a schedule shows its next run from the check, in the list and the aside", async () => {
   fake({
     "GET /api/worlds/world_1": () => Response.json(video),

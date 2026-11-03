@@ -8,7 +8,7 @@ kind = "stage"
 stage_types = ["connector"]
 enable_by_default = false
 
-planner_notes = "Use it only when the operator has a finished HyperFrames template; else hyperframes_build makes the video. params.project is a template's name in its templates folder (the data directory's hyperframes folder unless changed)."
+planner_notes = "Use it only when the operator has a finished HyperFrames template; else hyperframes_build makes the video. params.project is the name of one of the world's HyperFrames render Templates."
 
 runtime = "uv"
 # Its Python beside it (uv), then the HyperFrames CLI, ffmpeg and ffprobe (ffmpeg.mjs: ffmpeg-static's
@@ -20,16 +20,28 @@ runtime = "uv"
 install = ["sh", "-c", "uv sync --frozen --no-dev && npm ci --ignore-scripts --no-audit --no-fund && npm run ffmpeg && { HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_CACHE_DIR=\"$PWD/node_modules/.hyperframes\" npx --no hyperframes browser ensure --force || echo 'no Chrome Headless Shell for this platform: put one on PATH'; }"]
 command = [".venv/bin/python", "hyperframes_render.py"]
 
-# The rule its params schema cannot say, run by the workflow check: the project exists.
-capabilities = ["check"]
+# Its `project` is one of the world's HyperFrames Templates (ADR 0028), in the Owned Folder it
+# shares with hyperframes_build, which a render reads in place and never writes.
+capabilities = ["templates"]
 
 # Its sandbox (ADR 0021). A render reaches only its own loopback (HyperFrames' file server, on a
-# port the OS hands out, and the browser rendering it); a template's folder is its `templates`
-# Setting, a build's is in the run's folders. The install step reaches npm, GitHub's release
+# port the OS hands out, and the browser rendering it); a Template's folder is its Owned Folder,
+# a build's is in the run's folders. The install step reaches npm, GitHub's release
 # downloads for ffmpeg and Google's storage for Chrome.
 [permissions]
 network = ["localhost"]
 install_network = ["registry.npmjs.org", "github.com", "release-assets.githubusercontent.com", "storage.googleapis.com"]
+
+[[owned_folders]]
+folder = "hyperframes_templates"
+label = "HyperFrames templates"
+about = "Projects a build starts from instead of the starter."
+
+[templates]
+folder = "hyperframes_templates"
+require = ["package.json", "index.html"]
+prepare = ["npm", "ci"]
+prepare_network = ["registry.npmjs.org"]
 
 [params]
 type = "object"
@@ -61,14 +73,6 @@ media_type = "video/mp4"
 
 [setup]
 help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/hyperframes_render#setup"
-
-[[config]]
-key = "templates"
-label = "Templates folder"
-type = "path"
-default = "hyperframes"
-env = "HYPERFRAMES_TEMPLATES"
-help = "Where the HyperFrames templates a stage's project names live, relative to Swarmify's data folder. Renders read it and never write it: run npm ci in a template once, and keep its scripts, fonts and images in it, since a render has no network."
 
 [[config]]
 key = "workers"

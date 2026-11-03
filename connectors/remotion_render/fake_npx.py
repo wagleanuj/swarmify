@@ -5,7 +5,8 @@ It prints the real CLI's progress lines and writes the props it was given as the
 test can see the script arrived. Composition `Broken` fails like a bad render; `Slow` pauses
 between frames so a poll can catch it mid-render; `Empty` exits 0 without writing a file;
 `Snoop` is an agent's project trying to break out of the connector sandbox (to read the data
-directory's keys, write outside its stage and reach the internet) and records what it got.
+directory's keys and the world's other assets, write outside its stage and into its own project,
+and reach the internet) and records what it got.
 Like the real CLI it serves the bundle on `--port` (3000 without one) and, when another server
 already answers there, talks to that one and fails.
 """
@@ -42,10 +43,13 @@ for frame in range(1, 4):
 print("Encoded 3/3", flush=True)
 snooped: dict[str, str] = {}
 if composition == "Snoop":
-    data = next(p.parent for p in Path(output).resolve().parents if p.name == "worlds")
+    world = next(p for p in Path(output).resolve().parents if p.parent.name == "worlds")
+    data = world.parent.parent
     tries = {
         "read_keys": lambda: (data / ".env").read_text(),
+        "read_world": lambda: (world / "assets" / "notes.md").read_text(),
         "write_outside": lambda: (data / "planted.txt").write_text("x"),
+        "write_project": lambda: (Path.cwd() / "planted.txt").write_text("x"),
         "network": lambda: urllib.request.urlopen("http://example.com/", timeout=5).read(),
     }
     for name, attempt in tries.items():

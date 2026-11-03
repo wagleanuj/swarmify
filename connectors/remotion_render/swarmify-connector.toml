@@ -7,7 +7,7 @@ about = "Renders a script with the Remotion CLI. Needs Node and a Remotion proje
 kind = "stage"
 stage_types = ["connector"]
 
-planner_notes = "Use it only when the operator has a finished template; else remotion_build makes the video. params.project is a template's name in its templates folder (the data directory's remotion folder unless changed)."
+planner_notes = "Use it only when the operator has a finished template; else remotion_build makes the video. params.project is the name of one of the world's Remotion render Templates."
 
 runtime = "uv"
 # Its Python beside it (uv), then the Remotion CLI and the Chrome Headless Shell it downloads
@@ -15,16 +15,28 @@ runtime = "uv"
 install = ["sh", "-c", "uv sync --frozen --no-dev && npm ci --ignore-scripts --no-audit --no-fund && npx --no remotion browser ensure"]
 command = [".venv/bin/python", "remotion_render.py"]
 
-# The rule its params schema cannot say, run by the workflow check: the project exists.
-capabilities = ["check"]
+# Its `project` is one of the world's Remotion Templates (ADR 0028), in the Owned Folder it
+# shares with remotion_build, which a render reads in place and never writes.
+capabilities = ["templates"]
 
 # Its sandbox (ADR 0021). A render reaches only its own loopback (Remotion's server and the
-# browser rendering it); a template's folder is its `templates` Setting, the build folder is the
+# browser rendering it); a Template's folder is its Owned Folder, the build folder is the
 # stage's. The install step reaches npm for the CLI and Remotion's host for Chrome Headless Shell
 # (Google's storage where Remotion's own build does not fit the machine).
 [permissions]
 network = ["localhost"]
 install_network = ["registry.npmjs.org", "remotion.media", "storage.googleapis.com"]
+
+[[owned_folders]]
+folder = "remotion_templates"
+label = "Remotion templates"
+about = "Projects a build starts from instead of the starter."
+
+[templates]
+folder = "remotion_templates"
+require = ["package.json", "src/index.ts"]
+prepare = ["npm", "ci"]
+prepare_network = ["registry.npmjs.org"]
 
 [params]
 type = "object"
@@ -58,14 +70,6 @@ media_type = "video/mp4"
 
 [setup]
 help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/remotion_render#setup"
-
-[[config]]
-key = "templates"
-label = "Templates folder"
-type = "path"
-default = "remotion"
-env = "REMOTION_TEMPLATES"
-help = "Where the Remotion templates a stage's project names live, relative to Swarmify's data folder. Renders read it and never write it: run npm ci in a template once, and keep its fonts and images in it, since a render has no network."
 
 [[config]]
 key = "concurrency"

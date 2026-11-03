@@ -79,7 +79,8 @@ allow the stage type; a connector's `input`, and each of its `inputs`, must be p
 a connector stage, or a Build Session from a script, since swarm agents write text); and a connector stage
 must pass its connector's own check (`connector_params`): the input, output and params its
 Manifest declares, a publish stage's preview problems (the ones its gate would show), and the
-rules of a package's `check` tool (a template folder that must exist, say). A typed input (see
+rules of a package's `check` tool, and that the world has the Template a stage's `base` (a
+build) or `project` (a direct render of a package declaring Templates) names. A typed input (see
 Typed contracts) read from a swarm stage's `produces` needs that stage to declare the same
 `output_type` (`output_type`, naming both stages and the type), and two connectors declaring one
 type name with different schemas fail the stage that names it (`type_conflict`). So a broken stage is caught when
@@ -742,8 +743,8 @@ call them by name with no setup beyond each one's Setup form. Each README covers
 stage and its params, what it answers, the Services it calls and how its V1 settings carry over:
 
 - [`speech`](connectors/speech/README.md): voices a script, one take per scene.
-- [`remotion_render`](connectors/remotion_render/README.md): renders a script through a video
-  template.
+- [`remotion_render`](connectors/remotion_render/README.md): renders a script through one of the
+  world's Remotion Templates.
 - [`remotion_build`](connectors/remotion_build/README.md): a Build Session that writes a video
   project for the script, then renders it.
 - [`hyperframes_render`](connectors/hyperframes_render/README.md) and
@@ -794,6 +795,12 @@ their files, and the package reads the folder through `assets_path` as before.
   drafted stage can name one as its `base` (or a direct render's `project`). The Run
   Assistant's `get_run` shows each stage's `template`, the name and fingerprint its call
   recorded, so it answers which Template a build started from.
+- A package declaring Templates without a Build Session (`remotion_render`, `hyperframes_render`,
+  which share their build package's folder) is a direct render: its stage's `project` names a
+  Template of the world, which the core resolves to its folder and records on the stage's call
+  (name and fingerprint), refusing one still `preparing` or `failed` with that state. Its
+  sandbox reads the world's Templates in place and writes none of them; a package's Templates
+  folder is never writable by its own process.
 
 ## Publishing
 
@@ -1397,14 +1404,13 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   `apparmor=unconfined` (`docker-default` denies every mount; a host profile would have to be
   installed on each host) and `systempaths=unconfined` (the kernel refuses a fresh `/proc` over a
   masked one). It holds nothing at rest worth stealing: no token, password or `setup.json`, only
-  the folders of `data` the sandboxed processes use (`packages`, `worlds`, `remotion`,
-  `hyperframes`, `npm-cache` and `sandbox`, which the one-shot `folders` service makes first),
+  the folders of `data` the sandboxed processes use (`packages`, `worlds`, `npm-cache` and
+  `sandbox`, which the one-shot `folders` service makes first),
   each process bringing the values it is given. A folder a `path` Setting names must be one of
   those to exist there. It needs Docker Engine 26 or later for volume subpaths, and on an Ubuntu
   23.10 or later host `sudo tools/allow-bwrap-userns.sh` once (see The connector sandbox).
-- A file a package reads from the data directory (a template, say) must be inside the container:
-  copy it into the volume (`docker compose cp ./shorts api:/data/remotion/shorts`), as its README
-  says.
+- A Template is uploaded on its world's Assets page as a zip, so nothing needs copying into the
+  container for it.
 - Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same sign-in
   page. With no password set or stored there is no sign-in, which is right only on `127.0.0.1`.

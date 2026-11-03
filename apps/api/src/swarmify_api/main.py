@@ -657,6 +657,20 @@ def create_app(
         if not registry.is_publish(run.world_id, stage.config, recorded):
             folder = world_svc.folder(run.world_id)
             config = with_files(folder, run, stage_id, stage.config)
+            project = config["params"].get(build_session.PROJECT)
+            if called is not None and "templates" in called.manifest and project:
+                # A direct render reads the world's Template `project` names in place (ADR 0028),
+                # once prepared; its call records which, as a build's does.
+                try:
+                    found = build_session.template(
+                        called.manifest, folder, str(project), build_session.PROJECT
+                    )
+                    build_session.prepared(found)
+                except ValueError as exc:
+                    raise ConnectorError(str(exc)) from exc
+                config["params"][build_session.PROJECT] = str(found)
+                fingerprint = build_session.fingerprint(found)
+                config["template"] = {"name": str(project), "fingerprint": fingerprint}
             registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs, recorded)
             output = Path(config["params"].get("output_path") or "")
             if output.is_file():  # announce what the connector left as an artifact

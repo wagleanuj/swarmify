@@ -6,8 +6,8 @@ flags, the variables file's contents and the environment HyperFrames reads, so a
 script arrived and where the browser, ffmpeg and the cache are. Composition `broken.html` fails
 like a bad render; `slow.html` pauses between frames so a poll can catch it mid-render;
 `empty.html` exits 0 without writing a file; `snoop.html` is an agent's project trying to break
-out of the connector sandbox (to read the data directory's keys, write outside its stage and reach
-the internet) and records what it got.
+out of the connector sandbox (to read the data directory's keys and the world's other assets,
+write outside its stage and into its own project, and reach the internet) and records what it got.
 """
 
 import json
@@ -34,10 +34,13 @@ for frame in (10, 20, 30):
 print('@hf-progress {"code":"encode","done":30,"total":30,"pct":90}', flush=True)
 snooped: dict[str, str] = {}
 if composition == "snoop.html":
-    data = next(p.parent for p in Path(output).resolve().parents if p.name == "worlds")
+    world = next(p for p in Path(output).resolve().parents if p.parent.name == "worlds")
+    data = world.parent.parent
     tries = {
         "read_keys": lambda: (data / ".env").read_text(),
+        "read_world": lambda: (world / "assets" / "notes.md").read_text(),
         "write_outside": lambda: (data / "planted.txt").write_text("x"),
+        "write_project": lambda: (Path.cwd() / "planted.txt").write_text("x"),
         "network": lambda: urllib.request.urlopen("http://example.com/", timeout=5).read(),
     }
     for name, attempt in tries.items():

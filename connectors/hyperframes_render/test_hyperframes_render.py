@@ -1,7 +1,7 @@
 """The HyperFrames render connector: the package installed through the real install path (with
 the suite's fake `npm` and `npx`), enabled for a world, started over stdio MCP in the connector
 sandbox and rendering with a fake HyperFrames CLI as the project's own (`fake_hyperframes.py`),
-its project a template in the templates folder or a build folder of the run.
+its project one of the world's Templates (ADR 0028) or a build folder of the run.
 `SWARMIFY_REAL_BUILD=1` with `SWARMIFY_HYPERFRAMES_PROJECT` opts in to one real install and
 render."""
 
@@ -85,7 +85,10 @@ def real(given: Given) -> Connectors:
 
 
 RUN = Path("worlds") / W / "runs" / "run_1"
-"""Where the run's files are under the data directory: all a render may read of it."""
+"""Where the run's files are under the data directory: with its Templates, all a render may read
+of it."""
+TEMPLATES = Path("worlds") / W / "assets" / "hyperframes_templates"
+"""The world's HyperFrames Templates, which the core resolves a stage's `project` in."""
 
 
 @pytest.fixture
@@ -172,7 +175,11 @@ def test_the_manifest_passes_off_by_default_reaching_only_its_loopback() -> None
         "stage",
         ["connector"],
     )
-    assert m["capabilities"] == ["check"]
+    assert m["capabilities"] == ["templates"]
+    build = read_manifest(HERE.parent / "hyperframes_build")
+    assert m["owned_folders"] == build["owned_folders"]  # one folder of Templates for both
+    keys = ("folder", "require", "prepare", "prepare_network")
+    assert m["templates"] == {k: build["templates"][k] for k in keys}
     assert "hyperframes_build" in m["planner_notes"]
     assert (m["runtime"], m["enable_by_default"]) == ("uv", False)
     assert m["permissions"]["network"] == ["localhost"]
@@ -230,59 +237,49 @@ def test_a_world_has_it_only_once_its_operator_enables_it(installed: Path, tmp_p
     assert connectors.find(W, "hyperframes_render") is not None
 
 
-def test_its_settings_reach_the_process_the_templates_folder_from_the_data_directory(
-    given: Given, tmp_path: Path
-) -> None:
+def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Given) -> None:
+    """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "hyperframes_render")
     assert render is not None
-    assert connectors._env(render) == {"HYPERFRAMES_TEMPLATES": str(tmp_path / "hyperframes")}
-    connectors.save_setup(W, "hyperframes_render", {"templates": "elsewhere"}, {"workers": "2"})
-    assert connectors._env(render) == {
-        "HYPERFRAMES_TEMPLATES": str(tmp_path / "elsewhere"),
-        "SWARMIFY_HYPERFRAMES_WORKERS": "2",
-    }
-    connectors.save_setup(W, "hyperframes_render", {"templates": "/srv/hf"}, {"workers": "auto"})
-    assert connectors._env(render)["HYPERFRAMES_TEMPLATES"] == "/srv/hf"
+    assert connectors._env(render) == {}
+    connectors.save_setup(W, "hyperframes_render", {}, {"workers": "2"})
+    assert connectors._env(render) == {"SWARMIFY_HYPERFRAMES_WORKERS": "2"}
+    connectors.save_setup(W, "hyperframes_render", {}, {"workers": "auto"})
     assert connectors._env(render)["SWARMIFY_HYPERFRAMES_WORKERS"] == "auto"
+    with pytest.raises(ValueError, match="templates"):
+        connectors.save_setup(W, "hyperframes_render", {"templates": "elsewhere"}, {})
     for bad in ("0", "--docker", "-2", "many"):
         with pytest.raises(ValueError, match="Render workers: does not match"):
             connectors.save_setup(W, "hyperframes_render", {}, {"workers": bad})
 
 
-# The workflow check, through the package's `check` tool
+# The workflow check: its project is one of the world's Templates
 
 
-def test_a_saved_render_stage_names_its_project(given: Given, tmp_path: Path) -> None:
-    connectors = given(McpTransport())
+def test_a_saved_render_stage_names_one_of_the_worlds_templates(
+    given: Given, tmp_path: Path
+) -> None:
+    connectors = given(FakeTransport())  # the core checks it: its process never starts
     render = {"calls": "hyperframes_render", "input": "script.md", "output": "short.mp4"}
     assert connectors.stage_problems(W, render) == [
         "hyperframes_render needs params.project, the HyperFrames project folder"
     ]
-    gone = tmp_path / "nope"
-    assert connectors.stage_problems(W, {**render, "params": {"project": str(gone)}}) == [
-        f"the HyperFrames project {gone} does not exist"
-    ]
-    (tmp_path / "hyperframes" / "promo").mkdir(parents=True)
-    ok = {"project": str(tmp_path / "hyperframes" / "promo")}
-    assert connectors.stage_problems(W, {**render, "params": ok}) == []
     named = {"project": "shorts"}
     assert connectors.stage_problems(W, {**render, "params": named}) == [
-        f"the HyperFrames project shorts does not exist in {tmp_path / 'hyperframes'}"
+        "the Template shorts is not one of this world's HyperFrames render Templates"
     ]
-    (tmp_path / "hyperframes" / "shorts").mkdir()
+    (tmp_path / "hyperframes" / "shorts").mkdir(parents=True)  # the old data directory folder
+    path = {"project": str(tmp_path / "hyperframes" / "shorts")}
+    assert connectors.stage_problems(W, {**render, "params": path}) == [
+        f"project must be a Template's name, not a path: {tmp_path / 'hyperframes' / 'shorts'}"
+    ]
+    (tmp_path / TEMPLATES / "shorts").mkdir(parents=True)
     assert connectors.stage_problems(W, {**render, "params": named}) == []
     assert connectors.stage_problems(W, {"calls": "hyperframes_render", "params": named}) == [
         "hyperframes_render needs an input, the script",
         "hyperframes_render needs an output, the video",
     ]
-
-
-def test_a_check_that_cannot_run_is_a_problem(given: Given) -> None:
-    connectors = given(FakeTransport(outputs={"check": [ConnectorError("it crashed")]}))
-    params = {"project": "shorts"}
-    config = {"calls": "hyperframes_render", "input": "s.md", "output": "v.mp4", "params": params}
-    assert connectors.stage_problems(W, config) == ["hyperframes_render check failed: it crashed"]
 
 
 # Rendering over stdio
@@ -395,20 +392,18 @@ def test_the_render_workers_setting_caps_the_cli_workers(
     assert rendered(config)["flags"]["workers"] == "2"
 
 
-def test_a_relative_project_is_a_template_in_the_templates_folder(
-    tmp_path: Path, real: Connectors, project: Path
-) -> None:
-    """The templates folder is the data directory's hyperframes/. A symlink there is followed,
-    its target readable in the sandbox too, so a template can stay in its own folder."""
-    kept = tmp_path / "kept" / "promo"
-    kept.parent.mkdir()
-    project.rename(kept)
-    (tmp_path / "hyperframes").mkdir()
-    (tmp_path / "hyperframes" / "promo").symlink_to(kept)
-    config = stage(tmp_path, Path("promo"))
+def test_a_world_template_renders_in_place(tmp_path: Path, real: Connectors, project: Path) -> None:
+    """The core gives a stage's Template as its folder in the world's Templates; a bare name
+    reaching the connector is never looked up beside it."""
+    template = tmp_path / TEMPLATES / "promo"
+    template.parent.mkdir(parents=True)
+    project.rename(template)
+    config = stage(tmp_path, template)
     assert real.run_stage(W, "run_1", "stage_2", config).status == "done"
-    assert rendered(config)["project"] == str(tmp_path / "hyperframes" / "promo")
+    assert rendered(config)["project"] == str(template)
     assert rendered(config)["script"].startswith("# Why the chase works")
+    with pytest.raises(ConnectorError, match="project must be a folder's full path"):
+        real.run_stage(W, "run_1", "stage_3", stage(tmp_path, Path("promo"), at="stage_3"))
 
 
 def test_a_project_without_node_modules_is_refused_saying_how_to_install_them(
@@ -476,7 +471,7 @@ def test_a_render_that_writes_nothing_fails(
     [
         ({"input_path": "/nope/script.md"}, "the script /nope/script.md does not exist"),
         ({"project": "/nope"}, "the HyperFrames project /nope does not exist"),
-        ({"project": "gone"}, "the HyperFrames project .*hyperframes/gone does not exist"),
+        ({"project": "gone"}, "project must be a folder's full path"),
         ({"input_path": ""}, "the render stage needs an `input`"),
         ({"composition": "--output=/etc/x"}, "composition must be a plain value"),
         ({"quality": "--docker"}, "quality must be a plain value"),
@@ -533,11 +528,13 @@ def test_a_built_project_renders_in_a_sandbox_it_cannot_leave(
     connectors = given(McpTransport())
     blocked: list[tuple[Any, list[str]]] = []
     connectors.on_blocked = lambda c, at, lines: blocked.append((at, lines))
+    (tmp_path / "worlds" / W / "assets").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "worlds" / W / "assets" / "notes.md").write_text("the world's own")
     config = stage(tmp_path, project, "snoop.html")
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
     snooped = rendered(config)["snooped"]
-    assert set(snooped) == {"read_keys", "write_outside", "network"}
     assert snooped["read_keys"].startswith("refused") and snooped["network"].startswith("refused")
+    assert snooped["read_world"].startswith("refused"), snooped
     # Linux hides the data directory behind an empty folder of the sandbox's own, which takes
     # the write and is gone with it; macOS refuses it
     if sys.platform != "linux":
@@ -548,6 +545,25 @@ def test_a_built_project_renders_in_a_sandbox_it_cannot_leave(
     assert f"read {(tmp_path / '.env').resolve()}" in lines, lines
     assert f"write {(tmp_path / 'planted.txt').resolve()}" in lines, lines
     assert any(line.startswith("connect example.com") for line in lines), lines
+
+
+def test_a_template_renders_in_a_sandbox_that_reads_nothing_else_of_the_world(
+    tmp_path: Path, given: Given, project: Path
+) -> None:
+    """Issue 353: a direct render reads the world's Templates in place, but neither writes them
+    nor reads the world's other assets."""
+    connectors = given(McpTransport())
+    template = tmp_path / TEMPLATES / "promo"
+    template.parent.mkdir(parents=True)
+    project.rename(template)
+    (tmp_path / "worlds" / W / "assets" / "notes.md").write_text("the world's own")
+    config = stage(tmp_path, template, "snoop.html")
+    assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
+    snooped = rendered(config)["snooped"]
+    assert snooped["read_world"].startswith("refused"), snooped
+    assert snooped["write_project"].startswith("refused"), snooped
+    assert snooped["read_keys"].startswith("refused") and snooped["network"].startswith("refused")
+    assert not (template / "planted.txt").exists()
 
 
 # The real thing, on an operator's machine
