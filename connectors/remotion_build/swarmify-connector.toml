@@ -2,7 +2,7 @@
 # it from this folder and enables it for every world that has not decided otherwise. It has no
 # server of its own: it asks the core for a Build Session, then renders through remotion_render.
 name = "remotion_build"
-version = "1.0.0"
+version = "1.0.1"
 label = "Remotion build"
 about = "Writes a Remotion project from the script in a sandboxed coding session, then renders it. Needs Node."
 kind = "stage"

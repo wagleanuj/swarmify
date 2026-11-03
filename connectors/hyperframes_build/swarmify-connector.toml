@@ -3,7 +3,7 @@
 # and hyperframes_render. It has no server of its own: it asks the core for a Build Session, then
 # renders through hyperframes_render.
 name = "hyperframes_build"
-version = "1.0.0"
+version = "1.0.1"
 label = "HyperFrames build"
 about = "Writes a HyperFrames project (HTML and GSAP) from the script in a sandboxed coding session, then renders it. Needs Node 22."
 kind = "stage"
