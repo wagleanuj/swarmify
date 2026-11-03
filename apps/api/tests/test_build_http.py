@@ -105,7 +105,7 @@ def build_run(
     assert added.status_code == 201, added.text
     if calls in HYPERFRAMES:
         for name in HYPERFRAMES:
-            enabled = client.put(f"/api/worlds/{w}/packages/{name}", json={"version": "1.0.0"})
+            enabled = client.put(f"/api/worlds/{w}/packages/{name}", json={"version": "1.0.1"})
             assert enabled.status_code == 200, enabled.text
     notes = "  - connector: notes\n    calls: script_writer\n    output: notes.md\n"
     yaml = f"""name: Script then build

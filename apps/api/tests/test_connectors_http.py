@@ -123,10 +123,10 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
         ("fal_video", "0.0.1", "local"),
-        ("hyperframes_build", "1.0.0", "connectors/hyperframes_build"),
-        ("hyperframes_render", "1.0.0", "connectors/hyperframes_render"),
-        ("remotion_build", "1.0.0", "connectors/remotion_build"),
-        ("remotion_render", "1.0.0", "connectors/remotion_render"),
+        ("hyperframes_build", "1.0.1", "connectors/hyperframes_build"),
+        ("hyperframes_render", "1.0.1", "connectors/hyperframes_render"),
+        ("remotion_build", "1.0.1", "connectors/remotion_build"),
+        ("remotion_render", "1.0.1", "connectors/remotion_render"),
         ("slack", "1.1.0", "connectors/slack"),
         ("speech", "1.0.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
@@ -134,8 +134,8 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
-        {"name": "remotion_build", "version": "1.0.0"},
-        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.1"},
+        {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
@@ -504,8 +504,8 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
-        {"name": "remotion_build", "version": "1.0.0"},  # the default packages
-        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.1"},  # the default packages
+        {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
@@ -520,16 +520,16 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
 
     assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
     assert client.get(f"/api/worlds/{one}/packages").json() == [
-        {"name": "remotion_build", "version": "1.0.0"},
-        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.1"},
+        {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
-        {"name": "remotion_build", "version": "1.0.0"},
-        {"name": "remotion_render", "version": "1.0.0"},
+        {"name": "remotion_build", "version": "1.0.1"},
+        {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},

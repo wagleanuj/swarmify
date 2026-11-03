@@ -58,7 +58,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     data = tmp_path_factory.mktemp("data")
     defaults = registry(data, FakeTransport()).install_defaults()
     assert "hyperframes_render" not in defaults
-    assert (data / "packages" / "hyperframes_render" / "1.0.0").is_dir()
+    assert (data / "packages" / "hyperframes_render" / "1.0.1").is_dir()
     return data / "packages"
 
 
@@ -73,7 +73,7 @@ def given(installed: Path, tmp_path: Path) -> Given:
         connectors = registry(data, transport)
         connectors.install_defaults()  # installed already: only remembered
         connectors.offer_defaults(W)
-        connectors.enable(W, "hyperframes_render", "1.0.0")
+        connectors.enable(W, "hyperframes_render", "1.0.1")
         return connectors
 
     return make
@@ -199,7 +199,7 @@ def test_the_manifest_passes_off_by_default_reaching_only_its_loopback() -> None
 def test_install_puts_its_python_the_hyperframes_cli_its_browser_and_ffmpeg_beside_it(
     installed: Path,
 ) -> None:
-    folder = installed / "hyperframes_render" / "1.0.0"
+    folder = installed / "hyperframes_render" / "1.0.1"
     assert (folder / ".venv" / "bin" / "python").is_file()
     log = (folder / "fake-install.log").read_text().splitlines()
     assert log[0] == "npm ci --ignore-scripts --no-audit --no-fund"
@@ -222,7 +222,7 @@ def test_a_platform_without_a_chrome_to_download_still_installs_it(
         lambda: {**before(), "PATH": f"{failing}{os.pathsep}{before()['PATH']}"},
     )
     registry(tmp_path, FakeTransport()).install_defaults()
-    folder = tmp_path / "packages" / "hyperframes_render" / "1.0.0"
+    folder = tmp_path / "packages" / "hyperframes_render" / "1.0.1"
     assert (folder / "fake-install.log").read_text().splitlines()[-1].startswith("npx --no")
 
 
@@ -233,7 +233,7 @@ def test_a_world_has_it_only_once_its_operator_enables_it(installed: Path, tmp_p
     connectors.offer_defaults(W)
     assert connectors.find(W, "hyperframes_render") is None
     assert connectors.find(W, "remotion_render") is not None
-    connectors.enable(W, "hyperframes_render", "1.0.0")
+    connectors.enable(W, "hyperframes_render", "1.0.1")
     assert connectors.find(W, "hyperframes_render") is not None
 
 
@@ -338,7 +338,7 @@ def test_telemetry_and_update_checks_are_off_and_its_cache_is_in_the_scratch_fol
 def own_tools(installed: Path) -> Iterator[dict[str, Path]]:
     """What the install step leaves beside the installed package, for one test: `browser
     ensure`'s Chrome Headless Shell in its cache, and `npm run ffmpeg`'s ffmpeg and ffprobe."""
-    modules = installed / "hyperframes_render" / "1.0.0" / "node_modules"
+    modules = installed / "hyperframes_render" / "1.0.1" / "node_modules"
     shell = "chrome/chrome-headless-shell/linux-148/chrome-headless-shell-linux64"
     tools = {
         "HYPERFRAMES_BROWSER_PATH": modules / ".hyperframes" / shell / "chrome-headless-shell",
