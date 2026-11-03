@@ -395,7 +395,7 @@ git config, hooks, filters or submodules), a folder of this repository (`connect
 an absolute local path (cloned at `ref` when one is given); any other URL is refused, and so is a
 symlink out of the package folder. It lists every permission the Manifest declares
 (`network: api.example.org`; also `install_network`, `prepare_network`, `folders`, `services`,
-`owned_folders`, `credentials` from secret Setup fields, `sign_in` for OAuth hosts and
+`gpu`, `owned_folders`, `credentials` from secret Setup fields, `sign_in` for OAuth hosts and
 `capabilities`), the
 commit the ref resolved to, `upgrade` (what an upgrade adds and removes since the newest
 installed version). `POST /api/packages` (`{"source", "ref", "commit", "approved"}`)
@@ -541,6 +541,7 @@ network = ["api.example.org"]     # hosts it reaches; "localhost" alone: its own
 services = ["echo_service"]       # Services whose URLs (its Setting's) it reaches
 folders = ["echo-cache", "worlds/{world}/assets"]   # data directory folders it reads
 install_network = ["downloads.example.org"]         # hosts its install step reaches too
+gpu = true                        # the host's GPU, for a browser rendering 3D (GPU renders)
 ```
 
 The full fixture is `packages/connectors/tests/fixtures/packages/echo`, and every rule has an
@@ -646,6 +647,11 @@ sandboxed command any user namespace of its own.
   holds an older Node, which would fail every download with `ENOTFOUND`. A remote approver's
   listener also reaches Swarmify's `/mcp/remote_approvals` (at
   `SWARMIFY_INTERNAL_URL`, else `SWARMIFY_BASE_URL`).
+- GPU: with `permissions.gpu`, on Linux, the host's GPU device files (`/dev/nvidia*`,
+  `/dev/dri/renderD*` and `card*`, those there are) bound into its sandbox, and Unix sockets,
+  which Chrome for Testing opens and the sandbox otherwise refuses. No process, granted or not,
+  can reach the sandbox runner's socket: its folder is denied like the data directory. See GPU
+  renders under Deployment for giving the `sandbox` service the GPU.
 - Environment: its own Setup values and the few variables every process needs, never another
   package's nor the API's own (the sign-in password, the Claude token), whatever starts it. Nor
   can it read another process's: on Linux the sandbox's PID namespace hides them, on macOS the
@@ -1450,6 +1456,17 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   23.10 or later host `sudo tools/allow-bwrap-userns.sh` once (see The connector sandbox).
 - A Template is uploaded on its world's Assets page as a zip, so nothing needs copying into the
   container for it.
+- GPU renders: in Docker a render's browser draws 3D in software unless the `sandbox` service has
+  the host's GPU; on the desktop box (RTX 2070 Super) a 3D scene rendered at 0.33 frames a
+  second in software and 3.3 on the GPU (2026-11-03). With an NVIDIA GPU and the NVIDIA
+  Container Toolkit, turn on CDI once (Docker Engine 28.1 and earlier: `"features": {"cdi":
+  true}` in `/etc/docker/daemon.json`, then `sudo systemctl restart docker`; the toolkit keeps
+  `/var/run/cdi/nvidia.yaml` current) and add `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` to
+  `.env`. `compose.gpu.yaml` hands `sandbox` the GPU by CDI, as device files and the driver's
+  libraries; `--gpus` will not do, as the runtime mounts the driver under `/proc`, over which
+  bubblewrap cannot mount a fresh one. remotion_render (`permissions.gpu`) then renders with
+  Chrome for Testing on ANGLE's EGL backend; without a GPU it renders as before. Its Render
+  concurrency Setting can go up with the GPU: 4 tabs rendered fastest there.
 - Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
   swarmify_api.main:create_app --host 0.0.0.0` puts the Mac on the LAN behind the same sign-in
   page. With no password set or stored there is no sign-in, which is right only on `127.0.0.1`.

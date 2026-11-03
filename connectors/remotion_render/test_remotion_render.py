@@ -54,7 +54,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     `uv sync`ed there, then the (fake) npm and Remotion browser steps."""
     data = tmp_path_factory.mktemp("data")
     defaults = registry(data, FakeTransport()).install_defaults()
-    assert defaults["remotion_render"] == "1.0.1"
+    assert defaults["remotion_render"] == "1.0.2"
     return data / "packages"
 
 
@@ -140,6 +140,7 @@ def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
     m = read_manifest(HERE)
     assert (m["name"], m["kind"], m["capabilities"]) == ("remotion_render", "stage", ["templates"])
     assert m["params"]["required"] == ["project", "composition"]
+    assert m["permissions"]["gpu"] is True  # a 3D scene on the host's GPU, not in software
     build = read_manifest(HERE.parent / "remotion_build")
     assert m["owned_folders"] == build["owned_folders"]
     keys = ("folder", "require", "prepare", "prepare_network")
@@ -149,11 +150,12 @@ def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
 def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     installed: Path,
 ) -> None:
-    folder = installed / "remotion_render" / "1.0.1"
+    folder = installed / "remotion_render" / "1.0.2"
     assert (folder / ".venv" / "bin" / "python").is_file()
     assert (folder / "fake-install.log").read_text().splitlines() == [
         "npm ci --ignore-scripts --no-audit --no-fund",
         "npx --no remotion browser ensure",
+        "npm run gpu-browser",  # Chrome for Testing, which draws on a GPU
     ]
 
 
@@ -161,7 +163,7 @@ def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Gi
     """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
-    assert render is not None and render.version == "1.0.1"
+    assert render is not None and render.version == "1.0.2"
     assert connectors._env(render) == {}
     connectors.save_setup(W, "remotion_render", {}, {"concurrency": "2"})
     assert connectors._env(render) == {"SWARMIFY_RENDER_CONCURRENCY": "2"}
@@ -239,7 +241,7 @@ def test_renders_the_script_into_a_video_with_a_sidecar(
 @pytest.fixture
 def own_browser(installed: Path) -> Iterator[Path]:
     """What `remotion browser ensure` leaves beside the installed package, for one test."""
-    browsers = installed / "remotion_render" / "1.0.1" / "node_modules" / ".remotion"
+    browsers = installed / "remotion_render" / "1.0.2" / "node_modules" / ".remotion"
     shell = browsers / "chrome-headless-shell" / "linux64" / "chrome-headless-shell"
     shell.parent.mkdir(parents=True)
     shell.write_text("#!/bin/sh\n")
@@ -267,6 +269,33 @@ def test_its_own_browser_is_the_one_remotion_uses_else_one_on_path(
     own.unlink()
     with pytest.raises(ConnectorError, match="no Chrome Headless Shell: reinstall"):
         real.run_stage(W, "run_1", "stage_4", stage(tmp_path, fake_npx, at="stage_4"))
+
+
+def test_given_a_gpu_it_renders_there_with_chrome_for_testing_else_in_software(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On the desktop box (RTX 2070 Super) a 3D scene rendered at 3.3 frames a second on the
+    GPU against 0.33 in software (2026-11-03)."""
+    dev, browsers = tmp_path / "dev", tmp_path / ".remotion"
+    tested = browsers / "chrome-for-testing" / "linux64" / "chrome-linux64" / "chrome"
+    shell = browsers / "chrome-headless-shell" / "linux64" / "x" / "chrome-headless-shell"
+    for f in (tested, shell, dev / "dri" / "card0"):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("")
+    monkeypatch.setattr(rr, "DEV", dev)
+    monkeypatch.setattr(rr, "BROWSERS", browsers)
+    software = [f"--browser-executable={shell}"]
+    assert rr._browser() == software  # no GPU handed in (a card node alone renders nothing)
+
+    (dev / "dri" / "renderD128").write_text("")
+    gpu = ["--chrome-mode=chrome-for-testing", "--gl=angle-egl"]
+    assert rr._browser() == [f"--browser-executable={tested}", *gpu]
+    (dev / "dri" / "renderD128").unlink()
+    (dev / "nvidia0").write_text("")
+    assert rr._browser() == [f"--browser-executable={tested}", *gpu]
+
+    tested.unlink()  # installed before Chrome for Testing was part of it
+    assert rr._browser() == software
 
 
 def test_the_render_concurrency_setting_caps_the_tabs_rendering_at_once(

@@ -256,8 +256,8 @@ SCHEMA: dict[str, Any] = {
         "primary_metric": {"type": "string", "pattern": _SNAKE},
         # What the sandbox lets it use (ADR 0021): the hosts it reaches (`localhost` alone: its
         # own loopback servers), the Services whose URLs it calls, the data directory's folders it
-        # reads (`{world}` is the world it runs for), and the hosts its install step reaches
-        # besides its runtime's registry.
+        # reads (`{world}` is the world it runs for), the hosts its install step reaches
+        # besides its runtime's registry, and the host's GPU (a browser rendering 3D on it).
         "permissions": {
             "type": "object",
             "additionalProperties": False,
@@ -269,6 +269,7 @@ SCHEMA: dict[str, Any] = {
                     "items": {"type": "string", "pattern": _FOLDER},
                 },
                 "install_network": _domains,
+                "gpu": {"type": "boolean"},
             },
         },
     },
@@ -474,7 +475,8 @@ def permissions(manifest: dict[str, Any]) -> list[str]:
     approves before anything of the package runs (ADR 0021): the hosts it reaches (`network`),
     the hosts its install step reaches with its runtime's registries (`install_network`), the
     hosts its Templates' prepare command reaches (`prepare_network`), the data directory's
-    folders it reads (`folders`), the Services it calls (`services`), the world folders it owns
+    folders it reads (`folders`), the Services it calls (`services`), the host's GPU (`gpu`),
+    the world folders it owns
     (`owned_folders`), the Credentials it is given (`credentials`, by the variable it reads),
     the hosts Swarmify signs in to for it (`sign_in`) and the core's Capabilities it uses
     (`capabilities`). `{}` declares none."""
@@ -487,6 +489,7 @@ def permissions(manifest: dict[str, Any]) -> list[str]:
     out += [f"prepare_network: {d}" for d in prepare]
     out += [f"folders: {f}" for f in granted.get("folders", [])]
     out += [f"services: {s}" for s in granted.get("services", [])]
+    out += ["gpu: the host's graphics card"] if granted.get("gpu") else []
     out += [f"owned_folders: {f['folder']}" for f in manifest.get("owned_folders", [])]
     out += [
         f"credentials: {setup.env_name(f)}"

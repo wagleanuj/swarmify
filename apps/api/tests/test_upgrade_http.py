@@ -114,7 +114,7 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
         assert client.get(f"/api/worlds/{world}/packages").json() == [
             {"name": "meta", "version": "1.0.1"},
             {"name": "remotion_build", "version": "1.0.1"},
-            {"name": "remotion_render", "version": "1.0.1"},
+            {"name": "remotion_render", "version": "1.0.2"},
             {"name": "script_writer", "version": "0.0.1"},  # the world's own, moved (#211)
             {"name": "speech", "version": "1.0.0"},
             {"name": "upload_post", "version": "1.0.0"},
@@ -164,7 +164,7 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
     assert again.get(f"/api/worlds/{new}/packages").json() == [
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.1"},
-        {"name": "remotion_render", "version": "1.0.1"},
+        {"name": "remotion_render", "version": "1.0.2"},
         {"name": "speech", "version": "1.0.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},

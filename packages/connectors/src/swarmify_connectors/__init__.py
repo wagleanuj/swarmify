@@ -731,7 +731,8 @@ class Connectors:
         m, world_id = connector.manifest, connector.world_id or ""
         world = self.data_dir / "worlds" / world_id
         permissions = m.get("permissions", {})
-        grants = Grants(domains=list(permissions.get("network", [])))
+        network, gpu = list(permissions.get("network", [])), permissions.get("gpu", False)
+        grants = Grants(domains=network, gpu=gpu)
         for f in m.get("owned_folders", []):
             folder = world / "assets" / f["folder"]
             folder.mkdir(parents=True, exist_ok=True)

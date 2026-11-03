@@ -9,6 +9,9 @@ the layer the Agent SDK puts a Build Session's Bash in (ADR 0018).
 - writes: only its scratch folder (its HOME and TMPDIR) and what `Grants.writes` names;
 - network: only `Grants.domains`, through sandbox-runtime's proxy; a bare `localhost` lets it bind
   and reach its own loopback servers (a render's browser talking to its bundle);
+- devices: on Linux, with `Grants.gpu`, the host's GPU device files (`gpu_devices`) and Unix
+  sockets, which a GPU browser opens; the sandbox runner's socket stays out of reach, its folder
+  denied to every process;
 - environment: what the caller gives it, which for a connector is its own Setup values only, and
   no other process's (Linux's PID namespace; on macOS, launcher.mjs's Seatbelt rules).
 
@@ -58,6 +61,9 @@ PROXIED_NODE = ((22, 21), (23,), (24, 5))
 """The Node versions that send a process's own connections through the sandbox's proxy when told
 to (`NODE_USE_ENV_PROXY`): 22.21 up to 23, and 24.5 on. An older one dials every host itself,
 which the sandbox refuses (`ENOTFOUND`, `EPERM`), so a Node install step or connector would fail."""
+GPU_DEVICES = ("nvidia*", "dri/renderD*", "dri/card*")
+"""The device files of a GPU under /dev: NVIDIA's, and the DRM render and card nodes any driver
+has. A process granted the GPU gets those that exist, nothing else of the host's /dev."""
 KEEP_SECONDS = 24 * 3600
 """How long a process's scratch folder outlives it, as a long job may still use it."""
 
@@ -73,6 +79,18 @@ class Grants:
     reads: list[Path] = field(default_factory=list)
     writes: list[Path] = field(default_factory=list)
     domains: list[str] = field(default_factory=list)
+    gpu: bool = False
+    """The host's GPU (Manifest `permissions.gpu`): a browser rendering 3D on it, not in
+    software."""
+
+
+def gpu_devices(dev: Path = Path("/dev")) -> list[str]:
+    """The GPU device files this host has (`GPU_DEVICES`); none off Linux, where the sandbox
+    cannot hand a process a device."""
+    if not sys.platform.startswith("linux"):
+        return []
+    found = (p for pattern in GPU_DEVICES for p in dev.glob(pattern))
+    return sorted(str(p) for p in found if p.is_char_device())
 
 
 def domain(url: str) -> str | None:
@@ -215,13 +233,17 @@ class Sandbox:
         denied = self.denied()
         hosts = list(dict.fromkeys(grants.domains))
         nonce = secrets.token_hex(16)
+        devices = gpu_devices() if grants.gpu else []
+        network: dict[str, object] = {
+            "allowedDomains": [h for h in hosts if h != LOCAL],
+            "deniedDomains": [],
+            "allowLocalBinding": LOCAL in hosts,
+        }
+        if devices:  # Chrome for Testing will not start without a Unix socket of its own
+            network["allowAllUnixSockets"] = True
         plan: dict[str, object] = {
             "sandbox": {
-                "network": {
-                    "allowedDomains": [h for h in hosts if h != LOCAL],
-                    "deniedDomains": [],
-                    "allowLocalBinding": LOCAL in hosts,
-                },
+                "network": network,
                 "filesystem": {
                     "denyRead": [str(p) for p in denied],
                     "allowRead": [str(p) for p in reads],
@@ -243,6 +265,7 @@ class Sandbox:
             "nonce": nonce,
             "session": session,
             "observe": self._observer(denied, reads, writes) if sys.platform == "linux" else None,
+            "devices": devices,
         }
         (folder / "plan.json").write_text(json.dumps(plan))
         command = [node, str(LAUNCHER), str(folder / "plan.json"), "--", *argv]
@@ -252,10 +275,13 @@ class Sandbox:
 
     def denied(self) -> list[Path]:
         """The folders a sandboxed process cannot read but where granted: the data directory,
-        every home folder and the temp folders, as they really are (symlinks resolved)."""
+        every home folder, the temp folders and the sandbox runner's (its socket), as they really
+        are (symlinks resolved)."""
         roots = [self.data_dir, Path.home(), Path(tempfile.gettempdir()), Path("/tmp")]
         roots += [Path(p) for p in ("/Users", "/Volumes", "/var/folders", "/home", "/root")]
         roots += [Path(p) for p in ("/mnt", "/media", "/srv")]  # a server's own data
+        if runner := os.environ.get(RUNNER):  # its socket runs any command it is handed
+            roots.append(Path(runner).parent)
         return list(dict.fromkeys(p.resolve() for p in roots if p.exists()))
 
     def _readable(self, grants: list[Path], path: str, cwd: Path) -> list[Path]:
