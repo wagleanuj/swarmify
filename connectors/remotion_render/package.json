@@ -4,5 +4,8 @@
   "description": "What the install step puts beside the render connector: the Remotion CLI, for its browser",
   "dependencies": {
     "@remotion/cli": "4.0.538"
+  },
+  "scripts": {
+    "gpu-browser": "node -e \"require('@remotion/renderer').ensureBrowser({chromeMode: 'chrome-for-testing'}).catch((e) => { console.error(e.message); process.exit(1); })\""
   }
 }

@@ -1,0 +1,8 @@
+# The host's NVIDIA GPU for renders (README, Deployment, GPU renders): add
+# COMPOSE_FILE=compose.yaml:compose.gpu.yaml to .env once CDI is on. CDI hands `sandbox` the GPU's
+# device files and the driver's libraries; `--gpus` (the NVIDIA runtime) would also mount the
+# driver under /proc, over which bubblewrap cannot mount a fresh one, so no sandbox would start.
+services:
+  sandbox:
+    devices:
+      - nvidia.com/gpu=all

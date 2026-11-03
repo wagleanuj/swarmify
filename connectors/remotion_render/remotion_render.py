@@ -44,6 +44,10 @@ TAIL = 40
 _STEP = re.compile(r"^(Rendered|Encoded) (\d+)/(\d+)", re.M)
 BROWSERS = Path(__file__).parent / "node_modules" / ".remotion"
 CLI = Path("node_modules") / ".bin" / "remotion"
+DEV = Path("/dev")
+GPU = ("nvidia0", "dri/renderD*")
+"""A GPU the sandbox handed this process (its Manifest's `permissions.gpu`): NVIDIA's, or any
+driver's DRM render node."""
 """The Remotion CLI in a project, which its `npm ci` installs."""
 """Where the install step's `remotion browser ensure` put Chrome Headless Shell."""
 
@@ -163,8 +167,7 @@ def remotion_render(
     # scene renders in software and that many tabs run out of memory (spike 2026-10-30).
     if tabs := os.environ.get(CONCURRENCY):
         argv.append(f"--concurrency={_flag('concurrency', tabs)}")
-    if browser := _shell():
-        argv.append(f"--browser-executable={browser}")
+    argv += _browser()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.unlink(missing_ok=True)
     _hidden(output, "props.json").write_text(
@@ -255,6 +258,19 @@ def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
+
+
+def _browser() -> list[str]:
+    """The browser a render uses: Chrome for Testing drawing on the GPU (ANGLE on EGL) when the
+    sandbox handed this process one and the install step downloaded it, else Chrome Headless
+    Shell, which draws 3D in software, about 10x slower (measured 2026-11-03), else Remotion's
+    own lookup, which fails offline."""
+    gpu = any(p.exists() for pattern in GPU for p in DEV.glob(pattern))
+    tested = [p for p in BROWSERS.glob("chrome-for-testing/*/*/chrome") if p.is_file()]
+    if gpu and tested:
+        flags = ["--chrome-mode=chrome-for-testing", "--gl=angle-egl"]
+        return [f"--browser-executable={tested[0]}", *flags]
+    return [f"--browser-executable={shell}"] if (shell := _shell()) else []
 
 
 def _shell() -> str | None:

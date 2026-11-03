@@ -140,6 +140,14 @@ try {
     wrapped = wrapped.replace(/' \/bin\/(ba|z)?sh -c /, (rest) => `\n${last}${rest}`);
     if (wrapped === before) throw new Error("sandbox-runtime's Seatbelt command changed shape");
   }
+  if (process.platform === "linux" && plan.devices?.length) {
+    // sandbox-runtime gives the sandbox a fresh /dev; a process granted the GPU (a render's
+    // browser) gets exactly the device files its plan names bound in after it, nothing else.
+    const binds = plan.devices.map((d) => `--dev-bind ${quote(d)} ${quote(d)}`).join(" ");
+    const before = wrapped;
+    wrapped = wrapped.replace(" --dev /dev ", ` --dev /dev ${binds} `);
+    if (wrapped === before) throw new Error("sandbox-runtime's bubblewrap command changed shape");
+  }
   const tag = /\(with message "([^"]+)"\)/.exec(wrapped)?.[1];
   if (process.platform === "darwin" && tag) await watchSeatbelt(tag);
   // `; exit` keeps the shell as the sandbox's parent (bubblewrap dies with its parent), and

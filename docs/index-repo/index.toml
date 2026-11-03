@@ -84,6 +84,7 @@ permissions = [
   "install_network: remotion.media",
   "install_network: storage.googleapis.com",
   "prepare_network: registry.npmjs.org",
+  "gpu: the host's graphics card",
   "owned_folders: remotion_templates",
   "capabilities: templates",
 ]
