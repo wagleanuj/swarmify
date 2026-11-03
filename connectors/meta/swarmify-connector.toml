@@ -60,6 +60,15 @@ media_type = "video/mp4"
 [setup]
 help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/meta#setup"
 
+# The login configuration of the operator's Meta app (Facebook Login for Business), which names
+# the permissions. Sign-in sends it as the authorize URL's config_id.
+[[config]]
+key = "meta_config_id"
+label = "Login configuration ID"
+type = "string"
+scope = "shared"
+help = "In your Meta app, under Facebook Login for Business, Configurations: the ID of the configuration to sign in with."
+
 # The world's Facebook Page and its Instagram account. Swarmify signs in with Facebook Login for
 # Business, exchanges the code, then calls this package's `signed_in` tool, which keeps the
 # Page's own token (ADR 0029). It never expires, so nothing refreshes it. The Meta app's client
@@ -71,15 +80,13 @@ type = "oauth"
 required = true
 scope = "world"
 env = "META_ACCESS_TOKEN"
-help = "The Facebook account that manages the world's Page, whose Instagram account is linked to it. Register your own Meta app with this page's redirect URI and put its login configuration ID in this Manifest; see the README."
+help = "The Facebook account that manages the world's Page, whose Instagram account is linked to it. Register your own Meta app with this page's redirect URI; see the README."
 [config.oauth]
 authorize_url = "https://www.facebook.com/v26.0/dialog/oauth"
 token_url = "https://graph.facebook.com/v26.0/oauth/access_token"
 pkce = false
 finish = true
-# The login configuration of the operator's Meta app (Facebook Login for Business), which names
-# the permissions. Static: replace it with your own before signing in (README, Setup).
-authorize_params = { config_id = "YOUR_LOGIN_CONFIGURATION_ID" }
+authorize_settings = { config_id = "meta_config_id" }
 
 [[config]]
 key = "page"

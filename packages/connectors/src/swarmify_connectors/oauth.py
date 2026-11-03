@@ -4,8 +4,10 @@ the authorization code flow and keeps the token set.
 The operator registers their own app (`client = "operator"`); its client id and secret are two
 shared Credentials of the package, `<key>_client_id` and `<key>_client_secret`. Sign-in sends
 the browser to the field's `authorize_url` with a one-time `state` and, with `pkce`, an S256 code
-challenge; the provider sends it back to Swarmify's own `/api/setup/oauth/callback`, which trades
-the code for a token set at `token_url`. The token set is stored as the field's Credential:
+challenge, plus its static `authorize_params` and, by `authorize_settings`, the values of other
+Setup fields of the package (as a Meta login configuration ID); the provider sends it back to
+Swarmify's own `/api/setup/oauth/callback`, which trades the code for a token set at
+`token_url`. The token set is stored as the field's Credential:
 `{"access_token", "refresh_token", "expires_at"}` plus `needs_sign_in` once the provider refuses
 it. A field with `finish` stores what its package's `signed_in` tool answers instead
 (ADR 0029): `{"access_token"}` plus `expires_at` when it gives one, which, with no refresh token,
@@ -51,11 +53,18 @@ def new_verifier() -> str:
 
 
 def authorize_url(
-    field: dict[str, Any], client_id: str, redirect_uri: str, state: str, verifier: str
+    field: dict[str, Any],
+    client_id: str,
+    redirect_uri: str,
+    state: str,
+    verifier: str,
+    settings: dict[str, str] | None = None,
 ) -> str:
+    """`settings` are the values `authorize_settings` maps parameters to, by parameter."""
     o = field["oauth"]
     query = {
         **o.get("authorize_params", {}),
+        **(settings or {}),
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,

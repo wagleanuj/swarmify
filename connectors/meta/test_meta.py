@@ -766,7 +766,13 @@ def test_the_manifest_declares_a_world_sign_in_the_package_finishes() -> None:
     m = read_manifest(HERE)
     assert (m["name"], m["kind"], m["stage_types"]) == ("meta", "publish", ["connector"])
     assert (m["capabilities"], m["primary_metric"]) == (["publish", "outcomes"], "views")
-    account, chosen = m["config"]
+    login, account, chosen = m["config"]
+    assert (login["key"], login["label"], login["type"]) == (
+        "meta_config_id",
+        "Login configuration ID",
+        "string",
+    )
+    assert (login["scope"], login.get("secret"), bool(login["help"])) == ("shared", None, True)
     assert (account["key"], account["type"], account["env"]) == ("meta", "oauth", meta.TOKEN)
     assert (account["scope"], chosen["scope"]) == ("world", "world")
     assert (chosen["key"], chosen["type"], chosen["env"]) == ("page", "string", meta.PAGE)
@@ -777,8 +783,14 @@ def test_the_manifest_declares_a_world_sign_in_the_package_finishes() -> None:
         "https://graph.facebook.com/v26.0/oauth/access_token",
     )
     assert (o["pkce"], o["finish"], o.get("scopes")) == (False, True, None)
-    url = core_oauth.authorize_url(account, "app-id", "https://box.ts.net/cb", "st", "v" * 43)
-    assert "config_id=" in url and "code_challenge" not in url and "scope=" not in url
+    assert (o["authorize_settings"], o.get("authorize_params")) == (
+        {"config_id": "meta_config_id"},
+        None,
+    )
+    url = core_oauth.authorize_url(
+        account, "app-id", "https://box.ts.net/cb", "st", "v" * 43, {"config_id": "123"}
+    )
+    assert "config_id=123" in url and "code_challenge" not in url and "scope=" not in url
     assert m["permissions"] == {"network": ["graph.facebook.com", "rupload.facebook.com"]}
 
 
