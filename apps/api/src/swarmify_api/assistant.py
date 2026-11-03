@@ -13,6 +13,7 @@ Budget."""
 import json
 import logging
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
+from swarmify_connectors import Call
 from swarmify_kernel import new_id
 from swarmify_kernel.sqlite import connect
 from swarmify_memory import GraphIndex
@@ -79,12 +81,13 @@ ANSWER_SCHEMA: dict[str, Any] = {
 SYSTEM = """You are the Run Assistant of swarmify, on the page of one run. The operator asks about
 the run and asks for changes to it. Answer only with the JSON the schema asks for.
 
-Read the run before you answer: get_run (its stages, their status and config, spend, revision
-and files), read_run_file, tail_stage_log, list_run_events (its events and Run Changes),
-list_workflow_runs (its workflow's versions and recent runs) and query_graph (the world's
-memory of earlier runs). Ground every answer in what you read and list each place in `sources`
-with the stage's id and a short label such as "from script.md" or "Research, log 14:02". When
-you cannot see something, say so plainly; never guess.
+Read the run before you answer: get_run (its stages, their status and config, the Template a
+build stage started from with its fingerprint, spend, revision and files), read_run_file,
+tail_stage_log, list_run_events (its events and Run Changes), list_workflow_runs (its workflow's
+versions and recent runs) and query_graph (the world's memory of earlier runs). Ground every
+answer in what you read and list each place in `sources` with the stage's id and a short label
+such as "from script.md" or "Research, log 14:02". When you cannot see something, say so
+plainly; never guess.
 
 To change the run, call propose_change with a Run Change: a `kind`, the `stage` it targets by id
 and its `payload`. Pick the kind by what the operator asks for:
@@ -407,10 +410,12 @@ class Reader:
 
     def __init__(
         self, run_id: str, runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage,
-        index: GraphIndex, conversations: Conversations,
+        index: GraphIndex, conversations: Conversations, calls: Callable[[str], Call | None],
     ) -> None:  # fmt: skip
         self.run_id, self.runner, self.worlds, self.workflows = run_id, runner, worlds, workflows
         self.board, self.index, self.conversations = board, index, conversations
+        self.calls = calls
+        """A connector stage's call by stage id, whose record names the Template it used."""
         self.made: list[str] = []
         """The proposals made this turn."""
 
@@ -427,8 +432,9 @@ class Reader:
         return [
             AgentTool(
                 "get_run",
-                "The run: its stages with their status and config, decisions, Run Changes,"
-                " spend, Budget, revision, and the files in its folder.",
+                "The run: its stages with their status and config (and `template`, the Template"
+                " a build stage started from with its fingerprint, as its call recorded it),"
+                " decisions, Run Changes, spend, Budget, revision, and the files in its folder.",
                 _schema(),
                 self.get_run,
             ),
@@ -479,6 +485,9 @@ class Reader:
         files = sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file())
         # ponytail: every file listed; page them if a run ever leaves thousands
         seen = {**jsonable_encoder(run), "files": files}
+        for stage in seen["stages"]:
+            call = self.calls(stage["id"])
+            stage["template"] = call.template if call is not None else None
         seen["assistant_usd"] = self.conversations.spent(run.id)
         return json.dumps(seen)
 
@@ -583,12 +592,13 @@ class Unanswered(Exception):
 
 async def answer(
     runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage, index: GraphIndex,
-    runtime: AgentRuntime, conversations: Conversations, run: Run, message: str,
+    runtime: AgentRuntime, conversations: Conversations, calls: Callable[[str], Call | None],
+    run: Run, message: str,
 ) -> Message:  # fmt: skip
     """One turn of the run's Run Assistant, for HTTP and MCP alike: `message` in, the reply
     with its sources and proposals out. Raises Unanswered, with nothing kept but what the
     session cost."""
-    reader = Reader(run.id, runner, worlds, workflows, board, index, conversations)
+    reader = Reader(run.id, runner, worlds, workflows, board, index, conversations, calls)
     gate, preview = at_gate(runner, run)
     named = f"The run is {run.name}, id {run.id}, in the world {run.world_id}."
     system = "\n\n".join(filter(None, [SYSTEM, named, gate]))
@@ -620,16 +630,18 @@ class RunAssistant:
     def __init__(
         self, runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage,
         index: GraphIndex, runtime: AgentRuntime, conversations: Conversations,
+        calls: Callable[[str], Call | None],
     ) -> None:  # fmt: skip
         self.runner, self.worlds, self.workflows, self.board = runner, worlds, workflows, board
         self.index, self.runtime, self.conversations = index, runtime, conversations
+        self.calls = calls
 
     async def ask(self, run: Run, message: str) -> Message:
         """One turn: `message` in, the reply with its sources and proposals out. Raises
         Unanswered when the session fails or answers out of shape."""
         return await answer(
             self.runner, self.worlds, self.workflows, self.board, self.index, self.runtime,
-            self.conversations, run, message,
+            self.conversations, self.calls, run, message,
         )  # fmt: skip
 
     def apply(self, run_id: str, proposal_id: str, by: str) -> Card:
@@ -696,6 +708,7 @@ def router(
     index: GraphIndex,
     runtime: AgentRuntime,
     conversations: Conversations,
+    calls: Callable[[str], Call | None],
 ) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["assistant"])
 
@@ -713,8 +726,9 @@ def router(
         run = get_run(run_id)
         try:
             return await answer(
-                runner, worlds, workflows, board, index, runtime, conversations, run, body.message
-            )
+                runner, worlds, workflows, board, index, runtime, conversations, calls, run,
+                body.message,
+            )  # fmt: skip
         except Unanswered as exc:
             raise HTTPException(502, f"The assistant did not answer: {exc}") from exc
 

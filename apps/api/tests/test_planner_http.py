@@ -2,10 +2,13 @@
 tools are the swarmify MCP server's own, called in-process."""
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
+from api_fakes import install
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from test_build_session_http import SKETCH
 
 from swarmify_connectors import FakeTransport
 from swarmify_swarm import tool_id
@@ -177,6 +180,25 @@ def test_the_planner_describes_each_connector_from_its_manifest(
     assert "youtube, upload_post" not in system and "agents write text only" in system
     agent_tools = system.split("The Agent Tools")[1].split("How you work")[0]
     assert all(f"- {name}: " in agent_tools for name in AGENT_TOOLS)
+
+
+def test_the_planner_sees_each_packages_templates_in_this_world(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    """Issue 354: the planner's world context names each Template-capable package's Templates,
+    so a drafted stage can name one as its base; another world's stay out."""
+    assert install(running, SKETCH).status_code == 201
+    world, other = _world(running), _world(running)
+    for w in (world, other):
+        enabled = running.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"})
+        assert enabled.status_code == 200, enabled.text
+    for w, name in ((world, "bold"), (world, "calm"), (other, "secret")):
+        (tmp_path / "worlds" / w / "assets/sketches" / name).mkdir(parents=True)
+    script.scripts = [[Answer({"reply": "Hi.", "yaml": None})]]
+    assert running.post(f"/api/worlds/{world}/planner", json={"message": "Hi"}).is_success
+    system = str(script.sessions[0].system_prompt)
+    assert "- sketch: base is one of bold, calm" in system
+    assert "secret" not in system and "- remotion_build: base" not in system
 
 
 def test_a_package_s_planner_notes_and_params_reach_the_planner() -> None:

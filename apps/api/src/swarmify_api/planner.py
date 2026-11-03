@@ -9,6 +9,7 @@ keeps the draft unsaved until the operator saves it."""
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -17,6 +18,7 @@ from mcp.server.mcpserver.exceptions import ToolError as McpToolError
 from mcp.types import CallToolResult
 from pydantic import BaseModel, Field
 
+from swarmify_api.library import owned_folders, templates
 from swarmify_connectors import Connector, Connectors
 from swarmify_kernel import AGENT_TOOLS
 from swarmify_swarm import (
@@ -241,6 +243,27 @@ def typed_inputs(connectors: Connectors, world_id: str) -> str:
     )
 
 
+def world_templates(connectors: Connectors, world: Path, world_id: str) -> str:
+    """The Templates each Template-capable package has in this world (ADR 0028), by name, so a
+    drafted stage can start from one; "" when the world has none."""
+    lines = []
+    for c in connectors.list_all(world_id):
+        if "templates" not in c.manifest:
+            continue
+        if names := [t.name for t in templates(world, owned_folders([c]))]:
+            param = "base" if "build_session" in c.manifest else "project"
+            lines.append(f"- {c.name}: {param} is one of {', '.join(names)}")
+    if not lines:
+        return ""
+    return "\n".join(
+        [
+            "The world's Templates, each a starting point a package's stage may name in its"
+            " params instead of the package's starter; leave the param out to use the starter:",
+            *lines,
+        ]
+    )
+
+
 def router(
     worlds: Worlds, runtime: AgentRuntime, server: MCPServer, connectors: Connectors
 ) -> APIRouter:
@@ -264,6 +287,7 @@ def router(
                         SYSTEM,
                         world_connectors(connectors, world_id),
                         typed_inputs(connectors, world_id),
+                        world_templates(connectors, folder, world_id),
                         f"The world's id is {world_id}.",
                     ],
                 )
