@@ -107,6 +107,9 @@ def test_the_world_list_marks_workflows_whose_current_version_fails(running: Tes
     stale(running, connector)
     (listed,) = running.get(f"/api/worlds/{world}/workflows").json()
     assert any("render_video" in v["message"] for v in listed["violations"])
+    # Without the check the list is only the workflows, for pages that show names.
+    (listed,) = running.get(f"/api/worlds/{world}/workflows?check=false").json()
+    assert listed["id"] == workflow and listed["violations"] == []
 
 
 @pytest.mark.anyio

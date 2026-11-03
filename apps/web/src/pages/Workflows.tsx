@@ -20,13 +20,24 @@ export function Workflows() {
   const phone = usePhone();
 
   useEffect(() => {
+    // The rows show at once; each workflow's check (seconds, it may start connectors) follows.
+    const path = { world_id: worldId };
+    let checked = false;
     api
-      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
+      .GET("/api/worlds/{world_id}/workflows", { params: { path, query: { check: false } } })
       .then(({ data }) => {
         if (!data) throw new Error("load failed");
-        setWorkflows(data);
+        if (!checked) setWorkflows(data);
       })
       .catch(() => setError("Could not load the workflows. Is the API running?"));
+    api
+      .GET("/api/worlds/{world_id}/workflows", { params: { path } })
+      .then(({ data }) => {
+        if (!data) return;
+        checked = true;
+        setWorkflows(data);
+      })
+      .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
       .then(({ data }) => setRuns(data ?? []))

@@ -1,6 +1,7 @@
 """HTTP face of the Workflows context: save YAML as versions, check it, list and read versions,
 copy a workflow to another world."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -90,15 +91,23 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
         return STARTERS
 
     @api.get("/worlds/{world_id}/workflows")
-    def list_workflows(world_id: str) -> list[ListedWorkflow]:
+    def list_workflows(world_id: str, check: bool = True) -> list[ListedWorkflow]:
+        """With `check`, each lists the violations a run of it would meet today. A check can
+        start connector processes (about a second or two each), so a page that only needs names
+        asks without, and the checks run side by side."""
         world_or_404(world_id)
-        listed = []
-        for w in workflows.list_all(world_id):
+
+        def listed(w: Workflow) -> ListedWorkflow:
+            if not check:
+                return ListedWorkflow(**asdict(w))
             current = workflows.version(w.id, w.current_version)
             yaml, pins = (current.yaml, current.packages) if current else ("", {})
             draft = workflows.check(w.world_id, yaml, w.id, pins)  # as a run of it is checked
-            listed.append(ListedWorkflow(**asdict(w), violations=draft.violations))
-        return listed
+            return ListedWorkflow(**asdict(w), violations=draft.violations)
+
+        all_ = workflows.list_all(world_id)
+        with ThreadPoolExecutor(max_workers=max(1, min(8, len(all_)))) as pool:
+            return list(pool.map(listed, all_))
 
     @api.post(
         "/worlds/{world_id}/workflows",
