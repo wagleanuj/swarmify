@@ -6,8 +6,8 @@ Connector Package (ADR 0019), one of Swarmify's default packages: on startup Swa
 from this folder into `<data dir>/packages/meta/<version>/` and enables it for every world that
 has not decided otherwise. Everything Swarmify knows of it is `swarmify-connector.toml`.
 
-It posts Reels to Instagram and the Facebook Page, and a retry never posts twice. `outcomes` is
-not built yet.
+It posts Reels to Instagram and the Facebook Page, a retry never posts twice, and it reads
+back their views as Outcomes.
 
 ## The stage
 
@@ -111,6 +111,14 @@ and marks the account **Needs sign-in**; sign in again from the Connectors page.
   Instagram account, or when the `page` Setting names no Page or one without Instagram.
 - `account` answers the Page the token is for and its Instagram account ID (`page`,
   `instagram`), read with `me?fields=id,instagram_business_account`, as each call will start.
+- `outcomes` (the Outcomes Capability, ranked by `views`) answers, for every post with an
+  Instagram or Facebook link (its own, or one Upload-Post made), `instagram_views` (the media
+  insights metric `views`), `facebook_views` (the Reel's `video_insights` metric
+  `fb_reels_total_plays`) and their sum `views`. A single-Platform post answers its Platform's
+  metric and `views`. An Instagram link names a shortcode, not a media ID, so the account's latest
+  1,000 media are listed to find it; a post that is not among them, or not the world's account's,
+  is left out. Meta failing for one post leaves out only that post's Platform; a refused token
+  fails the call with `auth_failed`.
 
 A stage that posts only a Facebook draft (`platforms: [facebook]`, `visibility: draft`) posts
 privately and needs no gate (`private_when`); every stage with Instagram is gated.
@@ -126,7 +134,8 @@ problems, start, upload and finish, draft and scheduled states, a long video tha
 Instagram and one Platform failing while the other posts. Then retries: the same container
 published or found after Instagram's upload, the same video finished or answered after
 Facebook's start, only Facebook redone after Instagram posted, and a new key never reading another
-stage's record. Then the package installed through the
+stage's record. Then `outcomes`: views per Platform and their sum, another connector's Instagram
+link, posts left out and one post's error. Then the package installed through the
 real install path, answering over stdio MCP in its sandbox, and a workflow with an Instagram stage
 and no gate refused when saved. Run it with `uv run pytest connectors/meta` from the repository
 root.

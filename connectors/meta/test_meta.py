@@ -653,6 +653,115 @@ def test_without_a_run_folder_nothing_is_recorded(video: Path, tmp_path: Path) -
 # The Manifest, and the package installed as Swarmify does at startup
 
 
+# outcomes: views per Platform, for every post with an Instagram or Facebook link
+
+
+def insights(gone: tuple[str, ...] = ()) -> Any:
+    """The Graph API's reads for Outcomes: `me`, the Instagram account's media in pages of two,
+    and views of each media and Reel; `gone` answers Meta's error for that media or Reel."""
+    media = [
+        {"id": "m1", "permalink": "https://www.instagram.com/reel/AbC/"},
+        {"id": "m2", "permalink": "https://www.instagram.com/p/Xy_z/"},
+        {"id": "m3", "permalink": "https://www.instagram.com/reel/Old/"},
+    ]
+    seen: list[httpx.Request] = []
+
+    def graph(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        path, q = request.url.path.removeprefix("/v26.0/"), request.url.params
+        if path == "me":
+            return httpx.Response(
+                200, json={"id": "p1", "instagram_business_account": {"id": "ig1"}}
+            )
+        if path == "ig1/media":
+            start = int(q.get("after") or 0)
+            more = {"cursors": {"after": str(start + 2)}, "next": "x"} if start + 2 < 3 else {}
+            return httpx.Response(200, json={"data": media[start : start + 2], "paging": more})
+        thing = path.split("/")[0]
+        if thing in gone:
+            return httpx.Response(400, json={"error": {"message": "no such object", "code": 100}})
+        if path.endswith("/insights") and q["metric"] == "views":
+            views = {"name": "views", "values": [{"value": {"m1": 7, "m2": 5, "m3": 1}[thing]}]}
+            return httpx.Response(200, json={"data": [views]})
+        if path.endswith("/video_insights") and q["metric"] == "fb_reels_total_plays":
+            plays = {"name": "fb_reels_total_plays", "values": [{"value": 4}]}
+            return httpx.Response(200, json={"data": [plays]})
+        return httpx.Response(404, json={"error": {"message": "unknown path", "code": 803}})
+
+    graph.seen = seen  # type: ignore[attr-defined]
+    return graph
+
+
+BOTH = {
+    "connector": "meta",
+    "id": "m1",
+    "links": {
+        "instagram": "https://www.instagram.com/reel/AbC/",
+        "facebook": "https://www.facebook.com/reel/v1",
+    },
+}
+
+
+def outcomes(posts: list[dict[str, Any]], gone: tuple[str, ...] = ()) -> dict[str, Any]:
+    with httpx.Client(transport=httpx.MockTransport(insights(gone))) as http:
+        return meta.outcomes_of(http, {"META_ACCESS_TOKEN": "page-tok"}, posts)
+
+
+def test_outcomes_answer_views_per_platform_and_their_sum() -> None:
+    facebook_only = {
+        "connector": "meta",
+        "id": "v2",
+        "links": {"facebook": "https://www.facebook.com/reel/v2"},
+    }
+    instagram_only = {**BOTH, "id": "m3", "links": {"instagram": "https://instagram.com/reel/Old"}}
+    assert outcomes([BOTH, facebook_only, instagram_only]) == {
+        "m1": {"views": 11, "instagram_views": 7, "facebook_views": 4},
+        "v2": {"views": 4, "facebook_views": 4},
+        "m3": {"views": 1, "instagram_views": 1},  # found on the media list's second page
+    }
+
+
+def test_outcomes_claim_other_connectors_posts_with_instagram_or_facebook_links() -> None:
+    posts = [
+        {
+            "connector": "upload_post",
+            "id": "job_1",
+            "links": {
+                "instagram": "https://www.instagram.com/p/Xy_z/",
+                "tiktok": "https://www.tiktok.com/@me/video/1",
+            },
+        },
+        {"connector": "youtube", "id": "yt1", "links": {"youtube": "https://youtu.be/abc123"}},
+        {"connector": "upload_post", "id": "job_2", "links": {}},
+        {"connector": "clicks", "id": "p1", "links": "not a map"},
+        {  # not the world's Instagram account: its media list has no such post
+            "connector": "upload_post",
+            "id": "job_3",
+            "links": {"instagram": "https://www.instagram.com/reel/Unknown/"},
+        },
+    ]
+    assert outcomes(posts) == {"job_1": {"views": 5, "instagram_views": 5}}
+    graph = insights()
+    with httpx.Client(transport=httpx.MockTransport(graph)) as http:
+        assert meta.outcomes_of(http, {}, posts[1:4]) == {}  # nothing to ask Meta
+    assert graph.seen == []
+
+
+def test_meta_failing_for_one_post_leaves_the_others() -> None:
+    other = {**BOTH, "id": "m2", "links": {"instagram": "https://www.instagram.com/p/Xy_z/"}}
+    assert outcomes([BOTH, other], gone=("m1",)) == {
+        "m1": {"views": 4, "facebook_views": 4},
+        "m2": {"views": 5, "instagram_views": 5},
+    }
+    assert outcomes([BOTH, other], gone=("m1", "v1")) == {"m2": {"views": 5, "instagram_views": 5}}
+
+
+def test_outcomes_with_a_refused_token_are_an_auth_failure() -> None:
+    with FakeMeta([page(1)], refused=True).http() as http, pytest.raises(ToolError) as refused:
+        meta.outcomes_of(http, {"META_ACCESS_TOKEN": "page-tok"}, [BOTH])
+    assert str(refused.value).startswith("auth_failed")
+
+
 def test_the_manifest_declares_a_world_sign_in_the_package_finishes() -> None:
     m = read_manifest(HERE)
     assert (m["name"], m["kind"], m["stage_types"]) == ("meta", "publish", ["connector"])
