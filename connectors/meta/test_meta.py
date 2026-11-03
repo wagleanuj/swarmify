@@ -53,6 +53,8 @@ class FakeMeta:
     ) -> None:
         self.pages = pages
         self.down = down
+        self.broken: set[str] = set()  # paths that answer a server error
+        self.video_status: dict[str, Any] = {"uploading_phase": {"status": "complete"}}
         self.refused = refused
         self.statuses = statuses or [{"status_code": "FINISHED"}]
         self.requests: list[httpx.Request] = []
@@ -63,6 +65,8 @@ class FakeMeta:
             error = {"message": "Error validating access token", "type": "OAuthException"}
             return httpx.Response(400, json={"error": {**error, "code": 190}})
         path = request.url.path
+        if path in self.broken:
+            return httpx.Response(500, json={"error": {"message": "try later", "code": 2}})
         if path == "/v26.0/oauth/access_token":
             return httpx.Response(200, json={"access_token": "long-tok", "expires_in": 5183944})
         if path == "/v26.0/me/accounts":
@@ -70,6 +74,17 @@ class FakeMeta:
         if path == "/v26.0/me":
             return httpx.Response(
                 200, json={"id": "p1", "instagram_business_account": {"id": "ig1"}}
+            )
+        if path == "/v26.0/ig1/media" and request.method == "GET":  # the newest posts
+            caption = "Owls\n\n#owls"
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "m0", "caption": "older"},
+                        {"id": "m1", "caption": caption},
+                    ]
+                },
             )
         if path == "/v26.0/ig1/media":  # an Instagram Reels container, uploaded resumably
             uri = "https://rupload.facebook.com/ig-api-upload/v26.0/c1"
@@ -83,6 +98,8 @@ class FakeMeta:
             return httpx.Response(200, json={"id": "m1"})
         if path == "/v26.0/m1":
             return httpx.Response(200, json={"permalink": "https://www.instagram.com/reel/AbC/"})
+        if path == "/v26.0/v1":
+            return httpx.Response(200, json={"status": self.video_status, "id": "v1"})
         if path == "/v26.0/p1/video_reels":
             if self.down:
                 return httpx.Response(500, json={"error": {"message": "try later", "code": 2}})
@@ -520,6 +537,117 @@ def test_one_platform_failing_still_answers_the_others_link(video: Path) -> None
     assert out["id"] == "v1"
     with pytest.raises(ToolError, match="^facebook: posting the Reel"):
         post(FakeMeta([], down=True), video, platforms=["facebook"], title="T")
+
+
+# Retries: the record in the stage's folder, named after the Idempotency Key
+
+
+def retried(fake: FakeMeta, video: Path, key: str, **params: Any) -> dict[str, Any]:
+    """Publish as the stage `post` of run `r` does, its input another stage's file."""
+    fields = values(preview(stage(title="Owls", hashtags="#owls", **params)))
+    with fake.http() as http:
+        env = {"META_ACCESS_TOKEN": "page-tok-1"}
+        return meta.publish_fields(http, env, fields, str(video), key)
+
+
+@pytest.fixture
+def run_video(tmp_path: Path) -> Path:
+    (tmp_path / "runs" / "r" / "post").mkdir(parents=True)  # the core makes the stage's folder
+    path = tmp_path / "runs" / "r" / "render" / "artifacts" / "short.mp4"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\x00video")
+    return path
+
+
+def calls(fake: FakeMeta) -> list[tuple[str, str]]:
+    return [(r.method, r.url.path) for r in fake.requests]
+
+
+@pytest.mark.parametrize("state", ["FINISHED", "PUBLISHED"])
+def test_a_retry_after_instagrams_upload_publishes_the_same_container(
+    run_video: Path, state: str
+) -> None:
+    fake = FakeMeta([])
+    fake.broken = {"/v26.0/ig1/media_publish"}
+    with pytest.raises(ToolError, match="publishing the Reel failed"):
+        retried(fake, run_video, "post")
+    record = run_video.parents[2] / "post" / "meta-post.json"
+    assert json.loads(record.read_text()) == {"instagram": {"container": "c1"}}
+    fake.broken, fake.requests, fake.statuses = set(), [], [{"status_code": state}]
+    out = retried(fake, run_video, "post")
+    assert out["links"] == {"instagram": "https://www.instagram.com/reel/AbC/"}
+    assert not any(r.url.host == "rupload.facebook.com" for r in fake.requests)  # nothing uploaded
+    assert ("POST", "/v26.0/ig1/media") not in calls(fake)
+    if state == "FINISHED":  # the same container, published now
+        (published,) = [r for r in fake.requests if r.url.path.endswith("/media_publish")]
+        assert dict(parse_qsl(published.content.decode())) == {"creation_id": "c1"}
+    else:  # Meta published it before failing: found by its caption, not published again
+        assert ("POST", "/v26.0/ig1/media_publish") not in calls(fake)
+    fake.requests = []
+    assert retried(fake, run_video, "post")["links"] == out["links"]
+    assert calls(fake) == [("GET", "/v26.0/me")]  # a finished post is answered as recorded
+
+
+def test_a_retry_after_facebooks_start_finishes_or_returns_the_same_video(
+    run_video: Path,
+) -> None:
+    fake = FakeMeta([])
+    fake.broken = {"/video-upload/v26.0/v1"}
+    with pytest.raises(ToolError, match="uploading the video failed"):
+        retried(fake, run_video, "post", platforms=["facebook"])
+    fake.broken, fake.requests = set(), []
+    fake.video_status = {"uploading_phase": {"status": "not_started"}}
+    out = retried(fake, run_video, "post", platforms=["facebook"])
+    assert out["links"] == {"facebook": "https://www.facebook.com/reel/v1"}
+    assert calls(fake) == [
+        ("GET", "/v26.0/me"),
+        ("GET", "/v26.0/v1"),  # its status: the upload never completed
+        ("POST", "/video-upload/v26.0/v1"),
+        ("POST", "/v26.0/p1/video_reels"),
+    ]
+    assert dict(parse_qsl(fake.requests[-1].content.decode()))["upload_phase"] == "finish"
+    # Meta finished it but the answer was lost: the same video is answered, nothing posted
+    record = run_video.parents[2] / "post" / "meta-post.json"
+    record.write_text(json.dumps({"facebook": {"video": "v1"}}))
+    fake.requests = []
+    fake.video_status = {"publishing_phase": {"status": "complete"}}
+    assert retried(fake, run_video, "post", platforms=["facebook"])["links"] == out["links"]
+    assert calls(fake) == [("GET", "/v26.0/me"), ("GET", "/v26.0/v1")]
+
+
+def test_a_retry_after_instagram_posted_and_facebook_failed_redoes_only_facebook(
+    run_video: Path,
+) -> None:
+    fake = FakeMeta([], down=True)
+    both = ["instagram", "facebook"]
+    out = retried(fake, run_video, "post", platforms=both)
+    assert list(out["failed"]) == ["facebook"]
+    fake.down, fake.requests = False, []
+    out = retried(fake, run_video, "post", platforms=both)
+    assert (out["links"], out["failed"], out["id"]) == (
+        {
+            "instagram": "https://www.instagram.com/reel/AbC/",
+            "facebook": "https://www.facebook.com/reel/v1",
+        },
+        {},
+        "m1",
+    )
+    assert not any("ig1" in r.url.path or "c1" in r.url.path for r in fake.requests)
+    assert calls(fake).count(("POST", "/v26.0/p1/video_reels")) == 2  # start and finish
+
+
+def test_a_fresh_stage_never_reads_another_stages_record(run_video: Path) -> None:
+    retried(FakeMeta([]), run_video, "post")
+    fake = FakeMeta([])
+    retried(fake, run_video, "post.1")  # the stage visited again: a new key
+    assert ("POST", "/v26.0/ig1/media") in calls(fake)
+    folder = run_video.parents[2] / "post"
+    assert sorted(p.name for p in folder.iterdir()) == ["meta-post.1.json", "meta-post.json"]
+
+
+def test_without_a_run_folder_nothing_is_recorded(video: Path, tmp_path: Path) -> None:
+    retried(FakeMeta([]), video, "post")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["short.mp4"]
 
 
 # The Manifest, and the package installed as Swarmify does at startup

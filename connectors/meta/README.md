@@ -6,8 +6,8 @@ Connector Package (ADR 0019), one of Swarmify's default packages: on startup Swa
 from this folder into `<data dir>/packages/meta/<version>/` and enables it for every world that
 has not decided otherwise. Everything Swarmify knows of it is `swarmify-connector.toml`.
 
-It posts Reels to Instagram and the Facebook Page. Retries that never post twice and `outcomes`
-are not built yet.
+It posts Reels to Instagram and the Facebook Page, and a retry never posts twice. `outcomes` is
+not built yet.
 
 ## The stage
 
@@ -62,6 +62,16 @@ One publish record holds each Platform's link under `links` and each failure und
 is Instagram's media ID, or Facebook's video ID when Instagram did not post. The stage fails only
 when no Platform posted.
 
+Meta has no idempotency key, so a stage keeps what it posted in `meta-<key>.json` in its folder of
+the run (`<world>/runs/<run>/<stage>/`), named after the stage's Idempotency Key: each Platform's
+container or video ID once its file is uploaded (Facebook's from the start), then its post once
+finished. A retry of the stage reads it and redoes only Platforms without a finished post, which
+it answers as recorded. A recorded Instagram container is published (`FINISHED`), found among
+the account's newest 25 posts by its caption when Meta published it but its answer was lost
+(`PUBLISHED`), or made again after 24 hours (`EXPIRED`); its file is never uploaded again. A
+recorded Facebook video is answered when its `publishing_phase` is complete, uploaded to again
+when its upload never completed, then finished. A stage visited again gets a new key, so a new
+record.
 ## Setup
 
 Two fields, both per world, so each world posts as its own brand's Page and Instagram account:
@@ -113,7 +123,10 @@ Setting, Pages without Instagram and `auth_failed`. Then the preview (the captio
 edits, every problem) and the Instagram publish in order (container, upload, wait, publish), its
 params and a container that fails processing. Then the Facebook Page: the MP4 length, the Facebook
 problems, start, upload and finish, draft and scheduled states, a long video that still posts to
-Instagram and one Platform failing while the other posts. Then the package installed through the
+Instagram and one Platform failing while the other posts. Then retries: the same container
+published or found after Instagram's upload, the same video finished or answered after
+Facebook's start, only Facebook redone after Instagram posted, and a new key never reading another
+stage's record. Then the package installed through the
 real install path, answering over stdio MCP in its sandbox, and a workflow with an Instagram stage
 and no gate refused when saved. Run it with `uv run pytest connectors/meta` from the repository
 root.
