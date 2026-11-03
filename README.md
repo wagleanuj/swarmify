@@ -785,6 +785,11 @@ their files, and the package reads the folder through `assets_path` as before.
   the package's `strip` names, is refused for lacking a `require` file or for a name already
   there (unless `replace`) as an upload is, and records the run and stage as its origin. A step
   whose build call has not finished is refused.
+- A package's `[templates]` may declare `prepare`, a command the core runs once in each Template
+  added or replaced (as `npm ci`), in the sandbox from the Template's folder, the only one it
+  writes, reaching only the hosts `prepare_network` names, as a background job. The Template's
+  `prepare` says `preparing`, `ready` or `failed`, with `prepare_error` saying why, and its row on
+  the Assets page shows it. Builds still start from a copy without `node_modules`.
 
 ## Publishing
 

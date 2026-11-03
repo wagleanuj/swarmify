@@ -3094,6 +3094,10 @@ export interface components {
             templates: boolean;
             /** Require */
             require: string[];
+            /** Prepare */
+            prepare: string[];
+            /** Prepare Network */
+            prepare_network: string[];
         };
         /**
          * Package
@@ -4062,6 +4066,10 @@ export interface components {
             added: string;
             /** Fingerprint */
             fingerprint: string;
+            /** Prepare */
+            prepare: string;
+            /** Prepare Error */
+            prepare_error: string;
         };
         /** TemplateDelete */
         TemplateDelete: {

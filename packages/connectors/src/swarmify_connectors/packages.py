@@ -830,11 +830,28 @@ class Packages:
                 cache.mkdir(parents=True, exist_ok=True)
                 env[var] = str(cache)
                 grants.writes.append(cache)
+        self._run_step(f"{name}'s install step", step, target, grants, env)
+
+    def prepare(
+        self, package: str, step: Collection[str], network: Collection[str], folder: Path
+    ) -> None:
+        """A Template's prepare command (ADR 0028), in the sandbox from the Template's `folder`,
+        the only one it writes, reaching only the hosts `network` names. It starts with empty
+        caches of its own, as the Template is the operator's, not this repository's. Raises
+        InstallError saying why it failed, the sandbox not starting included."""
+        grants = Grants(writes=[folder], domains=list(network))
+        self._run_step(f"{package}'s prepare command", step, folder, grants, _install_env())
+
+    def _run_step(
+        self, what: str, step: Collection[str], cwd: Path, grants: Grants, env: dict[str, str]
+    ) -> None:
+        """Run `step` from `cwd` in the sandbox, raising InstallError when it fails, with what
+        the sandbox blocked, which is also logged."""
         try:
-            confined = self.sandbox.wrap(step, target, grants, env, path=env.get("PATH"))
+            confined = self.sandbox.wrap(list(step), cwd, grants, env, path=env.get("PATH"))
             process = subprocess.Popen(
                 confined.argv,
-                cwd=target,
+                cwd=cwd,
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
@@ -842,24 +859,21 @@ class Packages:
                 text=True,
             )
         except OSError as exc:
-            raise InstallError(f"{name}'s install step did not run: {exc}") from exc
+            raise InstallError(f"{what} did not run: {exc}") from exc
         try:
             out, err = process.communicate(timeout=INSTALL_SECONDS)
         except subprocess.TimeoutExpired as exc:
             process.terminate()  # the launcher stops the sandbox's processes in turn
             process.communicate()
-            raise InstallError(f"{name}'s install step took over {INSTALL_SECONDS} s") from exc
+            raise InstallError(f"{what} took over {INSTALL_SECONDS} s") from exc
         blocked = confined.blocked()
         if blocked:
-            log.warning(
-                "%s's install step was blocked by the sandbox: %s", name, "; ".join(blocked)
-            )
+            log.warning("%s was blocked by the sandbox: %s", what, "; ".join(blocked))
         if process.returncode != 0:
             tail = (err or out).strip()[-600:]
             said = f" The sandbox blocked: {'; '.join(blocked)}." if blocked else ""
             raise InstallError(
-                f"{name}'s install step `{' '.join(step)}` failed ({process.returncode}):"
-                f" {tail}{said}"
+                f"{what} `{' '.join(step)}` failed ({process.returncode}): {tail}{said}"
             )
 
     def uninstall(self, name: str, version: str) -> None:

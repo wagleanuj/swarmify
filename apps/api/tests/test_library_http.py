@@ -374,8 +374,10 @@ def test_a_zip_uploaded_as_a_template_is_listed_with_its_size_and_fingerprint(
         "again",
         "cats",
     ]
+    assert cats["prepare"] == "preparing"  # remotion_build's npm ci, which succeeds at once here
+    until(lambda: client.get(f"/api/worlds/{world}/templates").json()[1]["prepare"] == "ready")
     listed = client.get(f"/api/worlds/{world}/templates").json()[1]
-    assert listed == cats
+    assert listed == cats | {"prepare": "ready"}
     assert sorted(p.name for p in folder.iterdir()) == ["again", "cats"]  # no leftovers
     assert client.put(f"{url}/x", content=b"not a zip").status_code == 422
     assert client.put(f"/api/worlds/{world}/templates/voices/x", content=b"").status_code == 422

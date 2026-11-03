@@ -16,6 +16,7 @@ import secrets
 import shutil
 import stat
 import tempfile
+import threading
 import zipfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -29,7 +30,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from swarmify_connectors import Call, Connector, build_session
+from swarmify_connectors import Call, Connector, InstallError, build_session
 from swarmify_memory import ASSETS, ArtifactFile, Memory
 from swarmify_runs import Run
 from swarmify_workflows import ConnectorStage, Workflows
@@ -95,6 +96,9 @@ class OwnedFolder:
     """Whether it holds a package's Templates, one subfolder each, rather than loose files."""
     require: list[str]
     """The paths each of its Templates must hold, as its package's `[templates]` declares."""
+    prepare: list[str]
+    """The command run once in each added Template, with `prepare_network`; empty for none."""
+    prepare_network: list[str]
 
 
 @dataclass(frozen=True)
@@ -116,22 +120,30 @@ class Template:
     fingerprint: str
     """A hash of its files' paths and bytes, `node_modules` aside, from when it was added; ""
     for one placed by hand."""
+    prepare: str
+    """`preparing`, `ready` or `failed` when its package's prepare command ran on it; "" when
+    there was none to run, or it was placed by hand."""
+    prepare_error: str
+    """Why the prepare failed, as its command said."""
+
+
+_HELD = ("require", "prepare", "prepare_network")
 
 
 def owned_folders(connectors: list[Connector]) -> list[OwnedFolder]:
     """The Owned Folders the Manifests of these connectors declare, the first package to claim
     a folder keeping it."""
     found: dict[str, OwnedFolder] = {}
-    held: dict[str, list[str]] = {}
+    held: dict[str, dict[str, Any]] = {}
     for c in connectors:
         if declared := c.manifest.get("templates"):
-            held.setdefault(declared["folder"], declared.get("require", []))
+            held.setdefault(declared["folder"], declared)
     for c in connectors:
         for f in c.manifest.get("owned_folders", []):
             found.setdefault(f["folder"], OwnedFolder(
                 f"{ASSETS}/{f['folder']}/", f["folder"], f["label"], f.get("about", ""),
                 f.get("accept", []), f.get("confirm", ""), c.manifest["label"],
-                f["folder"] in held, held.get(f["folder"], []),
+                f["folder"] in held, *(held.get(f["folder"], {}).get(k, []) for k in _HELD),
             ))  # fmt: skip
     return list(found.values())
 
@@ -143,7 +155,6 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
         for d in sorted((world / f.path).glob("*/")):
             if d.name.startswith(".") or d.is_symlink():
                 continue
-            files = [p for p in d.rglob("*") if p.is_file() and not p.is_symlink()]
             record = d / build_session.RECORD
             try:
                 meta = json.loads(record.read_text()) if record.is_file() else {}
@@ -151,12 +162,17 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
                 meta = {}
             found.append(Template(
                 d.name, f.folder, f"{f.path}{d.name}/",
-                sum(p.stat().st_size for p in files if p != record),
+                meta.get("bytes") or _size(d, record),  # its record's, without node_modules
                 meta.get("origin", "folder"), meta.get("run_id", ""), meta.get("stage", ""),
                 meta.get("added") or datetime.fromtimestamp(d.stat().st_mtime, UTC).isoformat(),
-                meta.get("fingerprint", ""),
+                meta.get("fingerprint", ""), meta.get("prepare", ""), meta.get("prepare_error", ""),
             ))  # fmt: skip
     return found
+
+
+def _size(folder: Path, record: Path) -> int:
+    files = (p for p in folder.rglob("*") if p.is_file() and not p.is_symlink())
+    return sum(p.stat().st_size for p in files if p != record)
 
 
 def fingerprint(folder: Path) -> str:
@@ -330,7 +346,10 @@ def router(
     get_run: Callable[[str], Run | None],
     stage_package: Callable[[Run, str], Connector | None],
     call_for: Callable[[str], Call | None],
+    prepare: Callable[[str, list[str], list[str], Path], None],
 ) -> APIRouter:
+    """`prepare(package, command, network, folder)` runs a Template's prepare command in the
+    sandbox (`Packages.prepare`), raising InstallError when it fails."""
     api = APIRouter(prefix="/api", tags=["library"])
 
     def owned(world_id: str) -> list[OwnedFolder]:
@@ -397,11 +416,13 @@ def router(
         if missing := [r for r in require if not (root / r).exists()]:
             raise ValueError(f"the Template lacks {', '.join(missing)}, which {f.package} requires")
         files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
+        added = datetime.now(UTC).isoformat()
         (root / build_session.RECORD).write_text(json.dumps({
             **record,
-            "added": datetime.now(UTC).isoformat(),
+            "added": added,
             "bytes": sum(p.stat().st_size for p in files),
             "fingerprint": fingerprint(root),
+            **({"prepare": "preparing"} if f.prepare else {}),
         }))  # fmt: skip
         target = work.parent / name
         if target.exists():
@@ -410,7 +431,27 @@ def router(
             target.rename(work / "replaced")  # removed with the work folder
         root.rename(target)
         world = memory.world_folder(world_id)
-        return next(t for t in templates(world, [f]) if t.name == name)
+        template = next(t for t in templates(world, [f]) if t.name == name)
+        if f.prepare:
+            threading.Thread(target=prepared, args=(f, target, added), daemon=True).start()
+        return template
+
+    def prepared(f: OwnedFolder, folder: Path, added: str) -> None:
+        """Run the package's prepare command on the Template just added in `folder`, then
+        record how it went, unless the Template was replaced or deleted meanwhile."""
+        # ponytail: a job the API's restart cuts short stays `preparing`; replace to rerun it
+        try:
+            prepare(f.package, f.prepare, f.prepare_network, folder)
+            said = {"prepare": "ready", "prepare_error": ""}
+        except InstallError as exc:
+            said = {"prepare": "failed", "prepare_error": str(exc)}
+        record = folder / build_session.RECORD
+        try:
+            meta = json.loads(record.read_text())
+        except (OSError, ValueError):
+            return
+        if meta.get("added") == added:
+            record.write_text(json.dumps(meta | said))
 
     def templates_folder(world_id: str, folder: str, name: str, replace: bool) -> OwnedFolder:
         """The Templates folder `folder` of the world, once `name` is a plain name free in it

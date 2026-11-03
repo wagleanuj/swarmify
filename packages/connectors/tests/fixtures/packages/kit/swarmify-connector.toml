@@ -1,0 +1,22 @@
+# A fixture Connector Package declaring Templates (ADR 0028) with a prepare command: the core runs
+# it once per added Template, in the sandbox, from the Template's folder.
+name = "kit"
+version = "1.0.0"
+label = "Kit"
+about = "Renders from a world's Templates, each prepared once. A fixture."
+kind = "stage"
+stage_types = ["connector"]
+runtime = "uv"
+command = ["python3", "server.py"]
+capabilities = ["templates"]
+
+[[owned_folders]]
+folder = "kit_templates"
+label = "Kit templates"
+about = "Projects it renders."
+
+[templates]
+folder = "kit_templates"
+require = ["prepare.py"]
+prepare = ["python3", "prepare.py"]
+prepare_network = ["example.org"]

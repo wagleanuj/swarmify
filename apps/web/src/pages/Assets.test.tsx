@@ -135,6 +135,28 @@ test("a package's Templates folder is a group of Templates, one row each, not lo
   expect(screen.getByRole("listitem", { name: /package\.json/ }).elements()).toEqual([]);
 });
 
+test("a Template's row shows its prepare status, the error when it failed, and turns ready when its prepare ends", async () => {
+  const remotion = { ...voices, path: "assets/remotion_templates/", folder: "remotion_templates", label: "Remotion templates", about: "", accept: [], confirm: "", package: "Remotion build", templates: true, require: [], prepare: ["npm", "ci"], prepare_network: ["registry.npmjs.org"] };
+  const at = { folder: "remotion_templates", bytes: 1_000, origin: "upload", run_id: "", stage: "", added: "2026-11-01T10:00:00+00:00", fingerprint: "ab12", prepare_error: "" };
+  const row = (name: string, prepare: string, prepare_error = "") => ({ ...at, name, path: `assets/remotion_templates/${name}/`, prepare, prepare_error });
+  let asked = 0;
+  routes({
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([remotion]),
+    "GET /api/worlds/world_1/templates": () =>
+      Response.json([
+        row("cats", ++asked > 1 ? "ready" : "preparing"),
+        row("dogs", "failed", "Remotion build's prepare command `npm ci` failed (1): no package-lock.json"),
+        row("hand", ""),
+      ]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  const group = screen.getByRole("region", { name: "Remotion templates" });
+  await expect.element(group.getByRole("listitem", { name: "cats" })).toMatchTextContent(/Preparing/);
+  await expect.element(group.getByRole("listitem", { name: "dogs" })).toMatchTextContent(/Prepare failed: Remotion build's prepare command `npm ci` failed \(1\): no package-lock\.json/);
+  await expect.element(group.getByRole("listitem", { name: "hand" })).not.toMatchTextContent(/Prepar|Ready/);
+  await expect.element(group.getByRole("listitem", { name: "cats" }), { timeout: 5000 }).toMatchTextContent(/Ready/);
+});
+
 test("Add a Template uploads a zip under a name from its file, replacing one of that name only when asked", async () => {
   const remotion = { ...voices, path: "assets/remotion_templates/", folder: "remotion_templates", label: "Remotion templates", about: "Projects a build starts from.", accept: [], confirm: "", package: "Remotion build", templates: true, require: ["package.json", "src/index.ts"] };
   const kids = { folder: "remotion_templates", name: "kids", path: "assets/remotion_templates/kids/", bytes: 1_200_000, origin: "upload", run_id: "", stage: "", added: "2026-10-30T09:00:00+00:00", fingerprint: "ab12" };

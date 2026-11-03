@@ -65,6 +65,7 @@ export function Assets() {
   const [said, setSaid] = useState<string | null>(null);
   const [adding, setAdding] = useState<Folder | null>(null);
   const [seen, setSeen] = useState(0);
+  const [polled, setPolled] = useState(0);
   const [playing, setPlaying] = useState<string | null>(null);
   const player = useRef<HTMLAudioElement>(null);
 
@@ -81,11 +82,21 @@ export function Assets() {
       .GET("/api/worlds/{world_id}/assets", path)
       .then(({ data }) => setFiles(data ?? []))
       .catch(() => undefined);
+  }, [worldId, seen]);
+
+  useEffect(() => {
     api
-      .GET("/api/worlds/{world_id}/templates", path)
+      .GET("/api/worlds/{world_id}/templates", { params: { path: { world_id: worldId } } })
       .then(({ data }) => setTemplates(data ?? []))
       .catch(() => undefined);
-  }, [worldId, seen]);
+  }, [worldId, seen, polled]);
+
+  // a Template's prepare runs in the background: ask again until none is preparing
+  useEffect(() => {
+    if (!templates?.some((t) => t.prepare === "preparing")) return;
+    const timer = setTimeout(() => setPolled((n) => n + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [templates]);
 
   const reload = (message: string | null) => {
     setSaid(message);
@@ -179,6 +190,9 @@ export function Assets() {
   );
 }
 
+/** What a Template's row says of its prepare; a failed one says why on a line of its own. */
+const PREPARED: Record<string, string> = { preparing: " · Preparing...", ready: " · Ready" };
+
 const origin = (t: Template) =>
   t.origin === "run" ? `Saved from run ${t.run_id}, stage ${t.stage}` : t.origin === "upload" ? "Uploaded" : "Placed by hand";
 
@@ -241,7 +255,9 @@ function TemplatesGroup({
                 <span className="mono">{t.name}</span>
                 <span className="faint">
                   {size(t.bytes)} · {origin(t)} · added {new Date(t.added).toLocaleDateString()}
+                  {PREPARED[t.prepare] ?? ""}
                 </span>
+                {t.prepare === "failed" && <span className="warn">Prepare failed: {t.prepare_error}</span>}
               </span>
               <a className="file-open" href={`/api/worlds/${worldId}/templates/${encodeURIComponent(t.folder)}/${encodeURIComponent(t.name)}/download`} download aria-label={`Download ${t.name}`}>
                 Download
