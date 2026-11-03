@@ -7,7 +7,6 @@ assets a package gives meaning, as a folder of voices, that the Assets page show
 An Owned Folder a package's `[templates]` names holds its Templates (ADR 0028), one subfolder
 each."""
 
-import hashlib
 import json
 import mimetypes
 import os
@@ -128,6 +127,9 @@ class Template:
 
 
 _HELD = ("require", "prepare", "prepare_network")
+Prepare = Callable[[str, list[str], list[str], Path], None]
+"""`prepare(package, command, network, folder)` runs a Template's prepare command in the sandbox
+(`Packages.prepare`), raising InstallError when it fails."""
 
 
 def owned_folders(connectors: list[Connector]) -> list[OwnedFolder]:
@@ -148,6 +150,58 @@ def owned_folders(connectors: list[Connector]) -> list[OwnedFolder]:
     return list(found.values())
 
 
+def _record(template: Path) -> dict[str, Any]:
+    """A Template's record; {} for one placed by hand, or whose record was mangled by hand."""
+    try:
+        return json.loads((template / build_session.RECORD).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def claimants(connectors: list[Connector], folder: str) -> list[Connector]:
+    """The packages whose `[templates]` name this folder, the first its first claimant."""
+    return [c for c in connectors if c.manifest.get("templates", {}).get("folder") == folder]
+
+
+def adder(connectors: list[Connector], template: Path) -> Connector | None:
+    """The package whose `[templates]` rules (require, strip, guide, prepare) apply to the
+    Template at `template`: of the packages sharing its folder, the one its record says added it,
+    else the folder's first claimant, as for one placed by hand."""
+    sharing = claimants(connectors, template.parent.name)
+    named = _record(template).get("package")
+    return next((c for c in sharing if c.name == named), next(iter(sharing), None))
+
+
+def prepare_later(prepare: Prepare, package: Connector, folder: Path, added: str) -> None:
+    """Run the package's prepare command on the Template in `folder` as a background job, then
+    record how it went, unless the Template was replaced or deleted meanwhile."""
+
+    def job() -> None:
+        declared = package.manifest.get("templates", {})
+        said = {"prepare": "ready", "prepare_error": ""}
+        if command := declared.get("prepare", []):
+            network = declared.get("prepare_network", [])
+            try:
+                prepare(package.manifest["label"], command, network, folder)
+            except InstallError as exc:
+                said = {"prepare": "failed", "prepare_error": str(exc)}
+        meta = _record(folder)
+        if meta and meta.get("added") == added:
+            (folder / build_session.RECORD).write_text(json.dumps(meta | said))
+
+    threading.Thread(target=job, daemon=True).start()
+
+
+def prepare_unfinished(worlds: list[tuple[Path, list[Connector]]], prepare: Prepare) -> None:
+    """Prepare again each Template of these world folders (each with the packages its world
+    enables) whose record still says preparing: a job the API's last process died in."""
+    for world, connectors in worlds:
+        for t in templates(world, owned_folders(connectors)):
+            folder = world / t.path
+            if t.prepare == "preparing" and (package := adder(connectors, folder)):
+                prepare_later(prepare, package, folder, _record(folder).get("added", ""))
+
+
 def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
     """The Templates in the world folder's Templates folders, by folder then name."""
     found = []
@@ -155,11 +209,7 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
         for d in sorted((world / f.path).glob("*/")):
             if d.name.startswith(".") or d.is_symlink():
                 continue
-            record = d / build_session.RECORD
-            try:
-                meta = json.loads(record.read_text()) if record.is_file() else {}
-            except ValueError:  # a record mangled by hand: the Template is still there
-                meta = {}
+            record, meta = d / build_session.RECORD, _record(d)
             found.append(Template(
                 d.name, f.folder, f"{f.path}{d.name}/",
                 meta.get("bytes") or _size(d, record),  # its record's, without node_modules
@@ -173,19 +223,6 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
 def _size(folder: Path, record: Path) -> int:
     files = (p for p in folder.rglob("*") if p.is_file() and not p.is_symlink())
     return sum(p.stat().st_size for p in files if p != record)
-
-
-def fingerprint(folder: Path) -> str:
-    """A hash of the Template's files, paths and bytes, without `node_modules` or its record, so
-    the same project added twice has the same one."""
-    digest = hashlib.sha256()
-    files = {p.relative_to(folder).as_posix(): p for p in folder.rglob("*") if p.is_file()}
-    for rel, p in sorted(files.items()):
-        if rel == build_session.RECORD or "node_modules" in rel.split("/") or p.is_symlink():
-            continue
-        with p.open("rb") as f:
-            digest.update(f"{rel}\0".encode() + hashlib.file_digest(f, "sha256").digest())
-    return digest.hexdigest()
 
 
 def _gb(n: int) -> str:
@@ -346,10 +383,8 @@ def router(
     get_run: Callable[[str], Run | None],
     stage_package: Callable[[Run, str], Connector | None],
     call_for: Callable[[str], Call | None],
-    prepare: Callable[[str, list[str], list[str], Path], None],
+    prepare: Prepare,
 ) -> APIRouter:
-    """`prepare(package, command, network, folder)` runs a Template's prepare command in the
-    sandbox (`Packages.prepare`), raising InstallError when it fails."""
     api = APIRouter(prefix="/api", tags=["library"])
 
     def owned(world_id: str) -> list[OwnedFolder]:
@@ -409,20 +444,23 @@ def router(
         root: Path,
         replace: bool,
         record: dict[str, str],
-        require: list[str],
+        package: Connector,
     ) -> Template:
-        """Check the Template at `root`, in the work folder `work`, for `require`, write its
-        record and move it into place as `name`."""
-        if missing := [r for r in require if not (root / r).exists()]:
-            raise ValueError(f"the Template lacks {', '.join(missing)}, which {f.package} requires")
+        """Check the Template at `root`, in the work folder `work`, for the `require` of the
+        package adding it, write its record and move it into place as `name`, then prepare it."""
+        declared = package.manifest["templates"]
+        label = package.manifest["label"]
+        if missing := [r for r in declared.get("require", []) if not (root / r).exists()]:
+            raise ValueError(f"the Template lacks {', '.join(missing)}, which {label} requires")
         files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
         added = datetime.now(UTC).isoformat()
         (root / build_session.RECORD).write_text(json.dumps({
             **record,
+            "package": package.name,
             "added": added,
             "bytes": sum(p.stat().st_size for p in files),
-            "fingerprint": fingerprint(root),
-            **({"prepare": "preparing"} if f.prepare else {}),
+            "fingerprint": build_session.fingerprint(root),
+            **({"prepare": "preparing"} if declared.get("prepare") else {}),
         }))  # fmt: skip
         target = work.parent / name
         if target.exists():
@@ -432,26 +470,9 @@ def router(
         root.rename(target)
         world = memory.world_folder(world_id)
         template = next(t for t in templates(world, [f]) if t.name == name)
-        if f.prepare:
-            threading.Thread(target=prepared, args=(f, target, added), daemon=True).start()
+        if declared.get("prepare"):
+            prepare_later(prepare, package, target, added)
         return template
-
-    def prepared(f: OwnedFolder, folder: Path, added: str) -> None:
-        """Run the package's prepare command on the Template just added in `folder`, then
-        record how it went, unless the Template was replaced or deleted meanwhile."""
-        # ponytail: a job the API's restart cuts short stays `preparing`; replace to rerun it
-        try:
-            prepare(f.package, f.prepare, f.prepare_network, folder)
-            said = {"prepare": "ready", "prepare_error": ""}
-        except InstallError as exc:
-            said = {"prepare": "failed", "prepare_error": str(exc)}
-        record = folder / build_session.RECORD
-        try:
-            meta = json.loads(record.read_text())
-        except (OSError, ValueError):
-            return
-        if meta.get("added") == added:
-            record.write_text(json.dumps(meta | said))
 
     def templates_folder(world_id: str, folder: str, name: str, replace: bool) -> OwnedFolder:
         """The Templates folder `folder` of the world, once `name` is a plain name free in it
@@ -495,9 +516,10 @@ def router(
         """Upload a zip as the Template `name` of the Templates folder `folder`: streamed to
         disk, its entries checked, unpacked (a single top folder unwrapped) and checked for the
         files its package requires, then moved into place. A name already there is refused
-        unless `replace`."""
+        unless `replace`. It is added by the folder's first claimant, whose rules it follows."""
         world_or_404(world_id)
         f = templates_folder(world_id, folder, name, replace)
+        first = claimants(connectors(world_id), folder)[0]
 
         async def add(work: Path) -> Template:
             await received(request, work / "upload.zip", template_cap())
@@ -506,7 +528,7 @@ def router(
             )
             record = {"origin": "upload"}
             return await run_in_threadpool(
-                add_template, world_id, f, name, work, root, replace, record, f.require
+                add_template, world_id, f, name, work, root, replace, record, first
             )
 
         return await adding(world_id, f, name, add)
@@ -546,9 +568,8 @@ def router(
                 else:
                     gone.unlink(missing_ok=True)
             record = {"origin": "run", "run_id": run.id, "stage": stage.name}
-            require = declared.get("require", [])
             return add_template(
-                run.world_id, f, body.name, work, root, body.replace, record, require
+                run.world_id, f, body.name, work, root, body.replace, record, package
             )
 
         return await adding(run.world_id, f, body.name, lambda work: run_in_threadpool(add, work))

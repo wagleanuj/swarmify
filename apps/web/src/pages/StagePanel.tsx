@@ -628,6 +628,11 @@ export function StagePanel(p: PanelProps) {
   } else if (kind === "video") {
     inside = (
       <>
+        {call?.template && (
+          <p className="faint" data-testid="template">
+            Rendered the Template <b>{call.template.name}</b>
+          </p>
+        )}
         <RenderProgress call={call} />
         <Video made={made} worldId={worldId} shown={p.resultShown} />
       </>

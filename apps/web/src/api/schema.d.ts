@@ -1380,7 +1380,7 @@ export interface paths {
          * @description Upload a zip as the Template `name` of the Templates folder `folder`: streamed to
          *     disk, its entries checked, unpacked (a single top folder unwrapped) and checked for the
          *     files its package requires, then moved into place. A name already there is refused
-         *     unless `replace`.
+         *     unless `replace`. It is added by the folder's first claimant, whose rules it follows.
          */
         put: operations["upload_template_api_worlds__world_id__templates__folder___name__put"];
         post?: never;

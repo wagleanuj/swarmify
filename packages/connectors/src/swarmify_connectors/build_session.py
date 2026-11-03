@@ -37,10 +37,11 @@ def task(
     values: dict[str, Any],
     inputs: list[Path],
     template: str = "",
+    guide: str = "",
 ) -> str:
     """The package's brief for this stage, then the note of each input it has one for, then,
-    when the build starts from the Template `template` and it has the package's guide file, a
-    line telling the builder to read that first."""
+    when the build starts from the Template `template` and it has the `guide` file (the guide
+    of the package that added it), a line telling the builder to read that first."""
     session = manifest["build_session"]
     notes = session.get("notes", {})
     parts = [fill((package / session["brief"]).read_text(), values)]
@@ -48,7 +49,6 @@ def task(
         if path.name in notes:
             note = (package / notes[path.name]).read_text()
             parts.append(fill(note, {**values, "file": path, "name": path.name}))
-    guide = manifest.get("templates", {}).get("guide")
     if template and guide and (Path(values["folder"]) / guide).is_file():
         parts.append(
             f"Read {Path(values['folder']) / guide} first: the guide of the Template {template}"
@@ -86,7 +86,8 @@ def prepared(folder: Path) -> None:
 
 def fingerprint(folder: Path) -> str:
     """A Template's content hash: its files' paths and bytes, without node_modules or its record,
-    so the same project has the same fingerprint wherever it is and whatever was installed."""
+    so the same project has the same fingerprint wherever it is and whatever was installed. The
+    one function for both the Template's record and what a run records, so the two compare."""
     digest = hashlib.sha256()
     for root, dirs, files in os.walk(folder):
         dirs[:] = sorted(d for d in dirs if d != "node_modules")
@@ -95,9 +96,8 @@ def fingerprint(folder: Path) -> str:
             rel = path.relative_to(folder).as_posix()
             if rel == RECORD or path.is_symlink():
                 continue
-            data = path.read_bytes()
-            digest.update(f"{rel}\0{len(data)}\0".encode())
-            digest.update(data)
+            with path.open("rb") as f:  # streamed: a Template may hold large models and textures
+                digest.update(f"{rel}\0".encode() + hashlib.file_digest(f, "sha256").digest())
     return digest.hexdigest()
 
 

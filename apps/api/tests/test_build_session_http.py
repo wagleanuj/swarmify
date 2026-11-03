@@ -5,6 +5,7 @@ system prompt, brief, starter and network, charged to the run's budget, then cal
 the Agent SDK client with a scripted CLI."""
 
 import json
+import shutil
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -182,6 +183,44 @@ def test_a_build_with_a_base_starts_from_a_copy_of_the_worlds_template(
     assert client.get(f"/api/stages/{second}/call").json()["template"]["fingerprint"] == fingerprint
 
 
+@pytest.mark.parametrize("added_by", ["sketch_plain", "sketch", None])
+def test_a_shared_templates_folder_applies_the_rules_of_the_package_that_added_each_template(
+    running: TestClient, script: Script, tmp_path: Path, added_by: str | None
+) -> None:
+    """A build package and another declaring the same Templates folder share it (ADR 0028):
+    `sketch_plain`, a copy of sketch without a guide, claims `sketches` too. A Template's rules
+    (here its guide) come from the package its record says added it; one whose record names
+    none, as one placed by hand, gets the folder's first claimant's, sketch's."""
+    client = running
+    script.scripts = [[Say("Done.")]]
+    plain = tmp_path / "src/sketch_plain"
+    shutil.copytree(Path(__file__).parents[3] / SKETCH, plain)
+    toml = plain / "swarmify-connector.toml"
+    text = toml.read_text().replace('name = "sketch"', 'name = "sketch_plain"', 1)
+    toml.write_text(text.replace('guide = "GUIDE.md"\n', ""))
+    for source in (SKETCH, str(plain)):
+        assert install(client, source).status_code == 201
+    w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    for name in ("sketch", "sketch_plain"):
+        enabled = client.put(f"/api/worlds/{w}/packages/{name}", json={"version": "1.0.0"})
+        assert enabled.status_code == 200, enabled.text
+    bold = tmp_path / "worlds" / w / "assets/sketches/bold"
+    bold.mkdir(parents=True)
+    (bold / "index.html").write_text("<h1>bold</h1>")
+    (bold / "GUIDE.md").write_text("Shout.")
+    record = {"origin": "upload"} | ({"package": added_by} if added_by else {})
+    (bold / ".template.json").write_text(json.dumps(record))
+    flow = FLOW.replace("{tone: loud,", "{base: bold, tone: loud,")
+    saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": flow})
+    assert saved.status_code == 201, saved.text
+    run = client.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    assert client.get(f"/api/runs/{run['id']}").json()["status"] == "done"
+    guided = "GUIDE.md first: the guide of the Template bold" in script.prompts[0]
+    assert guided is (added_by != "sketch_plain")
+
+
 def test_the_workflow_check_flags_a_base_the_world_does_not_have(
     running: TestClient, tmp_path: Path
 ) -> None:
@@ -263,6 +302,7 @@ def test_a_finished_build_is_saved_as_a_template_without_what_belonged_to_its_ru
     assert files == [".template.json", "index.html", "page.css"]
     assert len(t["fingerprint"]) == 64 and t["bytes"] == len("<html></html>\n") + 1
     assert client.get(f"/api/worlds/{w}/templates").json() == [t]
+    assert json.loads((folder / "loud/.template.json").read_text())["package"] == "sketch"
     assert (build / "page.html").is_file()  # the run's own build is untouched
 
     # an existing name and a missing required file behave as on upload

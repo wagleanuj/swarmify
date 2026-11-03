@@ -483,6 +483,21 @@ test("render panel: progress, then the player once the video is made", async () 
   await expect.element(screen.getByTestId("result").getByTestId("player")).toBeVisible();
 });
 
+test("render panel: the Template a direct render read, by name, and none for a render of a run's file", async () => {
+  const steps = [stage(0, "render", "connector", "done", { calls: "remotion_render", ...timed(0, 1) }), stage(1, "again", "connector", "done", { calls: "remotion_render", ...timed(1, 2) })];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("done", steps)),
+    "GET /api/stages/stage_0/call": () => Response.json(call("stage_0", { template: { name: "cat kit", fingerprint: "ab12" } })),
+    "GET /api/stages/stage_1/call": () => Response.json(call("stage_1")),
+  });
+  const first = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
+  await expect.element(first.screen.getByTestId("stage-panel").getByTestId("template")).toHaveTextContent("Rendered the Template cat kit");
+  await first.screen.unmount();
+  const second = await mountAt("/worlds/world_1/runs/run_1?stage=stage_1");
+  await expect.element(second.screen.getByTestId("render-progress")).toBeVisible();
+  expect(second.screen.getByTestId("template").query()).toBeNull();
+});
+
 test("a package's step gets its panel from the media it makes, never from its name", async () => {
   // echo is the fixture package (packages/connectors/tests/fixtures/packages/echo): its Manifest
   // declares audio, and nothing in the web app names it

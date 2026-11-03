@@ -147,7 +147,8 @@ class PackageReview(BaseModel):
     """The commit a git source's ref resolved to; null for a folder."""
     permissions: list[str]
     """Every permission it declares, as `network: api.example.org`; the kinds are network,
-    install_network, folders, services, owned_folders, credentials, sign_in, capabilities."""
+    install_network, prepare_network, folders, services, owned_folders, credentials, sign_in,
+    capabilities."""
     upgrade: Upgrade | None
     """For a package with a version installed already, how its permissions change."""
 
