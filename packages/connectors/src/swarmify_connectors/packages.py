@@ -176,6 +176,11 @@ SCHEMA: dict[str, Any] = {
                                 "type": "object",
                                 "additionalProperties": {"type": "string"},
                             },
+                            # Parameters whose values are other Setup fields' (by key)
+                            "authorize_settings": {
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            },
                         },
                     },
                 },
@@ -393,6 +398,13 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
                 bad(f"{at}.default", f"is not of its type, {kind}")
             if kind == "choice" and value not in field["options"]:
                 bad(f"{at}.default", f"{value} is not one of its options")
+    for i, field in enumerate(manifest.get("config", [])):
+        for param, key in field.get("oauth", {}).get("authorize_settings", {}).items():
+            at = f"config[{i}].oauth.authorize_settings.{param}"
+            if key not in keys:
+                bad(at, f"{key} is not a [[config]] key")
+            elif keys[key].get("secret") or keys[key]["type"] == "oauth":
+                bad(at, f"{key} is a Credential, and an authorize URL is not secret")
     names = set()
     for i, service in enumerate(manifest.get("services", [])):
         if service["url"] not in keys:

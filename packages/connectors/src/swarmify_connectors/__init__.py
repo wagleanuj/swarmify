@@ -490,12 +490,20 @@ class Connectors:
     ) -> str:
         """Where to send the browser to sign in to the package's oauth field `key`. The one-time
         state is bound to `bound_to`, a digest of the session asking, and lasts ten minutes.
-        Raises ValueError when the field is unknown or its app's client ID is not saved."""
-        connector, shared, _ = self.setup_values(world_id, name)
+        Raises ValueError when the field is unknown, or its app's client ID or a Setting its
+        `authorize_settings` names is not saved."""
+        connector, shared, world = self.setup_values(world_id, name)
         field = self._oauth_field(connector, key)
         client_id = shared.get(f"{key}_client_id")
         if not client_id:
             raise ValueError(f"{field['label']}: save its client ID first, then sign in")
+        resolved = setup.resolve(connector.manifest, shared, world)
+        labels = {f["key"]: f["label"] for f in connector.manifest["config"]}
+        settings = {}
+        for param, setting in field["oauth"].get("authorize_settings", {}).items():
+            if not resolved.get(setting):
+                raise ValueError(f"{field['label']}: set {labels[setting]} first, then sign in")
+            settings[param] = str(resolved[setting])
         state, verifier = secrets.token_urlsafe(32), oauth.new_verifier()
         now = time.monotonic()
         self._sign_ins = {s: p for s, p in self._sign_ins.items() if p["until"] > now}
@@ -508,7 +516,7 @@ class Connectors:
             "bound_to": bound_to,
             "until": now + 600,
         }
-        return oauth.authorize_url(field, client_id, redirect_uri, state, verifier)
+        return oauth.authorize_url(field, client_id, redirect_uri, state, verifier, settings)
 
     def sign_in_for(self, state: str, bound_to: str) -> dict[str, Any]:
         """The sign-in `state` names, used up, when it is current and began in the same session.

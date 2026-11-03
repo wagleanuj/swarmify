@@ -74,8 +74,13 @@ when its upload never completed, then finished. A stage visited again gets a new
 record.
 ## Setup
 
-Two fields, both per world, so each world posts as its own brand's Page and Instagram account:
+Two fields per world, so each world posts as its own brand's Page and Instagram account, and one
+shared:
 
+- **Login configuration ID** (`meta_config_id`), shared by every world: the ID of the app's
+  login configuration, in the Meta app under Facebook Login for Business, Configurations.
+  Sign-in sends it as the authorize URL's `config_id` (`authorize_settings`, Swarmify's README,
+  OAuth sign-in) and refuses to start without it.
 - **Meta account** (`meta`), a Facebook sign-in (Swarmify's README, OAuth sign-in) that this
   package finishes (ADR 0029). After Swarmify exchanges the code, the package's `signed_in` tool
   swaps the token for a long-lived one, lists the account's Pages and keeps the token of the one
@@ -94,11 +99,9 @@ OAuth Redirect URIs. While the app is in Development mode, everyone with a role 
 every permission, so the operator's own Pages need no App Review. Link the Instagram account
 (Professional, Business or Creator) to the Facebook Page.
 
-The login configuration ID is a static authorize parameter of the Manifest (`authorize_params =
-{ config_id = ... }`), which no Setting can fill. Replace `YOUR_LOGIN_CONFIGURATION_ID` in
-`swarmify-connector.toml` with your configuration's ID and bump the package's version, then on
-the Connectors page save the app's ID and secret as **Meta account client ID** and **client
-secret** (shared by every world) and **Sign in** in each world.
+Then on the Connectors page save the configuration's ID as **Login configuration ID** and the
+app's ID and secret as **Meta account client ID** and **client secret** (all shared by every
+world), and **Sign in** in each world.
 
 A token Meta refuses (error code 190, or an `OAuthException`) fails the call with `auth_failed`
 and marks the account **Needs sign-in**; sign in again from the Connectors page.

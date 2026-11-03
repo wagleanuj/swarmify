@@ -30,10 +30,15 @@ REDIRECT = "https://swarmify.tail1234.ts.net/api/setup/oauth/callback"
 
 
 def install(
-    connectors: Connectors, tmp_path: Path, provider: FakeProvider, finish: bool = False
+    connectors: Connectors,
+    tmp_path: Path,
+    provider: FakeProvider,
+    finish: bool = False,
+    settings: bool = False,
 ) -> None:
     """The probe package with a required per-world sign-in, `account`, at the fake provider;
-    with `finish`, one its `signed_in` tool finishes (ADR 0029)."""
+    with `finish`, one its `signed_in` tool finishes (ADR 0029); with `settings`, one whose
+    authorize URL carries the `notes` Setting as `login_hint`."""
     source = tmp_path / "src" / "probe"
     shutil.copytree(PROBE, source)
     toml = (source / MANIFEST).read_text()
@@ -57,6 +62,8 @@ authorize_params = {{ access_type = "offline" }}
 """
     if finish:
         toml += "finish = true\n"
+    if settings:
+        toml += 'authorize_settings = { login_hint = "notes" }\n'
     (source / MANIFEST).write_text(toml)
     connectors.packages.install(str(source))
     connectors.enable("w1", "probe", "1.0.0")
@@ -146,6 +153,31 @@ def test_a_sign_in_without_a_saved_client_id_is_refused(
         connectors.start_sign_in("w1", "probe", "account", REDIRECT, "s1")
     with pytest.raises(ValueError, match="no sign-in field api_key"):
         connectors.start_sign_in("w1", "probe", "api_key", REDIRECT, "s1")
+
+
+def test_an_authorize_setting_reaches_the_url_the_worlds_value_winning(
+    connectors: Connectors, tmp_path: Path, provider: FakeProvider
+) -> None:
+    install(connectors, tmp_path, provider, settings=True)
+    connectors.save_setup("w1", "probe", {"account_client_id": "app", "notes": "shared"}, {})
+    connectors.save_setup("w2", "probe", {}, {"notes": "own"})
+
+    def hint(world: str) -> str:
+        url = urlparse(connectors.start_sign_in(world, "probe", "account", REDIRECT, "s1"))
+        q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        assert q["access_type"] == "offline"  # beside the static authorize_params
+        return q["login_hint"]
+
+    assert (hint("w1"), hint("w2")) == ("shared", "own")
+
+
+def test_a_sign_in_without_its_authorize_setting_is_refused_naming_it(
+    connectors: Connectors, tmp_path: Path, provider: FakeProvider
+) -> None:
+    install(connectors, tmp_path, provider, settings=True)
+    connectors.save_setup("w1", "probe", {"account_client_id": "app"}, {})
+    with pytest.raises(ValueError, match="Account: set Notes first, then sign in"):
+        connectors.start_sign_in("w1", "probe", "account", REDIRECT, "s1")
 
 
 def test_state_is_one_time_and_bound_to_the_session_that_began_it(probe: Connectors) -> None:

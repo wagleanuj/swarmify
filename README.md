@@ -565,7 +565,11 @@ or a folder holding it or the home folder.
 A field of `type = "oauth"` is an account Swarmify signs in to for the connector. Its
 `[config.oauth]` table gives `authorize_url`, `token_url`, `scopes`, `pkce` (true unless set
 false), `client = "operator"` and optionally `authorize_params`, extra query parameters for the
-provider's sign-in page (some providers issue a refresh token only when asked this way). You register your own app with the provider; its client ID and secret are two
+provider's sign-in page (some providers issue a refresh token only when asked this way), and
+`authorize_settings`, query parameters whose values are other non-secret Setup fields of the
+package, by key, as Meta's `authorize_settings = { config_id = "meta_config_id" }`. Sign-in
+resolves each for the world (the world's value, else the shared one) and refuses to start,
+naming the field, while one is empty. You register your own app with the provider; its client ID and secret are two
 shared Credentials the form adds before the field, `<key>_client_id` and `<key>_client_secret`,
 which only Swarmify uses. Register the redirect URI the form shows,
 `<the address you open Swarmify at>/api/setup/oauth/callback`: Swarmify takes it from the
