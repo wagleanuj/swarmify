@@ -1,5 +1,6 @@
 # A fixture Connector Package requesting a Build Session (ADR 0018): the core runs the session with
-# its prompts, starter and network, then calls its own `finish` tool on the result.
+# its prompts, starter and network, then calls its own `finish` tool on the result. It declares
+# Templates too (ADR 0028), so a finished build can be saved as one.
 name = "sketch"
 version = "1.0.0"
 label = "Sketch"
@@ -21,6 +22,8 @@ label = "Sketches"
 [templates]
 folder = "sketches"
 guide = "GUIDE.md"
+require = ["index.html"]
+strip = ["page.html", "scratch"]
 
 [build_session]
 system = "session/system.md"

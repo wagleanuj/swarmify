@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { ArtifactFile, Verdict } from "../api/events";
-import { FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
+import type { ArtifactFile, Call, Verdict } from "../api/events";
+import { CONNECTORS, FakeEventSource, fakeFetch, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const ts = "2026-10-26T10:00:01+00:00";
@@ -118,4 +118,70 @@ test("a publish card shows its Outcome (one written before outcomes were generic
   await expect
     .element(screen.getByTestId("artifacts"))
     .toMatchTextContent(/Files: short\.mp4 \(deleted by retention, record kept\)/);
+});
+
+const built = (status: string) => run(status === "done" ? "done" : "running", [stage(0, "video", "connector", status, { calls: "remotion_build" })]);
+const finish = (status: Call["status"]): Call => ({
+  idempotency_key: "stage_0",
+  world_id: "world_1",
+  run_id: "run_1",
+  connector: "remotion_render",
+  tool: "remotion_render",
+  request: { project: "/data/worlds/world_1/runs/run_1/stage_0/build" },
+  status,
+  started_at: ts,
+  updated_at: ts,
+  response: null,
+  error: null,
+  job_id: "j1",
+  poll_tool: "remotion_render_status",
+  progress: status === "done" ? 1 : 0.4,
+  message: null,
+  attempts: 1,
+  polls: 1,
+  visit: 0,
+});
+
+test("a finished build of a Template-capable package saves as a Template by name, replacing one only when asked", async () => {
+  const sent: unknown[] = [];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(built("done")),
+    "GET /api/stages/stage_0/call": () => Response.json(finish("done")),
+    "POST /api/runs/run_1/stages/stage_0/template": async (req) => {
+      const body = (await req.json()) as { name: string; replace?: boolean };
+      sent.push(body);
+      if (body.name === "cats" && !body.replace) return Response.json({ detail: "cats is already in Remotion templates; replace it or pick a name" }, { status: 409 });
+      return Response.json({ name: body.name }, { status: 201 });
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await screen.getByRole("button", { name: "Save as Template" }).click();
+  const name = screen.getByRole("textbox", { name: "Template name" });
+  await name.fill("cats");
+  await screen.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Not saved: cats is already in Remotion templates; replace it or pick a name.");
+  await screen.getByRole("checkbox", { name: "Replace cats" }).click();
+  await screen.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.element(screen.getByText("Saved as the Template cats. It is on the Assets page.")).toHaveAttribute("role", "status");
+  expect(sent).toEqual([{ name: "cats", replace: false }, { name: "cats", replace: true }]);
+});
+
+test("Save as Template shows only on a finished build of a package that declares Templates", async () => {
+  let call = finish("polling");
+  let connectors = CONNECTORS;
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(built(call.status === "done" ? "done" : "running")),
+    "GET /api/stages/stage_0/call": () => Response.json(call),
+    "GET /api/worlds/world_1/connectors": () => Response.json(connectors),
+  });
+  const first = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(first.screen.getByTestId("build-log")).toBeVisible();
+  expect(first.screen.getByRole("button", { name: "Save as Template" }).query()).toBeNull();
+  first.screen.unmount();
+
+  call = finish("done");
+  connectors = CONNECTORS.map((c) => (c.name === "remotion_build" ? { ...c, capabilities: ["build_session"], templates: "" } : c));
+  const second = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(second.screen.getByTestId("project")).toBeVisible();
+  expect(second.screen.getByRole("button", { name: "Save as Template" }).query()).toBeNull();
 });

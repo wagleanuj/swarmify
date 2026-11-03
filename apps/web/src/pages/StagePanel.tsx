@@ -12,7 +12,7 @@ import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
 import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, rawUrl, summary, VIDEO } from "./Artifacts";
 import { EDITABLE } from "./ChangeCard";
 import { PublishValue } from "./Connectors";
-import { StageOutput } from "./StageOutput";
+import { SaveAsTemplate, StageOutput } from "./StageOutput";
 import { Whiteboard } from "./Whiteboard";
 
 type Stage = Run["stages"][number];
@@ -619,7 +619,12 @@ export function StagePanel(p: PanelProps) {
   } else if (timings) {
     inside = p.resultShown ? <p className="faint">Its takes are the result shown above.</p> : <Takes timings={timings} worldId={worldId} />;
   } else if (kind === "build") {
-    inside = <BuildPanel call={call} log={p.log} agents={p.agents} made={made} worldId={worldId} shown={p.resultShown} />;
+    inside = (
+      <>
+        <BuildPanel call={call} log={p.log} agents={p.agents} made={made} worldId={worldId} shown={p.resultShown} />
+        <SaveAsTemplate runId={run.id} stage={stage} call={call} connector={p.connectors[stage.calls ?? ""]} />
+      </>
+    );
   } else if (kind === "video") {
     inside = (
       <>

@@ -1395,6 +1395,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/stages/{stage_id}/template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Template
+         * @description Save as Template: the build folder of a finished build stage whose package declares
+         *     Templates, copied without its revisions, node_modules or links, the package's `strip`
+         *     paths removed and its `require` files checked, as the Template `body.name` of the
+         *     package's Templates folder, its origin this run and stage. A name already there is
+         *     refused unless `body.replace`.
+         */
+        post: operations["save_template_api_runs__run_id__stages__stage_id__template_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/templates/{folder}/{name}/download": {
         parameters: {
             query?: never;
@@ -3570,6 +3594,16 @@ export interface components {
         SaveAsWorkflow: {
             /** Name */
             name?: string | null;
+        };
+        /** SaveTemplateBody */
+        SaveTemplateBody: {
+            /** Name */
+            name: string;
+            /**
+             * Replace
+             * @default false
+             */
+            replace: boolean;
         };
         /** SaveToWorkflow */
         SaveToWorkflow: {
@@ -7079,6 +7113,54 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    save_template_api_runs__run_id__stages__stage_id__template_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                stage_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveTemplateBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

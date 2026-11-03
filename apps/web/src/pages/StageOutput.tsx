@@ -1,4 +1,9 @@
-import { type ArtifactFile, outcomeOf, type Verdict } from "../api/events";
+import { type FormEvent, useState } from "react";
+
+import { api } from "../api/client";
+import type { Connector } from "../api/connectors";
+import { type ArtifactFile, type Call, outcomeOf, type Verdict } from "../api/events";
+import type { Run } from "../api/runs";
 import { cap, the } from "../skin";
 
 /** Loops a stage may take: the first verdict plus three gap loops. Mirrors swarmify_swarm.MAX_LOOPS. */
@@ -97,5 +102,84 @@ export function StageOutput({ verdicts, artifacts }: { verdicts: Verdict[]; arti
         )}
       </section>
     </>
+  );
+}
+
+const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/;
+
+/** Save as Template (ADR 0028): a build step that finished, of a package that declares Templates,
+ * saves its build as one by name. The UI reads the declaration, never the package's name. */
+export function SaveAsTemplate({ runId, stage, call, connector }: { runId: string; stage: Run["stages"][number]; call: Call | null | undefined; connector?: Connector }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [replace, setReplace] = useState(false);
+  const [taken, setTaken] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  if (!connector?.templates || stage.status !== "done" || call?.status !== "done") return null;
+  const ready = NAME.test(name) && (!taken || replace) && !busy;
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    const { data, error: refused, response } = await api.POST("/api/runs/{run_id}/stages/{stage_id}/template", {
+      params: { path: { run_id: runId, stage_id: stage.id } },
+      body: { name, replace },
+    });
+    setBusy(false);
+    if (data) return setSaved(name);
+    setTaken(response.status === 409);
+    const detail = (refused as { detail?: unknown } | undefined)?.detail;
+    setError(typeof detail === "string" ? `Not saved: ${detail}.` : "Could not save the Template. Is the API running?");
+  }
+
+  if (saved) return <p role="status">Saved as the Template {saved}. It is on the Assets page.</p>;
+  if (!open)
+    return (
+      <p>
+        <button type="button" onClick={() => setOpen(true)}>
+          Save as Template
+        </button>
+      </p>
+    );
+  return (
+    <form className="add-voice" onSubmit={save} aria-label="Save as Template">
+      <p className="faint">Later builds can start from this one, without what belonged to this run.</p>
+      <div className="field">
+        <label>
+          Name
+          <input
+            aria-label="Template name"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setTaken(false);
+              setReplace(false);
+            }}
+            autoComplete="off"
+            aria-invalid={!!name && !NAME.test(name)}
+          />
+        </label>
+        <small className="faint">{name && !NAME.test(name) ? "Letters, digits, _ or - only, no spaces." : "Plain and unique, like cat-shorts."}</small>
+      </div>
+      {taken && (
+        <label className="check">
+          <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+          Replace {name}
+        </label>
+      )}
+      {error && <p role="alert">{error}</p>}
+      <div className="actions">
+        <button type="submit" className="primary" disabled={!ready}>
+          {busy ? "Saving..." : "Save"}
+        </button>
+        <button type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

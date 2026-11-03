@@ -17,7 +17,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from swarmify_connectors import Connector, build_session
+from swarmify_connectors import Call, Connector, build_session
 from swarmify_memory import ASSETS, ArtifactFile, Memory
 from swarmify_runs import Run
 from swarmify_workflows import ConnectorStage, Workflows
@@ -270,6 +270,20 @@ def accepted(name: str, accept: list[str]) -> bool:
     )
 
 
+def _not_kept(folder: str, names: list[str]) -> set[str]:
+    """What a saved build leaves out: installed packages, git history and links, which could
+    point anywhere on the machine."""
+    return {
+        n for n in names if n in ("node_modules", ".git") or os.path.islink(os.path.join(folder, n))
+    }
+
+
+class SaveTemplateBody(BaseModel):
+    name: str
+    """A plain name, as an upload's."""
+    replace: bool = False
+
+
 class RenameBody(BaseModel):
     name: str
     """The new plain file name; the asset stays in its folder."""
@@ -313,6 +327,9 @@ def router(
     list_runs: Callable[[str], list[Run]],
     connectors: Callable[[str], list[Connector]],
     workflows: Workflows,
+    get_run: Callable[[str], Run | None],
+    stage_package: Callable[[Run, str], Connector | None],
+    call_for: Callable[[str], Call | None],
 ) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["library"])
 
@@ -366,20 +383,27 @@ def router(
         return templates(memory.world_folder(world_id), owned(world_id))
 
     def add_template(
-        world_id: str, f: OwnedFolder, name: str, upload: Path, replace: bool
+        world_id: str,
+        f: OwnedFolder,
+        name: str,
+        work: Path,
+        root: Path,
+        replace: bool,
+        record: dict[str, str],
+        require: list[str],
     ) -> Template:
-        work = upload.parent
-        root = unpack(upload, work / "unpacked", template_cap())
-        if missing := [r for r in f.require if not (root / r).exists()]:
+        """Check the Template at `root`, in the work folder `work`, for `require`, write its
+        record and move it into place as `name`."""
+        if missing := [r for r in require if not (root / r).exists()]:
             raise ValueError(f"the Template lacks {', '.join(missing)}, which {f.package} requires")
         files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
         (root / build_session.RECORD).write_text(json.dumps({
-            "origin": "upload",
+            **record,
             "added": datetime.now(UTC).isoformat(),
             "bytes": sum(p.stat().st_size for p in files),
             "fingerprint": fingerprint(root),
         }))  # fmt: skip
-        target = upload.parent.parent / name
+        target = work.parent / name
         if target.exists():
             if not replace:
                 raise FileExistsError(name)
@@ -387,6 +411,37 @@ def router(
         root.rename(target)
         world = memory.world_folder(world_id)
         return next(t for t in templates(world, [f]) if t.name == name)
+
+    def templates_folder(world_id: str, folder: str, name: str, replace: bool) -> OwnedFolder:
+        """The Templates folder `folder` of the world, once `name` is a plain name free in it
+        (or `replace` is asked)."""
+        f = next((f for f in owned(world_id) if f.folder == folder and f.templates), None)
+        if f is None:
+            raise HTTPException(422, f"{folder} is not a Templates folder of this world")
+        if not _TEMPLATE_NAME.match(name):
+            raise HTTPException(422, f"a Template needs a plain name like cat-shorts, got {name}")
+        if (memory.world_folder(world_id) / f.path / name).exists() and not replace:
+            raise taken(f, name)
+        return f
+
+    def taken(f: OwnedFolder, name: str) -> HTTPException:
+        return HTTPException(409, f"{name} is already in {f.label}; replace it or pick a name")
+
+    async def adding(
+        world_id: str, f: OwnedFolder, name: str, add: Callable[[Path], Awaitable[Template]]
+    ) -> Template:
+        """Run `add` on a fresh work folder in the Templates folder, so a Template moves into
+        place on the same disk, and answer its problems; the work folder goes either way."""
+        work = memory.world_folder(world_id) / f.path / f".upload-{secrets.token_hex(8)}"
+        work.mkdir(parents=True)
+        try:
+            return await add(work)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except FileExistsError as exc:
+            raise taken(f, name) from exc
+        finally:
+            await run_in_threadpool(shutil.rmtree, work, True)
 
     @api.put(
         "/worlds/{world_id}/templates/{folder}/{name}",
@@ -401,28 +456,61 @@ def router(
         files its package requires, then moved into place. A name already there is refused
         unless `replace`."""
         world_or_404(world_id)
-        f = next((f for f in owned(world_id) if f.folder == folder and f.templates), None)
-        if f is None:
-            raise HTTPException(422, f"{folder} is not a Templates folder of this world")
-        if not _TEMPLATE_NAME.match(name):
-            raise HTTPException(422, f"a Template needs a plain name like cat-shorts, got {name}")
-        root = memory.world_folder(world_id) / f.path
-        taken = HTTPException(409, f"{name} is already in {f.label}; replace it or pick a name")
-        if (root / name).exists() and not replace:
-            raise taken
-        work = root / f".upload-{secrets.token_hex(8)}"
-        work.mkdir(parents=True)
-        try:
+        f = templates_folder(world_id, folder, name, replace)
+
+        async def add(work: Path) -> Template:
             await received(request, work / "upload.zip", template_cap())
-            return await run_in_threadpool(
-                add_template, world_id, f, name, work / "upload.zip", replace
+            root = await run_in_threadpool(
+                unpack, work / "upload.zip", work / "unpacked", template_cap()
             )
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        except FileExistsError as exc:
-            raise taken from exc
-        finally:
-            await run_in_threadpool(shutil.rmtree, work, True)
+            record = {"origin": "upload"}
+            return await run_in_threadpool(
+                add_template, world_id, f, name, work, root, replace, record, f.require
+            )
+
+        return await adding(world_id, f, name, add)
+
+    @api.post(
+        "/runs/{run_id}/stages/{stage_id}/template",
+        status_code=201,
+        responses={404: {}, 409: {}, 422: {}},
+    )
+    async def save_template(run_id: str, stage_id: str, body: SaveTemplateBody) -> Template:
+        """Save as Template: the build folder of a finished build stage whose package declares
+        Templates, copied without its revisions, node_modules or links, the package's `strip`
+        paths removed and its `require` files checked, as the Template `body.name` of the
+        package's Templates folder, its origin this run and stage. A name already there is
+        refused unless `body.replace`."""
+        run = get_run(run_id)
+        stage = next((s for s in run.stages if s.id == stage_id), None) if run else None
+        if run is None or stage is None:
+            raise HTTPException(404, "stage not found")
+        package = stage_package(run, stage.calls or "") if stage.type == "connector" else None
+        declared = package.manifest.get("templates") if package else None
+        if package is None or not declared or "build_session" not in package.manifest:
+            raise HTTPException(422, f"{stage.name} is not a build of a package with Templates")
+        build = memory.world_folder(run.world_id) / "runs" / run.id / stage.id / "build"
+        call = call_for(stage.id)
+        if stage.status != "done" or call is None or call.status != "done" or not build.is_dir():
+            raise HTTPException(422, f"{stage.name} has no finished build to save")
+        f = templates_folder(run.world_id, declared["folder"], body.name, body.replace)
+
+        def add(work: Path) -> Template:
+            root = work / "build"
+            shutil.copytree(build, root, ignore=_not_kept)
+            for path in declared.get("strip", []):
+                gone = root / path
+                if gone.is_dir() and not gone.is_symlink():
+                    shutil.rmtree(gone)
+                else:
+                    gone.unlink(missing_ok=True)
+            record = {"origin": "run", "run_id": run.id, "stage": stage.name}
+            require = declared.get("require", [])
+            return add_template(
+                run.world_id, f, body.name, work, root, body.replace, record, require
+            )
+
+        return await adding(run.world_id, f, body.name, lambda work: run_in_threadpool(add, work))
 
     def template(world_id: str, folder: str, name: str) -> Path:
         world_or_404(world_id)
