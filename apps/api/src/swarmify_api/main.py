@@ -955,7 +955,10 @@ def create_app(
     )
     app.include_router(evals.router(world_svc, memory, swarm.runtime))
     conversations = assistant.Conversations(migrated_db(root))
-    reads = (runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations)
+    reads = (
+        runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations,
+        registry.call_for,
+    )  # fmt: skip
     asker = assistant.RunAssistant(*reads)
     tools = mcp.server(
         world_svc,

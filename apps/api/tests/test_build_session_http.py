@@ -4,6 +4,7 @@ system prompt, brief, starter and network, charged to the run's budget, then cal
 `finish` tool on the result as a long job. Real DBOS on SQLite, the fake ConnectorTransport and
 the Agent SDK client with a scripted CLI."""
 
+import json
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -15,7 +16,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_connectors import Connector, ConnectorError, FakeTransport
-from swarmify_swarm.fake import Answer, Say, Script
+from swarmify_swarm import tool_id
+from swarmify_swarm.fake import Answer, Call, Say, Script
 
 SKETCH = "packages/connectors/tests/fixtures/packages/sketch"
 FLOW = """name: A page
@@ -278,3 +280,37 @@ def test_a_finished_build_is_saved_as_a_template_without_what_belonged_to_its_ru
     assert plain.status_code == 422 and "Templates" in plain.json()["detail"]
     for missing in (f"/api/runs/{run['id']}/stages/nope", "/api/runs/nope/stages/nope"):
         assert client.post(f"{missing}/template", json={"name": "x"}).status_code == 404
+
+
+def test_the_run_assistant_reads_which_template_a_build_started_from(
+    running: TestClient, transport: FakeTransport, script: Script, tmp_path: Path
+) -> None:
+    """Issue 354: get_run shows a build stage's Template, its name and fingerprint as the call
+    recorded them, so the assistant answers from the run's record."""
+    client = running
+    assert install(client, SKETCH).status_code == 201
+    w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    enabled = client.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"})
+    assert enabled.status_code == 200, enabled.text
+    bold = tmp_path / "worlds" / w / "assets/sketches/bold"
+    bold.mkdir(parents=True)
+    (bold / "index.html").write_text("<h1>bold</h1>")
+    flow = FLOW.replace("{tone: loud,", "{base: bold, tone: loud,")
+    saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": flow})
+    script.scripts = [[Say("Done.")]]
+    run = client.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    page_id = client.get(f"/api/runs/{run['id']}").json()["stages"][2]["id"]
+    recorded = client.get(f"/api/stages/{page_id}/call").json()["template"]
+
+    said = f"It started from the Template bold, fingerprint {recorded['fingerprint']}."
+    sources = [{"label": "the page stage's Template", "stage": page_id}]
+    script.scripts = [[Call(tool_id("get_run"), {}), Answer({"reply": said, "sources": sources})]]
+    asked = client.post(f"/api/runs/{run['id']}/assistant", json={"message": "From what?"})
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["sources"] == sources
+    [got] = script.outcomes
+    stages = json.loads(got.text)["stages"]
+    assert stages[2]["template"] == recorded and recorded["name"] == "bold"
+    assert stages[0]["template"] is None  # a stage that started from no Template

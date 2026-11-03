@@ -790,6 +790,10 @@ their files, and the package reads the folder through `assets_path` as before.
   writes, reaching only the hosts `prepare_network` names, as a background job. The Template's
   `prepare` says `preparing`, `ready` or `failed`, with `prepare_error` saying why, and its row on
   the Assets page shows it. Builds still start from a copy without `node_modules`.
+- The planner's world context lists each Template-capable package's Templates by name, so a
+  drafted stage can name one as its `base` (or a direct render's `project`). The Run
+  Assistant's `get_run` shows each stage's `template`, the name and fingerprint its call
+  recorded, so it answers which Template a build started from.
 
 ## Publishing
 

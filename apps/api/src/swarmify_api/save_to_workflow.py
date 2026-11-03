@@ -7,6 +7,7 @@ to the stage that made the file, which the operator saves instead."""
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
@@ -14,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from swarmify_api.assistant import MAX_READ, Conversations, Reader, run_turn
+from swarmify_connectors import Call
 from swarmify_memory import GraphIndex
 from swarmify_runs import AppliedChange, Run, Runner
 from swarmify_swarm import AgentRuntime, SessionEnd, Storage
@@ -97,6 +99,7 @@ def router(
     index: GraphIndex,
     runtime: AgentRuntime,
     conversations: Conversations,
+    calls: Callable[[str], Call | None],
 ) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["runs"])
 
@@ -104,7 +107,7 @@ def router(
         """The Run Assistant's Stage Edit for an Artifact Edit: its fields and its reason. The
         turn stays in the run's conversation and its cost on the world's month."""
         stage = run.stages[change.stage_index]
-        reader = Reader(run.id, runner, worlds, workflows, board, index, conversations)
+        reader = Reader(run.id, runner, worlds, workflows, board, index, conversations, calls)
         tools = [t for t in reader.tools() if t.name != "propose_change"]
         path = change.payload["path"]
         prompt = (
