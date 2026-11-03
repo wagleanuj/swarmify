@@ -19,13 +19,8 @@ render cannot download one.
 
 ## Setup
 
-Two Settings on the Connectors page, shared or per world:
+One Setting on the Connectors page, shared or per world:
 
-- **Templates folder** (`templates`, reaching the connector as `HYPERFRAMES_TEMPLATES`), default
-  `hyperframes`: a relative path is taken from Swarmify's data directory, so by default it is
-  `~/.swarmify/hyperframes` natively and `/data/hyperframes` in Docker, beside the Remotion
-  templates. It holds the templates a relative `project` names, and the connector sandbox lets the
-  render read it (and the folders the links in it lead to), never write it.
 - **Render workers** (`workers`, reaching it as `SWARMIFY_HYPERFRAMES_WORKERS`), empty by default:
   Chrome processes rendering at once (`--workers`), as `2` or `auto`. Empty, HyperFrames picks from
   the CPUs and memory; each worker is a Chrome of about 256 MB, so on a small Docker VM without a
@@ -39,23 +34,24 @@ Two Settings on the Connectors page, shared or per world:
     input: script.md          # the script artifact an earlier stage produced
     output: video.mp4
     params:
-      project: promo            # a template in the templates folder
+      project: promo            # one of the world's HyperFrames Templates
       # optional: composition (index.html), quality (draft, looks, delivery, standard, high),
       # fps (30, or 30000/1001), variables
 ```
 
-A relative `project` is a template by name in the templates folder, so a workflow moves between
-hosts unchanged; an absolute path works when it is in that folder, or in the run's folders (a
-build's). A symlink there is followed, so a template can stay in its own repo:
-`ln -s ~/videos/promo ~/.swarmify/hyperframes/promo`. A render runs the project's own HyperFrames
-CLI, `node_modules/.bin/hyperframes`, and never installs (the sandbox gives it no network, and a
-project's scripts would run with it): run `npm ci` in a template once. A project without
-`node_modules` is refused with "run npm ci there".
+`project` is a Template by name (ADR 0028): a folder of the world's
+`assets/hyperframes_templates/`, the Owned Folder this package shares with `hyperframes_build`, so
+a Template one makes the other renders. Add one on the world's Assets page by uploading a zip (or
+Save as Template on a finished build); the core runs `npm ci` in it once, with only npm's registry
+reachable, and a stage rendering it while that runs, or after it failed, is refused saying so. The
+core resolves the name to the Template's folder and records the Template's name and fingerprint on
+the stage's call. A render runs the project's own HyperFrames CLI, `node_modules/.bin/hyperframes`,
+and never installs (the sandbox gives it no network, and a project's scripts would run with it). A
+project without `node_modules` is refused with "run npm ci there".
 
 The workflow check reports a stage without an input, an output or a `project` (from the Manifest),
-and, through the package's `check` tool (the `check` capability), a project that is not there:
-`the HyperFrames project promo does not exist in ~/.swarmify/hyperframes`. A check that cannot run
-is a problem too.
+and a `project` the world has no Template of:
+`the Template promo is not one of this world's HyperFrames render Templates`.
 
 ## The render
 
@@ -112,11 +108,8 @@ neither fails the render.
 
 Swarmify's image carries Node 22 and the shared libraries and fonts Chrome needs, not HyperFrames,
 Chrome or ffmpeg: this package's install step puts them in `/data/packages`. Renders run in the
-`sandbox` service (Swarmify's README, Deployment), which mounts the volume's `hyperframes/` folder.
-A template must be there: copy it in and install its dependencies once,
-`docker compose cp ./promo api:/data/hyperframes/promo` then
-`docker compose exec -w /data/hyperframes/promo api npm ci`, and the stage's `project: promo` finds
-it, as natively. Set **Render workers** to 1 or 2 on a small Docker Desktop VM (above). On Linux
+`sandbox` service (Swarmify's README, Deployment), which mounts the volume's `worlds/` folder,
+where each world's Templates are, so an uploaded Template renders there as natively. Set **Render workers** to 1 or 2 on a small Docker Desktop VM (above). On Linux
 arm64 HyperFrames has no Chrome Headless Shell to download (it would `apt-get install chromium`),
 so there the install step skips it and a render needs a `chrome-headless-shell` on `PATH`, else it
 fails saying to reinstall; a Linux x64 host is fine.
@@ -126,17 +119,18 @@ fails saying to reinstall; a Linux x64 host is fine.
 A project a build stage wrote, in the run's folders, renders through this package. That render
 executes the agent's code, and it does so in this package's connector sandbox (ADR 0021): no
 network beyond its own loopback, nothing of the data directory readable but this package, the
-templates and the run's folders, nothing writable but its stage's folder and its scratch folder,
+world's HyperFrames Templates and the run's folders, nothing writable but its stage's folder and its scratch folder,
 and no other package's keys (it has none of its own).
 
 ## Tests
 
 `test_hyperframes_render.py` installs the package through the real install path (with the test
-suite's `npm` and `npx` that only log), enables it for a world, runs the workflow check through
-its `check` tool and renders over stdio MCP with a fake HyperFrames CLI as the project's own
-(`fake_hyperframes.py`), a template in the templates folder or a run's build folder, all in the
-real connector sandbox, where an agent-written project trying to read the data directory's keys,
-write outside its stage and reach the internet is refused each time and each block logged. One
+suite's `npm` and `npx` that only log), enables it for a world, runs the workflow check and
+renders over stdio MCP with a fake HyperFrames CLI as the project's own (`fake_hyperframes.py`), a
+world's Template or a run's build folder, all in the real connector sandbox, where an
+agent-written project trying to read the data directory's keys or the world's other assets, write
+outside its stage or into a Template and reach the internet is refused each time and each block
+logged. One
 real install and render runs when you opt in, with a HyperFrames project whose `node_modules` are
 installed (it is copied into a run's folder, where a build would have written it):
 `SWARMIFY_REAL_BUILD=1 SWARMIFY_HYPERFRAMES_PROJECT=<project> uv run pytest connectors/hyperframes_render -k real_render -s`.

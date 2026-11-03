@@ -11,17 +11,17 @@ The composition receives the script as input props: `{"script": <text>, "scriptP
 `<output>.md`, with frontmatter (type video, world, run, stage, created) and a body that names
 the source script, so the graph sees it, and the template's git commit when it has one.
 
-A relative `project` names a template in its templates folder, a Setting (`REMOTION_TEMPLATES`,
-the data directory's `remotion/` unless changed). `check` answers the workflow check's rules for
-a stage (the Check capability).
+Its `project` is a folder Swarmify gives as a full path: the world's Template a direct render
+stage names (ADR 0028), which the core resolves and checks, or a Build Session's build folder.
 
 It is a Connector Package (ADR 0019): `swarmify-connector.toml` beside it is everything Swarmify
 knows of it. Its install step puts the Remotion CLI and the Chrome Headless Shell it downloads in
 `node_modules/` here (ADR 0026), and every render uses that browser. It runs in the connector
-sandbox (ADR 0021), which also holds the code a render executes, a template's or a coding
-session's (`remotion.config.ts`, `node_modules`): it reads only this folder, its templates and the
-run's files, writes only its stage's folder, and reaches no host but its own loopback, so a render
-never installs or downloads; a project brings its `node_modules`, fonts and images.
+sandbox (ADR 0021), which also holds the code a render executes, a Template's or a coding
+session's (`remotion.config.ts`, `node_modules`): it reads only this folder, the world's Remotion
+Templates and the run's files, writes only its stage's folder, and reaches no host but its own
+loopback, so a render never installs or downloads; a project brings its `node_modules`, fonts and
+images, which a Template's prepare command installs.
 """
 
 import json
@@ -54,15 +54,13 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def project_folder(project: str, templates: Path) -> Path:
-    """A relative project is a template by name in the templates folder."""
-    path = Path(project).expanduser()
-    return path if path.is_absolute() else templates / path
-
-
-def _templates() -> Path:
-    default = Path.home() / ".swarmify" / "remotion"
-    return Path(os.environ.get("REMOTION_TEMPLATES", default)).expanduser()
+def project_folder(project: str) -> Path:
+    """The project folder, which Swarmify gives as a full path: a world's Template it resolved
+    from the stage's `project`, or a build folder of the run."""
+    path = Path(project)
+    if not path.is_absolute():
+        raise ToolError(f"project must be a folder's full path, got {project!r}")
+    return path
 
 
 def _commit(folder: Path) -> str | None:
@@ -136,14 +134,14 @@ def remotion_render(
     props: dict[str, Any] | None = None,
     frontmatter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """`project` is the Remotion project folder, or a template's name in the templates folder;
+    """`project` is the Remotion project folder, a full path;
     `entry` its entry point relative to it, and `frames` an optional range like `0-29`. A second
     call with the same key returns the same job unless it failed or its process died, which
     starts it again."""
     if not input_path:
         raise ToolError("the render stage needs an `input`: the script artifact to render")
     output, script = Path(output_path), Path(input_path)
-    folder = project_folder(project, _templates())
+    folder = project_folder(project)
     if not script.is_file():
         raise ToolError(f"the script {script} does not exist")
     if not folder.is_dir():
@@ -225,17 +223,6 @@ def remotion_render_status(job_id: str) -> dict[str, Any]:
         return {"status": "failed", "error": f"{state['error']}\n{_tail(Path(state['log']))}"}
     value, message = progress(Path(state["log"]).read_text() if Path(state["log"]).exists() else "")
     return {"status": "running", "progress": value, "message": message}
-
-
-@mcp.tool(description="The workflow check's rule for a render stage: its project exists.")
-def check(config: dict[str, Any]) -> dict[str, Any]:
-    """`config` is the stage as its workflow writes it (calls, input, output, params). A
-    missing project or composition the core reports from the params schema."""
-    project = str((config.get("params") or {}).get("project") or "").strip()
-    if not project or (folder := project_folder(project, _templates())).is_dir():
-        return {"problems": []}
-    where = "" if Path(project).expanduser().is_absolute() else f" in {folder.parent}"
-    return {"problems": [f"the Remotion project {project} does not exist{where}"]}
 
 
 def _sidecar(state: dict[str, Any], size: int) -> Path:

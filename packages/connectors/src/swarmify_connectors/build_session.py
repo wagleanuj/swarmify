@@ -5,10 +5,13 @@ supplies, read from its folder, and the build folder the core seeds for the sess
 input file name, added when the stage has an input of that name) are `string.Template` text, with
 `$input` (the stage's first input), `$folder` (the build folder) and each of the stage's params,
 and in a note `$file` and `$name`, the input it is for. `arguments` are filled the same way.
-A stage's `base` names a Template of the world (ADR 0028) to seed from instead of the starter.
+A stage's `base` names a Template of the world (ADR 0028) to seed from instead of the starter;
+the `project` of a package with Templates but no Build Session (a direct render) names one it
+reads in place, once prepared.
 """
 
 import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
@@ -17,6 +20,8 @@ from typing import Any
 
 BASE = "base"
 """The param naming one of the world's Templates of the package to seed from, not its starter."""
+PROJECT = "project"
+"""The param of a direct render naming the world's Template it renders in place."""
 RECORD = ".template.json"
 """A Template's own record, in its folder: where it came from and when it was added."""
 
@@ -52,17 +57,31 @@ def task(
     return "\n".join(p.strip() for p in parts)
 
 
-def template(manifest: dict[str, Any], world: Path, base: str) -> Path:
-    """A build's `base`: a Template by bare name in the world folder's Templates folder of the
-    package, never a path, since whatever it names is copied where the agent can read it.
-    Raises ValueError."""
+def template(manifest: dict[str, Any], world: Path, base: str, param: str = BASE) -> Path:
+    """A build's `base` (or a direct render's `param`): a Template by bare name in the world
+    folder's Templates folder of the package, never a path, since whatever it names is copied
+    where the agent can read it, or read by the render's sandbox. Raises ValueError."""
     if Path(base).name != base or base.startswith("."):
-        raise ValueError(f"base must be a Template's name, not a path: {base}")
+        raise ValueError(f"{param} must be a Template's name, not a path: {base}")
     found = world / "assets" / manifest["templates"]["folder"] / base
     if found.is_symlink() or not found.is_dir():
         label = manifest["label"]
         raise ValueError(f"the Template {base} is not one of this world's {label} Templates")
     return found
+
+
+def prepared(folder: Path) -> None:
+    """Refuse a Template whose prepare command has not finished or failed, as its record says;
+    one placed by hand, without a record, is as its operator left it. Raises ValueError."""
+    try:
+        meta = json.loads((folder / RECORD).read_text())
+    except (OSError, ValueError):
+        return
+    if meta.get("prepare") == "preparing":
+        raise ValueError(f"the Template {folder.name} is still being prepared; try once it is")
+    if meta.get("prepare") == "failed":
+        said = meta.get("prepare_error") or "no reason recorded"
+        raise ValueError(f"the Template {folder.name} failed to prepare: {said}")
 
 
 def fingerprint(folder: Path) -> str:

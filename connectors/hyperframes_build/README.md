@@ -68,8 +68,8 @@ takes at their places, the bed ducked and the karaoke words with their spaces.
 
 The render executes the agent's code in the hyperframes_render package's connector sandbox (ADR
 0021, its README): no network beyond its own loopback, nothing of the data directory readable but
-that package, the templates and the run's folders, and nothing writable but the stage's folder.
-It never installs: a build that left no `node_modules` fails. So the builder is told to keep
+that package, the world's Templates and the run's folders, and nothing writable but the stage's
+folder. It never installs: a build that left no `node_modules` fails. So the builder is told to keep
 `node_modules`, load GSAP from it, and vendor every font and image.
 
 `check` and `snapshot` need a Chrome Headless Shell. The session cannot reach

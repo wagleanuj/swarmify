@@ -58,8 +58,8 @@ carries a sample composition doing all of it, which a test type-checks in the st
 The render executes the agent's code (its `remotion.config.ts`, its `node_modules`), in the
 remotion_render package's connector sandbox (ADR 0021, Swarmify's README): no network beyond its
 own loopback (fonts and images must be files in `public/`, which the builder is told), nothing of
-the data directory readable but that package, the templates and the run's folders, and nothing
-writable but the stage's folder. It never installs: a build that left no `node_modules` fails.
+the data directory readable but that package, the world's Templates and the run's folders, and
+nothing writable but the stage's folder. It never installs: a build that left no `node_modules` fails.
 Chrome Headless Shell is the one the remotion_render package's install step downloaded beside it
 (else one on `PATH`).
 

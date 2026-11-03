@@ -31,7 +31,9 @@ permissions = [
   "install_network: github.com",
   "install_network: release-assets.githubusercontent.com",
   "install_network: storage.googleapis.com",
-  "capabilities: check",
+  "prepare_network: registry.npmjs.org",
+  "owned_folders: hyperframes_templates",
+  "capabilities: templates",
 ]
 
 [[packages]]
@@ -63,7 +65,9 @@ permissions = [
   "install_network: registry.npmjs.org",
   "install_network: remotion.media",
   "install_network: storage.googleapis.com",
-  "capabilities: check",
+  "prepare_network: registry.npmjs.org",
+  "owned_folders: remotion_templates",
+  "capabilities: templates",
 ]
 
 [[packages]]

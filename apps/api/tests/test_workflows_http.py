@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_api.main import run_storage
-from swarmify_connectors import FakeTransport
 from swarmify_learning.evals import TASKS, workflow_yaml
 from swarmify_runs import RunControl
 
@@ -26,10 +25,10 @@ stages:
     done_when: script.md written
     produces: [script.md]
   - connector: render
-    calls: remotion_render
+    calls: remotion_build
     input: script.md
     output: short.mp4
-    params: {project: /tmp, composition: Short}
+    params: {composition: Short}
   - gate: review
     ask: Approve?
   - connector: youtube
@@ -68,10 +67,10 @@ def test_save_creates_versions_that_can_be_listed_and_fetched(client: TestClient
     assert v1["model"]["stages"][3] == {
         "type": "connector",
         "name": "render",
-        "calls": "remotion_render",
+        "calls": "remotion_build",
         "input": "script.md",
         "output": "short.mp4",
-        "params": {"project": "/tmp", "composition": "Short"},
+        "params": {"composition": "Short"},
         "inputs": [],
     }
 
@@ -314,14 +313,8 @@ def test_a_saved_schedule_starts_runs_on_dbos_cron_until_the_next_version_drops_
         )
 
 
-def test_check_reports_what_would_stop_a_stage_only_after_spending(
-    client: TestClient, transport: FakeTransport
-) -> None:
-    """The render stage's problems are what its package's `check` answers (the Check
-    capability), here faked; the package's own tests run the real one."""
-    transport.outputs["check"] = [
-        {"problems": ["the Remotion project /nowhere/at/all does not exist"]}
-    ]
+def test_check_reports_what_would_stop_a_stage_only_after_spending(client: TestClient) -> None:
+    """The render stage's project must be one of the world's Templates (ADR 0028)."""
     world_id = _world(client)
     url = f"/api/worlds/{world_id}/workflows/check"
     kids = """name: Kids clickbait short
@@ -335,7 +328,7 @@ stages:
     input: script.md
     output: short.mp4
     params:
-      project: /nowhere/at/all
+      project: nowhere
   - gate: review
     ask: Approve?
   - connector: publish
@@ -356,7 +349,11 @@ stages:
             "render",
             "remotion_render needs params.composition, the composition ID",
         ),
-        ("connector_params", "render", "the Remotion project /nowhere/at/all does not exist"),
+        (
+            "connector_params",
+            "render",
+            "the Template nowhere is not one of this world's Remotion render Templates",
+        ),
         ("connector_params", "publish", "a publish stage needs params.title"),
     ]
     assert client.post(f"/api/worlds/{world_id}/workflows", json={"yaml": kids}).status_code == 422

@@ -171,7 +171,7 @@ def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
         for c in client.get(f"/api/worlds/{w}/connectors").json()
     }
     assert shown == {
-        "remotion_render": ("Remotion render", ["check"], ["video/mp4"]),
+        "remotion_render": ("Remotion render", ["templates"], ["video/mp4"]),
         "remotion_build": ("Remotion build", ["build_session", "templates"], ["video/mp4"]),
         "youtube": ("YouTube", ["publish", "outcomes"], []),
         "upload_post": ("Upload-Post", ["publish"], []),
@@ -184,8 +184,8 @@ def test_a_connector_names_the_folder_its_templates_are_in(client: TestClient) -
     # the workflow editor offers a stage's Templates by this, never by the package's name
     w = world(client)
     held = {c["name"]: c["templates"] for c in client.get(f"/api/worlds/{w}/connectors").json()}
-    assert held["remotion_build"] == "remotion_templates"
-    assert held["remotion_render"] == "" and held["youtube"] == ""
+    assert held["remotion_build"] == held["remotion_render"] == "remotion_templates"  # shared
+    assert held["youtube"] == ""
 
 
 def test_workflows_see_the_registry(client: TestClient) -> None:

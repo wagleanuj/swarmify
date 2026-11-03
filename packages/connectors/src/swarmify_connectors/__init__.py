@@ -681,11 +681,11 @@ class Connectors:
         self, connector: Connector, env: Mapping[str, str], stage: Stage | None = None
     ) -> Grants:
         """What a connector's process may use besides its package folder (ADR 0021): its
-        Owned Folders (read and write), the data directory's folders its Manifest declares and
-        the folders its `path` Settings name, and links in those (read), the run's folders when
-        it runs for a stage (reading the run's, writing its stage's), and the hosts its Manifest
-        declares plus those of its Services' URLs. A local package (the add form's) may also
-        use the folders its command names."""
+        Owned Folders (read and write, but its Templates folder read only), the data directory's
+        folders its Manifest declares and the folders its `path` Settings name, and links in
+        those (read), the run's folders when it runs for a stage (reading the run's, writing its
+        stage's), and the hosts its Manifest declares plus those of its Services' URLs. A local
+        package (the add form's) may also use the folders its command names."""
         m, world_id = connector.manifest, connector.world_id or ""
         world = self.data_dir / "worlds" / world_id
         permissions = m.get("permissions", {})
@@ -694,7 +694,9 @@ class Connectors:
             folder = world / "assets" / f["folder"]
             folder.mkdir(parents=True, exist_ok=True)
             grants.reads.append(folder)
-            grants.writes.append(folder)
+            # its Templates it only reads: a render reads one in place, the core adds them
+            if f["folder"] != m.get("templates", {}).get("folder"):
+                grants.writes.append(folder)
         for name in permissions.get("folders", []):
             grants.reads.append(self.data_dir / name.replace("{world}", world_id))
         by_key = {f["key"]: f for f in setup.fields(m)}
@@ -1149,10 +1151,12 @@ class Connectors:
         if session and not config.get("output"):
             config = {**config, "output": session.get("output")}  # its default output, if any
         out = _manifest_problems(manifest, config, params) if manifest else []
-        if session and "templates" in manifest and params.get(build_session.BASE):
+        # The world's Template a build starts from (`base`) or a direct render reads (`project`)
+        param = build_session.BASE if session else build_session.PROJECT
+        if "templates" in manifest and params.get(param):
             world = self.data_dir / "worlds" / world_id
             try:
-                build_session.template(manifest, world, str(params[build_session.BASE]))
+                build_session.template(manifest, world, str(params[param]), param)
             except ValueError as exc:
                 out.append(str(exc))
         if "check" in manifest.get("capabilities", []):
