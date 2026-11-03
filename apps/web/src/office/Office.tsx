@@ -101,7 +101,7 @@ export function Office() {
     // ponytail: first-try keeps are read when the office opens, one scorecard per workflow, as
     // the plain Scorecard page sums them; a world scorecard endpoint would make it one read.
     api
-      .GET("/api/worlds/{world_id}/workflows", path)
+      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId }, query: { check: false } } })
       .then(({ data }) =>
         Promise.all(
           (data ?? []).map((w) =>

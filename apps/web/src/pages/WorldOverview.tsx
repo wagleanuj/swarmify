@@ -54,9 +54,22 @@ export function WorldOverview() {
   }, [worldId]);
 
   useEffect(() => {
+    // The rows show at once; each workflow's check (seconds, it may start connectors) follows.
+    const path = { world_id: worldId };
+    let checked = false;
     api
-      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setWorkflows(data ?? []))
+      .GET("/api/worlds/{world_id}/workflows", { params: { path, query: { check: false } } })
+      .then(({ data }) => {
+        if (!checked) setWorkflows(data ?? []);
+      })
+      .catch(() => undefined);
+    api
+      .GET("/api/worlds/{world_id}/workflows", { params: { path } })
+      .then(({ data }) => {
+        if (!data) return;
+        checked = true;
+        setWorkflows(data);
+      })
       .catch(() => undefined);
   }, [worldId]);
 

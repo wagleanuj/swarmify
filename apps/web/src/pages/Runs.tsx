@@ -53,7 +53,7 @@ export function Runs() {
 
   useEffect(() => {
     api
-      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
+      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId }, query: { check: false } } })
       .then(({ data }) => setWorkflows(data ?? []))
       .catch(() => undefined);
     api

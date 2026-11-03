@@ -89,3 +89,23 @@ test("on a phone each workflow is a card: full name, cost against its budget, th
   expect(create.element().getBoundingClientRect().top).toBeGreaterThan(cards.nth(1).element().getBoundingClientRect().bottom);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
+
+test("the rows show before the slow check answers, then a failing workflow says so", async () => {
+  let answer = (_: Response) => {};
+  const checked = new Promise<Response>((resolve) => (answer = resolve));
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([{ id: "world_1", name: "Video", purpose: "", created_at: ts }]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": (req) =>
+      new URL(req.url).searchParams.get("check") === "false" ? Response.json(workflows) : checked,
+    "GET /api/worlds/world_1/runs": () => Response.json(runs),
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows");
+  const rows = screen.getByTestId("workflow");
+  await expect.element(rows.first()).toMatchTextContent(/^Weekly short/);
+  await expect.element(rows.first()).not.toMatchTextContent(/Fails today's check/);
+
+  const violations = [{ rule: "unknown_connector", message: "connector 'gone' is not installed" }];
+  answer(Response.json([{ ...workflows[0], violations }, workflows[1]]));
+  await expect.element(rows.first()).toMatchTextContent(/Fails today's check: connector 'gone' is not installed\./);
+});

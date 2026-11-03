@@ -260,7 +260,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Workflows */
+        /**
+         * List Workflows
+         * @description With `check`, each lists the violations a run of it would meet today. A check can
+         *     start connector processes (about a second or two each), so a page that only needs names
+         *     asks without, and the checks run side by side.
+         */
         get: operations["list_workflows_api_worlds__world_id__workflows_get"];
         put?: never;
         /** Create Workflow */
@@ -4838,7 +4843,9 @@ export interface operations {
     };
     list_workflows_api_worlds__world_id__workflows_get: {
         parameters: {
-            query?: never;
+            query?: {
+                check?: boolean;
+            };
             header?: never;
             path: {
                 world_id: string;
