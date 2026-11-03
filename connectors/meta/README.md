@@ -6,8 +6,46 @@ Connector Package (ADR 0019), one of Swarmify's default packages: on startup Swa
 from this folder into `<data dir>/packages/meta/<version>/` and enables it for every world that
 has not decided otherwise. Everything Swarmify knows of it is `swarmify-connector.toml`.
 
-Publishing (`preview`, `publish`, `outcomes`) is not built yet: `preview` answers that as a
-problem and `publish` fails.
+It posts Reels to Instagram. Posting to the Facebook Page, retries that never post twice and
+`outcomes` are not built yet: a stage with `facebook` among its `platforms` (the default) shows
+that as a preview problem, so for now name `platforms: [instagram]`.
+
+## The stage
+
+```yaml
+  - gate: review
+    ask: Watch it. Approve or send back with a note.
+  - connector: post
+    calls: meta
+    input: short.mp4
+    params:
+      platforms: [instagram]
+      metadata: script.md   # its frontmatter's title, description and hashtags win
+      share_to_feed: true   # the default: in the profile grid too, not only Reels
+      cover_at: 2.5         # the second the cover shows
+      trial: false          # true: a Trial Reel, shown to non-followers first
+```
+
+The caption is the description, or the title when there is none, then a blank line and the
+hashtags as one `#a #b` line. The metadata file's frontmatter wins over the params; `tags` are
+ignored. The gate shows the caption and hashtags to edit, and the Platforms, visibility, schedule,
+Trial Reel, share to feed, cover and video as they will go. The connector never adds text of its
+own.
+
+The preview lists each problem with its Platform, `Instagram: ...`: a caption over 2,200
+characters (hashtags included), more than 30 hashtags, a hashtag that is not one word, more than
+20 @mentions, any `schedule` (Instagram cannot schedule; schedule the workflow instead) and
+`visibility: draft` (Instagram has no drafts). With no input, an unreadable schedule, or a param
+of the wrong kind, the stage cannot run either.
+
+On Instagram, `publish` creates a Reels container (`upload_type=resumable`, with the caption,
+`share_to_feed`, `thumb_offset` from `cover_at` and, for a Trial Reel, `trial_params` with
+graduation `MANUAL`, so it stays a trial until you share it to followers in the app), uploads the
+file itself to `rupload.facebook.com` (no public URL), checks the container's `status_code` every
+10 seconds for up to 10 minutes until it is `FINISHED` (`ERROR` or `EXPIRED` fails with Meta's
+reason), then publishes it with `media_publish`. It answers the post's media ID as `id` and its
+permalink under `links.instagram`, and a Platform that failed under `failed`; the stage fails only
+when no Platform posted.
 
 ## Setup
 
@@ -56,6 +94,9 @@ privately and needs no gate (`private_when`); every stage with Instagram is gate
 
 `test_meta.py` covers `signed_in` and the account lookup against a fake Graph API (httpx's
 MockTransport): the long-lived exchange, the Page kept with one or several Pages, the `page`
-Setting, Pages without Instagram and `auth_failed`. Then the package installed through the real
-install path, answering over stdio MCP in its sandbox. Run it with
+Setting, Pages without Instagram and `auth_failed`. Then the preview (the caption, metadata and
+edits, every problem) and the Instagram publish in order (container, upload, wait, publish), its
+params and a container that fails processing. Then the package installed through the real install
+path, answering over stdio MCP in its sandbox, and a workflow with an Instagram stage and no gate
+refused when saved. Run it with
 `uv run pytest connectors/meta` from the repository root.
