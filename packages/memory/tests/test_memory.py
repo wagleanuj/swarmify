@@ -262,6 +262,19 @@ def test_assets_are_the_operators_files_listed_served_and_never_a_path(memory: M
     assert memory.library("w1") == []  # not run artifacts
 
 
+def test_a_template_in_the_assets_is_not_listed_as_assets(memory: Memory) -> None:
+    """A Template (a folder with its `.template.json`) can hold thousands of files, its
+    node_modules among them; listed, they once made a build brief too long to send."""
+    memory.add_asset("w1", "bed.mp3", b"ID3")
+    kit = memory.world_folder("w1") / "assets/remotion_templates/cat-shorts"
+    (kit / "node_modules/zod").mkdir(parents=True)
+    (kit / ".template.json").write_text("{}")
+    (kit / "package.json").write_text("{}")
+    (kit / "node_modules/zod/index.js").write_text("")
+    (kit.parent / "notes.md").write_text("x")  # beside the Template, still an asset
+    assert memory.assets("w1") == ["assets/bed.mp3", "assets/remotion_templates/notes.md"]
+
+
 def test_assets_are_renamed_in_their_folder_and_deleted_never_outside(memory: Memory) -> None:
     memory.add_asset("w1", "bed.mp3", b"ID3")
     memory.add_asset("w1", "logo.png", b"PNG")

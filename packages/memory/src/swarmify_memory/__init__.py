@@ -23,6 +23,7 @@ the GraphIndex port.
 """
 
 import json
+import os
 import re
 import shutil
 from contextlib import closing
@@ -124,6 +125,10 @@ def _split(text: str) -> tuple[dict[str, Any], str]:
             except ValueError:
                 fields[key] = value
     return fields, body.lstrip("\n")
+
+
+TEMPLATE_RECORD = ".template.json"
+"""What marks a Template's folder in the assets (the connectors' build_session.RECORD)."""
 
 
 @dataclass(frozen=True)
@@ -312,14 +317,18 @@ class Memory:
         return file
 
     def assets(self, world_id: str) -> list[str]:
-        """The world's assets, subfolders included, as paths relative to its folder."""
+        """The world's assets, subfolders included, as paths relative to its folder. A Template
+        (a folder with its `.template.json` record) is not walked: it is listed as a Template,
+        and its node_modules alone would be thousands of paths."""
         world = self.world_folder(world_id)
-        files = [p for p in (world / ASSETS).rglob("*") if p.is_file()]
-        return sorted(
-            str(p.relative_to(world))
-            for p in files
-            if not any(part.startswith(".") for part in p.relative_to(world).parts)
-        )
+        files: list[Path] = []
+        for root, dirs, names in os.walk(world / ASSETS):
+            if TEMPLATE_RECORD in names:
+                dirs.clear()
+                continue
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            files += [Path(root) / n for n in names if not n.startswith(".")]
+        return sorted(str(p.relative_to(world)) for p in files)
 
     def add_asset(self, world_id: str, name: str, data: bytes | Path, folder: str = "") -> str:
         """Write (or replace) the asset `name`, a plain file name, in the assets folder or its
