@@ -527,7 +527,8 @@ class Connectors:
 
     def finish_sign_in(self, pending: dict[str, Any], code: str) -> None:
         """Trade the provider's code for the token set and store it as the field's Credential:
-        shared, or the world's own for a field set per world. Raises ValueError (or
+        shared, or the world's own for a field set per world. A field with `finish` stores what
+        the package's `signed_in` tool makes of it instead (`_finish`). Raises ValueError (or
         oauth.SignInNeeded) saying why, never with a token in it."""
         world_id, name, key = pending["world_id"], pending["name"], pending["key"]
         connector, shared, _ = self.setup_values(world_id, name)
@@ -537,8 +538,39 @@ class Connectors:
             str(shared.get(f"{key}_client_secret", "")),
         )
         tokens = oauth.exchange(field, client, code, pending["verifier"], pending["redirect_uri"])
+        if field["oauth"].get("finish"):
+            tokens = self._finish(connector, field, client, tokens["access_token"])
         self.setups.put_value(name, self._token_world(connector, field), key, tokens)
         log.info("%s signed in to %s for %s", world_id, name, key)
+
+    def _finish(
+        self, connector: Connector, field: dict[str, Any], client: tuple[str, str], token: str
+    ) -> dict[str, Any]:
+        """The Credential the package's `signed_in` tool makes of the provider's access token
+        (ADR 0029), run in its process with its other Setup values. Raises ValueError, or
+        oauth.SignInNeeded for an `auth_failed` one, with the tool's message, tokens blanked."""
+        resolved = self._signed_in(
+            connector, *self.setups.values(connector.name, str(connector.world_id))
+        )
+        resolved.pop(field["key"], None)
+        env = setup.environment(connector.manifest, resolved, self.data_dir)
+        arguments = {"access_token": token, "client_id": client[0], "client_secret": client[1]}
+        try:
+            out = self._tool(connector, "signed_in", arguments, env, marks=False)
+        except ConnectorError as exc:
+            why = str(exc).replace(token, "[token]")
+            if client[1]:
+                why = why.replace(client[1], "[secret]")
+            if oauth.is_auth_failure(why):
+                raise oauth.SignInNeeded(f"{field['label']}: {why}") from None
+            raise ValueError(f"{field['label']}: {why}") from None
+        expires = out.get("expires_at")
+        if not isinstance(out.get("access_token"), str) or not (
+            expires is None or isinstance(expires, int | float)
+        ):
+            raise ValueError(f"{field['label']}: {connector.name} answered no Credential")
+        kept = {"access_token": out["access_token"]}
+        return kept if expires is None else {**kept, "expires_at": expires}
 
     def sign_in_needed(self, connector: Connector) -> list[str]:
         """Keys of the package's oauth fields whose token set the provider refused."""
@@ -604,9 +636,10 @@ class Connectors:
         env: dict[str, str],
         stage: Stage | None = None,
         blocked: list[str] | None = None,
+        marks: bool = True,
     ) -> dict[str, Any]:
         """Call one tool in a session of its own (`_open`)."""
-        with self._open(connector, env, stage, blocked) as call:
+        with self._open(connector, env, stage, blocked, marks) as call:
             return call(tool, arguments)
 
     @contextmanager
@@ -616,11 +649,12 @@ class Connectors:
         env: dict[str, str],
         stage: Stage | None = None,
         blocked: list[str] | None = None,
+        marks: bool = True,
     ) -> Iterator[Caller]:
         """A session with the connector's process, in the sandbox (`confine`); what the sandbox
         blocked is reported after each call and at the end (and added to `blocked`). A
         package's tool failing with an `auth_failed` message marks its oauth fields for sign-in
-        again (oauth.is_auth_failure)."""
+        again (oauth.is_auth_failure), unless `marks` is False, as for a sign-in's own call."""
         confined, sandboxed = self.confine(connector, env, stage)
 
         def report() -> None:
@@ -634,7 +668,7 @@ class Connectors:
                 try:
                     return call(name, arguments)
                 except ConnectorError as exc:
-                    if connector.version is not None and oauth.is_auth_failure(str(exc)):
+                    if marks and connector.version is not None and oauth.is_auth_failure(str(exc)):
                         self._needs_sign_in(connector)
                     raise
                 finally:

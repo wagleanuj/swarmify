@@ -7,6 +7,7 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -28,8 +29,11 @@ PROBE = Path(__file__).parent / "fixtures/packages/probe"
 REDIRECT = "https://swarmify.tail1234.ts.net/api/setup/oauth/callback"
 
 
-def install(connectors: Connectors, tmp_path: Path, provider: FakeProvider) -> None:
-    """The probe package with a required per-world sign-in, `account`, at the fake provider."""
+def install(
+    connectors: Connectors, tmp_path: Path, provider: FakeProvider, finish: bool = False
+) -> None:
+    """The probe package with a required per-world sign-in, `account`, at the fake provider;
+    with `finish`, one its `signed_in` tool finishes (ADR 0029)."""
     source = tmp_path / "src" / "probe"
     shutil.copytree(PROBE, source)
     toml = (source / MANIFEST).read_text()
@@ -51,6 +55,8 @@ pkce = true
 client = "operator"
 authorize_params = {{ access_type = "offline" }}
 """
+    if finish:
+        toml += "finish = true\n"
     (source / MANIFEST).write_text(toml)
     connectors.packages.install(str(source))
     connectors.enable("w1", "probe", "1.0.0")
@@ -68,6 +74,15 @@ def probe(connectors: Connectors, tmp_path: Path, provider: FakeProvider) -> Con
     install(connectors, tmp_path, provider)
     connectors.save_setup("w1", "probe", {"account_client_id": "app"}, {})
     connectors.save_setup("w1", "probe", {"account_client_secret": "shh"}, {})
+    return connectors
+
+
+@pytest.fixture
+def finishing(connectors: Connectors, tmp_path: Path, provider: FakeProvider) -> Connectors:
+    install(connectors, tmp_path, provider, finish=True)
+    connectors.save_setup("w1", "probe", {"account_client_id": "app"}, {})
+    connectors.save_setup("w1", "probe", {"account_client_secret": "shh"}, {})
+    connectors.save_setup("w1", "probe", {"notes": "the page"}, {})
     return connectors
 
 
@@ -233,6 +248,100 @@ def test_a_real_mcp_tool_error_reports_the_auth_failure(
     with pytest.raises(ConnectorError, match="auth_failed"):
         real.run_stage("w1", "r", "s", {"calls": "probe", "params": {"tool": "refused"}})
     assert real.sign_in_needed(real.find("w1", "probe")) == ["account"]  # type: ignore[arg-type]
+
+
+# A package that finishes its own sign-in (ADR 0029)
+
+
+def test_a_finished_sign_in_stores_only_the_credential_signed_in_returns(
+    finishing: Connectors, transport: FakeTransport, provider: FakeProvider
+) -> None:
+    transport.outputs["probe.signed_in"] = [{"access_token": "page-token", "expires_at": None}]
+    sign_in(finishing)
+    name, tool, arguments, process = transport.calls[-1]
+    assert (name, tool) == ("probe", "signed_in")
+    assert arguments["access_token"] in provider.access_tokens
+    assert (arguments["client_id"], arguments["client_secret"]) == ("app", "shh")
+    assert process["NOTES"] == "the page" and "PROBE_TOKEN" not in process
+    assert finishing.setups.values("probe", "w1")[1]["account"] == {"access_token": "page-token"}
+    # never refreshed: the connector gets it as it is, time after time
+    assert env(finishing, transport)["PROBE_TOKEN"] == "page-token"
+    assert env(finishing, transport)["PROBE_TOKEN"] == "page-token"
+    assert provider.grants == ["authorization_code"]
+
+
+def test_a_finished_credential_keeps_the_expiry_signed_in_gives(
+    finishing: Connectors, transport: FakeTransport
+) -> None:
+    later = time.time() + 86400
+    transport.outputs["probe.signed_in"] = [{"access_token": "page-token", "expires_at": later}]
+    sign_in(finishing)
+    stored = finishing.setups.values("probe", "w1")[1]["account"]
+    assert stored == {"access_token": "page-token", "expires_at": later}
+
+
+def test_a_failing_signed_in_stores_nothing_and_says_why(
+    finishing: Connectors, transport: FakeTransport, provider: FakeProvider
+) -> None:
+    def fail(arguments: dict[str, Any]) -> dict[str, Any]:
+        raise ConnectorError(f"probe: pick one of A or B (got {arguments['access_token']})")
+
+    transport.outputs["probe.signed_in"] = [fail]
+    with pytest.raises(ValueError, match="pick one of A or B") as raised:
+        sign_in(finishing)
+    assert not any(token in str(raised.value) for token in provider.access_tokens)
+    assert "account" not in finishing.setups.values("probe", "w1")[1]
+    transport.outputs["probe.signed_in"] = [{"expires_at": None}]
+    with pytest.raises(ValueError, match="answered no Credential"):
+        sign_in(finishing)
+    assert "account" not in finishing.setups.values("probe", "w1")[1]
+
+
+def test_an_auth_failed_signed_in_is_a_sign_in_needed_and_marks_nothing(
+    finishing: Connectors, transport: FakeTransport
+) -> None:
+    transport.outputs["probe.signed_in"] = [{"access_token": "page-token", "expires_at": None}]
+    sign_in(finishing)
+    transport.outputs["probe.signed_in"] = [ConnectorError("probe: auth_failed: app removed")]
+    with pytest.raises(SignInNeeded, match="auth_failed"):
+        sign_in(finishing)
+    assert finishing.setups.values("probe", "w1")[1]["account"] == {"access_token": "page-token"}
+
+
+def test_two_worlds_finishing_a_world_sign_in_keep_their_own_credentials(
+    finishing: Connectors, transport: FakeTransport
+) -> None:
+    transport.outputs["probe.signed_in"] = [
+        {"access_token": "page-one", "expires_at": None},
+        {"access_token": "page-two", "expires_at": None},
+    ]
+    sign_in(finishing, "w1")
+    sign_in(finishing, "w2")
+    assert env(finishing, transport, "w1")["PROBE_TOKEN"] == "page-one"
+    assert env(finishing, transport, "w2")["PROBE_TOKEN"] == "page-two"
+
+
+def test_auth_failed_from_a_call_marks_a_finished_sign_in(
+    finishing: Connectors, transport: FakeTransport
+) -> None:
+    transport.outputs["probe.signed_in"] = [{"access_token": "page-token", "expires_at": None}]
+    sign_in(finishing)
+    transport.outputs["probe"] = [ConnectorError("Error executing tool probe: auth_failed: no")]
+    with pytest.raises(ConnectorError):
+        env(finishing, transport)
+    connector = finishing.find("w1", "probe")
+    assert connector is not None and finishing.sign_in_needed(connector) == ["account"]
+
+
+def test_a_real_package_finishes_its_sign_in_in_its_own_process(
+    tmp_path: Path, db: Path, provider: FakeProvider
+) -> None:
+    real = Connectors(SqliteStorage(db), McpTransport(), Credentials(tmp_path / ".env"), 0.05)
+    install(real, tmp_path, provider, finish=True)
+    real.setups.put("probe", "w1", {"account_client_id": "app", "account_client_secret": "shh"}, {})
+    sign_in(real)
+    token = real.setups.values("probe", "w1")[1]["account"]["access_token"]
+    assert token.startswith("page-at-")
 
 
 @pytest.mark.parametrize(

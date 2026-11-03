@@ -170,6 +170,7 @@ SCHEMA: dict[str, Any] = {
                             "scopes": _strings,
                             "pkce": {"type": "boolean"},
                             "client": {"enum": ["operator"]},
+                            "finish": {"type": "boolean"},  # the package's signed_in tool
                             "authorize_params": {
                                 "type": "object",
                                 "additionalProperties": {"type": "string"},

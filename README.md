@@ -523,7 +523,7 @@ scope = "shared"                  # shared (a world may override) | world
 env = "ECHO_KEY"                  # the variable it reaches the connector as; default KEY upper-cased
 help = "Any value works."
 # also: default, options (choice only), min, max, pattern, renamed_from,
-# and for type = "oauth" a [config.oauth] table: authorize_url, token_url, scopes, pkce, client
+# and for type = "oauth" a [config.oauth] table: authorize_url, token_url, scopes, pkce, client, finish
 
 [[config]]
 key = "endpoint"
@@ -582,6 +582,17 @@ refresh token. A refresh the provider refuses (revoked, or the app's secret chan
 field **Needs sign-in**, and so does a connector reporting an auth failure: a tool error whose
 message holds the word `auth_failed`, as `raise ToolError("auth_failed: token revoked")` does in
 the Python MCP SDK. Signing in again clears it. Tokens are never logged.
+
+A package can finish its own sign-in (ADR 0029), for a provider whose flow ends past the token
+exchange, as Meta's does with a long-lived token swapped for a Page's. With `finish = true` in
+`[config.oauth]`, after the exchange Swarmify calls the package's MCP tool `signed_in` with
+`{"access_token": <the provider's>, "client_id": ..., "client_secret": ...}`, in the package's
+sandbox with its declared network and its other Setup values in its environment (not the field
+being signed in). It answers `{"access_token": "<the Credential to keep>", "expires_at": <unix
+seconds or null>}`, and only that is stored, with no refresh token: a Credential without an
+expiry is never refreshed. If the tool fails, nothing is stored and its message is the sign-in
+error on the Connectors page; a message holding `auth_failed` asks to sign in again. Later
+`auth_failed` errors from the connector mark the field **Needs sign-in** as for any other.
 
 A provider may refuse a `*.ts.net` or other private address as a redirect URI; a package's README
 says what its provider accepts. Then use the loopback fallback: register
