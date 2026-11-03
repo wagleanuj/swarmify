@@ -26,8 +26,17 @@ Reel, `trial_params`, uploaded resumably (the file itself to rupload.facebook.co
 polled until its `status_code` is FINISHED, then `media_publish`, then its `permalink`. On the
 Facebook Page: the Page's Reels upload, `video_reels` with `upload_phase=start`, the file to
 rupload.facebook.com, then `upload_phase=finish` with the description and a `video_state` of
-PUBLISHED, DRAFT or SCHEDULED (with `scheduled_publish_time`). Retries (#373) and `outcomes`
-(#374) are not built yet.
+PUBLISHED, DRAFT or SCHEDULED (with `scheduled_publish_time`). `outcomes` (#374) is not built
+yet.
+
+Meta has no idempotency key, so a retried stage (the same `idempotency_key`) reads a record the
+first try left in the stage's folder of the run, `meta-<key>.json`: each Platform's container or
+video ID, kept once its file is uploaded, and its post once finished. A finished post is answered
+as recorded. A recorded Instagram container is published (FINISHED), or found among the account's
+newest posts by its caption (PUBLISHED, its media ID being lost), or made again (EXPIRED). A
+recorded Facebook video is answered when its `publishing_phase` is complete, else uploaded to
+again when its upload never completed, then finished. A new key (a stage visited again) starts a
+new record.
 """
 
 import json
@@ -35,7 +44,7 @@ import os
 import re
 import struct
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -413,68 +422,137 @@ def upload(http: httpx.Client, token: str, uri: str, video: Path) -> None:
         raise _error(sent, "uploading the video")
 
 
-def post_to_instagram(
-    http: httpx.Client, token: str, instagram: str, video: Path, fields: Mapping[str, Any]
-) -> dict[str, str]:
-    """Post `video` as a Reel to the Instagram account; answers its media `id` and `url`."""
-    form = {
-        "media_type": "REELS",
-        "upload_type": "resumable",
-        "caption": full_caption(str(fields.get("caption") or ""), hashtags(fields.get("hashtags"))),
-        "share_to_feed": "false" if fields.get("share_to_feed") is False else "true",
-    }
-    if fields.get("cover_at") is not None:
-        form["thumb_offset"] = str(round(float(fields["cover_at"]) * 1000))  # in ms
-    if fields.get("trial") is True:
-        # MANUAL: it stays a Trial Reel until someone shares it to followers in the app
-        form["trial_params"] = json.dumps({"graduation_strategy": "MANUAL"})
-    container = _call(http, "POST", f"{instagram}/media", "creating the Reel", token, form)
-    created = str(container["id"])
-    upload(http, token, container.get("uri") or f"{RUPLOAD}/ig-api-upload/v26.0/{created}", video)
+Keep = Callable[..., None]  # records what a Platform has so far, by name: container, id, url
+
+
+def _status(http: httpx.Client, token: str, container: str) -> dict[str, Any]:
+    return _call(http, "GET", container, "waiting for the Reel", token, {"fields": "status_code"})
+
+
+def _processed(http: httpx.Client, token: str, container: str) -> str:
+    """Wait for the container: FINISHED, or PUBLISHED when an earlier try published it."""
     for attempt in range(POLL_TRIES):
-        status = _call(
-            http, "GET", created, "waiting for the Reel", token, {"fields": "status_code"}
-        )
+        status = _status(http, token, container)
         state = status.get("status_code")
-        if state == "FINISHED":
-            break
+        if state in ("FINISHED", "PUBLISHED"):
+            return str(state)
         if state in ("ERROR", "EXPIRED"):
             detail = f": {status['status']}" if status.get("status") else ""
             raise ToolError(f"Instagram could not process the video ({state}){detail}")
         if attempt < POLL_TRIES - 1:
             time.sleep(POLL_SECONDS)
-    else:
-        raise ToolError(
-            f"Instagram was still processing the video after {POLL_TRIES * POLL_SECONDS} seconds"
-        )
-    media = str(
-        _call(
-            http,
-            "POST",
-            f"{instagram}/media_publish",
-            "publishing the Reel",
-            token,
-            {"creation_id": created},
-        )["id"]
+    raise ToolError(
+        f"Instagram was still processing the video after {POLL_TRIES * POLL_SECONDS} seconds"
     )
+
+
+def _published_from(http: httpx.Client, token: str, instagram: str, caption: str) -> str:
+    """The media an earlier try published, Meta having kept no link from container to media:
+    the newest post with this caption."""
+    # ponytail: the newest 25 posts; a retry comes minutes after, well within them.
+    newest = _call(
+        http,
+        "GET",
+        f"{instagram}/media",
+        "finding the published Reel",
+        token,
+        {"fields": "id,caption", "limit": "25"},
+    ).get("data", [])
+    for media in newest:
+        if media.get("caption") == caption:
+            return str(media["id"])
+    raise ToolError("Instagram published the Reel, but it is not among the account's newest posts")
+
+
+def post_to_instagram(
+    http: httpx.Client,
+    token: str,
+    instagram: str,
+    video: Path,
+    fields: Mapping[str, Any],
+    kept: Mapping[str, str],
+    keep: Keep,
+) -> dict[str, str]:
+    """Post `video` as a Reel to the Instagram account, or finish what `kept` recorded of an
+    earlier try; answers its media `id` and `url`."""
+    caption = full_caption(str(fields.get("caption") or ""), hashtags(fields.get("hashtags")))
+    if media := kept.get("id"):
+        if kept.get("url"):
+            return {"id": media, "url": kept["url"]}
+    else:
+        created = kept.get("container")
+        if created and _status(http, token, created).get("status_code") == "EXPIRED":
+            created = None  # unpublished for 24 hours: made again
+        if not created:
+            form = {
+                "media_type": "REELS",
+                "upload_type": "resumable",
+                "caption": caption,
+                "share_to_feed": "false" if fields.get("share_to_feed") is False else "true",
+            }
+            if fields.get("cover_at") is not None:
+                form["thumb_offset"] = str(round(float(fields["cover_at"]) * 1000))  # in ms
+            if fields.get("trial") is True:
+                # MANUAL: it stays a Trial Reel until someone shares it to followers in the app
+                form["trial_params"] = json.dumps({"graduation_strategy": "MANUAL"})
+            container = _call(http, "POST", f"{instagram}/media", "creating the Reel", token, form)
+            created = str(container["id"])
+            uri = container.get("uri") or f"{RUPLOAD}/ig-api-upload/v26.0/{created}"
+            upload(http, token, uri, video)
+            keep(container=created)
+        if _processed(http, token, created) == "PUBLISHED":
+            media = _published_from(http, token, instagram, caption)
+        else:
+            media = str(
+                _call(
+                    http,
+                    "POST",
+                    f"{instagram}/media_publish",
+                    "publishing the Reel",
+                    token,
+                    {"creation_id": created},
+                )["id"]
+            )
+        keep(id=media)
     link = _call(http, "GET", media, "reading the Reel's link", token, {"fields": "permalink"})
-    return {"id": media, "url": str(link.get("permalink") or "")}
+    url = str(link.get("permalink") or "")
+    keep(url=url)
+    return {"id": media, "url": url}
 
 
 # The Facebook Page: the Page's Reels upload, start, the file, then finish
 
 
 def post_to_facebook(
-    http: httpx.Client, token: str, page: str, video: Path, fields: Mapping[str, Any]
+    http: httpx.Client,
+    token: str,
+    page: str,
+    video: Path,
+    fields: Mapping[str, Any],
+    kept: Mapping[str, str],
+    keep: Keep,
 ) -> dict[str, str]:
-    """Post `video` as a Reel to the Page, published, as a draft or scheduled; answers its
-    video `id` and `url`."""
+    """Post `video` as a Reel to the Page, published, as a draft or scheduled, or finish what
+    `kept` recorded of an earlier try; answers its video `id` and `url`."""
+    if kept.get("url"):
+        return {"id": kept["video"], "url": kept["url"]}
     if long := _too_long(video):
         raise ToolError(long)
     path, what = f"{page}/video_reels", "posting the Reel to the Page"
-    started = _call(http, "POST", path, what, token, {"upload_phase": "start"})
-    reel = str(started["video_id"])
-    upload(http, token, started.get("upload_url") or f"{RUPLOAD}/video-upload/v26.0/{reel}", video)
+    reel, uri, status = kept.get("video"), None, {}
+    if reel:
+        status = _call(http, "GET", reel, "reading the Reel", token, {"fields": "status"})
+        status = status.get("status") or {}
+        if (status.get("publishing_phase") or {}).get("status") == "complete":
+            url = f"https://www.facebook.com/reel/{reel}"
+            keep(url=url)
+            return {"id": reel, "url": url}
+    else:
+        started = _call(http, "POST", path, what, token, {"upload_phase": "start"})
+        reel, uri = str(started["video_id"]), started.get("upload_url")
+        keep(video=reel)
+    if (status.get("uploading_phase") or {}).get("status") != "complete":
+        upload(http, token, uri or f"{RUPLOAD}/video-upload/v26.0/{reel}", video)
     form = {
         "upload_phase": "finish",
         "video_id": reel,
@@ -491,29 +569,63 @@ def post_to_facebook(
         )
     if _call(http, "POST", path, what, token, form).get("success") is False:
         raise ToolError("Facebook did not accept the Reel")
-    return {"id": reel, "url": f"https://www.facebook.com/reel/{reel}"}
+    url = f"https://www.facebook.com/reel/{reel}"
+    keep(url=url)
+    return {"id": reel, "url": url}
+
+
+def record_of(input_path: Path, idempotency_key: str) -> Path | None:
+    """Where a stage keeps what it posted: `meta-<key>.json` in its folder of the run its input
+    is in (`<world>/runs/<run>/<stage>`, the one folder it may write). The key is the stage id,
+    or `<stage id>.<visit>` for a stage visited again. None outside a run."""
+    run = next((p for p in input_path.parents if p.parent.name == "runs"), None)
+    if not idempotency_key or run is None:
+        return None
+    stage = idempotency_key
+    if not (run / stage).is_dir():
+        stage = idempotency_key.rpartition(".")[0] or idempotency_key
+    folder = run / stage
+    return folder / f"meta-{idempotency_key}.json" if folder.is_dir() else None
 
 
 def publish_fields(
-    http: httpx.Client, env: Mapping[str, str], fields: Mapping[str, Any], input_path: str
+    http: httpx.Client,
+    env: Mapping[str, str],
+    fields: Mapping[str, Any],
+    input_path: str,
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
-    """Post exactly the confirmed `fields` to each Platform. One Platform failing leaves the
-    other's post standing: the answer lists it under `failed`. When none posted, it fails."""
+    """Post exactly the confirmed `fields` to each Platform, finishing what an earlier try under
+    `idempotency_key` recorded. One Platform failing leaves the other's post standing: the answer
+    lists it under `failed`. When none posted, it fails."""
     video = Path(input_path)
     if not video.is_file():
         raise ToolError(f"the video {video} does not exist")
     who = account_of(http, env)
+    path = record_of(video, idempotency_key)
+    record: dict[str, dict[str, str]] = (
+        json.loads(path.read_text()) if path and path.is_file() else {}
+    )
     links: dict[str, str] = {}
     failed: dict[str, str] = {}
     post_id = None
     for platform in fields.get("platforms") or PLATFORMS:
+        kept = record.setdefault(platform, {})
+
+        def keep(kept: dict[str, str] = kept, **values: str) -> None:
+            kept.update(values)
+            if path:
+                path.write_text(json.dumps(record))
+
         try:
             if platform == "facebook":
-                posted = post_to_facebook(http, env[TOKEN], str(who["page"]), video, fields)
+                page = str(who["page"])
+                posted = post_to_facebook(http, env[TOKEN], page, video, fields, kept, keep)
             elif not who["instagram"]:
                 raise ToolError("the Page has no linked Instagram account")
             else:
-                posted = post_to_instagram(http, env[TOKEN], who["instagram"], video, fields)
+                instagram = who["instagram"]
+                posted = post_to_instagram(http, env[TOKEN], instagram, video, fields, kept, keep)
             links[platform], post_id = posted["url"], post_id or posted["id"]
         except ToolError as exc:
             failed[platform] = str(exc)
@@ -529,7 +641,7 @@ def publish_fields(
 )
 def publish(fields: dict[str, Any], input_path: str, idempotency_key: str = "") -> dict[str, Any]:
     with httpx.Client(timeout=httpx.Timeout(60.0, write=None)) as http:
-        return publish_fields(http, os.environ, fields, input_path)
+        return publish_fields(http, os.environ, fields, input_path, idempotency_key)
 
 
 # Outcomes: a placeholder until #374
