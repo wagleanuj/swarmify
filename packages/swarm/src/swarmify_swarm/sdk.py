@@ -28,6 +28,7 @@ from swarmify_swarm.ports import (
     SessionEnd,
     SessionHooks,
     SessionInit,
+    SessionLost,
     SessionSpec,
     ToolError,
 )
@@ -84,6 +85,9 @@ HARNESS = ("StructuredOutput", "ToolSearch")
 """CLI mechanics every session needs whatever its allowlist: StructuredOutput delivers an
 `output_format` answer and ToolSearch loads a deferred tool's schema. Denying either leaves the
 session with no usable answer."""
+
+NO_CONVERSATION = "No conversation found with session ID"
+"""How the CLI refuses to resume a session it has no transcript for."""
 
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
 """Builds the SDK `Transport` for a session from its options (the SDK's own test seam)."""
@@ -162,6 +166,14 @@ class SdkRuntime:
         self.sandboxed_cli = sandboxed_cli
 
     async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
+        try:
+            return await self._run(spec, hooks)
+        except Exception as exc:
+            if spec.resume and NO_CONVERSATION in str(exc):
+                raise SessionLost(str(exc)) from exc
+            raise
+
+    async def _run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
         opts = options(spec, hooks, spec.model or self.model, self.sandboxed_cli)
         custom = self.transport(opts) if self.transport else None
         spent, steps, session = 0.0, set[str](), spec.resume or ""

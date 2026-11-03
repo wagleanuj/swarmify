@@ -54,6 +54,12 @@ class Die:
 
 
 @dataclass(frozen=True)
+class Lost:
+    """The CLI has no conversation for the session it was asked to resume (its transcript is
+    gone): it fails before its init message, with the real CLI's error."""
+
+
+@dataclass(frozen=True)
 class Answer:
     """The session's structured output (the result's `structured_output`). A callable is
     called with the session's options when the step plays, for answers that depend on ids the
@@ -62,7 +68,7 @@ class Answer:
     data: Any
 
 
-Step = Call | Say | Die | Answer
+Step = Call | Say | Die | Lost | Answer
 
 
 @dataclass(frozen=True)
@@ -194,6 +200,11 @@ class ScriptedTransport(Transport):
 
     async def _play(self) -> AsyncIterator[dict[str, Any]]:
         sid = self.session_id
+        if any(isinstance(s, Lost) for s in self.steps):
+            raise RuntimeError(
+                "Claude Code returned an error result: No conversation found with session ID:"
+                f" {sid} (exit code: 1)"
+            )
         skills, plugins, errors = _skills(self.options)
         init: dict[str, Any] = {
             "type": "system",
@@ -213,7 +224,7 @@ class ScriptedTransport(Transport):
         yield init
         last, answer = "", None
         for step in self.steps:
-            if isinstance(step, Die):
+            if isinstance(step, Die | Lost):
                 raise RuntimeError("the claude process died")
             if isinstance(step, Answer):
                 answer = step.data(self.options) if callable(step.data) else step.data
