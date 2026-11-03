@@ -26,8 +26,7 @@ Reel, `trial_params`, uploaded resumably (the file itself to rupload.facebook.co
 polled until its `status_code` is FINISHED, then `media_publish`, then its `permalink`. On the
 Facebook Page: the Page's Reels upload, `video_reels` with `upload_phase=start`, the file to
 rupload.facebook.com, then `upload_phase=finish` with the description and a `video_state` of
-PUBLISHED, DRAFT or SCHEDULED (with `scheduled_publish_time`). `outcomes` (#374) is not built
-yet.
+PUBLISHED, DRAFT or SCHEDULED (with `scheduled_publish_time`).
 
 Meta has no idempotency key, so a retried stage (the same `idempotency_key`) reads a record the
 first try left in the stage's folder of the run, `meta-<key>.json`: each Platform's container or
@@ -37,6 +36,11 @@ newest posts by its caption (PUBLISHED, its media ID being lost), or made again 
 recorded Facebook video is answered when its `publishing_phase` is complete, else uploaded to
 again when its upload never completed, then finished. A new key (a stage visited again) starts a
 new record.
+
+`outcomes` (the Capability) answers each post's `instagram_views` (the media insights metric
+`views`), `facebook_views` (the Reel's `fb_reels_total_plays`) and their sum `views`, for every
+post with an Instagram or Facebook link, whichever connector posted it. An Instagram link names a
+shortcode, not a media ID, so the account's latest media are listed to find it.
 """
 
 import json
@@ -644,12 +648,108 @@ def publish(fields: dict[str, Any], input_path: str, idempotency_key: str = "") 
         return publish_fields(http, os.environ, fields, input_path, idempotency_key)
 
 
-# Outcomes: a placeholder until #374
+# Outcomes: views on each Platform, for every post with an Instagram or Facebook link
 
 
-@mcp.tool(description="The Outcomes Capability: views of Meta posts, by post id.")
+_INSTAGRAM = re.compile(r"^https?://(?:www\.)?instagram\.com/(?:[\w.]+/)?(?:p|reels?|tv)/([\w-]+)")
+_FACEBOOK = re.compile(
+    r"^https?://(?:www\.|m\.)?facebook\.com/(?:reel/|[^?#]*/videos/|watch/?\?v=)(\w+)"
+)
+MEDIA_PAGES = 10  # how far back the Instagram account's media are searched for a post's link
+
+
+def claimed(posts: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    """Each post's Instagram shortcode and Facebook video ID, by post id: from its links,
+    whichever connector posted it."""
+    out = {}
+    for post in posts:
+        links = post.get("links")
+        found: dict[str, str] = {}
+        for url in links.values() if isinstance(links, dict) else []:
+            if m := _INSTAGRAM.match(str(url)):
+                found.setdefault("instagram", m[1])
+            elif m := _FACEBOOK.match(str(url)):
+                found.setdefault("facebook", m[1])
+        if found and post.get("id"):
+            out[str(post["id"])] = found
+    return out
+
+
+def _value(answer: Mapping[str, Any]) -> int:
+    """A lifetime metric's value; Meta answers an empty set while it has none yet."""
+    for metric in answer.get("data") or []:
+        total = metric.get("total_value") or (metric.get("values") or [{}])[-1]
+        return int(total.get("value") or 0)
+    return 0
+
+
+def _quietly[T](read: Callable[[], T]) -> T | None:
+    """A read's value, None when Meta fails it; a refused sign-in still fails the tool."""
+    try:
+        return read()
+    except ToolError as exc:
+        if str(exc).startswith("auth_failed"):
+            raise
+        return None
+
+
+def media_ids(http: httpx.Client, token: str, instagram: str, codes: set[str]) -> dict[str, str]:
+    """The media ID of each shortcode among the Instagram account's latest media."""
+    found: dict[str, str] = {}
+    after = ""
+    # ponytail: the latest MEDIA_PAGES * 100 media; older posts' Outcomes are left out
+    for _ in range(MEDIA_PAGES):
+        params = {"fields": "id,permalink", "limit": "100", **({"after": after} if after else {})}
+        listed = _call(http, "GET", f"{instagram}/media", "listing the Reels", token, params)
+        for media in listed.get("data", []):
+            if (m := _INSTAGRAM.match(str(media.get("permalink")))) and m[1] in codes:
+                found[m[1]] = str(media["id"])
+        paging = listed.get("paging") or {}
+        after = (paging.get("cursors") or {}).get("after", "")
+        if codes <= found.keys() or not paging.get("next") or not after:
+            return found
+    return found
+
+
+def outcomes_of(http: httpx.Client, env: Mapping[str, str], posts: list[dict[str, Any]]) -> dict:
+    """`instagram_views`, `facebook_views` and their sum `views` of every post with an Instagram
+    or Facebook link, by post id. Meta failing for one post leaves it out, not the others."""
+    wanted = claimed(posts)
+    if not wanted:
+        return {}
+    who, token = account_of(http, env), env[TOKEN]
+    codes = {w["instagram"] for w in wanted.values() if "instagram" in w}
+    media = {}
+    if codes and who["instagram"]:
+        media = _quietly(lambda: media_ids(http, token, str(who["instagram"]), codes)) or {}
+
+    def views(platform: str, thing: str) -> int | None:
+        if platform == "instagram":
+            if thing not in media:
+                return None
+            path, metric = f"{media[thing]}/insights", "views"
+        else:
+            path, metric = f"{thing}/video_insights", "fb_reels_total_plays"
+        what = f"reading the {platform.title()} views"
+        return _quietly(lambda: _value(_get(http, path, what, token, metric=metric)))
+
+    out = {}
+    for post, things in wanted.items():
+        counts = {
+            f"{p}_views": n for p, thing in things.items() if (n := views(p, thing)) is not None
+        }
+        if counts:
+            out[post] = {"views": sum(counts.values()), **counts}
+    return out
+
+
+@mcp.tool(
+    description="The Outcomes Capability: views on Instagram and Facebook of every post with a"
+    " link to either, whoever posted it, by post id."
+)
 def outcomes(posts: list[dict[str, Any]]) -> dict[str, Any]:
-    return {}
+    with httpx.Client(timeout=60.0) as http:
+        return outcomes_of(http, os.environ, posts)
 
 
 if __name__ == "__main__":  # pragma: no cover - started as a subprocess
