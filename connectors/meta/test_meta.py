@@ -3,8 +3,9 @@ Graph API (httpx's MockTransport, no network), then the package installed throug
 install path, given to a world as a default and answering over stdio MCP in its sandbox."""
 
 import json
+import struct
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
@@ -39,16 +40,19 @@ def page(n: int, instagram: bool = True) -> dict[str, Any]:
 
 
 class FakeMeta:
-    """The Graph API: the long-lived exchange, `me/accounts` answering `pages`, and `me` as the
-    Page a Page token is for. `refused` answers every call with Meta's invalid-token error."""
+    """The Graph API: the long-lived exchange, `me/accounts` answering `pages`, `me` as the
+    Page a Page token is for, an Instagram Reels container and the Page's Reels upload.
+    `refused` answers every call with Meta's invalid-token error; `down` fails the Page's."""
 
     def __init__(
         self,
         pages: list[dict[str, Any]],
         refused: bool = False,
         statuses: list[dict[str, str]] | None = None,
+        down: bool = False,
     ) -> None:
         self.pages = pages
+        self.down = down
         self.refused = refused
         self.statuses = statuses or [{"status_code": "FINISHED"}]
         self.requests: list[httpx.Request] = []
@@ -79,6 +83,13 @@ class FakeMeta:
             return httpx.Response(200, json={"id": "m1"})
         if path == "/v26.0/m1":
             return httpx.Response(200, json={"permalink": "https://www.instagram.com/reel/AbC/"})
+        if path == "/v26.0/p1/video_reels":
+            if self.down:
+                return httpx.Response(500, json={"error": {"message": "try later", "code": 2}})
+            if dict(parse_qsl(request.content.decode()))["upload_phase"] == "start":
+                url = "https://rupload.facebook.com/video-upload/v26.0/v1"
+                return httpx.Response(200, json={"video_id": "v1", "upload_url": url})
+            return httpx.Response(200, json={"success": True})
         return httpx.Response(404, json={"error": {"message": "unknown path", "code": 803}})
 
     def http(self) -> httpx.Client:
@@ -373,6 +384,144 @@ def test_publish_errors_are_tool_errors_and_a_refused_token_an_auth_failure(
     assert core_oauth.is_auth_failure(str(refused.value))
 
 
+# The Facebook Page: preview problems, then start, upload, finish
+
+
+def mp4(path: Path, seconds: float, version: int = 0) -> Path:
+    """A file with just the boxes that hold an MP4's length: ftyp, then moov/mvhd."""
+    if version == 1:
+        mvhd = struct.pack(">B3xQQIQ", 1, 0, 0, 1000, round(seconds * 1000))
+    else:
+        mvhd = struct.pack(">B3xIIII", 0, 0, 0, 1000, round(seconds * 1000))
+    mvhd = struct.pack(">I4s", 8 + len(mvhd) + 80, b"mvhd") + mvhd + bytes(80)
+    moov = struct.pack(">I4s", 8 + len(mvhd), b"moov") + mvhd
+    path.write_bytes(struct.pack(">I4s8x", 16, b"ftyp") + moov)
+    return path
+
+
+@pytest.mark.parametrize("version", [0, 1])
+def test_the_length_of_an_mp4_is_read_from_its_header(tmp_path: Path, version: int) -> None:
+    assert meta.seconds_of(mp4(tmp_path / "a.mp4", 91.5, version)) == 91.5
+    (tmp_path / "raw.bin").write_bytes(b"\x00video")
+    assert meta.seconds_of(tmp_path / "raw.bin") is None
+
+
+def test_platforms_default_to_both() -> None:
+    config = {"calls": "meta", "input": "short.mp4", "params": {"title": "T"}}
+    shown = preview(config)
+    assert (shown["problems"], values(shown)["platforms"]) == ([], ["instagram", "facebook"])
+
+
+SOON = (NOW + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+LATER = (NOW + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@pytest.mark.parametrize(
+    ("params", "problem"),
+    [
+        ({"schedule": "2026-11-02T09:00:00Z"}, "the schedule 2026-11-02T09:00:00Z has already"),
+        ({"schedule": SOON}, f"the schedule {SOON} is not 10 minutes to 29 days ahead"),
+        ({"schedule": LATER}, "is not 10 minutes to 29 days ahead"),
+        ({"schedule": "+1d 09:00", "visibility": "draft"}, "a draft cannot be scheduled"),
+    ],
+)
+def test_the_preview_names_every_facebook_problem(params: dict[str, Any], problem: str) -> None:
+    problems = preview(stage(platforms=["facebook"], **params))["problems"]
+    assert any(p.startswith("Facebook: ") and problem in p for p in problems), problems
+
+
+def test_a_facebook_draft_or_schedule_in_its_window_is_no_problem() -> None:
+    for params in ({"visibility": "draft"}, {"schedule": "+1d 09:00"}, {"schedule": "13:00"}):
+        assert preview(stage(platforms=["facebook"], **params))["problems"] == []
+    both = preview(stage(platforms=["instagram", "facebook"], schedule="+1d 09:00"))["problems"]
+    assert both == ["Instagram: Instagram cannot schedule a post; remove the schedule"]
+
+
+def test_a_video_over_90_seconds_is_a_problem_for_facebook_only(tmp_path: Path) -> None:
+    long = str(mp4(tmp_path / "long.mp4", 91))
+    both = {**stage(platforms=["instagram", "facebook"]), "input": long}
+    assert preview(both)["problems"] == [
+        "Facebook: the video is 91 seconds, a Facebook Reel is at most 90"
+    ]
+    assert preview({**stage(), "input": long})["problems"] == []
+    short = str(mp4(tmp_path / "short.mp4", 90))
+    assert preview({**both, "input": short})["problems"] == []
+
+
+def test_publish_to_both_posts_on_each_platform_and_answers_both_links(video: Path) -> None:
+    fake = FakeMeta([])
+    out = post(fake, video, platforms=["instagram", "facebook"], title="Owls", hashtags="#owls")
+    assert out == {
+        "status": "published",
+        "links": {
+            "instagram": "https://www.instagram.com/reel/AbC/",
+            "facebook": "https://www.facebook.com/reel/v1",
+        },
+        "id": "m1",
+        "failed": {},
+    }
+    facebook = [r for r in fake.requests if "video" in r.url.path]
+    assert [(r.method, r.url.host, r.url.path) for r in facebook] == [
+        ("POST", "graph.facebook.com", "/v26.0/p1/video_reels"),
+        ("POST", "rupload.facebook.com", "/video-upload/v26.0/v1"),
+        ("POST", "graph.facebook.com", "/v26.0/p1/video_reels"),
+    ]
+    start, upload, finish = facebook
+    assert all(r.headers["authorization"] == "OAuth page-tok-1" for r in facebook)
+    assert dict(parse_qsl(start.content.decode())) == {"upload_phase": "start"}
+    assert (upload.headers["offset"], upload.headers["file_size"]) == ("0", "6")
+    assert upload.content == b"\x00video"
+    assert dict(parse_qsl(finish.content.decode())) == {
+        "upload_phase": "finish",
+        "video_id": "v1",
+        "video_state": "PUBLISHED",
+        "description": "Owls\n\n#owls",
+    }
+
+
+def test_draft_and_scheduled_states_reach_facebook_as_asked(video: Path) -> None:
+    fake = FakeMeta([])
+    out = post(fake, video, platforms=["facebook"], title="T", visibility="draft")
+    assert (out["status"], out["links"], out["id"]) == (
+        "published",
+        {"facebook": "https://www.facebook.com/reel/v1"},
+        "v1",
+    )
+    assert dict(parse_qsl(fake.requests[-1].content.decode()))["video_state"] == "DRAFT"
+    fake = FakeMeta([])
+    out = post(fake, video, platforms=["facebook"], title="T", schedule="+1d 09:00")
+    finish = dict(parse_qsl(fake.requests[-1].content.decode()))
+    assert out["status"] == "scheduled"
+    assert finish["video_state"] == "SCHEDULED"
+    assert finish["scheduled_publish_time"] == str(
+        int(datetime(2026, 11, 4, 9, tzinfo=UTC).timestamp())
+    )
+
+
+def test_a_long_video_still_posts_to_instagram_and_fails_on_facebook(tmp_path: Path) -> None:
+    long = mp4(tmp_path / "long.mp4", 91)
+    out = post(FakeMeta([]), long, platforms=["instagram", "facebook"], title="T")
+    assert out["links"] == {"instagram": "https://www.instagram.com/reel/AbC/"}
+    assert out["failed"] == {"facebook": "the video is 91 seconds, a Facebook Reel is at most 90"}
+    fake = FakeMeta([])
+    assert post(fake, long, title="T")["links"] == {
+        "instagram": "https://www.instagram.com/reel/AbC/"
+    }
+
+
+def test_one_platform_failing_still_answers_the_others_link(video: Path) -> None:
+    out = post(FakeMeta([], down=True), video, platforms=["instagram", "facebook"], title="T")
+    assert out["links"] == {"instagram": "https://www.instagram.com/reel/AbC/"}
+    assert out["failed"] == {"facebook": "posting the Reel to the Page failed (500): try later"}
+    broken = FakeMeta([], statuses=[{"status_code": "ERROR"}])
+    out = post(broken, video, platforms=["instagram", "facebook"], title="T")
+    assert out["links"] == {"facebook": "https://www.facebook.com/reel/v1"}
+    assert out["failed"] == {"instagram": "Instagram could not process the video (ERROR)"}
+    assert out["id"] == "v1"
+    with pytest.raises(ToolError, match="^facebook: posting the Reel"):
+        post(FakeMeta([], down=True), video, platforms=["facebook"], title="T")
+
+
 # The Manifest, and the package installed as Swarmify does at startup
 
 
@@ -431,6 +580,10 @@ def test_the_installed_package_answers_over_stdio_in_its_sandbox(tmp_path: Path)
     assert (values(shown)["caption"], values(shown)["hashtags"]) == ("Owls.", "#owls")
     assert connectors.stage_problems("w", stage(visibility="draft")) == [
         "Instagram: Instagram has no drafts; a draft is Facebook's only"
+    ]
+    both = {"calls": "meta", "input": "short.mp4", "params": {"schedule": "+1d 09:00"}}
+    assert connectors.stage_problems("w", both) == [
+        "Instagram: Instagram cannot schedule a post; remove the schedule"
     ]
 
     # only a Facebook draft posts privately; a stage with Instagram is always gated

@@ -23,13 +23,17 @@ edits of `caption` and `hashtags` over all, and the connector adds no text of it
 (`links`) and failure (`failed`); it fails only when no Platform posted. On Instagram: a REELS
 container with the caption, `share_to_feed`, `thumb_offset` (`cover_at` in ms) and, for a Trial
 Reel, `trial_params`, uploaded resumably (the file itself to rupload.facebook.com, no public URL),
-polled until its `status_code` is FINISHED, then `media_publish`, then its `permalink`. Posting to
-the Facebook Page (#372), retries (#373) and `outcomes` (#374) are not built yet.
+polled until its `status_code` is FINISHED, then `media_publish`, then its `permalink`. On the
+Facebook Page: the Page's Reels upload, `video_reels` with `upload_phase=start`, the file to
+rupload.facebook.com, then `upload_phase=finish` with the description and a `video_state` of
+PUBLISHED, DRAFT or SCHEDULED (with `scheduled_publish_time`). Retries (#373) and `outcomes`
+(#374) are not built yet.
 """
 
 import json
 import os
 import re
+import struct
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -56,6 +60,9 @@ MENTIONS_MAX = 20
 _HASHTAG = re.compile(r"^\w+$")
 _TAGGED = re.compile(r"(?<!\w)#\w+")
 _MENTION = re.compile(r"(?<!\w)@[\w.]+")
+REEL_SECONDS = 90  # Facebook's limits for a Page Reel and how far ahead it may be scheduled
+SCHEDULE_MIN = timedelta(minutes=10)
+SCHEDULE_MAX = timedelta(days=29)
 # Meta suggests polling a container about once a minute for up to 5 minutes; every 10 seconds
 # answers a short Reel sooner, and 10 minutes leaves room for a long one.
 POLL_SECONDS = 10
@@ -272,6 +279,57 @@ def _instagram_problems(caption: str, tagged: list[str], params: Mapping[str, An
     return problems
 
 
+def seconds_of(video: Path) -> float | None:
+    """An MP4's length from its `moov/mvhd` box, None when it has none."""
+    with video.open("rb") as f:
+        end, inside = video.stat().st_size, False
+        while f.tell() + 8 <= end:
+            start = f.tell()
+            size, kind = struct.unpack(">I4s", f.read(8))
+            if size == 1:
+                size = struct.unpack(">Q", f.read(8))[0]
+            elif size == 0:
+                size = end - start
+            if kind == b"moov" and not inside:
+                end, inside = start + size, True  # read the boxes inside it
+                continue
+            if kind == b"mvhd" and inside:
+                version = f.read(4)[0]
+                layout = ">16xIQ" if version == 1 else ">8xII"
+                scale, length = struct.unpack(layout, f.read(struct.calcsize(layout)))
+                return length / scale if scale else None
+            if size < 8:
+                return None
+            f.seek(start + size)
+    return None
+
+
+def _too_long(video: Path) -> str | None:
+    seconds = seconds_of(video)
+    if seconds is not None and seconds > REEL_SECONDS:
+        return f"the video is {seconds:.0f} seconds, a Facebook Reel is at most {REEL_SECONDS}"
+    return None
+
+
+def _facebook_problems(
+    schedule: str | None, params: Mapping[str, Any], inputs: list[str], now: datetime
+) -> list[str]:
+    problems = []
+    if schedule:
+        when = datetime.fromisoformat(schedule.replace("Z", "+00:00"))
+        if when <= now:
+            problems.append(f"the schedule {schedule} has already passed")
+        elif not now + SCHEDULE_MIN <= when <= now + SCHEDULE_MAX:
+            problems.append(f"the schedule {schedule} is not 10 minutes to 29 days ahead")
+        if params.get("visibility") == "draft":
+            problems.append("a draft cannot be scheduled; remove the schedule or the draft")
+    # The core names the input by its file name, so it is measured here only when it can be
+    # read; publish measures it again before posting to Facebook.
+    if inputs and Path(inputs[0]).is_file() and (long := _too_long(Path(inputs[0]))):
+        problems.append(long)
+    return problems
+
+
 def preview_of(args: Mapping[str, Any], now: datetime | None = None) -> dict[str, Any]:
     """What the stage will post, plus every problem that would stop it, each Platform's named."""
     metadata = args.get("metadata") or {}
@@ -287,7 +345,8 @@ def preview_of(args: Mapping[str, Any], now: datetime | None = None) -> dict[str
     text = str(edits.get("caption", text)).strip()
     tagged = hashtags(edits.get("hashtags", params.get("hashtags")))
     caption = full_caption(text, tagged)
-    schedule, bad_schedule = _schedule(params.get("schedule"), now or datetime.now(UTC))
+    now = now or datetime.now(UTC)
+    schedule, bad_schedule = _schedule(params.get("schedule"), now)
     trial, share, cover = params.get("trial", False), params.get("share_to_feed", True), None
     problems = [bad_schedule] if bad_schedule else []
     if unknown := [p for p in platforms if p not in PLATFORMS]:
@@ -303,10 +362,9 @@ def preview_of(args: Mapping[str, Any], now: datetime | None = None) -> dict[str
             problems.append(f"cover_at is a number of seconds, got {cover!r}")
     if "instagram" in platforms:
         problems += [f"Instagram: {p}" for p in _instagram_problems(caption, tagged, params)]
+    inputs = [str(i) for i in args.get("inputs") or []]
     if "facebook" in platforms:
-        # ponytail: Instagram only until the Facebook Page's Reels upload is built (#372).
-        problems.append("Facebook: posting to the Facebook Page is not built yet")
-    inputs = args.get("inputs") or []
+        problems += [f"Facebook: {p}" for p in _facebook_problems(schedule, params, inputs, now)]
     if not inputs:
         problems.append("a publish stage needs an input: the video to post")
     fields = [
@@ -339,6 +397,22 @@ def preview(
 # Instagram: a Reels container, the file through Meta's resumable upload, then media_publish
 
 
+def upload(http: httpx.Client, token: str, uri: str, video: Path) -> None:
+    """The file itself, in one piece, to the rupload.facebook.com URI Meta gave."""
+    size = video.stat().st_size
+    with video.open("rb") as body:
+        try:
+            sent = http.post(
+                uri,
+                content=body,
+                headers={"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(size)},
+            )
+        except httpx.HTTPError as exc:
+            raise ToolError("uploading the video failed: Meta could not be reached") from exc
+    if sent.status_code != 200:
+        raise _error(sent, "uploading the video")
+
+
 def post_to_instagram(
     http: httpx.Client, token: str, instagram: str, video: Path, fields: Mapping[str, Any]
 ) -> dict[str, str]:
@@ -356,19 +430,7 @@ def post_to_instagram(
         form["trial_params"] = json.dumps({"graduation_strategy": "MANUAL"})
     container = _call(http, "POST", f"{instagram}/media", "creating the Reel", token, form)
     created = str(container["id"])
-    size = video.stat().st_size
-    uri = container.get("uri") or f"{RUPLOAD}/ig-api-upload/v26.0/{created}"
-    with video.open("rb") as body:
-        try:
-            sent = http.post(
-                uri,
-                content=body,
-                headers={"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(size)},
-            )
-        except httpx.HTTPError as exc:
-            raise ToolError("uploading the video failed: Meta could not be reached") from exc
-    if sent.status_code != 200:
-        raise _error(sent, "uploading the video")
+    upload(http, token, container.get("uri") or f"{RUPLOAD}/ig-api-upload/v26.0/{created}", video)
     for attempt in range(POLL_TRIES):
         status = _call(
             http, "GET", created, "waiting for the Reel", token, {"fields": "status_code"}
@@ -399,6 +461,39 @@ def post_to_instagram(
     return {"id": media, "url": str(link.get("permalink") or "")}
 
 
+# The Facebook Page: the Page's Reels upload, start, the file, then finish
+
+
+def post_to_facebook(
+    http: httpx.Client, token: str, page: str, video: Path, fields: Mapping[str, Any]
+) -> dict[str, str]:
+    """Post `video` as a Reel to the Page, published, as a draft or scheduled; answers its
+    video `id` and `url`."""
+    if long := _too_long(video):
+        raise ToolError(long)
+    path, what = f"{page}/video_reels", "posting the Reel to the Page"
+    started = _call(http, "POST", path, what, token, {"upload_phase": "start"})
+    reel = str(started["video_id"])
+    upload(http, token, started.get("upload_url") or f"{RUPLOAD}/video-upload/v26.0/{reel}", video)
+    form = {
+        "upload_phase": "finish",
+        "video_id": reel,
+        "video_state": "DRAFT" if fields.get("visibility") == "draft" else "PUBLISHED",
+        "description": full_caption(
+            str(fields.get("caption") or ""), hashtags(fields.get("hashtags"))
+        ),
+    }
+    if fields.get("schedule"):
+        when = datetime.fromisoformat(str(fields["schedule"]).replace("Z", "+00:00"))
+        form["video_state"], form["scheduled_publish_time"] = (
+            "SCHEDULED",
+            str(int(when.timestamp())),
+        )
+    if _call(http, "POST", path, what, token, form).get("success") is False:
+        raise ToolError("Facebook did not accept the Reel")
+    return {"id": reel, "url": f"https://www.facebook.com/reel/{reel}"}
+
+
 def publish_fields(
     http: httpx.Client, env: Mapping[str, str], fields: Mapping[str, Any], input_path: str
 ) -> dict[str, Any]:
@@ -413,17 +508,19 @@ def publish_fields(
     post_id = None
     for platform in fields.get("platforms") or PLATFORMS:
         try:
-            if platform != "instagram":
-                raise ToolError(f"posting to {platform} is not built yet")
-            if not who["instagram"]:
+            if platform == "facebook":
+                posted = post_to_facebook(http, env[TOKEN], str(who["page"]), video, fields)
+            elif not who["instagram"]:
                 raise ToolError("the Page has no linked Instagram account")
-            posted = post_to_instagram(http, env[TOKEN], who["instagram"], video, fields)
-            links[platform], post_id = posted["url"], posted["id"]
+            else:
+                posted = post_to_instagram(http, env[TOKEN], who["instagram"], video, fields)
+            links[platform], post_id = posted["url"], post_id or posted["id"]
         except ToolError as exc:
             failed[platform] = str(exc)
     if not links:
         raise ToolError("; ".join(f"{p}: {e}" for p, e in failed.items()))
-    return {"status": "published", "links": links, "id": post_id, "failed": failed}
+    status = "scheduled" if fields.get("schedule") else "published"
+    return {"status": status, "links": links, "id": post_id, "failed": failed}
 
 
 @mcp.tool(
