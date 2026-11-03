@@ -25,10 +25,15 @@ services:
     volumes:
       - data:/data
       - sandbox-socket:/run/swarmify
+      # Claude Code's session transcripts, on the volume, so an agent's session still resumes
+      # after the container is recreated (issue 387); the image's own ~/.claude went with it.
+      - { type: volume, source: data, target: /root/.claude, volume: { subpath: claude } }
     entrypoint: ["/app/docker/needs.sh", "CLAUDE_CODE_OAUTH_TOKEN", "SWARMIFY_PASSWORD", "--"]
     # A compose entrypoint clears the image's CMD, so the start command is repeated here.
     command: ["uvicorn", "--factory", "swarmify_api.main:create_app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
+      folders:
+        condition: service_completed_successfully
       sandbox:
         condition: service_healthy  # it installs the default packages there on startup
     environment:
@@ -85,12 +90,13 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # Makes the data folders the sandbox service mounts, which must exist before it starts.
+  # Makes the data folders the sandbox service and the api mount, which must exist before they
+  # start.
   folders:
     build: .
     volumes:
       - data:/data
-    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/npm-cache", "/data/sandbox"]
+    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/npm-cache", "/data/sandbox", "/data/claude"]
     command: []
     healthcheck:
       disable: true

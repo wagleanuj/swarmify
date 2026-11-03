@@ -6,7 +6,8 @@ workers, adds each agent's standing prompt to its system prompt and may narrow i
 many workers start as there are ready tasks, up to the cast's size. Each agent's hooks write
 every tool call to the stage's live log, deny tools outside the allowlist and a claim before the
 agent's first graph query, and keep the agent's session id and estimated cost. A session that
-dies is replaced by one that resumes the stored session id.
+dies is replaced by one that resumes the stored session id, or by a new one carrying the
+progress so far when Claude Code no longer has that session.
 
 After every cost estimate the hooks ask the run's stop check (`budget`, from the composition
 root); once the Budget is spent, or the run is paused or aborted, they stop the session and the
@@ -25,7 +26,7 @@ import json
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
@@ -36,6 +37,7 @@ from swarmify_swarm.ports import (
     AgentRuntime,
     AgentTool,
     SessionInit,
+    SessionLost,
     SessionSpec,
     Storage,
     ToolError,
@@ -59,6 +61,8 @@ from swarmify_swarm.projection import (
 WORKER, PLANNER, JUDGE = "worker-1", "planner", "judge"
 SESSIONS = 2
 """An agent's first session and one replacement."""
+PROGRESS = 50
+"""The most recent log lines of an agent a new session gets when its old one was lost."""
 # ponytail: fixed turn caps as well, for runs with no Budget.
 MAX_TURNS, SHORT_TURNS = 200, 30
 SHORT_TOOLS = ("query_graph", "list_tasks")
@@ -795,9 +799,11 @@ class Swarm:
     ) -> T:
         """Run the agent's session to a usable answer. A session that dies, errors or answers
         what `parse` refuses is replaced once by one resuming it; when both fail the stage
-        fails. The first session continues the agent's stored session when it has one, unless
-        `fresh`: a planner or judge answer starts clean so verdicts do not carry each other.
-        `timeout` (seconds) bounds all its sessions together; running out fails the stage."""
+        fails. A session Claude Code cannot resume (its transcript is gone) is replaced by a new
+        one carrying the brief and the agent's progress so far, from the stage log. The first
+        session continues the agent's stored session when it has one, unless `fresh`: a planner
+        or judge answer starts clean so verdicts do not carry each other. `timeout` (seconds)
+        bounds all its sessions together; running out fails the stage."""
         board = self.board
         before = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
         if reason := self.budget(at.run_id):
@@ -815,15 +821,29 @@ class Swarm:
             clock=self.clock,
         )
         deadline = None if timeout is None else time.monotonic() + timeout
-        for attempt in range(SESSIONS):
+        failed, lost = 0, False
+        while failed < SESSIONS:
             stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
-            resume = None if fresh and stored == before else stored
+            resume = None if lost or (fresh and stored == before) else stored
             if resume:
-                said = "A replacement resumes" if attempt else "Continuing"
+                said = "A replacement resumes" if failed else "Continuing"
                 board.log(at.stage_id, name, "session", f"{said} session {resume}.")
+            session = spec(resume)
+            if lost:
+                session = replace(session, prompt=f"{session.prompt}\n\n{self._progress(at, name)}")
             left = None if deadline is None else max(deadline - time.monotonic(), 0)
             try:
-                end = asyncio.run(asyncio.wait_for(self.runtime.run(spec(resume), hooks), left))
+                end = asyncio.run(asyncio.wait_for(self.runtime.run(session, hooks), left))
+            except SessionLost:
+                # Its transcript is gone, so it never started: not a failed session. A new one
+                # starts instead, once, as `lost` leaves nothing to resume.
+                said = (
+                    f"Session {resume} cannot be resumed: Claude Code has no conversation for it."
+                    " A new session starts with the stage's brief and the progress so far."
+                )
+                board.log(at.stage_id, name, "error", said)
+                lost = True
+                continue
             except TimeoutError:
                 assert timeout is not None
                 said = f"Out of time: the limit is {timeout / 60:g} minutes."
@@ -832,17 +852,20 @@ class Swarm:
                 raise StageError(f"{name} ran out of time ({timeout / 60:g} minutes)") from None
             except Exception as exc:
                 board.log(at.stage_id, name, "error", f"The session died: {exc}")
+                failed += 1
                 continue
             if end.stopped:
                 board.log(at.stage_id, name, "session", f"Stopped: {end.stopped}")
                 raise Stopped(end.stopped)
             if end.is_error:
                 board.log(at.stage_id, name, "error", f"The session failed: {end.result}")
+                failed += 1
                 continue
             try:
                 answer = parse(end.output)
             except ValueError as exc:
                 board.log(at.stage_id, name, "error", f"The answer was not usable: {exc}")
+                failed += 1
                 continue
             board.log(
                 at.stage_id,
@@ -854,6 +877,27 @@ class Swarm:
             return answer
         board.update_agent(at.stage_id, name, status="failed")
         raise StageError(f"{name} failed {SESSIONS} sessions in a row; see the stage log")
+
+    def _progress(self, at: "_At", name: str) -> str:
+        """What the core knows of the agent's work in the stage: its tool calls and results from
+        the stage log and the tasks it claimed, for a new session replacing a lost one."""
+        lines = [
+            f"- {e.tool} {json.dumps(e.input)[:300]}" if e.kind == "tool" else f"- {e.detail[:300]}"
+            for e in self.board.list_log(at.stage_id)
+            if e.agent == name and e.kind in ("tool", "result")
+        ][-PROGRESS:]
+        tasks = [
+            f"- {t.title} ({t.status}): " + " / ".join(n.body for n in t.notes)
+            for t in self.board.list_tasks(at.stage_id)
+            if t.owner == name
+        ]
+        return "\n".join(
+            [
+                "Your earlier session in this stage was lost. Pick up from what it did:",
+                *(lines or ["- nothing logged yet"]),
+                *(["Tasks you claimed:", *tasks] if tasks else []),
+            ]
+        )
 
     def _pins(self, at: "_At") -> str:
         """Pinned artifacts and the run's gate decisions are required reading for the planner

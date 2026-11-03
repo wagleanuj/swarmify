@@ -22,7 +22,7 @@ from swarmify_swarm import (
     Swarm,
     tool_id,
 )
-from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script, Step
+from swarmify_swarm.fake import LAST, Answer, Call, Die, Lost, Say, Script, Step
 from swarmify_swarm.projection import PLAN_SCHEMA
 from swarmify_swarm.sdk import HARNESS
 from swarmify_swarm.worker import STAGE_TOOLS
@@ -458,6 +458,34 @@ def test_a_replacement_agent_resumes_the_stored_session(
     assert any(f"A replacement resumes session {agent.session_id}" in d for d in details)
     # The graph query of the first session still counts for the replacement's claim.
     assert _tools(board) == [tool_id(t) for t in ("query_graph", "claim_task", "finish_task")]
+
+
+def test_a_session_that_cannot_be_resumed_is_replaced_by_a_new_one_with_the_progress(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    """Issue 387: the CLI had no conversation for the stored session id, and the replacement
+    retried the same id until the stage failed."""
+    _seed(board)
+    search = Call("WebSearch", {"query": "top animal shorts"})
+    script = Script(
+        [GRAPH, search, Die()],
+        [Lost()],
+        [CLAIM, FINISH, Say("Started over.")],
+        PASS,
+    )
+    _run(_swarm(board, tmp_path, script), tmp_path, {**STAGE, "tools": ["web_search"]})
+
+    first, lost, fresh, _ = script.sessions
+    assert first.resume is None and lost.resume is not None and fresh.resume is None
+    agent = _worker(board)
+    assert agent.status == "done" and agent.session_id != lost.resume
+    details = [e.detail for e in board.list_log(S)]
+    assert any(f"Session {lost.resume} cannot be resumed" in d for d in details)
+    # The new session carries the brief and what the lost one did, from the stage log.
+    brief = script.prompts[2]
+    assert "Work the whiteboard of stage research" in brief
+    assert "WebSearch" in brief and "top animal shorts" in brief
+    assert "Find 5 ideas." in fresh.system_prompt  # type: ignore[operator]
 
 
 def test_the_stage_fails_when_the_replacement_dies_too(

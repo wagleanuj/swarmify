@@ -226,7 +226,13 @@ class SessionHooks(Protocol):
         ...
 
 
+class SessionLost(Exception):
+    """The runtime has no conversation for the session id the spec resumes (its transcript is
+    gone), so the session never started."""
+
+
 class AgentRuntime(Protocol):
     async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
-        """Run one session to its result. Raises when the session dies before one."""
+        """Run one session to its result. Raises SessionLost when the session to resume is gone,
+        another error when the session dies before a result."""
         ...
