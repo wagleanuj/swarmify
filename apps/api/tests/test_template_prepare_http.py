@@ -3,6 +3,7 @@ declares a prepare command, which the core runs in the sandbox from the Template
 background job, its status on the Template. Real sandbox, the fake ConnectorTransport."""
 
 import io
+import json
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -105,3 +106,23 @@ def test_a_failing_prepare_records_its_error_and_a_replace_prepares_again(
     until(lambda: status(client, world, "cats")["prepare"] != "preparing")
     cats = status(client, world, "cats")
     assert (cats["prepare"], cats["prepare_error"]) == ("ready", ""), cats
+
+
+def test_a_prepare_an_api_restart_cut_short_runs_again_on_startup(
+    app: FastAPI, tmp_path: Path
+) -> None:
+    """A Template whose record still says preparing when the API starts (its job died with the
+    last process) is prepared again, by the same background job as on add."""
+    with TestClient(app) as client:
+        world = world_with_kit(client)
+    folder = tmp_path / "worlds" / world / "assets/kit_templates/cats"
+    folder.mkdir(parents=True)
+    (folder / "prepare.py").write_text(PREPARE)
+    (folder / "go").write_text("")
+    record = {"origin": "upload", "package": "kit", "added": "2026-11-01T10:00:00+00:00"}
+    (folder / ".template.json").write_text(json.dumps(record | {"prepare": "preparing"}))
+    with TestClient(app) as client:
+        until(lambda: status(client, world, "cats")["prepare"] != "preparing")
+        cats = status(client, world, "cats")
+    assert (cats["prepare"], cats["prepare_error"]) == ("ready", ""), cats
+    assert (folder / "node_modules/ok").read_text() == "installed"

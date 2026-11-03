@@ -593,6 +593,12 @@ def create_app(
                 limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
             except ValueError as exc:
                 raise ConnectorError(str(exc)) from exc
+            guide = ""
+            # the guide of the package that added the Template, in a folder packages share
+            if template and "templates" in package.manifest:
+                found = folder / "assets" / package.manifest["templates"]["folder"]
+                adder = library.adder(registry.list_all(run.world_id), found / template["name"])
+                guide = (adder or package).manifest["templates"].get("guide", "")
             inputs = [Path(p) for p in [first, *others] if p]
             world = world_svc.get(run.world_id)
             cache = root / "npm-cache"
@@ -611,7 +617,12 @@ def create_app(
                     project,
                     system=(source / session["system"]).read_text(),
                     task=build_session.task(
-                        package.manifest, source, values, inputs, (template or {}).get("name", "")
+                        package.manifest,
+                        source,
+                        values,
+                        inputs,
+                        (template or {}).get("name", ""),
+                        guide,
                     ),
                     inputs=[Path(p) for p in others],
                     brief=str(params.get("brief") or ""),
@@ -898,6 +909,13 @@ def create_app(
         # The workflows table decides what is scheduled; DBOS's schedules follow it.
         await to_thread.run_sync(lambda: runner.sync_schedules(workflow_svc.scheduled()))
         sweeper = asyncio.create_task(sweep())
+        # A Template's prepare the last process died in runs again (ADR 0028).
+        await to_thread.run_sync(
+            lambda: library.prepare_unfinished(
+                [(world_svc.folder(w.id), registry.list_all(w.id)) for w in world_svc.list_all()],
+                registry.packages.prepare,
+            )
+        )
         upkeeper = asyncio.create_task(upkeep_loop())
         stop = threading.Event()
         # The GraphWriter's one thread: every world's rebuilds in turn (ADR 0003).

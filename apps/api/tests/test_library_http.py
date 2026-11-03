@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from swarmify_connectors import FakeTransport
+from swarmify_connectors.build_session import fingerprint
 from swarmify_swarm import tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
 
@@ -367,6 +368,10 @@ def test_a_zip_uploaded_as_a_template_is_listed_with_its_size_and_fingerprint(
     assert (folder / "cats/src/index.ts").read_text() == "export {};"
     record = json.loads((folder / "cats/.template.json").read_text())
     assert record["origin"] == "upload" and record["fingerprint"] == cats["fingerprint"]
+    # added by the folder's first claimant, whose rules it follows in a folder two packages share
+    assert record["package"] == "remotion_build"
+    # the same hash a build records for this Template, so a run's record compares with it
+    assert cats["fingerprint"] == fingerprint(folder / "cats")
     assert record["bytes"] == 15 and record["added"].startswith("20")
     flat = client.put(f"{url}/again", content=zipped(PROJECT))
     assert flat.status_code == 201 and flat.json()["fingerprint"] == cats["fingerprint"]

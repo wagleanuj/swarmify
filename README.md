@@ -394,8 +394,9 @@ cloned at `ref`, a tag, branch or commit, else its default branch, with none of 
 git config, hooks, filters or submodules), a folder of this repository (`connectors/<name>`), or
 an absolute local path (cloned at `ref` when one is given); any other URL is refused, and so is a
 symlink out of the package folder. It lists every permission the Manifest declares
-(`network: api.example.org`; also `install_network`, `folders`, `services`, `owned_folders`,
-`credentials` from secret Setup fields, `sign_in` for OAuth hosts and `capabilities`), the
+(`network: api.example.org`; also `install_network`, `prepare_network`, `folders`, `services`,
+`owned_folders`, `credentials` from secret Setup fields, `sign_in` for OAuth hosts and
+`capabilities`), the
 commit the ref resolved to, `upgrade` (what an upgrade adds and removes since the newest
 installed version). `POST /api/packages` (`{"source", "ref", "commit", "approved"}`)
 installs only when every declared permission is in `approved` (422 naming the rest), at the
@@ -476,7 +477,7 @@ command = ["uv", "run", "server.py"]   # how to start its MCP server; or url = "
 install = ["uv", "sync"]          # optional, run in the installed folder
 health = "echo_health"            # optional tool answering {"checks": [...]}
 
-capabilities = ["check"]          # publish | outcomes | build_session | check | remote_approvals
+capabilities = ["check"]          # publish | outcomes | build_session | check | remote_approvals | templates
 # primary_metric = "views"        # with the outcomes capability
 
 [params]                          # a JSON Schema of a stage's params, with descriptions
@@ -498,6 +499,15 @@ label = "Echoes"                  # the Assets page's heading for it
 about = "Lines it says back, one clip each."   # optional: what goes there
 accept = ["audio/wav"]            # optional media types an upload must be; any file when left out
 confirm = "I may share these lines"            # optional: what the operator affirms to upload
+
+# [templates]                     # with the templates capability (Templates, under Owned Folders)
+# folder = "echoes"               # one of its owned_folders: each subfolder there is a Template
+# require = ["package.json"]      # paths a Template must hold, on upload and on Save as Template
+# strip = ["video.mp4"]           # paths Save as Template leaves out of a build
+# guide = "TEMPLATE.md"           # a file the brief tells the builder to read first, if there
+# prepare = ["npm", "ci"]         # run once in each added Template, in the sandbox
+# prepare_network = ["registry.npmjs.org"]   # the only hosts prepare reaches
+# form = {}                       # reserved for a declared creation form; accepted, not acted on
 
 [setup]
 test = "check_setup"              # a tool called with the candidate values before saving
@@ -771,6 +781,12 @@ their files, and the package reads the folder through `assets_path` as before.
   `PUT /api/worlds/<id>/assets/<name>?folder=<folder>` uploads into one, refused unless `name`
   is one of its `accept` types; renaming and deleting are the assets endpoints below. The body
   is streamed to disk, never held in memory.
+- Templates over HTTP (each below): `GET /api/worlds/<id>/templates` lists them;
+  `PUT /api/worlds/<id>/templates/<folder>/<name>[?replace=true]` uploads a zip as one;
+  `GET /api/worlds/<id>/templates/<folder>/<name>/download` zips one back;
+  `DELETE /api/worlds/<id>/templates/<folder>/<name>[?confirm=true]` answers the workflows that
+  name it, deleting it only once confirmed; `POST /api/runs/<id>/stages/<stage>/template` saves a
+  finished build as one.
 - An Owned Folder a package's `[templates]` names holds its Templates (ADR 0028), one subfolder
   each, a group of rows on the Assets page. "Add a Template" uploads a zip, named from its file
   and editable, replacing a Template of that name only when Replace is ticked:
@@ -778,7 +794,8 @@ their files, and the package reads the folder through `assets_path` as before.
   refused for an entry outside its folder, a link or a device file, for unpacking to more than
   `SWARMIFY_TEMPLATE_MAX_BYTES` (1 GB by default), or for lacking a file the package's
   `require` names; a single top folder is unwrapped. Its `.template.json` records its origin,
-  added time, size and a fingerprint of its files' paths and bytes (`node_modules` aside), which
+  the package that added it, added time, size and a fingerprint of its files' paths and bytes
+  (`node_modules` aside, the same one a build or render records), which
   `GET /api/worlds/<id>/templates` lists.
 - "Save as Template" on a finished build step of a package declaring Templates saves its build
   folder as one, by name: `POST /api/runs/<id>/stages/<stage>/template` with `{name, replace}`.
@@ -790,7 +807,12 @@ their files, and the package reads the folder through `assets_path` as before.
   added or replaced (as `npm ci`), in the sandbox from the Template's folder, the only one it
   writes, reaching only the hosts `prepare_network` names, as a background job. The Template's
   `prepare` says `preparing`, `ready` or `failed`, with `prepare_error` saying why, and its row on
-  the Assets page shows it. Builds still start from a copy without `node_modules`.
+  the Assets page shows it. Builds still start from a copy without `node_modules`. A Template
+  still `preparing` when the API starts (its job died with the last process) is prepared again.
+- A build package and its render package may declare the same Templates folder and share it.
+  Each Template's `require`, `strip`, `guide` and `prepare` are those of the package that added
+  it: an upload is added by the folder's first claimant, a saved build by its build package, and
+  one whose record names none (placed by hand) follows the first claimant.
 - The planner's world context lists each Template-capable package's Templates by name, so a
   drafted stage can name one as its `base` (or a direct render's `project`). The Run
   Assistant's `get_run` shows each stage's `template`, the name and fingerprint its call

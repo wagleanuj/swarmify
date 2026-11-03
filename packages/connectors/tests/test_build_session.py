@@ -85,10 +85,11 @@ def test_the_brief_names_the_templates_guide_only_when_it_has_one(tmp_path: Path
     m, copy = read_manifest(SKETCH), tmp_path / "copy.md"
     values = {"tone": "calm", "input": copy, "folder": tmp_path}
     plain = f"Write a calm page for the copy at {copy}."
-    assert build_session.task(m, SKETCH, values, [copy], "bold") == plain
+    assert build_session.task(m, SKETCH, values, [copy], "bold", "GUIDE.md") == plain
     (tmp_path / "GUIDE.md").write_text("Shout.")
-    assert build_session.task(m, SKETCH, values, [copy]) == plain  # the starter's, not a Template's
-    assert build_session.task(m, SKETCH, values, [copy], "bold") == (
+    # the starter's, not a Template's
+    assert build_session.task(m, SKETCH, values, [copy], "", "GUIDE.md") == plain
+    assert build_session.task(m, SKETCH, values, [copy], "bold", "GUIDE.md") == (
         f"{plain}\nRead {tmp_path / 'GUIDE.md'} first: the guide of the Template bold this build"
         " starts from."
     )
