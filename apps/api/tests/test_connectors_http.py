@@ -125,6 +125,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         ("fal_video", "0.0.1", "local"),
         ("hyperframes_build", "1.0.1", "connectors/hyperframes_build"),
         ("hyperframes_render", "1.0.1", "connectors/hyperframes_render"),
+        ("meta", "1.0.0", "connectors/meta"),
         ("remotion_build", "1.0.1", "connectors/remotion_build"),
         ("remotion_render", "1.0.1", "connectors/remotion_render"),
         ("slack", "1.1.0", "connectors/slack"),
@@ -134,6 +135,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     ]
     assert client.get(f"/api/worlds/{w}/packages").json() == [
         {"name": "fal_video", "version": "0.0.1"},
+        {"name": "meta", "version": "1.0.0"},
         {"name": "remotion_build", "version": "1.0.1"},
         {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
@@ -173,6 +175,7 @@ def test_every_connector_carries_a_label_capabilities_and_what_it_makes(
     assert shown == {
         "remotion_render": ("Remotion render", ["templates"], ["video/mp4"]),
         "remotion_build": ("Remotion build", ["build_session", "templates"], ["video/mp4"]),
+        "meta": ("Meta", ["publish", "outcomes"], []),
         "youtube": ("YouTube", ["publish", "outcomes"], []),
         "upload_post": ("Upload-Post", ["publish"], []),
         "speech": ("Speech", [], ["application/json", "audio/wav"]),
@@ -331,6 +334,7 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
     assert [p["name"] for p in client.get("/api/packages").json()] == [
         "hyperframes_build",
         "hyperframes_render",
+        "meta",
         "remotion_build",
         "remotion_render",
         "slack",
@@ -343,7 +347,7 @@ def test_install_a_package_from_this_repo_and_list_it(client: TestClient, tmp_pa
     assert installed.status_code == 201, installed.text
     assert (tmp_path / "packages/echo/1.0.0/installed.txt").is_file()
     listed = client.get("/api/packages").json()
-    assert listed[0] == installed.json() and len(listed) == 9
+    assert listed[0] == installed.json() and len(listed) == 10
     assert {k: listed[0][k] for k in ("name", "version", "label", "kind", "state", "source")} == {
         "name": "echo",
         "version": "1.0.0",
@@ -374,6 +378,7 @@ def test_an_invalid_manifest_is_refused_naming_the_field(
     assert [p["name"] for p in client.get("/api/packages").json()] == [
         "hyperframes_build",
         "hyperframes_render",
+        "meta",
         "remotion_build",
         "remotion_render",
         "slack",
@@ -504,6 +509,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         assert put.status_code == 200 and put.json() == {"name": "echo", "version": "1.0.0"}
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
+        {"name": "meta", "version": "1.0.0"},
         {"name": "remotion_build", "version": "1.0.1"},  # the default packages
         {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
@@ -520,6 +526,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
 
     assert client.delete(f"/api/worlds/{one}/packages/echo").status_code == 204
     assert client.get(f"/api/worlds/{one}/packages").json() == [
+        {"name": "meta", "version": "1.0.0"},
         {"name": "remotion_build", "version": "1.0.1"},
         {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},
@@ -528,6 +535,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
     ]
     assert client.get(f"/api/worlds/{two}/packages").json() == [
         {"name": "echo", "version": "1.0.0"},
+        {"name": "meta", "version": "1.0.0"},
         {"name": "remotion_build", "version": "1.0.1"},
         {"name": "remotion_render", "version": "1.0.1"},
         {"name": "speech", "version": "1.0.0"},

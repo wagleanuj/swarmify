@@ -169,6 +169,8 @@ SCHEMA: dict[str, Any] = {
                             "token_url": {"type": "string", "pattern": _URL},
                             "scopes": _strings,
                             "pkce": {"type": "boolean"},
+                            # The package's `signed_in` tool finishes the Sign-in (ADR 0029).
+                            "finish": {"type": "boolean"},
                             "client": {"enum": ["operator"]},
                             "finish": {"type": "boolean"},  # the package's signed_in tool
                             "authorize_params": {

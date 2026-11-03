@@ -37,6 +37,24 @@ permissions = [
 ]
 
 [[packages]]
+name = "meta"
+description = "Posts Reels to Instagram and a Facebook Page through the Graph API."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/meta"
+ref = "v2"
+permissions = [
+  "network: graph.facebook.com",
+  "network: rupload.facebook.com",
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "credentials: META_ACCESS_TOKEN",
+  "sign_in: www.facebook.com",
+  "sign_in: graph.facebook.com",
+  "capabilities: publish",
+  "capabilities: outcomes",
+]
+
+[[packages]]
 name = "remotion_build"
 description = "Writes a Remotion project from the script in a sandboxed coding session, then renders it. Needs Node."
 git = "https://github.com/wagleanuj/swarmify.git"

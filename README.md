@@ -773,6 +773,8 @@ stage and its params, what it answers, the Services it calls and how its V1 sett
   (HTML and GSAP), installed but enabled only in the worlds that ask for them.
 - [`youtube`](connectors/youtube/README.md) and [`upload_post`](connectors/upload_post/README.md):
   publish connectors, with Outcomes.
+- [`meta`](connectors/meta/README.md): Reels to a world's Instagram and Facebook Page, its
+  Sign-in finished by the package (ADR 0029).
 - [`slack`](connectors/slack/README.md): Remote Approvals, a gate answered from chat.
 
 ### Owned Folders on the Assets page

@@ -1,0 +1,94 @@
+# The Meta connector (README.md beside this file). A default package: Swarmify installs it from
+# this folder and enables it for every world that has not decided otherwise.
+name = "meta"
+version = "1.0.0"
+label = "Meta"
+about = "Posts Reels to Instagram and a Facebook Page through the Graph API."
+kind = "publish"
+stage_types = ["connector"]
+capabilities = ["publish", "outcomes"]
+primary_metric = "views"
+
+runtime = "uv"
+install = ["uv", "sync", "--frozen", "--no-dev"]
+command = [".venv/bin/python", "meta.py"]
+
+[params]
+type = "object"
+[params.properties.platforms]
+type = "array"
+items = { enum = ["instagram", "facebook"] }
+default = ["instagram", "facebook"]
+[params.properties.metadata]
+type = "string"
+description = "a file an earlier stage produced; its frontmatter's title, description and hashtags win over these params"
+[params.properties.title]
+type = "string"
+description = "the caption when there is no description"
+[params.properties.description]
+type = "string"
+[params.properties.hashtags]
+type = ["array", "string"]
+[params.properties.visibility]
+enum = ["public", "draft"]
+default = "public"
+description = "draft is Facebook's: only the Page's admins see it"
+[params.properties.schedule]
+type = "string"
+description = "ISO 8601 with a timezone, or 09:00, or +1d 09:00; Facebook only, 10 minutes to 29 days ahead"
+[params.properties.trial]
+type = "boolean"
+default = false
+description = "an Instagram Trial Reel, shown to non-followers first"
+[params.properties.share_to_feed]
+type = "boolean"
+default = true
+[params.properties.cover_at]
+type = "number"
+description = "the second of the video Instagram's cover shows"
+
+# A Facebook draft is seen only by the Page's admins, so a stage posting just that needs no gate.
+# Any stage with Instagram is gated.
+[private_when]
+platforms = ["facebook"]
+visibility = "draft"
+
+[[inputs]]
+description = "the video"
+media_type = "video/mp4"
+
+[setup]
+help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/meta#setup"
+
+# The world's Facebook Page and its Instagram account. Swarmify signs in with Facebook Login for
+# Business, exchanges the code, then calls this package's `signed_in` tool, which keeps the
+# Page's own token (ADR 0029). It never expires, so nothing refreshes it. The Meta app's client
+# ID and secret are the shared Credentials meta_client_id and meta_client_secret.
+[[config]]
+key = "meta"
+label = "Meta account"
+type = "oauth"
+required = true
+scope = "world"
+env = "META_ACCESS_TOKEN"
+help = "The Facebook account that manages the world's Page, whose Instagram account is linked to it. Register your own Meta app with this page's redirect URI and put its login configuration ID in this Manifest; see the README."
+[config.oauth]
+authorize_url = "https://www.facebook.com/v26.0/dialog/oauth"
+token_url = "https://graph.facebook.com/v26.0/oauth/access_token"
+pkce = false
+finish = true
+# The login configuration of the operator's Meta app (Facebook Login for Business), which names
+# the permissions. Static: replace it with your own before signing in (README, Setup).
+authorize_params = { config_id = "YOUR_LOGIN_CONFIGURATION_ID" }
+
+[[config]]
+key = "page"
+label = "Facebook Page"
+type = "string"
+scope = "world"
+env = "META_PAGE"
+help = "Only when the account manages several Pages with an Instagram account: the name or ID of the one to post to. Sign in again after changing it."
+
+# Its sandbox (ADR 0021): the Graph API and Meta's upload host.
+[permissions]
+network = ["graph.facebook.com", "rupload.facebook.com"]
