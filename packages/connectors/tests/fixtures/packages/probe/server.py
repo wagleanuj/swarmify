@@ -26,5 +26,10 @@ def refused(idempotency_key: str = "") -> dict[str, Any]:
     raise ToolError("auth_failed: the provider refused the access token")
 
 
+@mcp.tool(description="Finish a sign-in (ADR 0029): keep a Credential made from the token.")
+def signed_in(access_token: str, client_id: str, client_secret: str) -> dict[str, Any]:
+    return {"access_token": f"page-{access_token}", "expires_at": None}
+
+
 if __name__ == "__main__":
     mcp.run("stdio")

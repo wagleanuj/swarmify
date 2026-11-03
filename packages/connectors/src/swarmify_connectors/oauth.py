@@ -7,7 +7,9 @@ the browser to the field's `authorize_url` with a one-time `state` and, with `pk
 challenge; the provider sends it back to Swarmify's own `/api/setup/oauth/callback`, which trades
 the code for a token set at `token_url`. The token set is stored as the field's Credential:
 `{"access_token", "refresh_token", "expires_at"}` plus `needs_sign_in` once the provider refuses
-it. Token values never reach a log or an error message.
+it. A field with `finish` stores what its package's `signed_in` tool answers instead
+(ADR 0029): `{"access_token"}` plus `expires_at` when it gives one, which, with no refresh token,
+is never refreshed. Token values never reach a log or an error message.
 """
 
 import base64
