@@ -31,8 +31,10 @@ READS = {"Read": "file_path", "Glob": "path", "Grep": "path"}
 _ENV = re.compile(r"(?<![\w.-])\.env(?![\w.-])")
 ROLE: AgentRole = "worker"
 AGENT = "builder"
-MAX_TURNS, MINUTES = 80, 20.0
-"""A build stage's defaults; its params `max_turns` and `minutes` override them."""
+MAX_TURNS = 80
+MINUTES: float | None = None
+"""A build stage's defaults; its params `max_turns` and `minutes` override them. No time
+limit by default: the run's Budget and `max_turns` bound a session."""
 
 
 def readable(build: Path, world_folder: Path) -> list[Path]:

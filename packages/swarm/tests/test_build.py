@@ -270,6 +270,17 @@ def test_the_time_limit_fails_the_stage(board: SqliteStorage, data: Path) -> Non
     assert "Out of time" in board.list_log(S)[-1].detail
 
 
+def test_a_build_without_minutes_has_no_time_limit(board: SqliteStorage, data: Path) -> None:
+    class Patient:
+        async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
+            await asyncio.sleep(0.2)
+            return SessionEnd("s", 0.02, False, "Built it.")
+
+    assert build.MINUTES is None
+    _build(board, data, Patient())  # with minutes=0.001 this same session runs out of time
+    assert "Out of time" not in " ".join(e.detail for e in board.list_log(S))
+
+
 def test_a_spent_budget_stops_the_build_before_it_starts(board: SqliteStorage, data: Path) -> None:
     script = Script([Say("never")])
     with pytest.raises(Stopped, match="spent"):

@@ -694,7 +694,7 @@ class Swarm:
         data_dir: Path,
         model: str | None = None,
         max_turns: int = builds.MAX_TURNS,
-        minutes: float = builds.MINUTES,
+        minutes: float | None = builds.MINUTES,
         inputs: Sequence[Path] = (),
         revises: Sequence[Path] = (),
         note: str = "",
@@ -705,7 +705,7 @@ class Swarm:
         when the session revises it after a send-back with `note`, instead of starting over.
         Logged, costed and budgeted like any agent, as `builder`, whose closing summary ends the
         stage log. Raises StageError, with the builder's last log lines, when two sessions fail
-        or time runs out; Stopped when the run's Budget stopped it."""
+        or time runs out (only with `minutes`); Stopped when the run's Budget stopped it."""
         cast = (CastEntry(builds.AGENT, builds.ROLE, model=model),)
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         decisions = _decisions(world_folder, run_id)
@@ -739,7 +739,7 @@ class Swarm:
         try:
             self._session(
                 at, builds.AGENT, builds.ROLE, spec, builds.TOOLS, lambda _: None,
-                fresh=True, hooks=hooks, timeout=minutes * 60,
+                fresh=True, hooks=hooks, timeout=None if minutes is None else minutes * 60,
             )  # fmt: skip
         except StageError as exc:
             raise StageError(f"{exc}\n{builds.last_lines(self.board, stage_id)}") from exc
