@@ -71,14 +71,25 @@ VOICES = "voices"
 and voices.json describing them."""
 CLIP_SECONDS = (5.0, 10.0)
 """The length of a reference clip Chatterbox clones from (README, Voices)."""
+FULL_CLIP_SECONDS = (5.0, 40.0)
+"""The length of a described voice's clip when its options pick the full Chatterbox model."""
+OPTIONS: dict[str, tuple[float, float, bool]] = {
+    "exaggeration": (0.25, 2.0, True),
+    "cfg_weight": (0.0, 1.0, False),
+    "temperature": (0.05, 2.0, True),
+}
+"""A voice's numeric delivery options: (low, high, whether low itself is allowed). cfg_weight 0
+crashes chatterbox-tts 0.1.7 ("Sizes of tensors must match" in t3.inference), so it is above 0."""
+MODELS = ("chatterbox", "chatterbox-turbo")
+"""The models a voice's options may pick; Turbo when it picks none."""
 UPLOADED = "uploaded to the world's Voices, whose upload asks for the speaker's permission"
 """The consent of a clip voices.json does not describe."""
 
 
 def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
     """The world's voices from its `<assets>/voices/` folder, a list of `{name, description,
-    tags, engine, clip?, preset?, consent}` (`clip` made a path), and a warning for each one
-    ignored. voices.json's entries come first; one without consent, without a clip in the
+    tags, engine, clip?, preset?, consent, options}` (`clip` made a path), and a warning for each
+    one ignored. voices.json's entries come first; one without consent, without a clip in the
     folder or a preset, or named twice is ignored, and one whose clip was deleted is dropped
     quietly. Then each other `<name>.wav` in the folder is a voice of that name, as the Assets
     page uploads them, unless it is not 5 to 10 s of 16-bit WAV."""
@@ -100,6 +111,7 @@ def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
                 "tags": entry.get("tags") or [],
                 "clip": str(folder / clip) if clip else None,
                 "preset": entry.get("preset") or None,
+                "options": entry.get("options") or {},
             }
         )
     described = {e.get("clip") for e in raw if isinstance(e, dict)}
@@ -122,7 +134,7 @@ def catalog(assets_path: str) -> tuple[list[dict[str, Any]], list[str]]:
             continue
         voices.append({"name": name, "description": f"the voice in {file.name}", "tags": [],
                        "engine": "chatterbox", "consent": UPLOADED, "clip": str(file),
-                       "preset": None})  # fmt: skip
+                       "preset": None, "options": {}})  # fmt: skip
     return voices, warnings
 
 
@@ -163,7 +175,38 @@ def _unusable(entry: Any, folder: Path, kept: list[dict[str, Any]]) -> str:
         return f"{name}'s clip {clip} is not in voices/"
     if preset is not None and not text("preset"):
         return f"{name}'s preset is not an engine voice name"
+    if problem := _bad_options(entry.get("options")):
+        return f"{name}'s options are not usable: {problem}"
+    if clip and (entry.get("options") or {}).get("model") == "chatterbox":
+        low, high = FULL_CLIP_SECONDS
+        try:
+            samples, rate = decode((folder / clip).read_bytes())
+        except ValueError as exc:
+            return f"{name}'s clip {clip}: {exc}"
+        if not low <= (seconds := len(samples) / rate) <= high:
+            return f"{name}'s clip {clip} is {seconds:.1f} s, not {low:g}-{high:g}"
     return "" if clip or preset else f"{name} has neither a clip nor a preset"
+
+
+def _bad_options(options: Any) -> str:
+    """What is wrong with a voice's `options`, else ""."""
+    if options is None:
+        return ""
+    if not isinstance(options, dict):
+        return "not an object"
+    if unknown := sorted(set(options) - {"model", *OPTIONS}):
+        return f"unknown {unknown[0]}"
+    if "model" in options and options["model"] not in MODELS:
+        return f"model is one of {', '.join(MODELS)}, got {options['model']!r}"
+    for key, (low, high, closed) in OPTIONS.items():
+        if key not in options:
+            continue
+        value = options[key]
+        number = isinstance(value, int | float) and not isinstance(value, bool)
+        if not number or not (low <= value if closed else low < value) or value > high:
+            above = f"{low:g} to" if closed else f"above {low:g} and up to"
+            return f"{key} is {above} {high:g}, got {value!r}"
+    return ""
 
 
 def script_type(voices: list[dict[str, Any]]) -> dict[str, Any]:
@@ -483,10 +526,13 @@ def _take(
     voice: str,
     seed: int | None,
     clip: bytes | None = None,
+    options: dict[str, Any] | None = None,
 ) -> tuple[bytes, list[tuple[str, float, float]]]:
     """One take of `say` from the engine at `base`, with the words of `text` (`say` without its
-    tags) it spoke and when. A `clip` goes up with the speech request as `reference`."""
+    tags) it spoke and when. A `clip` goes up with the speech request as `reference`, and the
+    voice's `options` (its model and delivery) in the body."""
     body: dict[str, Any] = {"model": "tts-1", "input": say, "response_format": "wav"}
+    body.update(options or {})
     if voice:
         body["voice"] = voice
     if seed is not None:
@@ -520,11 +566,12 @@ def voice_run(
     voice: str = "",
     seed: int | None = None,
     voices: list[dict[str, Any]] | None = None,
-) -> tuple[str, str | None, list[tuple[bytes, dict[str, Any]]]]:
-    """Every scene's take and timings from the first engine that voices them all, and the
-    voice that spoke. `voice` names one of the catalog's `voices`, resolved per engine
-    (`resolve`), or else is the engine's own voice; "" is the engine's default. Raises ToolError
-    naming each engine's failure."""
+) -> tuple[str, str | None, dict[str, Any], list[tuple[bytes, dict[str, Any]]]]:
+    """Every scene's take and timings from the first engine that voices them all, the voice
+    that spoke and the options it spoke with, sent only with a clip, since an engine that speaks
+    a preset (Kokoro) knows no Chatterbox model. `voice` names one of the catalog's `voices`,
+    resolved per engine (`resolve`), or else is the engine's own voice; "" is the engine's
+    default. Raises ToolError naming each engine's failure."""
     voices = voices or []
     chosen = next((v for v in voices if v["name"] == voice), None)
     failures = []
@@ -532,7 +579,7 @@ def voice_run(
         try:
             health = _get(http, f"{base}/health")
             tags, clips = _words(health.get("tags")), health.get("clips") is True
-            spoke, own, clip = (voice or None), voice, None
+            spoke, own, clip, options = (voice or None), voice, None, {}
             if chosen is not None:
                 # an engine has a preset when it lists it, as Kokoro-FastAPI's voices do
                 presets = (
@@ -544,15 +591,16 @@ def voice_run(
                 spoke, own = (speaker or {}).get("name"), ""
                 if speaker and speaker["clip"] and clips:
                     clip = Path(speaker["clip"]).read_bytes()
+                    options = speaker["options"]
                 elif speaker:
                     own = speaker["preset"]
             takes = []
             for scene in scenes:
                 say = " ".join(for_engine(line["say"], tags) for line in scene["lines"])
                 text = " ".join(line["text"] for line in scene["lines"])
-                audio, heard = _take(http, base, say, text, own, seed, clip)
+                audio, heard = _take(http, base, say, text, own, seed, clip, options)
                 takes.append((audio, take_timings(scene, audio, heard)))
-            return base, spoke, takes
+            return base, spoke, options, takes
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             failures.append(f"{base}: {type(exc).__name__}: {exc}")
     raise ToolError("no speech engine voiced the script. " + "; ".join(failures))
@@ -584,7 +632,7 @@ def speech(
     and the takes in `narration/` beside it. `engines` reorders or narrows SPEECH_ENDPOINTS;
     it cannot name an endpoint outside it, since the script is sent there. The voice is the
     stage's `voice`, else the script's, else the engine's default; timings.json records the
-    one that spoke."""
+    one that spoke and the options it spoke with."""
     # ponytail: answers when done rather than as a long job; a few scenes take under a minute.
     del idempotency_key, frontmatter  # a rerun simply voices again; nothing is posted
     script = Path(input_path or (input_paths or [""])[0])
@@ -607,7 +655,7 @@ def speech(
         warnings.append(f"the script's voice {asked} is not in the world's catalog")
         asked = ""
     with _client() as http:
-        engine, spoke, takes = voice_run(http, scenes, order, asked, seed, voices)
+        engine, spoke, options, takes = voice_run(http, scenes, order, asked, seed, voices)
     out = Path(output_path)
     folder = out.parent / "narration"
     folder.mkdir(parents=True, exist_ok=True)
@@ -619,6 +667,7 @@ def speech(
         "engine": engine,
         "voice": spoke,
         "chosen": asked or None,
+        "options": options,
         "seed": seed,
         "warnings": warnings,
         "takes": [t for _, t in takes],

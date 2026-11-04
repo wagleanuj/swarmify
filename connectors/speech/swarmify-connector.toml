@@ -1,7 +1,7 @@
 # The speech connector (README.md beside this file). A default package: Swarmify installs it from
 # this folder and enables it for every world that has not decided otherwise.
 name = "speech"
-version = "1.0.0"
+version = "1.1.0"
 label = "Speech"
 about = "Voices a script, one take per scene, with word timings and cut points. Needs a speech engine (its README, Speech engines)."
 kind = "stage"

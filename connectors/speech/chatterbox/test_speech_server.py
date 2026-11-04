@@ -1,5 +1,6 @@
-"""The service's HTTP face with a fake Turbo: a reference clip conditions it once per clip, and a
-request without one speaks its built-in voice. The real model is checked by test_speech_smoke."""
+"""The service's HTTP face with a fake Turbo and full model: a reference clip conditions each
+once per clip, a request without one speaks its built-in voice, and model "chatterbox" takes the
+full model with its delivery settings. The real model is checked by test_speech_smoke."""
 
 import io
 import wave
@@ -19,6 +20,7 @@ class Turbo:
         self.conds: Any = "built-in"
         self.prepared: list[bytes] = []
         self.spoke: list[tuple[str, Any]] = []
+        self.settings: list[dict[str, float]] = []
 
     def prepare_conditionals(self, path: str) -> None:
         with open(path, "rb") as f:
@@ -28,8 +30,9 @@ class Turbo:
         self.prepared.append(clip)
         self.conds = f"cloned {len(self.prepared)}"
 
-    def generate(self, text: str) -> list[list[float]]:
+    def generate(self, text: str, **settings: float) -> list[list[float]]:
         self.spoke.append((text, self.conds))
+        self.settings.append(settings)
         return [[0.0, 0.5, -0.5, 1.5]]
 
 
@@ -38,6 +41,15 @@ def turbo(monkeypatch: pytest.MonkeyPatch) -> Turbo:
     fake = Turbo()
     monkeypatch.setitem(server.models, "tts", fake)
     monkeypatch.setattr(server, "voices", {})
+    return fake
+
+
+@pytest.fixture
+def full(monkeypatch: pytest.MonkeyPatch, turbo: Turbo) -> Turbo:
+    """The full ChatterboxTTS, as if a request had loaded it already."""
+    fake = Turbo()
+    fake.conds = "full built-in"
+    monkeypatch.setitem(server.models, "full", fake)
     return fake
 
 
@@ -52,8 +64,31 @@ def speech(client: TestClient, clip: bytes | None = None, **body: Any) -> bytes:
     return r.content
 
 
-def test_health_says_it_takes_clips() -> None:
-    assert TestClient(server.app).get("/health").json()["clips"] is True
+def test_health_says_it_takes_clips_and_lists_its_models() -> None:
+    health = TestClient(server.app).get("/health").json()
+    assert health["clips"] is True and health["models"] == ["chatterbox-turbo", "chatterbox"]
+
+
+def test_model_chatterbox_speaks_with_the_full_model_and_its_settings(
+    turbo: Turbo, full: Turbo
+) -> None:
+    client = TestClient(server.app)
+    settings = {"exaggeration": 1.6, "cfg_weight": 0.2, "temperature": 1.05}
+    speech(client, b"a 32 s clip, long enough", model="chatterbox", **settings)
+    speech(client, b"a 32 s clip, long enough", model="chatterbox", **settings)
+    speech(client, b"a 32 s clip, long enough", temperature=0.7)  # Turbo: its own conditioning
+    speech(client, model="chatterbox")
+    assert full.prepared == [b"a 32 s clip, long enough"]
+    assert [c for _, c in full.spoke] == ["cloned 1", "cloned 1", "full built-in"]
+    assert full.settings == [settings, settings, {}]
+    assert turbo.prepared == [b"a 32 s clip, long enough"]
+    assert turbo.settings == [{"temperature": 0.7}]  # Turbo takes no exaggeration or cfg_weight
+
+
+@pytest.mark.parametrize("bad", [{"cfg_weight": 0}, {"exaggeration": 2.5}, {"temperature": 0}])
+def test_settings_out_of_range_are_refused(full: Turbo, bad: dict[str, float]) -> None:
+    r = TestClient(server.app).post("/v1/audio/speech", json={"input": "Hi.", **bad})
+    assert r.status_code == 422 and full.spoke == []
 
 
 def test_a_clip_conditions_turbo_once_and_no_clip_keeps_its_own_voice(turbo: Turbo) -> None:
