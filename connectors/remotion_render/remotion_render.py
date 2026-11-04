@@ -4,7 +4,9 @@ Remotion CLI the project itself installed (`node_modules/.bin/remotion`).
 `remotion_render` starts one render per idempotency key and answers with a long job;
 `remotion_render_status` reports its progress, parsed from the CLI's `Rendered n/N` and
 `Encoded n/N` lines. The render runs in a detached process (`--job <file>`) so it outlives the
-MCP session; its state, CLI log and input props live beside the output as hidden files.
+MCP session; its state, CLI log and input props live beside the output as hidden files. On a GPU
+it runs as steps (bundle once, then chunks of frames, each in a fresh browser, then one join),
+since one long-lived tab runs out of WebGL contexts.
 
 The composition receives the script as input props: `{"script": <text>, "scriptPath": <path>,
 ...props}`, read with `getInputProps()`. On success the video gets a markdown sidecar,
@@ -42,6 +44,10 @@ POLL = "remotion_render_status"
 CONCURRENCY = "SWARMIFY_RENDER_CONCURRENCY"
 TAIL = 40
 _STEP = re.compile(r"^(Rendered|Encoded) (\d+)/(\d+)", re.M)
+_CHUNK = re.compile(r"^Chunk \d+-\d+: (\d+)/(\d+) frames done$", re.M)
+CHUNK = 600
+"""Frames each GPU render process draws before a fresh browser takes over: one tab rendering a
+project that mounts a new 3D canvas per shot failed at frame 1661 creating a WebGL context."""
 BROWSERS = Path(__file__).parent / "node_modules" / ".remotion"
 CLI = Path("node_modules") / ".bin" / "remotion"
 DEV = Path("/dev")
@@ -104,7 +110,14 @@ def alive(pid: int) -> bool:
 
 
 def progress(log: str) -> tuple[float, str]:
-    """Progress from the CLI log: rendering frames is the first 90 percent, encoding the rest."""
+    """Progress from the CLI log: rendering frames is the first 90 percent, encoding the rest.
+    A render in chunks counts frames done over the whole range, after its last chunk line."""
+    if chunks := list(_CHUNK.finditer(log)):
+        before, whole = int(chunks[-1][1]), int(chunks[-1][2])
+        steps = _STEP.findall(log, chunks[-1].end())
+        word, done, total = steps[-1] if steps else ("Rendered", "0", "0")
+        frames = min(before + int(done if word == "Rendered" else total), whole)
+        return round(0.9 * frames / max(whole, 1), 3), f"rendered {frames}/{whole} frames"
     steps = _STEP.findall(log)
     if not steps:
         return 0.0, "starting the render"
@@ -165,7 +178,8 @@ def remotion_render(
         argv.append(f"--frames={_flag('frames', str(frames))}")
     # Tabs rendering at once. Unset, Remotion uses half the CPUs; with no GPU (Docker) a 3D
     # scene renders in software and that many tabs run out of memory (spike 2026-10-30). On the
-    # GPU the browser flags fix it at one tab, and the Setting does not apply.
+    # GPU the browser flags fix it at one tab, and the Setting does not apply: the job renders
+    # there in chunks (_chunked), from these arguments.
     browser = _browser()
     tabs = os.environ.get(CONCURRENCY)
     if tabs and not any(a.startswith("--concurrency=") for a in browser):
@@ -185,6 +199,8 @@ def remotion_render(
         "output": str(output),
         "log": str(_hidden(output, "log")),
         "composition": composition,
+        # ponytail: only mp4 codecs render in chunks, the ones whose audio joins as AAC
+        "chunks": "--gl=angle-egl" in browser and codec in ("h264", "h265"),
         "frontmatter": frontmatter or {},
         "started": _now(),
         "pid": 0,
@@ -287,10 +303,81 @@ def _shell() -> str | None:
     return str(found[0]) if found else shutil.which("chrome-headless-shell")
 
 
+def _run(name: str, argv: list[str], project: Path, log: Any) -> str:
+    """One CLI process, its output appended to the job's log and returned; RuntimeError when it
+    fails, naming the step."""
+    log.write(f"$ {' '.join(argv)}\n")
+    log.flush()
+    start = Path(log.name).stat().st_size
+    try:
+        code = subprocess.run(argv, cwd=project, stdout=log, stderr=subprocess.STDOUT).returncode
+    except OSError as exc:
+        raise RuntimeError(f"could not start {name}: {exc}") from exc
+    if code != 0:
+        raise RuntimeError(f"{name} exited with {code}")
+    return Path(log.name).read_bytes()[start:].decode(errors="replace")
+
+
+def _frames(frames: str, composition: str, listed: Any) -> tuple[int, int]:
+    """The first and last frame to render: the `frames` param's, else the composition's whole
+    length, which `listed()` reads from `remotion compositions`' table (the CLI has no JSON)."""
+    given = re.fullmatch(r"(\d+)(?:-(\d*))?", frames)
+    if frames and not given:
+        raise RuntimeError(f"frames must be a range like 0-29, got {frames!r}")
+    if given and (given[2] or given.lastindex == 1):
+        return int(given[1]), int(given[2] or given[1])
+    row = re.search(rf"^{re.escape(composition)}\s.*?(\d+) \([\d.]+ sec\)\s*$", listed(), re.M)
+    if not row:
+        raise RuntimeError(f"remotion compositions listed no frame count for {composition}")
+    return int(given[1]) if given else 0, int(row[1]) - 1
+
+
+def _chunked(state: dict[str, Any], log: Any) -> None:
+    """A GPU render as steps, each a fresh CLI process: bundle once; read the frame count; render
+    CHUNK frames at a time from the bundle, each chunk writing its audio to a WAV of its own
+    (`--separate-audio-to`, silent when the composition has none) so no process draws the whole
+    length; then one `remotion ffmpeg` joins the parts and their audio. The hidden folders go
+    either way."""
+    output, project = Path(state["output"]), Path(state["project"])
+    cli, entry, composition = state["argv"][0], state["argv"][2], state["argv"][3]
+    flags = [a for a in state["argv"][5:] if not a.startswith("--frames=")]
+    frames = next((a.split("=", 1)[1] for a in state["argv"] if a.startswith("--frames=")), "")
+    bundle, parts = _hidden(output, "bundle"), _hidden(output, "parts")
+    for folder in (bundle, parts):
+        shutil.rmtree(folder, ignore_errors=True)
+    parts.mkdir()
+    try:
+        _run("remotion bundle", [cli, "bundle", entry, f"--out-dir={bundle}"], project, log)
+        port = f"--port={_free_port()}"
+        listing = [cli, "compositions", str(bundle), *flags, port]
+        first, last = _frames(
+            frames, composition, lambda: _run("remotion compositions", listing, project, log)
+        )
+        starts = range(first, last + 1, CHUNK)
+        for n, start in enumerate(starts):
+            end = min(start + CHUNK - 1, last)
+            log.write(f"Chunk {start}-{end}: {start - first}/{last - first + 1} frames done\n")
+            argv = [cli, "render", str(bundle), composition, str(parts / f"{n}.mp4"), *flags]
+            argv += [f"--frames={start}-{end}", f"--separate-audio-to={parts / f'{n}.wav'}"]
+            argv.append(f"--port={_free_port()}")
+            _run(f"remotion render of frames {start}-{end}", argv, project, log)
+        log.write(f"Chunk {first}-{last}: {last - first + 1}/{last - first + 1} frames done\n")
+        (parts / "video.txt").write_text("".join(f"file '{n}.mp4'\n" for n in range(len(starts))))
+        (parts / "audio.txt").write_text("".join(f"file '{n}.wav'\n" for n in range(len(starts))))
+        concat = ["-f", "concat", "-i"]
+        join = [cli, "ffmpeg", "-hide_banner", "-y", *concat, str(parts / "video.txt")]
+        join += [*concat, str(parts / "audio.txt"), "-map", "0:v", "-map", "1:a", "-c:v", "copy"]
+        join += ["-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", str(output)]
+        _run("remotion ffmpeg", join, project, log)
+    finally:
+        for folder in (bundle, parts):
+            shutil.rmtree(folder, ignore_errors=True)
+
+
 def run_job(job: Path) -> None:
-    """The detached render: run the CLI, then record done (with a sidecar) or failed. It never
-    installs, which the sandbox has no network for: a project without `node_modules` or a
-    render without Chrome Headless Shell fails saying what to do."""
+    """The detached render: run the CLI (on a GPU, in chunks), then record done (with a sidecar)
+    or failed. It never installs, which the sandbox has no network for: a project without
+    `node_modules` or a render without Chrome Headless Shell fails saying what to do."""
     state = _read(job)
     output = Path(state["output"])
     project = Path(state["project"])
@@ -301,6 +388,11 @@ def run_job(job: Path) -> None:
             code, state["error"] = -1, f"{project} has no node_modules: run npm ci there"
         elif not any(a.startswith("--browser-executable=") for a in render):
             code, state["error"] = -1, "no Chrome Headless Shell: reinstall remotion_render"
+        elif state.get("chunks"):
+            try:
+                _chunked(state, log)
+            except RuntimeError as exc:
+                code, state["error"] = -1, str(exc)
         else:
             try:
                 ran = subprocess.run(render, cwd=project, stdout=log, stderr=subprocess.STDOUT)
