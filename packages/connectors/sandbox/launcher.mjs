@@ -17,7 +17,7 @@
 // launcher stops that whole group.
 
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
@@ -42,6 +42,23 @@ if (process.platform === "linux") {
   sockets = mkdtempSync("/tmp/swarmify-sandbox-");
   process.env.TMPDIR = sockets;
   plan.sandbox.filesystem.allowRead.push(sockets);
+}
+// A process granted the GPU (plan.gpu, a render's browser) gets this host's GPU device files, found
+// here, where the sandbox starts, not where the plan was written (the API container has none),
+// and Unix sockets, which Chrome for Testing opens at startup. None found, it gets neither.
+const devices = [];
+if (process.platform === "linux" && plan.gpu) {
+  const under = (dir, wanted) => {
+    try {
+      return readdirSync(dir).filter((n) => wanted.test(n)).map((n) => `${dir}/${n}`);
+    } catch {
+      return [];
+    }
+  };
+  for (const d of [...under("/dev", /^nvidia/), ...under("/dev/dri", /^(renderD|card)\d+$/)]) {
+    if (statSync(d).isCharacterDevice()) devices.push(d);
+  }
+  if (devices.length) plan.sandbox.network.allowAllUnixSockets = true;
 }
 // What the MCP SDK passes a stdio server by default; HOME and TMPDIR come from the plan.
 const BASE = ["LOGNAME", "PATH", "SHELL", "TERM", "USER", "LANG", "LC_ALL"];
@@ -140,10 +157,10 @@ try {
     wrapped = wrapped.replace(/' \/bin\/(ba|z)?sh -c /, (rest) => `\n${last}${rest}`);
     if (wrapped === before) throw new Error("sandbox-runtime's Seatbelt command changed shape");
   }
-  if (process.platform === "linux" && plan.devices?.length) {
-    // sandbox-runtime gives the sandbox a fresh /dev; a process granted the GPU (a render's
-    // browser) gets exactly the device files its plan names bound in after it, nothing else.
-    const binds = plan.devices.map((d) => `--dev-bind ${quote(d)} ${quote(d)}`).join(" ");
+  if (devices.length) {
+    // sandbox-runtime gives the sandbox a fresh /dev; a process granted the GPU gets exactly
+    // the GPU's device files bound in after it, nothing else of the host's.
+    const binds = devices.map((d) => `--dev-bind ${quote(d)} ${quote(d)}`).join(" ");
     const before = wrapped;
     wrapped = wrapped.replace(" --dev /dev ", ` --dev /dev ${binds} `);
     if (wrapped === before) throw new Error("sandbox-runtime's bubblewrap command changed shape");

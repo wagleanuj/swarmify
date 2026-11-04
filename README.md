@@ -647,9 +647,9 @@ sandboxed command any user namespace of its own.
   holds an older Node, which would fail every download with `ENOTFOUND`. A remote approver's
   listener also reaches Swarmify's `/mcp/remote_approvals` (at
   `SWARMIFY_INTERNAL_URL`, else `SWARMIFY_BASE_URL`).
-- GPU: with `permissions.gpu`, on Linux, the host's GPU device files (`/dev/nvidia*`,
-  `/dev/dri/renderD*` and `card*`, those there are) bound into its sandbox, and Unix sockets,
-  which Chrome for Testing opens and the sandbox otherwise refuses. No process, granted or not,
+- GPU: with `permissions.gpu`, on Linux, the GPU device files where the sandbox starts
+  (`/dev/nvidia*`, `/dev/dri/renderD*` and `card*`, those there are) bound into its sandbox, and
+  with them Unix sockets, which Chrome for Testing opens and the sandbox otherwise refuses. No process, granted or not,
   can reach the sandbox runner's socket: its folder is denied like the data directory. See GPU
   renders under Deployment for giving the `sandbox` service the GPU.
 - Environment: its own Setup values and the few variables every process needs, never another
@@ -1459,12 +1459,14 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 - GPU renders: in Docker a render's browser draws 3D in software unless the `sandbox` service has
   the host's GPU; on the desktop box (RTX 2070 Super) a 3D scene rendered at 0.33 frames a
   second in software and 3.3 on the GPU (2026-11-03). With an NVIDIA GPU and the NVIDIA
-  Container Toolkit, turn on CDI once (Docker Engine 28.1 and earlier: `"features": {"cdi":
-  true}` in `/etc/docker/daemon.json`, then `sudo systemctl restart docker`; the toolkit keeps
-  `/var/run/cdi/nvidia.yaml` current) and add `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` to
-  `.env`. `compose.gpu.yaml` hands `sandbox` the GPU by CDI, as device files and the driver's
-  libraries; `--gpus` will not do, as the runtime mounts the driver under `/proc`, over which
-  bubblewrap cannot mount a fresh one. remotion_render (`permissions.gpu`) then renders with
+  Container Toolkit (whose CDI spec, `/var/run/cdi/nvidia.yaml`, it keeps current), run
+  `python3 tools/gpu_compose.py` and add `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` to `.env`.
+  It writes `compose.gpu.yaml` (host-specific, not in git; write it again after a driver update),
+  handing `sandbox` the GPU's device files and the driver's files and sonames from the spec, and
+  nothing under `/proc`: neither `--gpus` nor CDI will do, as the toolkit mounts or binds files
+  there, over which bubblewrap cannot mount a fresh `/proc`, and no connector would start.
+  The launcher finds the device files in the `sandbox` container and binds those into a granted
+  process's sandbox. remotion_render (`permissions.gpu`) then renders with
   Chrome for Testing on ANGLE's EGL backend; without a GPU it renders as before. Its Render
   concurrency Setting can go up with the GPU: 4 tabs rendered fastest there.
 - Sign-in works natively too: `SWARMIFY_PASSWORD=... uv run uvicorn --factory
