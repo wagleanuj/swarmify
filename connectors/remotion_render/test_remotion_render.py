@@ -54,7 +54,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     `uv sync`ed there, then the (fake) npm and Remotion browser steps."""
     data = tmp_path_factory.mktemp("data")
     defaults = registry(data, FakeTransport()).install_defaults()
-    assert defaults["remotion_render"] == "1.0.3"
+    assert defaults["remotion_render"] == "1.0.4"
     return data / "packages"
 
 
@@ -150,7 +150,7 @@ def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
 def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     installed: Path,
 ) -> None:
-    folder = installed / "remotion_render" / "1.0.3"
+    folder = installed / "remotion_render" / "1.0.4"
     assert (folder / ".venv" / "bin" / "python").is_file()
     assert (folder / "fake-install.log").read_text().splitlines() == [
         "npm ci --ignore-scripts --no-audit --no-fund",
@@ -163,7 +163,7 @@ def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Gi
     """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
-    assert render is not None and render.version == "1.0.3"
+    assert render is not None and render.version == "1.0.4"
     assert connectors._env(render) == {}
     connectors.save_setup(W, "remotion_render", {}, {"concurrency": "2"})
     assert connectors._env(render) == {"SWARMIFY_RENDER_CONCURRENCY": "2"}
@@ -241,7 +241,7 @@ def test_renders_the_script_into_a_video_with_a_sidecar(
 @pytest.fixture
 def own_browser(installed: Path) -> Iterator[Path]:
     """What `remotion browser ensure` leaves beside the installed package, for one test."""
-    browsers = installed / "remotion_render" / "1.0.3" / "node_modules" / ".remotion"
+    browsers = installed / "remotion_render" / "1.0.4" / "node_modules" / ".remotion"
     shell = browsers / "chrome-headless-shell" / "linux64" / "chrome-headless-shell"
     shell.parent.mkdir(parents=True)
     shell.write_text("#!/bin/sh\n")
@@ -296,6 +296,101 @@ def test_given_a_gpu_it_renders_there_with_chrome_for_testing_else_in_software(
 
     tested.unlink()  # installed before Chrome for Testing was part of it
     assert rr._browser() == software
+
+
+def test_progress_over_chunks_counts_frames_done_of_the_whole_range() -> None:
+    log = "Bundling 100%\nChunk 0-599: 0/1500 frames done\nRendered 600/600\nEncoded 600/600\n"
+    assert rr.progress(log) == (0.36, "rendered 600/1500 frames")
+    log += "Chunk 600-1199: 600/1500 frames done\nRendered 300/600, time remaining: 9s\n"
+    assert rr.progress(log) == (0.54, "rendered 900/1500 frames")
+    assert rr.progress(log + "Chunk 0-1499: 1500/1500 frames done\n")[0] == 0.9
+
+
+def _here(tmp_path: Path, project: Path, composition: str = "Short") -> tuple[Path, list[float]]:
+    """A render started in this process, so DEV and BROWSERS patched here decide its browser;
+    its job, polled until it ends, and the progress each poll saw."""
+    params = stage(tmp_path, project, composition)["params"]
+    job = Path(rr.remotion_render(idempotency_key="k", **params)["job_id"])
+    seen, deadline = [], time.monotonic() + 30
+    while (status := rr.remotion_render_status(str(job)))["status"] == "running":
+        assert time.monotonic() < deadline
+        seen.append(status["progress"])
+        time.sleep(0.02)
+    return job, seen
+
+
+def _calls(job: Path) -> list[list[str]]:
+    """The fake CLI's invocations, which it printed into the job's log."""
+    log = Path(json.loads(job.read_text())["log"]).read_text()
+    return [
+        json.loads(line[15:]) for line in log.splitlines() if line.startswith("fake remotion: ")
+    ]
+
+
+@pytest.fixture
+def gpu(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An NVIDIA GPU handed in and Chrome for Testing installed, for a render in this process."""
+    dev, tested = tmp_path / "dev", tmp_path / ".remotion" / "chrome-for-testing/l/c/chrome"
+    for f in (dev / "nvidia0", tested):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("")
+    monkeypatch.setattr(rr, "DEV", dev)
+    monkeypatch.setattr(rr, "BROWSERS", tmp_path / ".remotion")
+    return tested
+
+
+def test_on_a_gpu_it_renders_in_chunks_of_fresh_browsers_then_joins_them(
+    tmp_path: Path, fake_npx: Path, gpu: Path
+) -> None:
+    """One long-lived tab ran out of WebGL contexts at frame 1661: each 600 frames get their own
+    CLI process, from one bundle, and their audio is joined with them."""
+    job, seen = _here(tmp_path, fake_npx)
+    state = json.loads(job.read_text())
+    assert state["status"] == "done", rr._tail(Path(state["log"]))
+    calls = _calls(job)
+    assert [c[0] for c in calls] == [
+        "bundle",
+        "compositions",
+        "render",
+        "render",
+        "render",
+        "ffmpeg",
+    ]
+    bundle = str(rr._hidden(Path(state["output"]), "bundle"))
+    renders = calls[2:5]
+    assert all(c[1] == bundle and "--concurrency=1" in c for c in renders)
+    assert all(f"--browser-executable={gpu}" in c and "--gl=angle-egl" in c for c in renders)
+    out = json.loads(Path(state["output"]).read_text())
+    assert [p["frames"] for p in out["parts"]] == ["0-599", "600-1199", "1200-1499"]
+    assert [a["audio"] for a in out["audio"]] == ["0-599", "600-1199", "1200-1499"]
+    assert out["parts"][0]["script"].startswith("# Why the chase works")
+    assert seen == sorted(seen) and rr.remotion_render_status(str(job))["progress"] == 1
+    hidden = {p.name for p in Path(state["output"]).parent.iterdir()}
+    assert hidden == {"short.mp4", "short.mp4.md", ".short.mp4.job.json", ".short.mp4.log"} | {
+        ".short.mp4.props.json"
+    }
+
+
+def test_a_failing_chunk_fails_the_job_with_its_output(
+    tmp_path: Path, fake_npx: Path, gpu: Path
+) -> None:
+    job, _ = _here(tmp_path, fake_npx, "Broken")  # fails on frame 900, the second chunk
+    status = rr.remotion_render_status(str(job))
+    assert status["status"] == "failed"
+    assert status["error"].startswith("remotion render of frames 600-1199 exited with 1")
+    assert "No composition with the ID Broken found." in status["error"]
+    assert [c[0] for c in _calls(job)] == ["bundle", "compositions", "render", "render"]
+    assert not rr._hidden(Path(json.loads(job.read_text())["output"]), "parts").exists()
+
+
+def test_without_a_gpu_it_is_one_cli_call(
+    tmp_path: Path, fake_npx: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(rr, "DEV", tmp_path / "dev")
+    monkeypatch.setattr(rr, "BROWSERS", tmp_path / ".remotion")
+    job, _ = _here(tmp_path, fake_npx)
+    assert json.loads(job.read_text())["status"] == "done"
+    assert [c[0] for c in _calls(job)] == ["render"]
 
 
 def test_the_render_concurrency_setting_caps_the_tabs_rendering_at_once(

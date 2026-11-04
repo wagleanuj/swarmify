@@ -26,7 +26,7 @@ One Setting on the Connectors page, shared or per world:
   of memory, so set 2 there. On a GPU a render always uses one tab and this Setting does not
   apply: tabs sharing the GPU sometimes captured a frame of a new 3D canvas before it was drawn
   (a black or garbled frame at random cuts), and one tab renders cleanly at about 6 frames a
-  second. Upgrading from V1, the start that first installs the package copies a
+  second, in chunks of 600 frames (The render, below). Upgrading from V1, the start that first installs the package copies a
   `SWARMIFY_RENDER_CONCURRENCY` set in the app's environment (V1's image set 2) into this Setting.
 
 ## The stage
@@ -68,6 +68,27 @@ the template's git commit when the project is a git checkout). On failure the st
 the last 40 lines of CLI output. Every render serves its bundle on a port the OS just handed out
 (`--port`), never Remotion's default 3000, where another server (an open-webui container, say)
 would answer and fail the render with `window.getStaticCompositions is not defined`.
+
+On a GPU an h264 or h265 render runs as steps, each a fresh process of the project's CLI, since
+one long-lived tab runs out of WebGL contexts (a project mounting a new 3D canvas per shot failed
+at frame 1661 with `Error creating WebGL context`):
+
+1. `remotion bundle <entry> --out-dir=.short.mp4.bundle`, once, which every later step renders from.
+2. `remotion compositions .short.mp4.bundle --props=...` for the composition's frame count, read
+   from its table (the CLI has no JSON output), unless `frames` gives the range.
+3. `remotion render .short.mp4.bundle <composition> .short.mp4.parts/<n>.mp4 --frames=a-b
+   --separate-audio-to=.short.mp4.parts/<n>.wav` for each 600 frames, one tab each
+   (`--concurrency=1`), with the same codec, props and browser. Each chunk writes its own audio,
+   silent when the composition has none, so no process walks the whole length (an audio-only
+   `--codec=aac` render still renders every frame in the browser).
+4. `remotion ffmpeg` joins the parts and the audio with the concat demuxer, the video copied and
+   the audio encoded once to AAC at 320k, into `short.mp4`.
+5. The hidden bundle and parts are deleted, whether it succeeded or not.
+
+Progress counts frames done over the whole range across chunks; a failing step fails the stage
+with its name (`remotion render of frames 600-1199 exited with 1`) and the log's last 40 lines,
+which hold every step's output. A GPU render therefore always has an audio track. Other codecs,
+and every render in software, stay one `remotion render`.
 
 ## In Docker
 
