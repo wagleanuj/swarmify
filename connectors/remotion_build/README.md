@@ -38,7 +38,7 @@ Chrome Headless Shell (800 MB) for both.
       brief: Bold captions, 20 seconds, a cold open.
       model: claude-sonnet-5-5  # over the world's worker model (the Cast), else the default
       max_turns: 80             # the default
-      minutes: 20               # the session's time limit, the default
+      minutes: 30               # optional: a time limit in minutes; none by default
 ```
 
 `base` copies a Template by name from the world's `assets/remotion_templates/` folder (ADR 0028, on the

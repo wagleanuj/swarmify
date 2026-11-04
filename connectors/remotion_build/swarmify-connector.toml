@@ -2,7 +2,7 @@
 # it from this folder and enables it for every world that has not decided otherwise. It has no
 # server of its own: it asks the core for a Build Session, then renders through remotion_render.
 name = "remotion_build"
-version = "1.0.1"
+version = "1.0.2"
 label = "Remotion build"
 about = "Writes a Remotion project from the script in a sandboxed coding session, then renders it. Needs Node."
 kind = "stage"
@@ -62,8 +62,7 @@ type = "integer"
 default = 80
 [params.properties.minutes]
 type = "integer"
-default = 20
-description = "the session's time limit"
+description = "a time limit for the session, in minutes; none by default"
 
 [[inputs]]
 description = "the script"
