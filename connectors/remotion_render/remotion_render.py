@@ -164,10 +164,13 @@ def remotion_render(
     if frames:
         argv.append(f"--frames={_flag('frames', str(frames))}")
     # Tabs rendering at once. Unset, Remotion uses half the CPUs; with no GPU (Docker) a 3D
-    # scene renders in software and that many tabs run out of memory (spike 2026-10-30).
-    if tabs := os.environ.get(CONCURRENCY):
+    # scene renders in software and that many tabs run out of memory (spike 2026-10-30). On the
+    # GPU the browser flags fix it at one tab, and the Setting does not apply.
+    browser = _browser()
+    tabs = os.environ.get(CONCURRENCY)
+    if tabs and not any(a.startswith("--concurrency=") for a in browser):
         argv.append(f"--concurrency={_flag('concurrency', tabs)}")
-    argv += _browser()
+    argv += browser
     output.parent.mkdir(parents=True, exist_ok=True)
     output.unlink(missing_ok=True)
     _hidden(output, "props.json").write_text(
@@ -264,11 +267,14 @@ def _browser() -> list[str]:
     """The browser a render uses: Chrome for Testing drawing on the GPU (ANGLE on EGL) when the
     sandbox handed this process one and the install step downloaded it, else Chrome Headless
     Shell, which draws 3D in software, about 10x slower (measured 2026-11-03), else Remotion's
-    own lookup, which fails offline."""
+    own lookup, which fails offline. On the GPU it renders one tab at a time: tabs sharing ANGLE
+    on EGL sometimes captured a frame of a new 3D canvas before it was drawn, a black or garbled
+    frame at random cuts (four tabs, 2026-11-04), while one tab gave the same clean frames on
+    every run, at 5.8 frames a second."""
     gpu = any(p.exists() for pattern in GPU for p in DEV.glob(pattern))
     tested = [p for p in BROWSERS.glob("chrome-for-testing/*/*/chrome") if p.is_file()]
     if gpu and tested:
-        flags = ["--chrome-mode=chrome-for-testing", "--gl=angle-egl"]
+        flags = ["--chrome-mode=chrome-for-testing", "--gl=angle-egl", "--concurrency=1"]
         return [f"--browser-executable={tested[0]}", *flags]
     return [f"--browser-executable={shell}"] if (shell := _shell()) else []
 
