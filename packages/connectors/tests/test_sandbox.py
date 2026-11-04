@@ -18,7 +18,6 @@ from typing import Any
 import pytest
 
 from swarmify_connectors import Connectors, Credentials, McpTransport, SqliteStorage, observe
-from swarmify_connectors import sandbox as sandbox_module
 from swarmify_connectors.packages import MANIFEST
 from swarmify_connectors.sandbox import (
     LAUNCHER,
@@ -27,7 +26,6 @@ from swarmify_connectors.sandbox import (
     Grants,
     Sandbox,
     SandboxUnavailable,
-    gpu_devices,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures/packages"
@@ -260,45 +258,42 @@ def test_what_a_process_may_use(tmp_path: Path) -> None:
     }
     assert plan["pass"] == ["KEY"] and plan["session"] is True and plan["cwd"] == str(package)
     assert plan["env"]["HOME"] == home and plan["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
-    assert plan["devices"] == []  # not granted the GPU
+    assert plan["gpu"] is False  # not granted the GPU
 
 
-def test_a_process_granted_the_gpu_gets_its_devices_and_unix_sockets(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A GPU browser (Chrome for Testing) needs the device files and a Unix socket of its own,
-    which the sandbox otherwise refuses; only a process granted the GPU gets either."""
-    found = ["/dev/dri/renderD128", "/dev/nvidia0"]
-    monkeypatch.setattr(sandbox_module, "gpu_devices", lambda: found)
+def test_a_process_granted_the_gpu_says_so_in_its_plan(tmp_path: Path) -> None:
+    """The launcher, where the sandbox starts, binds the GPU's device files in: the API that
+    writes the plan runs in a container without them (seen on the box, 2026-11-03)."""
     sandbox = Sandbox(tmp_path)
 
     def plan(grants: Grants) -> dict:
         confined = sandbox.wrap(["python3", "render.py"], None, grants)
         return json.loads((confined.folder / "plan.json").read_text())
 
-    granted = plan(Grants(domains=["localhost"], gpu=True))
-    assert granted["devices"] == found
-    assert granted["sandbox"]["network"]["allowAllUnixSockets"] is True
-    other = plan(Grants(domains=["localhost"]))
-    assert other["devices"] == [] and "allowAllUnixSockets" not in other["sandbox"]["network"]
-    monkeypatch.setattr(sandbox_module, "gpu_devices", lambda: [])  # a host without one
-    none = plan(Grants(domains=["localhost"], gpu=True))
-    assert none["devices"] == [] and "allowAllUnixSockets" not in none["sandbox"]["network"]
+    granted, other = plan(Grants(domains=["localhost"], gpu=True)), plan(Grants())
+    assert granted["gpu"] is True and other["gpu"] is False
+    for p in (granted, other):  # Unix sockets come with devices found, in the launcher
+        assert "allowAllUnixSockets" not in p["sandbox"]["network"]
 
 
-def test_only_character_devices_of_a_gpu_count_and_none_off_linux(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "dri").mkdir()
-    (tmp_path / "nvidia0").write_text("")  # a file of that name is no device
-    (tmp_path / "dri" / "renderD128").write_text("")
-    monkeypatch.setattr(sys, "platform", "linux")
-    assert gpu_devices(tmp_path) == []
-    null = Path("/dev/null")  # a real character device, standing in for a GPU's
-    monkeypatch.setattr(sandbox_module, "GPU_DEVICES", ("null",))
-    assert gpu_devices(null.parent) == [str(null)]
-    monkeypatch.setattr(sys, "platform", "darwin")
-    assert gpu_devices(null.parent) == []
+UNIX_SOCKET = """
+import socket
+try:
+    socket.socket(socket.AF_UNIX).close()
+    print("opened")
+except OSError as exc:
+    print("refused", exc.errno)
+"""
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Seatbelt allows a socket of one's own")
+def test_without_a_gpu_here_a_process_granted_one_gets_no_unix_sockets(tmp_path: Path) -> None:
+    """Unix sockets come only with GPU device files found where the sandbox starts."""
+    if any(Path("/dev").glob("nvidia*")) or any(Path("/dev").glob("dri/renderD*")):
+        pytest.skip("this host has a GPU")
+    confined = Sandbox(tmp_path).wrap(["python3", "-c", UNIX_SOCKET], None, Grants(gpu=True))
+    done = subprocess.run(confined.argv, capture_output=True, text=True, timeout=60)
+    assert done.stdout.startswith("refused"), done
 
 
 def test_the_sandbox_runners_socket_is_out_of_every_processs_reach(

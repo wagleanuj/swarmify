@@ -14,3 +14,4 @@ apps/web/openapi.json
 test-results/
 .vitest/
 .taste-skill/
+compose.gpu.yaml
