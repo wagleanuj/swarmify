@@ -54,7 +54,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     `uv sync`ed there, then the (fake) npm and Remotion browser steps."""
     data = tmp_path_factory.mktemp("data")
     defaults = registry(data, FakeTransport()).install_defaults()
-    assert defaults["remotion_render"] == "1.0.2"
+    assert defaults["remotion_render"] == "1.0.3"
     return data / "packages"
 
 
@@ -150,7 +150,7 @@ def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
 def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     installed: Path,
 ) -> None:
-    folder = installed / "remotion_render" / "1.0.2"
+    folder = installed / "remotion_render" / "1.0.3"
     assert (folder / ".venv" / "bin" / "python").is_file()
     assert (folder / "fake-install.log").read_text().splitlines() == [
         "npm ci --ignore-scripts --no-audit --no-fund",
@@ -163,7 +163,7 @@ def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Gi
     """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
-    assert render is not None and render.version == "1.0.2"
+    assert render is not None and render.version == "1.0.3"
     assert connectors._env(render) == {}
     connectors.save_setup(W, "remotion_render", {}, {"concurrency": "2"})
     assert connectors._env(render) == {"SWARMIFY_RENDER_CONCURRENCY": "2"}
@@ -241,7 +241,7 @@ def test_renders_the_script_into_a_video_with_a_sidecar(
 @pytest.fixture
 def own_browser(installed: Path) -> Iterator[Path]:
     """What `remotion browser ensure` leaves beside the installed package, for one test."""
-    browsers = installed / "remotion_render" / "1.0.2" / "node_modules" / ".remotion"
+    browsers = installed / "remotion_render" / "1.0.3" / "node_modules" / ".remotion"
     shell = browsers / "chrome-headless-shell" / "linux64" / "chrome-headless-shell"
     shell.parent.mkdir(parents=True)
     shell.write_text("#!/bin/sh\n")
@@ -288,7 +288,7 @@ def test_given_a_gpu_it_renders_there_with_chrome_for_testing_else_in_software(
     assert rr._browser() == software  # no GPU handed in (a card node alone renders nothing)
 
     (dev / "dri" / "renderD128").write_text("")
-    gpu = ["--chrome-mode=chrome-for-testing", "--gl=angle-egl"]
+    gpu = ["--chrome-mode=chrome-for-testing", "--gl=angle-egl", "--concurrency=1"]
     assert rr._browser() == [f"--browser-executable={tested}", *gpu]
     (dev / "dri" / "renderD128").unlink()
     (dev / "nvidia0").write_text("")

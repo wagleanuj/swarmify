@@ -23,7 +23,10 @@ One Setting on the Connectors page, shared or per world:
 - **Render concurrency** (`concurrency`, reaching it as `SWARMIFY_RENDER_CONCURRENCY`), empty by
   default: browser tabs rendering at once, as `2` or `50%`. Empty, Remotion picks half the CPUs;
   with no GPU (Docker) a 3D scene (`@remotion/three`) renders in software and that many run out
-  of memory, so set 2 there. Upgrading from V1, the start that first installs the package copies a
+  of memory, so set 2 there. On a GPU a render always uses one tab and this Setting does not
+  apply: tabs sharing the GPU sometimes captured a frame of a new 3D canvas before it was drawn
+  (a black or garbled frame at random cuts), and one tab renders cleanly at about 6 frames a
+  second. Upgrading from V1, the start that first installs the package copies a
   `SWARMIFY_RENDER_CONCURRENCY` set in the app's environment (V1's image set 2) into this Setting.
 
 ## The stage

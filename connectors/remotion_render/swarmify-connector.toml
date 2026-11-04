@@ -1,7 +1,7 @@
 # The Remotion render connector (README.md beside this file). A default package: Swarmify installs
 # it from this folder and enables it for every world that has not decided otherwise.
 name = "remotion_render"
-version = "1.0.2"
+version = "1.0.3"
 label = "Remotion render"
 about = "Renders a script with the Remotion CLI. Needs Node and a Remotion project."
 kind = "stage"
@@ -80,4 +80,4 @@ label = "Render concurrency"
 type = "string"
 pattern = "[1-9][0-9]*%?"
 env = "SWARMIFY_RENDER_CONCURRENCY"
-help = "Browser tabs rendering at once, as 2 or 50%. Empty lets Remotion pick half the CPUs; with no GPU (Docker) a 3D scene renders in software and that many run out of memory, so set 2 there."
+help = "Browser tabs rendering at once in software, as 2 or 50%. Empty lets Remotion pick half the CPUs; with no GPU (Docker) a 3D scene renders in software and that many run out of memory, so set 2 there. On a GPU renders use one tab, since several sharing it drop frames."
