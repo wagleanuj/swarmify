@@ -79,8 +79,10 @@ connector tries them in the order its Speech engines Setting (`SPEECH_ENDPOINTS`
   takes; it returns 16-bit WAV only, and Turbo speaks its built-in voice whatever `voice` says,
   unless the request is a multipart form (the same fields) with a `reference` file: then it
   clones that clip (5 to 10 s of speech; a shorter one is a 400), conditioning Turbo once per
-  clip and caching it, and `/health` says `"clips": true`. `test_speech_server.py` checks this
-  with a fake model.
+  clip and caching it, and `/health` says `"clips": true`. `model` `chatterbox` speaks with the
+  full `ChatterboxTTS` instead, loaded on first use and conditioned per clip on its own, and
+  takes `exaggeration`, `cfg_weight` and `temperature` (Voices, `options`); `/health` lists both
+  in `models`. `test_speech_server.py` checks this with fake models.
 - On a host without an Apple GPU, Compose runs Chatterbox too: `docker compose -f
   connectors/speech/compose.yaml --profile chatterbox up -d --build`, with the Speech engines
   Setting `http://chatterbox:8881,http://kokoro:8880`. Its models stay in the
@@ -192,6 +194,17 @@ them:
   `engine` is the engine it was made for. `clip` is a reference recording in the same folder
   (Chatterbox clones from 5 to 10 s of clear speech) and `preset` an engine's own voice name
   (Kokoro's `af_heart`); an entry needs one of them, and may have both.
+- `options`, optional, picks the Chatterbox model and its delivery for a voice spoken from its
+  clip: `{"model": "chatterbox", "exaggeration": 1.6, "cfg_weight": 0.2, "temperature": 1.05}`.
+  `model` is `chatterbox-turbo` (the default) or `chatterbox`, the full `ChatterboxTTS`, which
+  the Chatterbox service loads the first time a voice asks for it. `exaggeration` is 0.25 to 2.0,
+  `cfg_weight` above 0 and up to 1, and `temperature` 0.05 to 2.0; Turbo takes only
+  `temperature`. `cfg_weight` 0 is refused because it crashes chatterbox-tts 0.1.7 ("Sizes of
+  tensors must match" in `t3.inference`). The options go in the speech request with the clip, to
+  an engine whose `/health` says `"clips": true`, and `timings.json` records them; an engine
+  speaking the voice's preset (Kokoro) gets none. A voice whose options pick `chatterbox` may
+  clone from a clip of 5 to 40 s of 16-bit WAV (its speaker embedding uses the whole clip).
+  Options of the wrong kind or out of range leave the voice out with a warning.
 - `consent` is required: a short statement of the right to use the voice (your own recording, or
   a license that allows synthesis). An entry without it, or with a name used twice or a field of
   the wrong kind, is ignored, and a warning names it in the speech stage's `timings.json`, its
@@ -216,7 +229,7 @@ them:
   `timings.json` records which voice spoke.
 - Starter voices without recording anyone: `uv run --project connectors/speech python
   connectors/speech/voices.py <world id> [presets...]` (in Docker, `docker compose exec api sh -c
-  'cd /data/packages/speech/1.0.0 && .venv/bin/python voices.py <world id>'`) has Kokoro
+  'cd /data/packages/speech/1.1.0 && .venv/bin/python voices.py <world id>'`) has Kokoro
   (`KOKORO_URL`, default `http://localhost:8880`; started from this folder's compose file when it
   is not up, or it says so when Docker is unavailable) speak one neutral 9 s
   sentence in each preset, by default eight varied ones (`af_heart` and `am_michael` warm,

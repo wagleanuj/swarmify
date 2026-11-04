@@ -1,16 +1,19 @@
-"""Chatterbox Turbo speech and faster-whisper word times over HTTP, for Swarmify's speech connector.
+"""Chatterbox speech and faster-whisper word times over HTTP, for Swarmify's speech connector.
 
 POST /v1/audio/speech  OpenAI-style JSON {"input", "voice", "response_format": "wav", "seed"}: a WAV
                        (16-bit). The same fields as a multipart form with a `reference` file (5
-                       to 10 s of speech) clone that voice; its conditioning is cached per clip
+                       to 10 s of speech) clone that voice; its conditioning is cached per model
+                       and clip. `model` "chatterbox" speaks with the full model (loaded on first
+                       use), which takes `exaggeration`, `cfg_weight` and `temperature`; any
+                       other model is Turbo, which takes `temperature` only
 POST /v1/align         form fields `file` (audio) and `text`: {"timestamps": [{"word", "start_time",
                        "end_time"}]}, the shape Kokoro-FastAPI's captioned speech returns
 GET  /health           ok once both models are loaded, with the delivery `tags` Turbo understands
                        written in brackets in the input, as "[whispering] Who sleeps?", and
-                       `clips: true`, since it takes a reference clip
+                       `clips: true`, since it takes a reference clip, and the `models` it serves
 
-Both models load once at start. Chatterbox runs on an NVIDIA GPU (CUDA) or the Apple GPU (MPS)
-when there is one, else on the CPU; faster-whisper runs on the CPU.
+Turbo and faster-whisper load once at start. Chatterbox runs on an NVIDIA GPU (CUDA) or the Apple
+GPU (MPS) when there is one, else on the CPU; faster-whisper runs on the CPU.
 """
 
 import hashlib
@@ -25,16 +28,19 @@ import numpy as np
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from wordmatch import match_words
 
 models: dict[str, Any] = {}
-"""`tts` and `asr` once loaded, and `device`; a test puts fakes here and skips the lifespan."""
-# ponytail: one request per model at a time; Chatterbox keeps its voice on the model object.
+"""`tts` (Turbo) and `asr` once loaded, `full` (ChatterboxTTS) once first asked for, and `device`;
+a test puts fakes here and skips the lifespan."""
+# ponytail: one take at a time across both models; Chatterbox keeps its voice on the model object.
 tts_lock, asr_lock = threading.Lock(), threading.Lock()
-voices: dict[str, Any] = {}
-"""Turbo's conditioning by the clip's sha256; "" is its built-in voice."""
+voices: dict[tuple[str, str], Any] = {}
+"""Each model's conditioning by (model key, the clip's sha256); "" is the model's built-in voice."""
+FULL = "chatterbox"
+"""The `model` that picks the full ChatterboxTTS; anything else is Turbo."""
 # ponytail: kept for the process's life; a catalog holds a handful of clips.
 # Turbo's added tokens (its added_tokens.json), each spoken as `[tag]`.
 TAGS = [
@@ -74,6 +80,10 @@ class Speech(BaseModel):
     voice: str = "default"  # accepted for OpenAI compatibility; a `reference` clip sets the voice
     response_format: str = "wav"
     seed: int | None = None
+    exaggeration: float | None = Field(None, ge=0.25, le=2.0)
+    # 0 crashes chatterbox-tts 0.1.7: "Sizes of tensors must match" in t3.inference
+    cfg_weight: float | None = Field(None, gt=0.0, le=1.0)
+    temperature: float | None = Field(None, ge=0.05, le=2.0)
 
 
 @app.get("/health")
@@ -84,13 +94,23 @@ def health() -> dict[str, Any]:
         "device": models.get("device"),
         "tags": TAGS,
         "clips": True,
+        "models": ["chatterbox-turbo", FULL],
     }
 
 
-def conditioned(tts: Any, clip: bytes | None) -> None:
-    """Point Turbo at the clip's voice, conditioning on it the first time; None is its own."""
-    key = hashlib.sha256(clip).hexdigest() if clip else ""
-    voices.setdefault("", tts.conds)
+def full_model() -> Any:
+    """The full ChatterboxTTS, loaded the first time a request asks for it (under tts_lock)."""
+    if "full" not in models:
+        from chatterbox.tts import ChatterboxTTS
+
+        models["full"] = ChatterboxTTS.from_pretrained(device=models["device"])
+    return models["full"]
+
+
+def conditioned(tts: Any, clip: bytes | None, model: str = "tts") -> None:
+    """Point the model at the clip's voice, conditioning on it the first time; None is its own."""
+    key = (model, hashlib.sha256(clip).hexdigest() if clip else "")
+    voices.setdefault((model, ""), tts.conds)
     if key not in voices:
         assert clip is not None
         with tempfile.NamedTemporaryFile(suffix=".wav") as f:
@@ -130,14 +150,17 @@ async def speech(request: Request) -> Response:
 
 
 def speak(req: Speech, clip: bytes | None) -> Response:
-    tts = models["tts"]
+    full = req.model == FULL
+    settings = ("exaggeration", "cfg_weight", "temperature") if full else ("temperature",)
+    kwargs = {k: v for k in settings if (v := getattr(req, k)) is not None}
     with tts_lock:
-        conditioned(tts, clip)
+        tts = full_model() if full else models["tts"]
+        conditioned(tts, clip, "full" if full else "tts")
         if req.seed is not None:
             import torch
 
             torch.manual_seed(req.seed)
-        samples = np.asarray(tts.generate(req.input)).reshape(-1)
+        samples = np.asarray(tts.generate(req.input, **kwargs)).reshape(-1)
     pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2")
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:

@@ -129,7 +129,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         ("remotion_build", "1.0.2", "connectors/remotion_build"),
         ("remotion_render", "1.0.4", "connectors/remotion_render"),
         ("slack", "1.1.0", "connectors/slack"),
-        ("speech", "1.0.0", "connectors/speech"),
+        ("speech", "1.1.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
         ("youtube", "1.1.0", "connectors/youtube"),
     ]
@@ -138,7 +138,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},
         {"name": "remotion_render", "version": "1.0.4"},
-        {"name": "speech", "version": "1.0.0"},
+        {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
     ]
@@ -317,7 +317,7 @@ def test_progress_streams_on_the_world_events(live_url: str, transport: FakeTran
 def test_the_speech_package_shows_whether_each_engine_answers(client: TestClient) -> None:
     w = world(client)
     listed = {c["name"]: c for c in client.get(f"/api/worlds/{w}/connectors").json()}
-    assert listed["speech"]["services"] == ["engines"] and listed["speech"]["version"] == "1.0.0"
+    assert listed["speech"]["services"] == ["engines"] and listed["speech"]["version"] == "1.1.0"
     assert listed["youtube"]["services"] == [] and listed["youtube"]["health"] is None
     down = "http://127.0.0.1:9"  # nothing listens on discard
     setup = {"shared": {"speech_endpoints": down}, "world": {}}
@@ -512,7 +512,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},  # the default packages
         {"name": "remotion_render", "version": "1.0.4"},
-        {"name": "speech", "version": "1.0.0"},
+        {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
     ]
@@ -529,7 +529,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},
         {"name": "remotion_render", "version": "1.0.4"},
-        {"name": "speech", "version": "1.0.0"},
+        {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
     ]
@@ -538,7 +538,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},
         {"name": "remotion_render", "version": "1.0.4"},
-        {"name": "speech", "version": "1.0.0"},
+        {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
     ]
