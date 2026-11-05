@@ -15,6 +15,7 @@ removes the folder graphify recreated.
 """
 
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -33,6 +34,12 @@ from swarmify_memory.ports import ASSETS, GRAPH_OUT, graph_file, graph_size
 
 log = logging.getLogger(__name__)
 
+SKIP_DIRS = frozenset({"node_modules", ".git", ".venv", "__pycache__"})
+"""Folders no graph needs and the watcher must not walk: one remotion build's node_modules alone is
+some 20,000 files, and a world keeps one per run."""
+BUILDS = "runs/*/*/build/"
+"""Each build stage's working copy of its Template (code, not knowledge): neither watched nor
+extracted. The stage's artifacts stay in."""
 DEBOUNCE = 30.0
 """Seconds a world must be quiet after its last file change before it is rebuilt."""
 POLL = 2.0
@@ -66,6 +73,8 @@ def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
         f"{GRAPH_OUT}/",
         "--exclude",
         f"{ASSETS}/",
+        "--exclude",
+        BUILDS,
         *(["--allow-partial"] if allow_shrink else []),
     ]
 
@@ -90,15 +99,27 @@ def run_graphify(folder: Path, allow_shrink: bool = False) -> Usage:
 
 
 def snapshot(folder: Path) -> Snapshot:
-    # ponytail: a full stat walk per world per poll; switch to FSEvents/inotify (watchdog) when a
-    # world holds tens of thousands of files.
-    skipped = (folder / GRAPH_OUT, folder / ASSETS)
+    """Every file's (mtime, size), pruning the graph output, the assets, run builds and SKIP_DIRS
+    before descending, so the poll stays cheap however many builds a world keeps."""
+    # ponytail: a stat walk per world per poll; switch to FSEvents/inotify (watchdog) when a
+    # world's knowledge itself reaches tens of thousands of files.
     files: Snapshot = {}
-    for path in folder.rglob("*"):
-        if path.is_file() and not any(path.is_relative_to(s) for s in skipped):
-            stat = path.stat()
-            files[str(path.relative_to(folder))] = (stat.st_mtime, stat.st_size)
+    for root, dirs, names in os.walk(folder):
+        rel = Path(root).relative_to(folder)
+        dirs[:] = [d for d in dirs if not _skipped(rel / d)]
+        for name in names:
+            stat = (Path(root) / name).stat()
+            files[str(rel / name)] = (stat.st_mtime, stat.st_size)
     return files
+
+
+def _skipped(rel: Path) -> bool:
+    parts = rel.parts
+    return (
+        rel.name in SKIP_DIRS
+        or parts in ((GRAPH_OUT,), (ASSETS,))
+        or (len(parts) == 4 and parts[0] == "runs" and parts[3] == "build")
+    )
 
 
 class GraphWriter:
