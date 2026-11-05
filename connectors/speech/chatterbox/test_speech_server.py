@@ -136,3 +136,30 @@ def test_it_runs_on_an_nvidia_gpu_else_an_apple_one_else_the_cpu(
     cuda: bool, mps: bool, where: str
 ) -> None:
     assert server.device(_Torch(cuda, mps)) == where
+
+
+def test_idle_unload_frees_the_models_and_the_next_take_reloads(
+    monkeypatch: pytest.MonkeyPatch, full: Turbo
+) -> None:
+    """After an hour without a take both models and their voices go; a take loads Turbo again."""
+    monkeypatch.setattr(server, "IDLE_UNLOAD", 3600.0)
+    monkeypatch.setattr(server, "last_used", 1000.0)
+    assert not server.unload_idle(now=1000.0 + 3599)
+    assert server.unload_idle(now=1000.0 + 3601)
+    assert "tts" not in server.models and "full" not in server.models and not server.voices
+    assert not server.unload_idle(now=1000.0 + 9999)  # nothing left to free
+    reloaded = Turbo()
+    monkeypatch.setitem(server.models, "device", "cpu")
+    monkeypatch.setattr(server, "turbo_model", lambda: server.models.setdefault("tts", reloaded))
+    speech(TestClient(server.app))
+    assert reloaded.spoke == [("Who sleeps?", "built-in")]
+
+
+def test_idle_unload_waits_for_a_take_in_progress(
+    monkeypatch: pytest.MonkeyPatch, turbo: Turbo
+) -> None:
+    monkeypatch.setattr(server, "IDLE_UNLOAD", 1.0)
+    monkeypatch.setattr(server, "last_used", 0.0)
+    with server.tts_lock:
+        assert not server.unload_idle(now=100.0)
+    assert server.unload_idle(now=100.0)

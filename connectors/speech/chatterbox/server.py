@@ -14,12 +14,19 @@ GET  /health           ok once both models are loaded, with the delivery `tags` 
 
 Turbo and faster-whisper load once at start. Chatterbox runs on an NVIDIA GPU (CUDA) or the Apple
 GPU (MPS) when there is one, else on the CPU; faster-whisper runs on the CPU.
+
+After CHATTERBOX_IDLE_UNLOAD seconds without a take (default 3600; 0 keeps them forever) both
+Chatterbox models and their cached voices are dropped and the GPU memory is given back, so other
+GPU work (renders) can use it; the next take loads its model again (some seconds, once).
 """
 
+import gc
 import hashlib
 import io
+import os
 import tempfile
 import threading
+import time
 import wave
 from contextlib import asynccontextmanager
 from typing import Any
@@ -41,7 +48,9 @@ voices: dict[tuple[str, str], Any] = {}
 """Each model's conditioning by (model key, the clip's sha256); "" is the model's built-in voice."""
 FULL = "chatterbox"
 """The `model` that picks the full ChatterboxTTS; anything else is Turbo."""
-# ponytail: kept for the process's life; a catalog holds a handful of clips.
+# ponytail: kept until the models unload when idle; a catalog holds a handful of clips.
+IDLE_UNLOAD = float(os.environ.get("CHATTERBOX_IDLE_UNLOAD", "3600"))
+last_used = time.monotonic()
 # Turbo's added tokens (its added_tokens.json), each spoken as `[tag]`.
 TAGS = [
     "whispering", "happy", "angry", "sarcastic", "surprised", "fear", "crying", "dramatic",
@@ -68,7 +77,40 @@ async def lifespan(_app: FastAPI):
     models["device"] = device(torch)
     models["tts"] = ChatterboxTurboTTS.from_pretrained(device=models["device"])
     models["asr"] = WhisperModel("small.en", device="cpu", compute_type="int8")
+    if IDLE_UNLOAD > 0:
+        threading.Thread(target=_watch_idle, daemon=True).start()
     yield
+
+
+def _watch_idle() -> None:
+    while True:
+        time.sleep(60)
+        unload_idle()
+
+
+def unload_idle(now: float | None = None) -> bool:
+    """Drop both Chatterbox models and their voices when no take came for IDLE_UNLOAD seconds, and
+    give the GPU memory back. True when something was unloaded. A take in progress keeps them."""
+    now = time.monotonic() if now is None else now
+    if IDLE_UNLOAD <= 0 or now - last_used < IDLE_UNLOAD or not (models.keys() & {"tts", "full"}):
+        return False
+    if not tts_lock.acquire(blocking=False):
+        return False
+    try:
+        models.pop("tts", None)
+        models.pop("full", None)
+        voices.clear()
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+        return True
+    finally:
+        tts_lock.release()
 
 
 app = FastAPI(title="speech-chatterbox", lifespan=lifespan)
@@ -95,7 +137,17 @@ def health() -> dict[str, Any]:
         "tags": TAGS,
         "clips": True,
         "models": ["chatterbox-turbo", FULL],
+        "loaded": sorted(models.keys() & {"tts", "full"}),
     }
+
+
+def turbo_model() -> Any:
+    """Turbo, loaded at start and again after an idle unload (under tts_lock)."""
+    if "tts" not in models:
+        from chatterbox.tts_turbo import ChatterboxTurboTTS
+
+        models["tts"] = ChatterboxTurboTTS.from_pretrained(device=models["device"])
+    return models["tts"]
 
 
 def full_model() -> Any:
@@ -153,14 +205,17 @@ def speak(req: Speech, clip: bytes | None) -> Response:
     full = req.model == FULL
     settings = ("exaggeration", "cfg_weight", "temperature") if full else ("temperature",)
     kwargs = {k: v for k in settings if (v := getattr(req, k)) is not None}
+    global last_used
     with tts_lock:
-        tts = full_model() if full else models["tts"]
+        last_used = time.monotonic()
+        tts = full_model() if full else turbo_model()
         conditioned(tts, clip, "full" if full else "tts")
         if req.seed is not None:
             import torch
 
             torch.manual_seed(req.seed)
         samples = np.asarray(tts.generate(req.input, **kwargs)).reshape(-1)
+        last_used = time.monotonic()
     pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2")
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
