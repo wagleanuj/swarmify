@@ -300,8 +300,28 @@ def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
 def test_the_assets_are_files_not_knowledge_so_the_graph_skips_them(tmp_path: Path) -> None:
     cmd = extract_command(tmp_path)
     excluded = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--exclude"]
-    assert excluded == [f"{GRAPH_OUT}/", "assets/"]
+    assert excluded == [f"{GRAPH_OUT}/", "assets/", "runs/*/*/build/"]
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets/bed.mp3").write_bytes(b"ID3")
     (tmp_path / "notes.md").write_text("x")
     assert list(writer_module.snapshot(tmp_path)) == ["notes.md"]
+
+
+def test_run_builds_and_dependency_folders_are_neither_watched_nor_extracted(
+    tmp_path: Path,
+) -> None:
+    """A world keeps a remotion build (with its node_modules) per run: the poll must not walk them
+    every two seconds, and graphify must not read template code as knowledge."""
+    stage = tmp_path / "runs/run_1/stage_1"
+    built = ("build/src/Main.tsx", "build/node_modules/react/index.js", "artifacts/video.mp4.md")
+    for path in built:
+        (stage / path).parent.mkdir(parents=True, exist_ok=True)
+        (stage / path).write_text("x")
+    (tmp_path / "skills/node_modules").mkdir(parents=True)
+    (tmp_path / "skills/node_modules/x.js").write_text("x")
+    (tmp_path / "notes.md").write_text("x")
+    assert sorted(writer_module.snapshot(tmp_path)) == [
+        "notes.md",
+        "runs/run_1/stage_1/artifacts/video.mp4.md",
+    ]
+    assert "runs/*/*/build/" in extract_command(tmp_path)
