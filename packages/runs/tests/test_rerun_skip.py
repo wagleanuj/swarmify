@@ -361,3 +361,40 @@ def test_a_skip_of_a_failed_run_continues_as_a_fork_with_the_stage_skipped(
     assert "write is done" in runner.propose(run.id, change(run, "skip", "write")).violations
     late = change(run, "rerun", "render")
     assert runner.propose(run.id, late).violations == ["render has not run"]
+
+
+def test_a_rerun_of_a_failed_stage_while_its_retro_waits_runs_it_again_in_place(
+    runner: Runner, calls: Calls
+) -> None:
+    """A failed run is live until its retro settles: a Rerun of the failed stage resets it, the
+    gate before it and the stages the failure passed over, but not one a Skip passed over, and
+    runs them again."""
+    extra = StageDef("extra", "connector", {"calls": "remotion_render"})
+    retro = StageDef("retro", "retro", {"kind": "skill", "ask": "Keep the skill?"})
+    runner.retro = lambda *_: True  # it proposes, so it waits at its gate
+    calls.failing = {"write"}
+    run = runner.start("world_1", "wf_1", 1, "Short", [PICK, WRITE, RENDER, extra, retro])
+    run = at(runner, run.id, "waiting_gate")
+    skip = change(run, "skip", "extra")
+    runner.apply(run.id, skip, runner.propose(run.id, skip).revision, "operator")
+    runner.decide(run.id, choice="idea 1")
+    wait_for(lambda: fetch(runner, run.id).stages[4].status == "waiting")
+    run = fetch(runner, run.id)
+    assert statuses(run) == ["done", "failed", "skipped", "skipped", "waiting"]
+    rerun = change(run, "rerun", "write", "Mind the length.")
+
+    proposal = runner.propose(run.id, rerun)
+    assert proposal.violations == [] and proposal.in_place
+    assert proposal.before == {
+        "pick": "done", "write": "failed", "render": "skipped", "retro": "waiting",
+    }  # fmt: skip
+    assert set(proposal.after.values()) == {"pending"}
+    applied = runner.apply(run.id, rerun, proposal.revision, "operator")
+    assert applied.fork is None
+    again = ["waiting", "pending", "pending", "skipped", "pending"]
+    wait_for(lambda: statuses(fetch(runner, run.id)) == again)
+    runner.decide(run.id, choice="idea 1")  # the gate before it asks again, as for any Rerun
+    wait_for(lambda: len(calls.ran) == 3)
+    run = at(runner, run.id, "waiting_gate")
+    assert calls.ran == [("write", ""), ("write", "Mind the length."), ("render", "")]
+    assert statuses(run) == ["done", "done", "done", "skipped", "waiting"]

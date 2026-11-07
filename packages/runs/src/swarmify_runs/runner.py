@@ -449,7 +449,7 @@ def _as_event(message: dict[str, Any]) -> RunEvent | _ChildEnded | None:
         case "decide":
             return GateAnswered(message["index"])
         case "rerun":
-            return Rerun(message["to"], message.get("change", ""))
+            return Rerun(message["to"], message.get("change", ""), tuple(message.get("keep", ())))
         case "skip":
             return Skip(message["index"], message.get("change", ""))
         case "budget":

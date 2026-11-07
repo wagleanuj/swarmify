@@ -356,7 +356,8 @@ export function RunTimeline() {
     const at = stage;
     items.push({ label: "Skip", note: `Shows the check first; ${at.name} is passed over once you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "skip" }); } });
   }
-  if (stage && (ended ? ["done", "failed"] : ["done"]).includes(stage.status)) {
+  // A step that failed re-runs in place while the run is live (its retro still to settle).
+  if (stage && ["done", "failed"].includes(stage.status)) {
     const at = stage;
     items.push({ label: "Re-run from here", note: `Shows what it resets and costs first; nothing changes until you apply`, onSelect: () => { setEditing(null); setStepping({ id: at.id, kind: "rerun" }); } });
   }

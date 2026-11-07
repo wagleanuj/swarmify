@@ -96,12 +96,14 @@ class BudgetAdded:
 
 @dataclass(frozen=True)
 class Rerun:
-    """A Rerun (ADR 0027): the finished stage `to` and every later one run again, as a send-back
-    from anywhere does, from a gate or a pause. A skipped stage stays skipped. `change` is the
-    recorded Run Change it carries out."""
+    """A Rerun (ADR 0027): the finished or failed stage `to` and every later one run again, as a
+    send-back from anywhere does, from a gate or a pause (a failed run's retro waits at one). A
+    skipped stage stays skipped, but for one a failure passed over that is not in `keep`, the
+    stages a Skip passed over. `change` is the recorded Run Change it carries out."""
 
     to: int
     change: str = ""
+    keep: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -228,13 +230,13 @@ def transition(
             _require(state.over_budget, "the run is not over budget")
             stages[stages.index("waiting")] = "pending"  # runs again, from where it stopped
             return _settle(kinds, replace(state, over_budget=False), stages)
-        case Rerun(to):
+        case Rerun(to, _, keep):
             at_work = state.status not in ("waiting_gate", "paused") or "running" in stages
             _require(not at_work, "the run is at work: pause first")
             _require(not state.over_budget, "the run waits at a budget gate: add money or abort")
-            _require(_at(stages, to) == "done", f"stage {to} has not finished")
+            _require(_at(stages, to) in ("done", "failed"), f"stage {to} has not finished")
             to = rerun_from(kinds, stages, to)
-            again: list[StageStatus] = [s if s == "skipped" else "pending" for s in stages[to:]]
+            again = rerun_again(stages, to, keep)
             return _settle(
                 kinds, replace(state, send_backs=state.send_backs + 1), stages[:to] + again
             )
@@ -262,6 +264,18 @@ def rerun_from(kinds: tuple[str, ...], stages: list[StageStatus], to: int) -> in
     """Where a Rerun of stage `to` starts: at the answered gate right before it, if any, so the
     gate asks again and nothing it confirmed runs twice on one answer (ADR 0007)."""
     return to - 1 if to and kinds[to - 1] == "gate" and stages[to - 1] == "done" else to
+
+
+def rerun_again(
+    stages: list[StageStatus], to: int, keep: tuple[int, ...] = ()
+) -> list[StageStatus]:
+    """The statuses of stage `to` and later after a Rerun from `to`: pending, but a skipped stage
+    stays skipped unless it lies after a failure, which passed over it, and is not in `keep`."""
+    failed = next((i for i in range(to, len(stages)) if stages[i] == "failed"), len(stages))
+    return [
+        s if s == "skipped" and (i < failed or i in keep) else "pending"
+        for i, s in enumerate(stages[to:], to)
+    ]
 
 
 def _settle(
