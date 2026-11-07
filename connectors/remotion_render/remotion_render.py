@@ -26,6 +26,7 @@ loopback, so a render never installs or downloads; a project brings its `node_mo
 images, which a Template's prepare command installs.
 """
 
+import fcntl
 import json
 import os
 import re
@@ -33,6 +34,8 @@ import shutil
 import socket
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -54,6 +57,9 @@ DEV = Path("/dev")
 GPU = ("nvidia0", "dri/renderD*")
 """A GPU the sandbox handed this process (its Manifest's `permissions.gpu`): NVIDIA's, or any
 driver's DRM render node."""
+GPU_LOCK = "SWARMIFY_GPU_LOCK"
+"""The lock file every process granted the GPU shares, which each GPU chunk holds."""
+WAITING = "Waiting for the GPU"
 """The Remotion CLI in a project, which its `npm ci` installs."""
 """Where the install step's `remotion browser ensure` put Chrome Headless Shell."""
 
@@ -112,6 +118,9 @@ def alive(pid: int) -> bool:
 def progress(log: str) -> tuple[float, str]:
     """Progress from the CLI log: rendering frames is the first 90 percent, encoding the rest.
     A render in chunks counts frames done over the whole range, after its last chunk line."""
+    if log.rstrip().endswith(WAITING):
+        value, _ = progress(log.rstrip().removesuffix(WAITING))
+        return value, "waiting for the GPU"
     if chunks := list(_CHUNK.finditer(log)):
         before, whole = int(chunks[-1][1]), int(chunks[-1][2])
         steps = _STEP.findall(log, chunks[-1].end())
@@ -318,6 +327,24 @@ def _run(name: str, argv: list[str], project: Path, log: Any) -> str:
     return Path(log.name).read_bytes()[start:].decode(errors="replace")
 
 
+@contextmanager
+def _gpu(log: Any) -> Iterator[None]:
+    """The card to this process alone while it runs: an exclusive flock on the shared GPU lock,
+    saying in the log when another GPU job holds it. Without the variable, no lock."""
+    path = os.environ.get(GPU_LOCK)
+    if not path:
+        yield
+        return
+    with open(path, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            log.write(f"{WAITING}\n")
+            log.flush()
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        yield  # closing the file lets it go
+
+
 def _frames(frames: str, composition: str, listed: Any) -> tuple[int, int]:
     """The first and last frame to render: the `frames` param's, else the composition's whole
     length, which `listed()` reads from `remotion compositions`' table (the CLI has no JSON)."""
@@ -360,7 +387,8 @@ def _chunked(state: dict[str, Any], log: Any) -> None:
             argv = [cli, "render", str(bundle), composition, str(parts / f"{n}.mp4"), *flags]
             argv += [f"--frames={start}-{end}", f"--separate-audio-to={parts / f'{n}.wav'}"]
             argv.append(f"--port={_free_port()}")
-            _run(f"remotion render of frames {start}-{end}", argv, project, log)
+            with _gpu(log):
+                _run(f"remotion render of frames {start}-{end}", argv, project, log)
         log.write(f"Chunk {first}-{last}: {last - first + 1}/{last - first + 1} frames done\n")
         (parts / "video.txt").write_text("".join(f"file '{n}.mp4'\n" for n in range(len(starts))))
         (parts / "audio.txt").write_text("".join(f"file '{n}.wav'\n" for n in range(len(starts))))

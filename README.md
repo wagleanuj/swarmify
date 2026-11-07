@@ -652,6 +652,22 @@ sandboxed command any user namespace of its own.
   with them Unix sockets, which Chrome for Testing opens and the sandbox otherwise refuses. No process, granted or not,
   can reach the sandbox runner's socket: its folder is denied like the data directory. See GPU
   renders under Deployment for giving the `sandbox` service the GPU.
+- GPU lock: on any platform, a process granted `permissions.gpu` gets `SWARMIFY_GPU_LOCK`, the
+  full path of one lock file (`<data>/sandbox/gpu.lock`) that every such process, in every run,
+  shares and may write; a process without the grant gets no variable and cannot write it. Two
+  GPU jobs on one card at once fail or crawl, so a package holds an exclusive `flock` on that
+  file around each process it runs on the GPU, and when the lock is taken says so in its
+  progress (`waiting for the GPU`). In Python:
+
+  ```python
+  with open(os.environ["SWARMIFY_GPU_LOCK"], "a") as lock:
+      fcntl.flock(lock, fcntl.LOCK_EX)  # try LOCK_NB first to report the wait
+      subprocess.run(gpu_command)
+  ```
+
+  Hold it per process, not per job, so other jobs get the card between a long job's steps.
+  Without the variable (not granted, or run outside Swarmify) a package runs unlocked.
+  remotion_render holds it for each GPU render chunk.
 - Environment: its own Setup values and the few variables every process needs, never another
   package's nor the API's own (the sign-in password, the Claude token), whatever starts it. Nor
   can it read another process's: on Linux the sandbox's PID namespace hides them, on macOS the

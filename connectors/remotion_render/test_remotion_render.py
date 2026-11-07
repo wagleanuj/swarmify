@@ -4,6 +4,7 @@ connector sandbox and rendering with a fake Remotion CLI as the project's own (`
 its project one of the world's Templates (ADR 0028) or a build folder of the run.
 `SWARMIFY_REMOTION_PROJECT` opts in to one real render."""
 
+import fcntl
 import json
 import os
 import shutil
@@ -54,7 +55,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     `uv sync`ed there, then the (fake) npm and Remotion browser steps."""
     data = tmp_path_factory.mktemp("data")
     defaults = registry(data, FakeTransport()).install_defaults()
-    assert defaults["remotion_render"] == "1.0.4"
+    assert defaults["remotion_render"] == "1.0.5"
     return data / "packages"
 
 
@@ -150,7 +151,7 @@ def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
 def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     installed: Path,
 ) -> None:
-    folder = installed / "remotion_render" / "1.0.4"
+    folder = installed / "remotion_render" / "1.0.5"
     assert (folder / ".venv" / "bin" / "python").is_file()
     assert (folder / "fake-install.log").read_text().splitlines() == [
         "npm ci --ignore-scripts --no-audit --no-fund",
@@ -163,7 +164,7 @@ def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Gi
     """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
-    assert render is not None and render.version == "1.0.4"
+    assert render is not None and render.version == "1.0.5"
     assert connectors._env(render) == {}
     connectors.save_setup(W, "remotion_render", {}, {"concurrency": "2"})
     assert connectors._env(render) == {"SWARMIFY_RENDER_CONCURRENCY": "2"}
@@ -241,7 +242,7 @@ def test_renders_the_script_into_a_video_with_a_sidecar(
 @pytest.fixture
 def own_browser(installed: Path) -> Iterator[Path]:
     """What `remotion browser ensure` leaves beside the installed package, for one test."""
-    browsers = installed / "remotion_render" / "1.0.4" / "node_modules" / ".remotion"
+    browsers = installed / "remotion_render" / "1.0.5" / "node_modules" / ".remotion"
     shell = browsers / "chrome-headless-shell" / "linux64" / "chrome-headless-shell"
     shell.parent.mkdir(parents=True)
     shell.write_text("#!/bin/sh\n")
@@ -381,6 +382,32 @@ def test_a_failing_chunk_fails_the_job_with_its_output(
     assert "No composition with the ID Broken found." in status["error"]
     assert [c[0] for c in _calls(job)] == ["bundle", "compositions", "render", "render"]
     assert not rr._hidden(Path(json.loads(job.read_text())["output"]), "parts").exists()
+
+
+def test_each_gpu_chunk_waits_for_the_shared_gpu_lock_and_says_so(
+    tmp_path: Path, fake_npx: Path, gpu: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another GPU job holding the card: the render waits, saying so in its progress, and
+    renders once it is let go; each chunk takes the lock again, so jobs share the card between
+    chunks."""
+    lock = tmp_path / "gpu.lock"
+    monkeypatch.setenv("SWARMIFY_GPU_LOCK", str(lock))
+    params = stage(tmp_path, fake_npx)["params"]
+    with open(lock, "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        job = Path(rr.remotion_render(idempotency_key="k", **params)["job_id"])
+        deadline = time.monotonic() + 30
+        while (status := rr.remotion_render_status(str(job)))["message"] != "waiting for the GPU":
+            assert status["status"] == "running" and time.monotonic() < deadline, status
+            time.sleep(0.02)
+        assert status["progress"] == 0
+        assert [c[0] for c in _calls(job)] == ["bundle", "compositions"]  # no GPU yet
+    while rr.remotion_render_status(str(job))["status"] == "running":
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    assert json.loads(job.read_text())["status"] == "done"
+    log = Path(json.loads(job.read_text())["log"]).read_text()
+    assert log.count("Waiting for the GPU") == 1  # free for the next chunks
 
 
 def test_without_a_gpu_it_is_one_cli_call(

@@ -276,6 +276,34 @@ def test_a_process_granted_the_gpu_says_so_in_its_plan(tmp_path: Path) -> None:
         assert "allowAllUnixSockets" not in p["sandbox"]["network"]
 
 
+GPU_LOCK = """
+import fcntl, os
+path = os.environ.get("SWARMIFY_GPU_LOCK")
+if path:
+    with open(path, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+print(path or "none")
+"""
+
+
+def test_a_process_granted_the_gpu_gets_the_one_shared_gpu_lock_and_others_none(
+    tmp_path: Path,
+) -> None:
+    """Two GPU jobs never share the card: every process granted it, in any run, is named the
+    same writable lock file to flock; a process without the grant is named none."""
+    sandbox = Sandbox(tmp_path)
+
+    def said(grants: Grants) -> str:
+        confined = sandbox.wrap([sys.executable, "-c", GPU_LOCK], None, grants)
+        done = subprocess.run(confined.argv, capture_output=True, text=True, timeout=60)
+        assert done.returncode == 0, done
+        return done.stdout.strip()
+
+    one, two = said(Grants(gpu=True)), said(Grants(gpu=True))
+    assert one == two == str(sandbox.scratch / "gpu.lock")
+    assert said(Grants()) == "none"
+
+
 UNIX_SOCKET = """
 import socket
 try:
