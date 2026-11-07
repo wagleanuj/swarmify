@@ -6,6 +6,7 @@ import { outcomeLine } from "../api/events";
 import { money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { baseline, the } from "../skin";
+import { Loading, Skeleton } from "../Skeleton";
 
 type Card = components["schemas"]["Scorecard"];
 type Score = components["schemas"]["RunScore"];
@@ -72,7 +73,13 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
         billing.
       </p>
       {error && <p role="alert">{error}</p>}
-      {card === null && !error && <p role="status">Loading...</p>}
+      {card === null && !error && (
+        <Loading className="score-rows-loading">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} h={40} />
+          ))}
+        </Loading>
+      )}
       {card && runs.length === 0 && (
         <div className="empty" data-testid="no-scores">
           <p>No runs yet. The first row lands here when a run of this workflow starts.</p>
@@ -89,7 +96,8 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
             </p>
           )}
           <div className="scroll-x">
-            <table className="scores" data-testid="scores">
+            {/* On a phone each run is a stacked block, each cell led by its column's name. */}
+            <table className="scores score-rows" data-testid="scores">
               <thead>
                 <tr>
                   <th>Run</th>
@@ -111,15 +119,15 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
                       </Link>
                       {r.baseline && <span className="faint"> {baseline()}</span>}
                     </td>
-                    <td>{r.workflow_version === null ? "ad hoc" : `v${r.workflow_version}`}</td>
-                    <td>
+                    <td data-label="Version">{r.workflow_version === null ? "ad hoc" : `v${r.workflow_version}`}</td>
+                    <td data-label="Status">
                       <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status as Run["status"]] ?? r.status}</span>
                     </td>
-                    <td className="num">{firstTry(r)}</td>
-                    <td className="num">{r.send_backs}</td>
-                    <td className="num">{money(r.cost_usd)}</td>
-                    <td className="num">{r.duration_s === null ? "running" : took(r.duration_s)}</td>
-                    <td>{outcomeLine(r.outcomes) ?? "not measured"}</td>
+                    <td data-label="First try" className="num">{firstTry(r)}</td>
+                    <td data-label="Send-backs" className="num">{r.send_backs}</td>
+                    <td data-label="Cost (est.)" className="num">{money(r.cost_usd)}</td>
+                    <td data-label="Duration" className="num">{r.duration_s === null ? "running" : took(r.duration_s)}</td>
+                    <td data-label="Outcome">{outcomeLine(r.outcomes) ?? "not measured"}</td>
                   </tr>
                 ))}
               </tbody>
