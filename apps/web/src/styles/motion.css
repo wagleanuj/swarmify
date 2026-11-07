@@ -1,0 +1,66 @@
+/* Motion: every movement explains a state change. Tokens, page enter, list stagger, skeletons,
+   the route progress line and the sheet's slide; reduced motion turns all of it off at the end. */
+:root {
+  --dur-fast: 120ms; /* press, hover, tap feedback */
+  --dur-base: 200ms; /* fades, tab line, bars in and out */
+  --dur-slow: 320ms; /* sheets, the answered line */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --stagger: 30ms; /* per list item, first 8 only */
+}
+@keyframes pulse { 50% { opacity: 0.35; } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(4px); } }
+
+/* Data that replaces a skeleton fades in where it stands, nothing moves. */
+.enter { animation: fade-in var(--dur-base) var(--ease-out) both; }
+/* Rows of a fetched list fade up 4px one after another; the 8th and later together. */
+.stagger > * { animation: fade-up var(--dur-base) var(--ease-out) both; animation-delay: calc(7 * var(--stagger)); }
+.stagger > :nth-child(1) { animation-delay: 0ms; }
+.stagger > :nth-child(2) { animation-delay: var(--stagger); }
+.stagger > :nth-child(3) { animation-delay: calc(2 * var(--stagger)); }
+.stagger > :nth-child(4) { animation-delay: calc(3 * var(--stagger)); }
+.stagger > :nth-child(5) { animation-delay: calc(4 * var(--stagger)); }
+.stagger > :nth-child(6) { animation-delay: calc(5 * var(--stagger)); }
+.stagger > :nth-child(7) { animation-delay: calc(6 * var(--stagger)); }
+
+/* Skeletons (Skeleton.tsx): blocks at the size of the data to come, breathing slowly. */
+.sk { display: block; width: var(--sk-w, 100%); height: var(--sk-h, 1em); max-width: 100%; border-radius: 4px; background: var(--raised); animation: pulse 1.6s ease-in-out infinite; }
+.sk-lines { display: grid; gap: 8px; width: var(--sk-w, 100%); }
+.sk-lines .sk { height: var(--sk-h, 0.9em); }
+.sk-lines .sk:last-child:not(:first-child) { width: 60%; }
+
+/* The route progress line (Progress.tsx): 2px of accent along the top edge. */
+@keyframes progress-grow { from { transform: scaleX(0); } to { transform: scaleX(0.85); } }
+@keyframes progress-done { from { transform: scaleX(1); } to { transform: scaleX(1); opacity: 0; } }
+.route-progress { position: fixed; top: 0; left: 0; right: 0; z-index: 40; height: 2px; background: var(--accent); transform-origin: left; pointer-events: none; animation: progress-grow 6s var(--ease-out) both; }
+.route-progress.done { animation: progress-done var(--dur-base) var(--ease-in-out) both; }
+
+/* Page enter: the router's view transitions crossfade the page; the bars hold still. */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-base); animation-timing-function: var(--ease-in-out); }
+.topbar { view-transition-name: topbar; }
+.tabbar { view-transition-name: tabbar; }
+.sidebar { view-transition-name: sidebar; }
+
+/* The sheet rises from the bottom and its backdrop fades; closing reverses where the browser
+   can animate a dialog out, and is instant elsewhere. */
+dialog.sheet { transform: translateY(100%); transition: transform var(--dur-slow) var(--ease-out), overlay var(--dur-slow) allow-discrete, display var(--dur-slow) allow-discrete; }
+dialog.sheet[open] { transform: none; }
+dialog.sheet::backdrop { opacity: 0; transition: opacity var(--dur-base), overlay var(--dur-slow) allow-discrete, display var(--dur-slow) allow-discrete; }
+dialog.sheet[open]::backdrop { opacity: 1; }
+@starting-style {
+  dialog.sheet[open] { transform: translateY(100%); }
+  dialog.sheet[open]::backdrop { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, ::backdrop,
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .sk { animation: none; }
+  dialog.sheet, dialog.sheet::backdrop { transition: none; }
+}
