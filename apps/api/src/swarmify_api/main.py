@@ -542,6 +542,12 @@ def create_app(
     channels = notification_service(root)
     learning_svc = learning_service(root)
 
+    def builder_session(run_id: str, stage_id: str) -> str | None:
+        """The session the stage's builder last ran, if any."""
+        agents = whiteboard.list_agents(run_id)
+        found = (a for a in agents if a.stage_id == stage_id and a.name == build.AGENT)
+        return next((a.session_id for a in found), None)
+
     def build_stage(
         run: Run, stage_id: str, stage: StageDef, package: ConnectorDef, recorded: dict[str, str]
     ) -> None:
@@ -552,7 +558,9 @@ def create_app(
         (swarmify_swarm.build) with the package's prompts and network, then call its `tool` on
         the result as the stage's call, a long job, on its `connector` (another package whose
         tool it reuses) or itself. A call already running or done for this visit skips the
-        session, so a restart resumes the call. The folder stays, without its node_modules
+        session, so a restart resumes the call. A visit whose build started and stopped part way
+        (a pause, a restart) keeps its folder as the builder left it, `build.visit` beside it
+        saying so, and the builder continues its session. The folder stays, without its node_modules
         once the call is done, for a person to open."""
         session = package.manifest["build_session"]
         source = Path(package.folder or "")
@@ -574,24 +582,42 @@ def create_app(
         made = Path(params["output_path"]) if output else None
         call = registry.call_for(stage_id)
         template = call.template if call is not None else None
+        # What the visit's build started from, written when it starts: a re-entry of the visit
+        # (a pause, a restart) finds it and goes on with the folder and session as they are.
+        mark = project.with_name("build.visit")
+        started = json.loads(mark.read_text()) if mark.is_file() else {}
+        started = started if started.get("visit") == run.send_backs else {}
         if call is None or call.visit != run.send_backs or call.status == "failed":
-            # A send-back or Rerun revises the last build, kept as build.v<n> (n counting visits
-            # from 1), even one whose render failed; a stage never run, or a retry of the same
-            # visit whose call failed, starts fresh.
-            last = call if call is not None and call.visit != run.send_backs else None
-            previous = project.with_name(f"build.v{last.visit + 1}") if last else None
             try:
-                if previous and (previous.exists() or project.exists()):
-                    build_session.keep(project, previous, made)
+                if started:
+                    template, kept = started["template"], started["previous"]
+                    previous = project.with_name(kept) if kept else None
+                    resume = builder_session(run.id, stage_id) not in (None, started["session"])
                 else:
-                    previous, template = None, None
-                    base = params.get(build_session.BASE)
-                    start = source / session["starter"]
-                    if base and "templates" in package.manifest:
-                        start = build_session.template(package.manifest, folder, str(base))
-                        fingerprint = build_session.fingerprint(start)
-                        template = {"name": str(base), "fingerprint": fingerprint}
-                    build_session.seed(project, start)
+                    # A send-back or Rerun revises the last build, kept as build.v<n> (n counting
+                    # visits from 1), even one whose render failed; a stage never run starts
+                    # fresh.
+                    last = call if call is not None and call.visit != run.send_backs else None
+                    previous = project.with_name(f"build.v{last.visit + 1}") if last else None
+                    if previous and (previous.exists() or project.exists()):
+                        build_session.keep(project, previous, made)
+                    else:
+                        previous, template = None, None
+                        base = params.get(build_session.BASE)
+                        start = source / session["starter"]
+                        if base and "templates" in package.manifest:
+                            start = build_session.template(package.manifest, folder, str(base))
+                            fingerprint = build_session.fingerprint(start)
+                            template = {"name": str(base), "fingerprint": fingerprint}
+                        build_session.seed(project, start)
+                    started = {
+                        "visit": run.send_backs,
+                        "session": builder_session(run.id, stage_id),
+                        "template": template,
+                        "previous": previous.name if previous else None,
+                    }
+                    mark.write_text(json.dumps(started))
+                    resume = False
                 limits = {k: float(params[k]) for k in ("max_turns", "minutes") if k in params}
             except ValueError as exc:
                 raise ConnectorError(str(exc)) from exc
@@ -652,6 +678,7 @@ def create_app(
                     minutes=limits.get("minutes", build.MINUTES),
                     revises=revises,
                     note=run.send_back_note(stage.name),
+                    resume=resume,
                 )
             except Stopped as exc:
                 raise OverBudget(str(exc)) from exc
@@ -671,6 +698,13 @@ def create_app(
             },
         }
         registry.run_stage(run.world_id, run.id, stage_id, then, run.send_backs, recorded)
+        if runner.storage.stop_of(run.id) == "pause":  # sent during the render, which ran on
+            said = (
+                "The run was paused during the render, so it pauses now that the render is done."
+                " On resume it goes on from the next stage; the build and the render do not run"
+                " again."
+            )
+            whiteboard.log(stage_id, build.AGENT, "session", said)
         if made and made.is_file():
             memory.record(run.world_id, run.id, stage_id, package.name, made)
         shutil.rmtree(project / "node_modules", ignore_errors=True)

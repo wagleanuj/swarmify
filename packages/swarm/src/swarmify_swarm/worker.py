@@ -700,15 +700,19 @@ class Swarm:
         note: str = "",
         servers: Mapping[str, dict[str, Any]] | None = None,
         tools: Sequence[str] = (),
+        resume: bool = False,
     ) -> None:
         """One sandboxed coding session in `folder` (a Build Session, see build.py) with the
         package's `system` prompt and `task`, the operator's `brief`, the stage's other `inputs`
         and the run's gate decisions as required reading, and the MCP `servers` whose `tools`
         (allowed names, as `mcp__<server>__*`) it may call. `revises` names the previous version
         when the session revises it after a send-back with `note`, instead of starting over.
-        Logged, costed and budgeted like any agent, as `builder`, whose closing summary ends the
-        stage log. Raises StageError, with the builder's last log lines, when two sessions fail
-        or time runs out (only with `minutes`); Stopped when the run's Budget stopped it."""
+        `resume` continues the builder's stored session of this visit, stopped part way (a pause,
+        a restart), told to go on (builds.CONTINUE) rather than given the brief again; so does a
+        replacement for a session that died. Logged, costed and budgeted like any agent, as
+        `builder`, whose closing summary ends the stage log. Raises StageError, with the builder's
+        last log lines, when two sessions fail or time runs out (only with `minutes`); Stopped
+        when the run's Budget stopped it."""
         cast = (CastEntry(builds.AGENT, builds.ROLE, model=model),)
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         decisions = _decisions(world_folder, run_id)
@@ -723,7 +727,9 @@ class Swarm:
         def spec(resume: str | None) -> SessionSpec:
             return SessionSpec(
                 system_prompt=system,
-                prompt="\n".join(
+                prompt=builds.CONTINUE
+                if resume
+                else "\n".join(
                     ([revision(note, [str(p) for p in revises])] if revises else [])
                     + [builds.prompt(task, brief, decisions, inputs, assets)]
                 ),
@@ -744,7 +750,7 @@ class Swarm:
         try:
             self._session(
                 at, builds.AGENT, builds.ROLE, spec, allowed, lambda _: None,
-                fresh=True, hooks=hooks, timeout=None if minutes is None else minutes * 60,
+                fresh=not resume, hooks=hooks, timeout=None if minutes is None else minutes * 60,
             )  # fmt: skip
         except StageError as exc:
             raise StageError(f"{exc}\n{builds.last_lines(self.board, stage_id)}") from exc
