@@ -185,7 +185,6 @@ export function Shell() {
     // Slide from the next frame on, so the first placement does not glide in from the left.
     const frame = requestAnimationFrame(() => nav.setAttribute("data-slide", ""));
     addEventListener("resize", place);
-    void document.fonts?.ready.then(place); // the web font swaps in after the first measure
     return () => {
       cancelAnimationFrame(frame);
       removeEventListener("resize", place);
