@@ -2,7 +2,7 @@
 # folder but not enabled by default: a world enables it, with blender_build, when it makes videos
 # in Blender.
 name = "blender_render"
-version = "1.0.3"
+version = "1.0.4"
 label = "Blender render"
 about = "Renders a Blender project's shots on the GPU, then its finish step, into one video."
 kind = "stage"

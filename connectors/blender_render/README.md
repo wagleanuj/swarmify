@@ -150,7 +150,9 @@ re-render.
 **Failures are loud.** A shot whose Blender exits non-zero fails the stage with
 `shot <id>: Blender exited with <code>`, one that writes no frames with `shot <id> wrote no
 frames`, a finish that fails or writes nothing with `the finish step exited with <code>` or `the
-finish step wrote no video at <path>`; each followed by the last 40 lines of the log.
+finish step wrote no video at <path>`; each followed by the last 40 lines of the log. The finish
+step's stdout and stderr go to the same log, after the shots'; when it fails, only its own last 40
+lines follow, so its message leads the error rather than Blender's frame saves.
 
 **Cancel.** SIGTERM to the job process kills the Blender (or ffmpeg, or finish) it is running and
 fails the job with `the render was cancelled`. Aborting the run cancels it through
