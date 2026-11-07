@@ -1,0 +1,8 @@
+{
+  "name": "swarmify-blender-render",
+  "private": true,
+  "description": "The install step's downloads, Blender and ffmpeg (fetch.py), run as npm run fetch",
+  "scripts": {
+    "fetch": ".venv/bin/python fetch.py"
+  }
+}
