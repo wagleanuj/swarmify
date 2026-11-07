@@ -56,7 +56,7 @@ def _serve(data_dir: Path, **env: str) -> Iterator[str]:
     ]
     with subprocess.Popen(cmd, env=env) as server:
         try:
-            # 30 s: a loaded machine (a full suite, a build beside it) takes over 10 to import the app.
+            # 30 s: on a loaded machine the app can take over 10 s to import.
             deadline = time.monotonic() + 30
             while True:
                 try:
