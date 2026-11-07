@@ -11,7 +11,8 @@ the layer the Agent SDK puts a Build Session's Bash in (ADR 0018).
   and reach its own loopback servers (a render's browser talking to its bundle);
 - devices: on Linux, with `Grants.gpu`, the GPU device files of the host the sandbox starts on
   (the launcher finds them there) and Unix sockets, which a GPU browser opens; the sandbox
-  runner's socket stays out of reach, its folder denied to every process;
+  runner's socket stays out of reach, its folder denied to every process. With `Grants.gpu` on
+  any platform it also writes the shared GPU lock (`SWARMIFY_GPU_LOCK`);
 - environment: what the caller gives it, which for a connector is its own Setup values only, and
   no other process's (Linux's PID namespace; on macOS, launcher.mjs's Seatbelt rules).
 
@@ -43,6 +44,10 @@ OBSERVER = HERE / "observe.py"
 SECCOMP = LAUNCHER.parent / "node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp"
 """sandbox-runtime's `apply-seccomp` helpers, which bubblewrap starts in the sandbox on Linux."""
 RUNNER = "SWARMIFY_SANDBOX_RUNNER"
+GPU_LOCK = "SWARMIFY_GPU_LOCK"
+"""Names, to a process granted the GPU, the one lock file every such process shares: a package
+holds an exclusive `flock` on it around each process it runs on the card, so two GPU jobs never
+run at once."""
 REGISTRIES = {
     "uv": ["pypi.org", "files.pythonhosted.org"],
     "npm": ["registry.npmjs.org"],
@@ -216,6 +221,12 @@ class Sandbox:
         home.mkdir(parents=True)
         cwd = cwd.resolve() if cwd else home
         writes = [home, *(p.resolve() for p in grants.writes)]
+        env = {"HOME": str(home), "TMPDIR": str(home)}
+        if grants.gpu:  # the scratch folder's own file, kept by prune
+            lock = self.scratch / "gpu.lock"
+            lock.touch()
+            writes.append(lock)
+            env[GPU_LOCK] = str(lock)
         what = [cwd, home, *_around([p.resolve() for p in grants.reads], writes), *writes]
         reads = self._readable(what, path or os.environ.get("PATH", ""), cwd)  # and writes
         denied = self.denied()
@@ -236,8 +247,7 @@ class Sandbox:
                 },
             },
             "env": {
-                "HOME": str(home),
-                "TMPDIR": str(home),
+                **env,
                 "PYTHONDONTWRITEBYTECODE": "1",  # its package folder is read-only
                 "NODE_USE_ENV_PROXY": "1",  # Node reaches the network through the proxy too
                 "npm_config_update_notifier": "false",  # npx asks the registry for none
