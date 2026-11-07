@@ -16,13 +16,17 @@ logs, stands in for it):
   redirect), unpacked to `vendor/blender/<version>/`, about 380 MB. A download that does not match
   its pin is refused and removed. Off Linux x64 there is no tarball to unpack and a render uses a
   `blender` on `PATH`.
-- **ffmpeg and ffprobe**: ffmpeg-static's `b6.1.1` release builds (the ones `hyperframes_render`
-  fetches), each checked against a pinned SHA-256, into `vendor/bin/`. The Linux x64 build has
-  libass, fontconfig, freetype and libx264, so a finish step can burn ASS captions.
+- **ffmpeg and ffprobe**, each download checked against a pinned SHA-256, into `vendor/bin/`. On
+  Linux x64 they come from BtbN's FFmpeg-Builds GPL tarball of ffmpeg 8.1.3 (a month-end
+  `autobuild-2026-10-31-12-59` release, which BtbN keeps; about 150 MB, only the two binaries
+  unpacked): ffmpeg-static's `b6.1.1` there lacks `drawtext`, which ffmpeg 6.1 builds only with
+  harfbuzz. Elsewhere they are ffmpeg-static's `b6.1.1` release builds (the ones
+  `hyperframes_render` fetches); its macOS arm64 build has the same filters. On both a finish
+  step gets the filters [the project contract](#the-project-contract) lists.
 
 The install reaches only `download.blender.org`, `github.com` and
 `release-assets.githubusercontent.com` besides uv's PyPI hosts; a render reaches no network.
-Measured on the box (2026-11-06): the whole fetch took 19 s.
+Measured on the box (2026-11-06): the whole fetch took 19 s, before ffmpeg moved to BtbN's build.
 
 ## Setup
 
@@ -105,11 +109,15 @@ The finish command's environment:
 | `BLENDER_RUN` | the run's folder: the speech stage's `timings.json` and narration are in its stage folders |
 | `BLENDER_OUTPUT` | the video path to write |
 
-with `ffmpeg` and `ffprobe` (the package's, libass included) and a Python 3 as `python3` (the
+with `ffmpeg` and `ffprobe` (the package's) and a Python 3 as `python3` (the
 package's own uv Python, standard library only) first on `PATH`. A finish step should write only
 `BLENDER_OUTPUT` and temporary files (`TMPDIR`), not into the project: a changed project file
 counts as a shared file and re-renders every shot. Without `finish` the shots are joined in
 order (ffmpeg's concat, streams copied).
+
+The package's ffmpeg guarantees the `drawtext` filter (freetype, harfbuzz, fontconfig), the `ass`
+and `subtitles` filters (libass) and the `libx264` encoder, on Linux x64 and macOS arm64. Other
+platforms get ffmpeg-static's builds as they are.
 
 ## The render
 
@@ -206,4 +214,7 @@ sandbox, and in process, with a fake Blender and ffmpeg on `PATH` (`fake_blender
 `fake_ffmpeg.py`): shot order and environment, the join, the finish environment, the shot cache,
 failures, progress, cancel and the GPU lock with two renders at once; and `stills` over the
 server a Build Session is given, confined to its stage: the sheet, its labels and its errors. With a real `blender` and
-`ffmpeg` on `PATH`, `test_a_real_blender_renders_a_3_frame_shot` renders a 3-frame shot.
+`ffmpeg` on `PATH`, `test_a_real_blender_renders_a_3_frame_shot` renders a 3-frame shot. After
+`npm run fetch` (`vendor/bin/ffmpeg` present),
+`test_the_fetched_ffmpeg_has_the_filters_a_finish_step_is_promised` checks those filters and
+libx264.

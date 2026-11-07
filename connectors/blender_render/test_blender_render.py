@@ -216,6 +216,46 @@ def test_a_download_that_does_not_match_its_pin_is_refused(
     assert not to.exists()
 
 
+def test_on_linux_x64_ffmpeg_and_ffprobe_come_from_the_pinned_tarball(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "src" / "ffmpeg-n8-linux64-gpl"
+    (source / "bin").mkdir(parents=True)
+    for name in ("ffmpeg", "ffprobe", "ffplay"):
+        (source / "bin" / name).write_text(name)
+        (source / "bin" / name).chmod(0o755)
+    tarball = tmp_path / "ffmpeg.tar.xz"
+    subprocess.run(["tar", "-cJf", tarball, "-C", source.parent, source.name], check=True)
+    sha = fetch.hashlib.sha256(tarball.read_bytes()).hexdigest()
+    monkeypatch.setattr(fetch, "VENDOR", tmp_path / "vendor")
+    monkeypatch.setattr(fetch.sys, "platform", "linux")
+    monkeypatch.setattr(fetch.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(fetch, "FFMPEG_LINUX_X64", (tarball.as_uri(), "0" * 64))
+    with pytest.raises(SystemExit, match="not the pinned"):
+        fetch.ffmpeg()
+    monkeypatch.setattr(fetch, "FFMPEG_LINUX_X64", (tarball.as_uri(), sha))
+    fetch.ffmpeg()
+    got = sorted(p.name for p in (tmp_path / "vendor" / "bin").iterdir())
+    assert got == ["ffmpeg", "ffprobe"]
+    assert os.access(tmp_path / "vendor" / "bin" / "ffmpeg", os.X_OK)
+
+
+@pytest.mark.skipif(
+    not (fetch.VENDOR / "bin" / "ffmpeg").is_file(), reason="needs the fetched ffmpeg"
+)
+def test_the_fetched_ffmpeg_has_the_filters_a_finish_step_is_promised() -> None:
+    out = subprocess.run(
+        [fetch.VENDOR / "bin" / "ffmpeg", "-hide_banner", "-filters"],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    filters = {line.split()[1] for line in out.splitlines() if len(line.split()) > 2}
+    assert {"drawtext", "ass", "subtitles"} <= filters
+    assert "--enable-libx264" in subprocess.run(
+        [fetch.VENDOR / "bin" / "ffmpeg", "-hide_banner", "-buildconf"],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+
+
 def test_progress_reads_shots_the_gpu_wait_and_the_finish() -> None:
     assert br.progress("") == (0.0, "starting the render")
     log = "Shot 1/3: s01\nBlender\nShot 2/3: s02\n"
