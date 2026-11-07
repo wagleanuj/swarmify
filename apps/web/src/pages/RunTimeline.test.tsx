@@ -740,3 +740,81 @@ test("an answered review gate shows the video it approved, above the decision", 
   await expect.element(gatePanel.getByTestId("under-review").getByTestId("player")).toHaveAttribute("src", "/api/worlds/world_1/files/runs/run_1/stage_2/artifacts/video.mp4");
   expect(screen.getByTestId("inputs").query()).toBeNull();
 });
+
+test("on a phone a run still loading shows its skeleton under the way back, never an empty page", async () => {
+  await page.viewport(390, 844);
+  let release = () => undefined as void;
+  const loaded = new Promise<void>((done) => (release = done));
+  const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
+  fakeFetch({ "GET /api/runs/run_1": async () => (await loaded, Response.json(waiting)) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toBeVisible();
+  const busy = document.querySelector("main [aria-busy='true']")!;
+  expect(busy).not.toBeNull();
+  // The title, the status line, the strip, the step button and the panel each hold their place.
+  for (const part of [".sk-title", ".sk-status", ".sk-strip", ".sk-step", ".sk-panel"]) {
+    const box = busy.querySelector(part)!.getBoundingClientRect();
+    expect(box.height, part).toBeGreaterThan(0);
+  }
+  expect(busy.querySelector(".sk-step")!.getBoundingClientRect().height).toBe(52);
+  expect(screen.getByText("Loading...").query()).toBeNull();
+  release();
+  await expect.element(screen.getByRole("button", { name: /^Step 4 of 4/ })).toBeVisible();
+  expect(document.querySelector("[aria-busy='true']")).toBeNull();
+});
+
+test("on a phone an 11-step run's strip gives every step a 24px tap and stays inside the screen", async () => {
+  await page.viewport(390, 844);
+  // One long first step squeezes the rest.
+  const steps = Array.from({ length: 11 }, (_, i) => stage(i, `step ${i + 1}`, "connector", i < 10 ? "done" : "running", i === 0 ? timed(0, 40) : timed(40 + i, i < 10 ? 41 + i : null)));
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(run("running", steps)) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("strip")).toBeVisible();
+  const widths = screen.getByTestId("strip").getByRole("button").elements().map((b) => b.getBoundingClientRect().width);
+  expect(widths).toHaveLength(11);
+  for (const w of widths) expect(w).toBeGreaterThanOrEqual(24);
+  expect(screen.getByTestId("strip").element().getBoundingClientRect().right).toBeLessThanOrEqual(390);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  // Ask this run is a thumb tap too.
+  expect(screen.getByRole("button", { name: "Ask this run" }).element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+});
+
+test("on a phone the run menu's button is a borderless 44px tap", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(run("running", [research("done"), voice("running", timed(2, null))])) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toBeVisible();
+  const menu = screen.getByRole("button", { name: "Run actions" }).elements().find((b) => b.checkVisibility())!;
+  const box = menu.getBoundingClientRect();
+  expect([box.width, box.height]).toEqual([44, 44]);
+  expect(getComputedStyle(menu).borderTopColor).toBe("rgba(0, 0, 0, 0)");
+});
+
+test("approving: the action bar slides out first, then the answered state takes its place", async () => {
+  const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
+    "GET /api/gates": () => Response.json([gate("approve", { stage_index: 3, stage_id: "stage_3", earlier_stages: ["video"] })]),
+    "POST /api/runs/run_1/decision": () => Response.json(waiting),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_3");
+  const panel = screen.getByTestId("stage-panel");
+  await expect.element(panel.getByRole("button", { name: "Approve" })).toBeVisible();
+  // With motion on, the bar's slide out is seen before the swap.
+  const motion = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation((q) => (q.includes("reduced-motion") ? ({ matches: false } as MediaQueryList) : motion.call(window, q)));
+  // What the panel showed at each change: the leaving bar must come, and before the answered state.
+  const seen: string[] = [];
+  const watch = new MutationObserver(() => {
+    const el = panel.element();
+    const now = el.querySelector("[data-testid='answered']") ? "answered" : el.querySelector(".inline-gate.leaving .gate-actions") ? "leaving" : null;
+    if (now && seen.at(-1) !== now) seen.push(now);
+  });
+  watch.observe(panel.element(), { subtree: true, childList: true, attributes: true });
+  await panel.getByRole("button", { name: "Approve" }).click();
+  await expect.element(panel.getByTestId("answered")).toMatchTextContent(/^You approved it at \d/);
+  watch.disconnect();
+  expect(seen).toEqual(["leaving", "answered"]);
+  expect(panel.getByRole("button", { name: "Approve" }).query()).toBeNull();
+});
