@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -99,4 +102,32 @@ test("a failing list shows the error, not the empty state", async () => {
   const { screen } = await mountAt("/");
   await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load worlds/);
   await expect.element(screen.getByTestId("empty")).not.toBeInTheDocument();
+});
+
+test("on a phone each world is a stacked row, not a table", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/health": health,
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds": () => Response.json([video, { ...research, run_cap: 3, monthly_budget_usd: 40 }]),
+  });
+  const { screen } = await mountAt("/");
+  const main = screen.getByRole("main");
+  await expect.element(main.getByRole("link").filter({ hasText: "Video" })).toBeVisible();
+  expect(main.element().querySelector("table")).toBeNull();
+  const link = main.getByRole("link").filter({ hasText: "Market research" });
+  await expect.element(link).toHaveAttribute("href", "/worlds/world_2");
+  await expect.element(link).toMatchTextContent(/Market research.*cap 3 · \$40\.00 a month/);
+  await expect.element(main.getByRole("link").filter({ hasText: "Video" })).toMatchTextContent(/cap 2 · no ceiling/);
+  expect(link.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});
+
+test("while the worlds load, skeleton rows hold their place", async () => {
+  fakeFetch({ "GET /api/health": health, "GET /api/worlds": () => new Promise<Response>(() => undefined) });
+  const { screen } = await mountAt("/");
+  await expect.element(screen.getByRole("heading", { name: "Your worlds", level: 1 })).toBeVisible();
+  const busy = screen.getByRole("main").element().querySelector("[aria-busy='true']");
+  expect(busy?.querySelectorAll(".sk")).toHaveLength(3);
+  expect(screen.getByText("Loading...").elements()).toHaveLength(0);
 });
