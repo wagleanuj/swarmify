@@ -1386,7 +1386,9 @@ restarts only `web`: runs in the api (an agent session, a Build Session) carry o
 serves `api` and `graph-writer`. It holds the runtimes packages install with, uv's Python and
 Node with `npm` and `npx`, and nothing a single package needs (ADR 0026): a package's install
 step fetches its own dependencies, a headless browser included, into `/data/packages`. Beside
-them are the shared libraries and fonts such a browser needs, bubblewrap, socat and ripgrep for
+them are the shared libraries and fonts such a browser needs, `libsm6` (with `libice6`), the only
+libraries a package's unpacked Blender linux build links against that the image would otherwise
+lack, so it runs without root in the connector sandbox and a Build Session, bubblewrap, socat and ripgrep for
 the connector sandbox and Build Sessions, the sandbox's launcher, and the Claude Code CLI the
 Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 
