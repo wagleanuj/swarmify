@@ -178,7 +178,7 @@ test("an existing workflow loads its latest version, saves a new one and can ope
 
   await screen.getByRole("button", { name: "Open v1" }).click();
   await expect.element(editor).toHaveValue(STARTER);
-  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Unsaved changes.");
+  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Unsaved changes. Checks pass.");
   await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v2.*Open v2.*v1.*open/);
   await editor.fill(`${STARTER}# v3\n`);
   await screen.getByRole("button", { name: "Save as version 3" }).click();
@@ -481,28 +481,202 @@ test("a copy the other world refuses names what it lacks", async () => {
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
 });
 
-test("on a phone the editor shows the stages read-only and says to edit on a larger screen", async () => {
-  await page.viewport(390, 844);
+const THREE = `name: Weekly short
+stages:
+  - swarm: research
+    goal: Find 5 ideas.
+    done_when: 5 ideas ranked
+    output_type: list[idea]
+  - swarm: draft
+    goal: Write the script.
+    done_when: a script
+  - gate: pick
+    ask: Pick one.
+    kind: pick
+`;
+const three = { ...v1, yaml: THREE };
+/** A phone's app: the shell's own fetches and a 3-stage workflow at version 1. */
+const phoneApp = (routes: Parameters<typeof fakeFetch>[0] = {}) =>
   fake({
     "GET /api/worlds": () => Response.json([video]),
     "GET /api/gates": () => Response.json([]),
     "GET /api/worlds/world_1": () => Response.json(video),
-    "GET /api/workflows/wf_1/versions": () => Response.json([v1]),
+    "GET /api/workflows/wf_1/versions": () => Response.json([three]),
     "POST /api/worlds/world_1/workflows/check": check,
+    ...routes,
+  });
+const bottom = (el: Element) => el.getBoundingClientRect().bottom;
+
+test("on a phone a stage opens in a sheet, its edit lands in the draft and the pinned bar saves it", async () => {
+  await page.viewport(390, 844);
+  let posted = "";
+  phoneApp({
+    "POST /api/workflows/wf_1/versions": async (req) => {
+      posted = ((await req.json()) as { yaml: string }).yaml;
+      return Response.json({ ...v1, id: "wfv_2", number: 2, yaml: posted }, { status: 201 });
+    },
   });
   const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
   await expect.element(screen.getByRole("heading", { name: "Weekly short v1", level: 1 })).toBeVisible();
-  await expect.element(screen.getByText("Edit on a larger screen.")).toBeVisible();
-  const rows = screen.getByTestId("stage-rows").getByRole("listitem");
-  await expect.element(rows.first()).toMatchTextContent(/swarm.*research.*Find 5 short-form.*makes list\[idea\]/);
-  await expect.element(rows.nth(1)).toMatchTextContent(/gate.*pick.*Pick one idea/);
-  expect(screen.getByTestId("stage-rows").getByRole("button").elements()).toHaveLength(0);
-  expect(screen.getByRole("textbox").elements()).toHaveLength(0);
-  expect(screen.getByRole("tab").elements()).toHaveLength(0);
-  expect(screen.getByRole("button", { name: /^Save as version/ }).elements()).toHaveLength(0);
+  expect(screen.getByText("Edit on a larger screen.").elements()).toHaveLength(0);
+  const save = screen.getByRole("button", { name: "Save as version 2" });
+  await expect.element(save).toBeDisabled();
+  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Everything here is saved.");
+  // the save bar sits in view, right above the tab bar
+  const bar = screen.getByTestId("save-bar").element();
+  expect(bottom(bar)).toBeLessThanOrEqual(document.querySelector(".tabbar")!.getBoundingClientRect().top + 1);
+  expect(bottom(bar)).toBeLessThanOrEqual(844);
+
+  // no stage panel in the page; a tap on a row opens its sheet
+  expect(screen.getByLabelText("Goal of draft").elements()).toHaveLength(0);
+  await screen.getByTestId("stage-rows").getByRole("button", { name: /draft/ }).click();
+  const sheet = screen.getByRole("dialog", { name: "Stage settings" });
+  await expect.element(sheet).toBeVisible();
+  for (const label of ["Name of stage 2", "Goal of draft", "Done when of draft", "Tools of draft", "Output type of draft", "Produces of draft", "Graphs of draft", "Agents of draft"]) {
+    await expect.element(sheet.getByLabelText(label)).toBeVisible();
+  }
+  await expect.element(sheet.getByTestId("stage-contract")).toMatchTextContent(/Needs.*list\[idea\]/);
+  await expect.element(sheet.getByRole("button", { name: "Move draft up" })).toHaveTextContent("Move up");
+  await sheet.getByLabelText("Goal of draft").fill("Write a 30 second script.");
+  await sheet.getByRole("button", { name: "Done" }).click();
+  await expect.poll(() => sheet.elements().length).toBe(0); // closed, out of the accessibility tree
+  await expect.element(screen.getByTestId("stage-rows")).toMatchTextContent(/draft.*Write a 30 second script\./);
+  await expect.element(save).toBeEnabled();
+  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Unsaved changes. Checks pass.");
+  await save.click();
+  await expect.element(screen.getByTestId("check-status")).toMatchTextContent(/^Saved as version 2;/);
+  expect(posted).toContain("goal: Write a 30 second script.");
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
 
+test("on a phone a stage is added from its chip, a gate's kind is three segments, and a removal undoes", async () => {
+  await page.viewport(390, 844);
+  phoneApp();
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
+  const rows = screen.getByTestId("stage-rows");
+  await expect.element(rows).toMatchTextContent(/research.*draft.*pick/);
+  expect(screen.getByLabelText("Stage type to add").elements()).toHaveLength(0);
+  const chips = screen.getByRole("group", { name: "Add a stage" }).getByRole("button");
+  expect(chips.elements().map((b) => b.textContent)).toEqual(["+ Swarm", "+ Gate", "+ Connector", "+ Workflow"]);
+  for (const b of chips.elements()) expect(b.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+
+  await screen.getByRole("button", { name: "+ Gate" }).click();
+  const sheet = screen.getByRole("dialog", { name: "Stage settings" });
+  await expect.element(sheet.getByTestId("stage-panel")).toMatchTextContent(/review.*gate/);
+  await expect.element(sheet.getByRole("radio", { name: "approve" })).toBeChecked();
+  expect(sheet.getByRole("radio").elements()).toHaveLength(3);
+  await sheet.getByRole("radio", { name: "pick" }).click();
+  await expect.element(sheet.getByRole("radio", { name: "pick" })).toBeChecked();
+  await sheet.getByRole("button", { name: "Move review up" }).click();
+  await expect.element(rows).toMatchTextContent(/research.*draft.*review.*pick/);
+  await expect.element(sheet.getByRole("button", { name: "Move review up" })).toBeEnabled();
+
+  await sheet.getByRole("button", { name: "Remove review" }).click();
+  await expect.poll(() => sheet.elements().length).toBe(0); // closed, out of the accessibility tree
+  await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Removed review.");
+  await expect.element(rows).not.toHaveTextContent("review");
+  await screen.getByRole("button", { name: "Undo" }).click();
+  await expect.element(rows).toMatchTextContent(/research.*draft.*review.*pick/);
+  expect(screen.getByRole("button", { name: "Undo" }).elements()).toHaveLength(0);
+
+  await screen.getByRole("tab", { name: "YAML" }).click();
+  const yaml = screen.getByLabelText("Workflow YAML").element() as HTMLTextAreaElement;
+  expect(yaml.value).toMatch(/- gate: review\n {4}ask: Approve\?\n {4}kind: pick\n {2}- gate: pick\n/);
+});
+
+test("on a phone an edit after a removal retires its Undo, and an emptied stage name keeps the stage's type", async () => {
+  await page.viewport(390, 844);
+  phoneApp();
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
+  const rows = screen.getByTestId("stage-rows");
+  await rows.getByRole("button", { name: /research/ }).click();
+  const sheet = screen.getByRole("dialog", { name: "Stage settings" });
+  await sheet.getByRole("button", { name: "Remove research" }).click();
+  await expect.element(screen.getByRole("button", { name: "Undo" })).toBeVisible();
+  await rows.getByRole("button", { name: /draft/ }).click();
+  await sheet.getByLabelText("Goal of draft").fill("Write it twice.");
+  // Undo would restore the text from before the removal and drop this goal, so it goes
+  await expect.poll(() => screen.getByRole("button", { name: "Undo" }).elements().length).toBe(0);
+
+  await sheet.getByLabelText("Name of stage 1").fill("");
+  await expect.element(sheet.getByLabelText("Name of stage 1")).toHaveFocus();
+  await expect.element(sheet.getByTestId("stage-panel")).not.toHaveTextContent("unknown type");
+  await sheet.getByLabelText("Name of stage 1").fill("outline");
+  await expect.element(sheet.getByLabelText("Goal of outline")).toHaveValue("Write it twice.");
+});
+
+test("on a phone the YAML is 16px, does not wrap, and what is typed there is the stage list", async () => {
+  await page.viewport(390, 844);
+  phoneApp();
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1?tab=yaml");
+  const yaml = screen.getByLabelText("Workflow YAML");
+  await expect.element(yaml).toHaveValue(THREE);
+  const el = yaml.element() as HTMLTextAreaElement;
+  expect(getComputedStyle(el).fontSize).toBe("16px");
+  expect(el.getAttribute("wrap")).toBe("off");
+  expect(el.getAttribute("autocapitalize")).toBe("off");
+  for (const tab of screen.getByRole("tab").elements()) expect(tab.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  await yaml.fill(THREE.replace("Weekly short", "Daily short").replace("swarm: draft", "swarm: outline"));
+  // the title reads the YAML at once, before the check answers
+  await expect.element(screen.getByRole("heading", { name: "Daily short v1", level: 1 })).toBeVisible();
+  await screen.getByRole("tab", { name: "Stages" }).click();
+  await expect.element(screen.getByTestId("stage-rows")).toMatchTextContent(/research.*outline.*pick/);
+  await expect.element(screen.getByRole("button", { name: "Save as version 2" })).toBeEnabled();
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});
+
+test("while the versions load the editor shows skeletons, never no steps or version 1", async () => {
+  await page.viewport(390, 844);
+  let answer: (r: Response) => void = () => undefined;
+  phoneApp({ "GET /api/workflows/wf_1/versions": () => new Promise<Response>((done) => (answer = done)) });
+  const { screen, container } = await (async () => {
+    const m = await mountAt("/worlds/world_1/workflows/wf_1");
+    return { ...m, container: m.screen.container };
+  })();
+  await expect.element(screen.getByRole("tab", { name: "Stages" })).toBeVisible();
+  await expect.poll(() => container.querySelectorAll("[aria-busy='true'] .sk").length).toBeGreaterThanOrEqual(5);
+  expect(screen.getByText("No steps yet.").elements()).toHaveLength(0);
+  expect(screen.getByText("Everything here is saved.").elements()).toHaveLength(0);
+  expect(screen.getByRole("button", { name: /Save as version/ }).elements()).toHaveLength(0);
+  await expect.element(screen.getByRole("button", { name: "Loading..." })).toBeDisabled();
+  answer(Response.json([three]));
+  await expect.element(screen.getByRole("heading", { name: "Weekly short v1", level: 1 })).toBeVisible();
+  expect(container.querySelector("[aria-busy='true']")).toBeNull();
+});
+
+test("on a phone a new workflow starts from a starter chip and saves", async () => {
+  await page.viewport(390, 844);
+  phoneApp({
+    "POST /api/worlds/world_1/workflows": () => Response.json(v1, { status: 201 }),
+    "GET /api/workflows/wf_1/versions": () => Response.json([v1]),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/workflows/new");
+  const starters = screen.getByRole("region", { name: "Starter workflows" });
+  await expect.element(starters.getByRole("button", { name: /Weekly short/ })).toHaveAttribute("aria-pressed", "true");
+  await starters.getByRole("button", { name: /Research brief/ }).click();
+  await expect.element(screen.getByRole("heading", { name: "Research brief", level: 1 })).toBeVisible();
+  await screen.getByRole("button", { name: "Save as version 1" }).click();
+  await expect.poll(() => router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
+});
+
+test("leaving with unsaved changes asks first; switching tabs does not", async () => {
+  phoneApp();
+  const { screen, router } = await mountAt("/worlds/world_1/workflows/wf_1?tab=yaml");
+  const yaml = screen.getByLabelText("Workflow YAML");
+  await expect.element(yaml).toHaveValue(THREE);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  await yaml.fill(`${THREE}# mine\n`);
+  await screen.getByRole("tab", { name: "Stages" }).click();
+  await expect.element(screen.getByTestId("stage-rows")).toBeVisible();
+  expect(confirm).not.toHaveBeenCalled();
+  const leave = () => void router.navigate({ to: "/worlds/$worldId/runs", params: { worldId: "world_1" } });
+  leave();
+  await expect.poll(() => confirm.mock.calls).toEqual([["Leave without saving? Your changes to this draft are lost."]]);
+  expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
+  confirm.mockReturnValue(true);
+  leave();
+  await expect.poll(() => router.state.location.pathname).toBe("/worlds/world_1/runs");
+});
 test("a new workflow offers the starter workflows; picking one replaces an untouched draft, asks before an edited one", async () => {
   fake({
     "GET /api/worlds/world_1": () => Response.json(video),
