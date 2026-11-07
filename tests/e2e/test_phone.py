@@ -167,6 +167,15 @@ def _fits(page: Page) -> None:
     assert wide <= 0, f"{page.url} scrolls sideways by {wide}px: {culprits}"
 
 
+def test_first_frame_is_the_shell(phone: Page) -> None:
+    """Before any script runs the page is the app's ground with the shell's outline, not white."""
+    phone.route("**/*.js", lambda route: route.abort())
+    phone.goto("/gates")
+    assert phone.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(23, 23, 25)"
+    expect(phone.locator(".boot-tabs")).to_be_visible()
+    expect(phone.locator(".boot-top")).to_be_visible()
+
+
 @pytest.mark.parametrize("path", PAGES)
 def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) -> None:
     phone.goto(path.format(**ids))
