@@ -661,7 +661,7 @@ test("while the versions load the editor shows skeletons, never no steps or vers
   expect(screen.getByText("No steps yet.").elements()).toHaveLength(0);
   expect(screen.getByText("Everything here is saved.").elements()).toHaveLength(0);
   expect(screen.getByRole("button", { name: /Save as version/ }).elements()).toHaveLength(0);
-  await expect.element(screen.getByRole("button", { name: "Loading..." })).toBeDisabled();
+  await expect.element(screen.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   answer(Response.json([three]));
   await expect.element(screen.getByRole("heading", { name: "Weekly short v1", level: 1 })).toBeVisible();
   expect(container.querySelector("[aria-busy='true']")).toBeNull();

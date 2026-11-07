@@ -509,7 +509,7 @@ export function WorkflowEditor() {
             )}
           </span>
           <button type="button" className="primary" disabled={!canSave} onClick={save}>
-            {busy ? "Saving..." : loading ? "Loading..." : `Save as version ${nextVersion}`}
+            {busy ? "Saving..." : loading ? "Save" : `Save as version ${nextVersion}`}
           </button>
         </div>
       </header>
