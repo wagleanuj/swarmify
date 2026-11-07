@@ -24,7 +24,7 @@ with the world it came from.
 import asyncio
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -698,10 +698,13 @@ class Swarm:
         inputs: Sequence[Path] = (),
         revises: Sequence[Path] = (),
         note: str = "",
+        servers: Mapping[str, dict[str, Any]] | None = None,
+        tools: Sequence[str] = (),
     ) -> None:
         """One sandboxed coding session in `folder` (a Build Session, see build.py) with the
         package's `system` prompt and `task`, the operator's `brief`, the stage's other `inputs`
-        and the run's gate decisions as required reading. `revises` names the previous version
+        and the run's gate decisions as required reading, and the MCP `servers` whose `tools`
+        (allowed names, as `mcp__<server>__*`) it may call. `revises` names the previous version
         when the session revises it after a send-back with `note`, instead of starting over.
         Logged, costed and budgeted like any agent, as `builder`, whose closing summary ends the
         stage log. Raises StageError, with the builder's last log lines, when two sessions fail
@@ -710,8 +713,9 @@ class Swarm:
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         decisions = _decisions(world_folder, run_id)
         assets = builds.collapse(world_folder, self.files.assets(world_id))
+        allowed = [*builds.TOOLS, *tools]
         hooks = _BuildHooks(
-            self.board, stage_id, builds.AGENT, builds.TOOLS, world_folder,
+            self.board, stage_id, builds.AGENT, allowed, world_folder,
             lambda: self.budget(run_id), graph_first=False, clock=self.clock,
         )  # fmt: skip
         hooks.folder, hooks.data_dir = folder, data_dir
@@ -728,7 +732,8 @@ class Swarm:
                 # and the build folder lies inside the world folder.
                 plugin=None,
                 tools=[],
-                allowed=builds.TOOLS,
+                allowed=allowed,
+                servers=dict(servers or {}),
                 resume=resume,
                 max_turns=max_turns,
                 model=model,
@@ -738,7 +743,7 @@ class Swarm:
 
         try:
             self._session(
-                at, builds.AGENT, builds.ROLE, spec, builds.TOOLS, lambda _: None,
+                at, builds.AGENT, builds.ROLE, spec, allowed, lambda _: None,
                 fresh=True, hooks=hooks, timeout=None if minutes is None else minutes * 60,
             )  # fmt: skip
         except StageError as exc:

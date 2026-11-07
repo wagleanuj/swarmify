@@ -232,6 +232,8 @@ SCHEMA: dict[str, Any] = {
                 "connector": {"type": "string", "pattern": _SNAKE},
                 "tool": {"type": "string", "pattern": _TOOL},
                 "arguments": {"type": "object", "additionalProperties": {"type": "string"}},
+                # the tools of `connector` the session may call itself (a preview), never `tool`
+                "tools": {**_strings, "items": {"type": "string", "pattern": _TOOL}},
             },
         },
         # The Template Capability (ADR 0028): each world's Templates of the package are the
@@ -347,6 +349,8 @@ def check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     session = manifest.get("build_session")
     if ("build_session" in manifest.get("capabilities", [])) != bool(session):
         bad("build_session", "is the [build_session] of the build_session capability, both or none")
+    if session and session["tool"] in session.get("tools", []):
+        bad("build_session.tools", "the core calls `tool` after the session, never the session")
     servers = ("command" in manifest) + ("url" in manifest)
     # A Build Session calling another package's tool needs no server of its own.
     if servers == 2 or (servers == 0 and not (session and "connector" in session)):

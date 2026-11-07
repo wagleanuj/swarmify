@@ -46,7 +46,9 @@ def readable(build: Path, world_folder: Path) -> list[Path]:
     """What the session may read besides its own folder: the world's assets and the run's other
     stage folders (the script, the narration takes, the decisions). Never a folder that holds the
     build folder: bubblewrap mounts a read-only path over the writable build folder inside it,
-    and the sandbox then cannot start, so every command fails (Seatbelt lets the write win)."""
+    and the sandbox then cannot start, so every command fails. The build folder itself is in
+    `allowRead` too (`sandbox`): Seatbelt no longer lets its write imply read (issue 332), and
+    bubblewrap keeps it writable."""
     stage = build.parent
     run = stage.parent
     others = sorted(d for d in run.iterdir() if d.is_dir() and d != stage) if run.is_dir() else []
@@ -76,7 +78,7 @@ def sandbox(
         "filesystem": {
             "allowWrite": [str(build), str(cache)],
             "denyRead": [str(data_dir)],
-            "allowRead": [str(cache), *map(str, readable(build, world_folder))],
+            "allowRead": [str(build), str(cache), *map(str, readable(build, world_folder))],
         },
         "credentials": {
             "envVars": [{"name": n, "mode": "deny"} for n in [*secrets, *MODEL_CREDENTIALS]]

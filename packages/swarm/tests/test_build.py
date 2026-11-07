@@ -71,7 +71,8 @@ def _scripted(board: SqliteStorage, data: Path, *sessions: list[Step], **kw: Any
 def test_nothing_readable_holds_the_build_folder(tmp_path: Path) -> None:
     """Under bubblewrap a read-only path over the writable build folder leaves the build folder
     read-only and the sandbox cannot start (every command failed on Linux), so the session reads
-    the world's assets and the run's other stage folders, never the world, run or stage folder."""
+    the world's assets and the run's other stage folders, never the world, run or stage folder;
+    and the build folder itself, which Seatbelt no longer reads from its write (issue 332)."""
     world = tmp_path / "worlds/w"
     folder = world / "runs/r/build-stage/build"
     for d in (folder, world / "assets/voices", world / "runs/r/script-stage/artifacts",
@@ -79,8 +80,9 @@ def test_nothing_readable_holds_the_build_folder(tmp_path: Path) -> None:
         d.mkdir(parents=True)
     rules = build.sandbox(folder, world, tmp_path, tmp_path / "npm-cache", [])["filesystem"]
     read = [Path(p) for p in rules["allowRead"]]
-    assert not any(folder.resolve().is_relative_to(p) for p in read)
+    assert not any(folder.resolve().is_relative_to(p) for p in read if p != folder.resolve())
     assert set(read) == {
+        folder.resolve(),
         (tmp_path / "npm-cache").resolve(),
         (world / "assets").resolve(),
         (world / "runs/r/gate-stage").resolve(),
@@ -108,7 +110,7 @@ def test_the_session_is_sandboxed_in_its_build_folder_without_keys(
         "filesystem": {
             "allowWrite": [str(folder), str(data / "npm-cache")],
             "denyRead": [str(data)],
-            "allowRead": [str(data / "npm-cache"), str(world / "runs" / R / "s0")],
+            "allowRead": [str(folder), str(data / "npm-cache"), str(world / "runs" / R / "s0")],
         },
         "credentials": {
             "envVars": [
