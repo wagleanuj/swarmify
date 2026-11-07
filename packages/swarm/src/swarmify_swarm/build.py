@@ -40,6 +40,11 @@ MAX_TURNS = 80
 MINUTES: float | None = None
 """A build stage's defaults; its params `max_turns` and `minutes` override them. No time
 limit by default: the run's Budget and `max_turns` bound a session."""
+CONTINUE = (
+    "You were interrupted (the run was paused, or Swarmify restarted). Your build folder is as you"
+    " left it. Carry on from where you stopped and finish the task."
+)
+"""The prompt of a session that continues the builder's stored session; it has the brief."""
 
 
 def readable(build: Path, world_folder: Path) -> list[Path]:

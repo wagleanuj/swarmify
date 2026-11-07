@@ -20,8 +20,8 @@ from fastapi.testclient import TestClient
 
 from fake_graph import fake_extract
 from swarmify_api.main import create_app
-from swarmify_swarm import AgentRuntime, SdkRuntime
-from swarmify_swarm.fake import Answer, Call, Say, Script
+from swarmify_swarm import AgentRuntime, SdkRuntime, SessionEnd, SessionHooks, SessionSpec, build
+from swarmify_swarm.fake import Answer, Call, Die, Say, Script
 
 # These tests start a default package's real `.venv` process, so its install step runs.
 real_default_installs = True
@@ -97,12 +97,13 @@ def build_run(
     calls: str = "remotion_build",
     before: Callable[[Path], None] = lambda _: None,
     retro: bool = False,
+    wait: bool = True,
 ) -> tuple[TestClient, dict]:
     """`inputs` is the build stage's input line; a notes stage writing notes.md runs before it
     when it names notes.md. `after` is YAML for stages after it; the run is returned once it
     ends or waits at a gate. `calls` is the build package; HyperFrames' are enabled first.
     `before` gets the world's folder before the run starts; `retro` ends the run with its Retro,
-    whose session the script answers."""
+    whose session the script answers. Without `wait` the run is returned as it starts."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     (data / ".env").write_text("UPLOAD_POST_API_KEY=k3y\n")
@@ -141,7 +142,7 @@ stages:
     workflow = client.post(f"/api/worlds/{w}/workflows", json={"yaml": yaml})
     assert workflow.status_code == 201, workflow.text
     run = client.post(f"/api/workflows/{workflow.json()['workflow_id']}/runs", json={}).json()
-    return client, settled(client, run["id"])
+    return client, settled(client, run["id"]) if wait else run
 
 
 def settled(client: TestClient, run_id: str, send_backs: int = 0) -> dict:
@@ -521,3 +522,210 @@ def test_a_rerun_of_a_build_whose_render_failed_revises_it_and_reuses_the_render
     assert (stage / "shots/s01.mp4").stat().st_mtime_ns == shot, "the shot was reused"
     call = client.get(f"/api/stages/{video_id}/call").json()
     assert (call["visit"], call["status"]) == (1, "done")
+
+
+def until(client: TestClient, run_id: str, ready: Callable[[dict], bool]) -> dict:
+    deadline = time.monotonic() + float(os.environ.get("SWARMIFY_BUILD_WAIT", 60))
+    while not ready(run := client.get(f"/api/runs/{run_id}").json()):
+        assert time.monotonic() < deadline, run
+        time.sleep(0.05)
+    return run
+
+
+def _half(options: Any) -> None:
+    """The builder's work before it is stopped: a shot the starter has not."""
+    (Path(options.cwd) / "shots/s02.py").write_text("# half done")
+
+
+def _builder(client: TestClient, run_id: str, stage_id: str) -> dict:
+    agents = client.get(f"/api/runs/{run_id}/agents").json()
+    [agent] = [a for a in agents if a["stage_id"] == stage_id and a["name"] == "builder"]
+    return agent
+
+
+USAGE = {"input_tokens": 1000}
+"""Each scripted step costs something, so the cost hook asks whether the run was paused."""
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_build_paused_part_way_resumes_its_session_in_the_same_folder(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """Issue 423: paused mid-build, the builder stops at its next step; on resume the stage runs
+    again for the same visit, its folder is not seeded again and the builder continues its
+    session, told to carry on rather than given the brief again."""
+    started: list[str] = []
+
+    def pause(options: Any) -> None:
+        _half(options)
+        [client] = opened
+        assert client.post(f"/api/runs/{started[0]}/pause").status_code == 200
+
+    script = Script(
+        [Answer(pause), Call("Bash", {"command": "ls"}), Say("never")],
+        [Say("Finished the second shot.")],
+        usage=USAGE,
+    )
+    runtime = SdkRuntime(transport=script.transport)
+    client, run = build_run(
+        tmp_path, runtime, "{brief: Loud.}", opened, calls="blender_build", wait=False
+    )
+    started.append(run["id"])
+    run = until(client, run["id"], lambda r: r["status"] == "paused")
+    video_id = run["stages"][1]["id"]
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    assert (stage / "build/shots/s02.py").read_text() == "# half done"
+    assert client.get(f"/api/stages/{video_id}/call").status_code == 404  # no render yet
+
+    assert client.post(f"/api/runs/{run['id']}/resume").status_code == 200
+    run = settled(client, run["id"])
+    assert run["status"] == "done", run
+    first, again = script.sessions
+    assert first.resume is None and "Loud." in script.prompts[0]
+    assert again.resume == _builder(client, run["id"], video_id)["session_id"]
+    assert script.prompts[1] == build.CONTINUE
+    assert (stage / "build/shots/s02.py").read_text() == "# half done", "not seeded again"
+
+
+class Crash(BaseException):
+    """The api process dying: DBOS records no outcome for the step, so the next start recovers
+    the run and runs the stage again."""
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_build_cut_short_by_a_restart_resumes_its_session_in_the_same_folder(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """Issue 423: the api restarts mid-build (here the session's process dies with it, after its
+    work); recovery runs the stage again for the same visit, which continues the session in the
+    folder as it was."""
+    script = Script([Answer(_half), Say("cut short")], [Say("Finished the second shot.")])
+    sdk = SdkRuntime(transport=script.transport)
+
+    class Restarts:
+        async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
+            end = await sdk.run(spec, hooks)
+            if len(script.sessions) == 1:
+                raise Crash()
+            return end
+
+    client, run = build_run(tmp_path, Restarts(), "{}", opened, calls="blender_build", wait=False)
+    until(client, run["id"], lambda _: len(script.sessions) == 1)
+    time.sleep(0.5)  # the crash leaves the run in flight
+    client.__exit__(None, None, None)
+    opened.remove(client)
+
+    app = create_app(tmp_path / "data", poll_seconds=0.05, retro=False, runtime=Restarts())
+    client = TestClient(app)
+    client.__enter__()
+    opened.append(client)
+    run = settled(client, run["id"])
+    assert run["status"] == "done", run
+    video_id = run["stages"][1]["id"]
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    first, again = script.sessions
+    assert first.resume is None
+    assert again.resume == _builder(client, run["id"], video_id)["session_id"]
+    assert script.prompts[1] == build.CONTINUE
+    assert (stage / "build/shots/s02.py").read_text() == "# half done", "not seeded again"
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_build_session_that_died_is_continued_in_the_same_folder(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    script = Script([Answer(_half), Die()], [Say("Finished the second shot.")])
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened, calls="blender_build"
+    )
+    assert run["status"] == "done", run
+    video_id = run["stages"][1]["id"]
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    assert script.sessions[1].resume and script.prompts[1] == build.CONTINUE
+    assert (stage / "build/shots/s02.py").read_text() == "# half done"
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_pause_during_the_render_lands_after_it_and_resume_goes_on(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """Issue 423: the render, a long job, is not stopped midway; the pause lands when it ends,
+    the run log says so, and resume goes on from the next stage without building or rendering
+    again."""
+
+    def slow(options: Any) -> None:
+        (Path(options.cwd) / "shots/s01.py").write_text("# slow\n# frames: 6\n")
+
+    script = Script([Answer(slow), Say("Six slow frames.")])
+    after = "  - gate: review\n    ask: Good?\n"
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened,
+        calls="blender_build", after=after, wait=False,
+    )  # fmt: skip
+    run = until(client, run["id"], lambda r: r["stages"][1]["status"] == "running")
+    video_id = run["stages"][1]["id"]
+    deadline = time.monotonic() + 30
+    while client.get(f"/api/stages/{video_id}/call").status_code != 200:
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    assert client.post(f"/api/runs/{run['id']}/pause").status_code == 200
+    run = until(client, run["id"], lambda r: r["status"] == "paused")
+    assert [s["status"] for s in run["stages"][:2]] == ["done", "done"], run
+    log = client.get(f"/api/runs/{run['id']}/stages/{video_id}/log").json()
+    assert any("paused during the render" in e["detail"] for e in log)
+
+    assert client.post(f"/api/runs/{run['id']}/resume").status_code == 200
+    run = settled(client, run["id"])
+    assert run["status"] == "waiting_gate", run
+    assert len(script.sessions) == 1
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    calls = (stage / "frames/calls.jsonl").read_text().splitlines()
+    assert [json.loads(c)["event"] for c in calls] == ["start", "end"], "rendered once"
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_revision_paused_part_way_keeps_its_edits_and_its_kept_version(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """A send-back's visit paused mid-revision: on resume the half-done revision stays (it is not
+    copied again from build.v1) and the builder continues the revision's session, not the first
+    visit's."""
+    started: list[str] = []
+
+    def pause(options: Any) -> None:
+        _half(options)
+        [client] = opened
+        assert client.post(f"/api/runs/{started[0]}/pause").status_code == 200
+
+    script = Script(
+        [Say("v1")],
+        [Answer(pause), Call("Bash", {"command": "ls"}), Say("never")],
+        [Say("v2")],
+        usage=USAGE,
+    )
+    review = "  - gate: review\n    ask: Good?\n"
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened,
+        calls="blender_build", after=review,
+    )  # fmt: skip
+    started.append(run["id"])
+    video_id = run["stages"][1]["id"]
+    first = _builder(client, run["id"], video_id)["session_id"]
+    sent = client.post(
+        f"/api/runs/{run['id']}/decision", json={"note": "More.", "send_back_to": "video"}
+    )
+    assert sent.status_code == 200, sent.text
+    until(client, run["id"], lambda r: r["status"] == "paused")
+    revising = _builder(client, run["id"], video_id)["session_id"]
+    assert revising != first
+
+    assert client.post(f"/api/runs/{run['id']}/resume").status_code == 200
+    run = settled(client, run["id"], send_backs=1)
+    assert run["status"] == "waiting_gate", run
+    assert [o.resume for o in script.sessions] == [None, None, revising]
+    assert (
+        script.prompts[1].startswith("This is a revision") and script.prompts[2] == build.CONTINUE
+    )
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    assert (stage / "build/shots/s02.py").read_text() == "# half done"
+    assert not (stage / "build.v1/shots/s02.py").exists() and (stage / "build.v1.mp4").is_file()

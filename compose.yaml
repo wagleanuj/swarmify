@@ -80,6 +80,10 @@ services:
       - { type: volume, source: data, target: /data/worlds, volume: { subpath: worlds } }
       - { type: volume, source: data, target: /data/npm-cache, volume: { subpath: npm-cache } }
       - { type: volume, source: data, target: /data/sandbox, volume: { subpath: sandbox } }
+      # A Build Session's Claude Code transcripts (HOME is the api's, /root), on the volume, so a
+      # paused or interrupted build resumes its session after the container is recreated (issue
+      # 423). Its own subpath: only Build Sessions write here, never the api's agents.
+      - { type: volume, source: data, target: /root/.claude, volume: { subpath: claude-builds } }
     environment:
       SWARMIFY_DATA_DIR: /data
     healthcheck:
@@ -96,7 +100,7 @@ services:
     build: .
     volumes:
       - data:/data
-    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/npm-cache", "/data/sandbox", "/data/claude"]
+    entrypoint: ["mkdir", "-p", "/data/packages", "/data/worlds", "/data/npm-cache", "/data/sandbox", "/data/claude", "/data/claude-builds"]
     command: []
     healthcheck:
       disable: true

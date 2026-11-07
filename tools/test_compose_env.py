@@ -44,3 +44,22 @@ def test_only_web_is_published_and_the_api_image_has_no_skin() -> None:
     caddy = (ROOT / "docker" / "Caddyfile").read_text()
     assert "flush_interval -1" in caddy and "handle /mcp" in caddy
     assert "forward_auth" not in caddy, "the skin loads unsigned so its sign-in page can show"
+
+
+def test_claude_transcripts_live_on_the_volume_in_the_api_and_the_sandbox() -> None:
+    # A session resumes after `docker compose up -d --build` only if its transcript survived: the
+    # api's agents (#387) and the Build Sessions whose CLI runs in `sandbox` (#423), each on its
+    # own subpath, which `folders` makes before either starts.
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    subpaths = {}
+    for name in ("api", "sandbox"):
+        [mount] = [
+            v
+            for v in compose[name]["volumes"]
+            if isinstance(v, dict) and v["target"] == "/root/.claude"
+        ]
+        assert mount["source"] == "data"
+        subpaths[name] = mount["volume"]["subpath"]
+    assert subpaths == {"api": "claude", "sandbox": "claude-builds"}
+    made = compose["folders"]["entrypoint"]
+    assert all(f"/data/{s}" in made for s in subpaths.values())

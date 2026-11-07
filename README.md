@@ -767,8 +767,23 @@ A send-back that reruns the stage revises, it does not start over: the last buil
 it as `build.v<n>` plus the output's suffix, `build/` starts as a copy of it, and the prompt opens
 with "This is a revision": the send-back note (when the send-back named this stage) and the
 previous version are required reading, change what the note asks and keep the rest. Both stay
-inside the stage folder, which the session may read. A stage never run, or whose last call
-failed, starts fresh.
+inside the stage folder, which the session may read. A stage never run starts fresh.
+
+Pause, restart and resume: a visit's build, once started, is the same build until the visit ends
+(`<stage folder>/build.visit` records which visit started it, from what Template and which kept
+version). Pausing the run stops the builder at its next step; the stage runs again on resume, as
+does a stage an api restart cut short (recovery on the next start), and neither seeds or copies
+`build/` again: the builder continues its own Claude session, its plan and what it saw intact,
+told "You were interrupted ... carry on" rather than given the brief again. A session that dies is
+replaced the same way. When Claude Code no longer has the session's transcript, a new session
+starts with the brief and the progress so far from the stage log. Only a new visit (a send-back or
+a Rerun) starts a new session, revising the kept build as above. A pause during the render (the
+call's long job) lands when the job ends, as the stage log says: on resume the run goes on from
+the next stage and neither the build nor the render runs again. In Docker the transcripts live in
+the `sandbox` service's `/root/.claude`, the volume's `claude-builds` subpath, so they survive
+`docker compose up -d --build`. A restart mid-render polls the job again and never builds again;
+a render job dies with the `sandbox` container, though, so a deploy that recreates it mid-render
+fails the stage, and a Rerun revises the build and reuses the shots already rendered.
 
 The session's sandbox:
 

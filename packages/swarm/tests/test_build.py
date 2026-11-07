@@ -20,7 +20,7 @@ from swarmify_swarm import (
     Swarm,
     build,
 )
-from swarmify_swarm.fake import Call, Say, Script, Step
+from swarmify_swarm.fake import Call, Die, Lost, Say, Script, Step
 from swarmify_swarm.sdk import options as options_for
 
 DOMAINS = ["registry.npmjs.org", "pypi.org"]
@@ -344,3 +344,61 @@ def test_a_big_asset_folder_is_one_line_in_the_prompt(board: SqliteStorage, data
     sent = _scripted(board, data, [Say("Done.")]).prompts[0]
     assert f"{assets / 'library'}/ (500 files)" in sent and "clip0.wav" not in sent
     assert str(assets / "sfx/whoosh.wav") in sent and str(assets / "bed.mp3") in sent
+
+
+def _paused(board: SqliteStorage, data: Path) -> tuple[Script, Path]:
+    """A build the run's pause stops part way, after its first tool call wrote a file. Returns
+    its script and the file."""
+    _, folder, _ = _folders(data)
+    checks: list[None] = []
+
+    def budget(_: str) -> str | None:  # the start's and the first step's checks pass
+        checks.append(None)
+        if len(checks) <= 2:
+            return None
+        (folder / "half.txt").write_text("half")
+        return "The run was paused."
+
+    steps = [Call("Bash", {"command": "ls"}), Call("Bash", {"command": "pwd"}), Say("never")]
+    first = Script(steps, usage={"input_tokens": 1000})
+    with pytest.raises(Stopped, match="paused"):
+        _build(board, data, SdkRuntime(transport=first.transport), budget=budget)
+    return first, folder / "half.txt"
+
+
+def test_a_stopped_build_resumes_its_session_told_to_continue(
+    board: SqliteStorage, data: Path
+) -> None:
+    """Issue 423: re-entered for the same visit (a pause, a restart), the builder continues its
+    stored session, with a short prompt instead of the brief, its folder as it left it."""
+    first, half = _paused(board, data)
+    [stored] = {a.session_id for a in board.list_agents(R)}
+    assert stored and "Make it loud." in first.prompts[0]
+
+    again = _scripted(board, data, [Say("Finished.")], resume=True)
+    (options,) = again.sessions
+    assert options.resume == stored and again.prompts == [build.CONTINUE]
+    assert half.read_text() == "half"
+    assert f"Continuing session {stored}." in [e.detail for e in board.list_log(S)]
+
+
+def test_a_resumed_build_whose_transcript_is_gone_starts_over_with_its_progress(
+    board: SqliteStorage, data: Path
+) -> None:
+    _paused(board, data)
+    again = _scripted(board, data, [Lost()], [Say("Finished.")], resume=True)
+    assert again.sessions[0].resume and again.sessions[1].resume is None
+    assert "Make it loud." in again.prompts[1]
+    assert "Your earlier session in this stage was lost." in again.prompts[1]
+    assert '- Bash {"command": "ls"}' in again.prompts[1]  # its progress, from the stage log
+
+
+def test_a_build_not_resumed_starts_a_new_session_and_a_dead_one_is_continued(
+    board: SqliteStorage, data: Path
+) -> None:
+    """A new visit starts a new session with the brief, though one is stored; a replacement for a
+    session that died continues it, told to go on."""
+    _paused(board, data)
+    again = _scripted(board, data, [Die()], [Say("Finished.")])
+    assert again.sessions[0].resume is None and "Make it loud." in again.prompts[0]
+    assert again.sessions[1].resume and again.prompts[1] == build.CONTINUE
