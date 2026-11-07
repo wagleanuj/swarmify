@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -601,4 +604,64 @@ test("the run page's own gate has no second assistant: Ask this run covers it", 
   const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
   await expect.element(screen.getByRole("form", { name: "Answer pick" })).toBeVisible();
   expect(screen.getByLabelText("Ask or change before you answer").elements()).toHaveLength(0);
+});
+
+test("on a phone, while the gates load, the card is a skeleton at its size, not a Loading line", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => new Promise<Response>(() => undefined),
+  });
+  const { screen } = await mountAt("/gates");
+  await expect.element(screen.getByRole("heading", { name: "Needs you", level: 1 })).toBeVisible();
+  const busy = screen.container.querySelector("[aria-busy='true']");
+  expect(busy).not.toBeNull();
+  // the ask, two paragraph lines and the evidence block
+  expect(busy!.querySelectorAll(".g-skeleton > .sk, .g-skeleton .sk-lines > .sk")).toHaveLength(4);
+  expect(screen.container.textContent).not.toMatch(/Loading\.\.\./);
+  await page.viewport(1280, 800);
+});
+
+/** Answer the first of two confirm gates and return the queue's next card. */
+async function answerFirst() {
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([inbox[0]!, gate("confirm", { run_id: "run_4", stage_id: "s4", run_name: "Second one" })]),
+    "POST /api/runs/run_3/decision": () => Response.json(run("running", [], { id: "run_3" })),
+  });
+  const { screen } = await mountAt("/gates");
+  await screen.getByTestId("gate-run_3").getByRole("button", { name: "Confirm" }).click();
+  return screen;
+}
+
+test("after answering on a phone, the next card takes its place under the line saying what was decided", async () => {
+  await page.viewport(390, 844);
+  const screen = await answerFirst();
+  await expect.element(screen.getByTestId("gate-run_4")).toBeVisible();
+  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You confirmed it at .*\./);
+  await expect.element(screen.getByTestId("gate-run_3")).not.toBeInTheDocument();
+  // Reduced motion (as the tests run): an instant swap, no sliding copy of the answered card.
+  expect(screen.container.querySelector(".gate-ghost")!.childElementCount).toBe(0);
+  await page.viewport(1280, 800);
+});
+
+test("with motion on, the answered card slides out as a still copy that is gone once it has", async () => {
+  const real = window.matchMedia.bind(window);
+  vi.spyOn(window, "matchMedia").mockImplementation((q) =>
+    q.includes("prefers-reduced-motion") ? ({ ...real(q), matches: false } as MediaQueryList) : real(q),
+  );
+  const copies: string[] = [];
+  const watch = new MutationObserver((changes) =>
+    changes
+      .filter((c) => (c.target as HTMLElement).classList.contains("gate-ghost"))
+      .forEach((c) => c.addedNodes.forEach((n) => copies.push(n.textContent ?? ""))),
+  );
+  watch.observe(document.body, { childList: true, subtree: true });
+  const screen = await answerFirst();
+  await expect.element(screen.getByTestId("gate-run_4")).toBeVisible();
+  await vi.waitFor(() => expect(copies.join()).toMatch(/Publish it/));
+  // the copy is inert and hidden from screen readers, and leaves when its slide ends
+  await vi.waitFor(() => expect(screen.container.querySelector(".gate-ghost")!.childElementCount).toBe(0));
+  expect(screen.container.querySelector(".gate-ghost")!.getAttribute("aria-hidden")).toBe("true");
+  watch.disconnect();
 });

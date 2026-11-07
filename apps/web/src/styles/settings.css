@@ -35,3 +35,39 @@
 .token-list li > span { display: grid; gap: 2px; min-width: 0; }
 .token-new { display: grid; gap: 6px; }
 .set-body { display: contents; }
+
+/* Cast (its table rules live in lists.css): skeleton rows while it loads, and on a phone each
+   agent is a stacked row: who, the model picker, the record as labelled figures, the actions. */
+.cast-skeleton, .skill-list[aria-busy] { display: grid; gap: 8px; }
+@media (max-width: 48rem) {
+  .cast-scroll { overflow-x: visible; }
+  .cast-table, .cast-table tbody, .cast-table tfoot, .cast-table td.cast-more { display: block; }
+  .cast-table thead { display: none; }
+  .cast-table tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 12px 0; border-top: 1px solid var(--rule); }
+  .cast-table tr:has(> .cast-more) { padding-top: 0; border-top: 0; }
+  .cast-table td, .cast-table tfoot td { display: block; padding: 0; border: 0; }
+  .cast-table td:first-child, .cast-table td:nth-child(2) { flex: 1 1 100%; min-width: 0; white-space: normal; }
+  .cast-table .model-cell, .cast-table .model-cell label { display: flex; width: 100%; }
+  .cast-table .model-cell select { flex: 1; width: 100%; min-width: 0; }
+  .cast-table td.num { text-align: left; }
+  .cast-table td[data-label]::before { content: attr(data-label) " "; color: var(--faint); font-size: 12px; }
+  .cast-table td.cast-actions { flex-basis: 100%; display: flex; gap: 8px; text-align: left; }
+  .cast-actions button + button { margin-left: 0; }
+  .cast-actions button.link { min-height: 44px; }
+  .cast-table tfoot td:empty { display: none; }
+}
+
+/* Memory (its rules live in lists.css): the figures and two columns of rows at their size while
+   the graph loads. */
+/* A failure quotes its command line, and notes are named by file: break long names anywhere, so
+   neither widens a phone (audit finding 15). */
+.mem-failed, .mem-rows .link { overflow-wrap: anywhere; }
+.mem-rows .link { text-align: left; }
+.mem-skeleton { display: grid; gap: var(--gap); }
+.mem-figures-skeleton { margin-bottom: var(--gap); }
+.mem-cols-skeleton { margin-top: var(--gap); }
+.mem-skeleton .sk-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+@media (max-width: 48rem) {
+  .mem-skeleton .sk-row { grid-template-columns: minmax(0, 1fr); }
+}
+.token-list[aria-busy] { gap: 8px; padding: 4px 0; }
