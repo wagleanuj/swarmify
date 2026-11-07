@@ -3,13 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#171719" />
     <title>Swarmify</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+    <!-- Fonts never block the first frame: the system font shows, then swaps. -->
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" /></noscript>
+    <!-- The first frame is the app's frame, before any script: the ground and the shell's outline.
+         It hides once the app draws into #root. -->
+    <style>
+      html, body { margin: 0; background: #171719; }
+      #root:not(:empty) + .boot { display: none; }
+      .boot { position: fixed; inset: 0; pointer-events: none; }
+      .boot-side { position: absolute; top: 0; bottom: 0; left: 0; width: 224px; border-right: 1px solid #222224; }
+      .boot-top, .boot-tabs { display: none; position: absolute; left: 0; right: 0; }
+      .boot-top { top: 0; height: 48px; border-bottom: 1px solid #1b1a1f; }
+      .boot-tabs { bottom: 0; height: calc(56px + env(safe-area-inset-bottom)); background: #141416; border-top: 1px solid #1b1a1f; }
+      @media (max-width: 48rem) {
+        .boot-side { display: none; }
+        .boot-top, .boot-tabs { display: block; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div class="boot" aria-hidden="true"><div class="boot-side"></div><div class="boot-top"></div><div class="boot-tabs"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
