@@ -72,7 +72,7 @@ def given(installed: Path, tmp_path: Path) -> Given:
         connectors = registry(data, transport)
         connectors.install_defaults()  # installed already: only remembered
         connectors.offer_defaults(W)
-        connectors.enable(W, "blender_render", "1.0.2")
+        connectors.enable(W, "blender_render", "1.0.3")
         return connectors
 
     return make
@@ -186,7 +186,7 @@ def test_the_manifest_passes_off_by_default_on_the_gpu_with_no_network() -> None
 
 
 def test_install_syncs_its_python_then_fetches_blender_and_ffmpeg(installed: Path) -> None:
-    folder = installed / "blender_render" / "1.0.2"
+    folder = installed / "blender_render" / "1.0.3"
     assert (folder / ".venv" / "bin" / "python").exists()
     assert (folder / "fake-install.log").read_text() == "npm run fetch --silent\n"
 
@@ -340,7 +340,7 @@ def test_a_finish_step_makes_the_video_with_the_documented_environment(
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
     output = Path(config["params"]["output_path"])
     made = json.loads(output.read_text())
-    package = tmp_path / "packages" / "blender_render" / "1.0.2"
+    package = tmp_path / "packages" / "blender_render" / "1.0.3"
     assert {k: v for k, v in made.items() if k.startswith("BLENDER_")} == {
         "BLENDER_PROJECT": str(project),
         "BLENDER_ASSETS": str(tmp_path / "worlds" / W / "assets"),
