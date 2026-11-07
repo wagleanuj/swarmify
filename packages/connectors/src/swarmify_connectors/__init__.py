@@ -1015,8 +1015,9 @@ class Connectors:
         """The standard MCP server config of each named connector that has a server, with its
         credentials: what a swarm stage's agents or a Build Session connect to. With `stage`
         each runs confined to it, as a connector stage's process: reading the run's folders and
-        writing the stage's (a build's folder in it). Raises ConnectorError when one is missing
-        a credential."""
+        writing the stage's (a build's folder in it). A command's process also gets
+        `SWARMIFY_ASSETS`, the world's assets folder, where its Owned Folders are; it grants
+        nothing. Raises ConnectorError when one is missing a credential."""
         servers: dict[str, dict[str, Any]] = {}
         for name in names:
             connector = self.find(world_id, name, pins)
@@ -1026,6 +1027,7 @@ class Connectors:
             if connector.url:
                 servers[name] = {"type": "http", "url": connector.url, "headers": env}
                 continue
+            env["SWARMIFY_ASSETS"] = str(self.data_dir / "worlds" / world_id / "assets")
             confined, sandboxed = self.confine(connector, env, stage)
             assert confined is not None  # it has a command
             self._watched.append((connector, confined))

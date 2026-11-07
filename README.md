@@ -421,6 +421,25 @@ Installed packages.
 A git source may name a `subfolder` (`connectors/speech`), the package's folder when it is not
 at the repository's root; the install record keeps it.
 
+A private package installs from a local path, since a URL install is public only by design (no
+credentials in the URL, none of the operator's git config). Clone it with your own credentials
+into a folder under the data directory, then install that path at a ref, so the install records
+the commit and an upgrade is a `git pull` and another install at the new ref:
+
+```sh
+git clone git@github.com:you/private_tool.git private_tool   # your own credentials, on the host
+docker compose cp private_tool api:/data/sources/private_tool # in Docker; natively clone straight into <data dir>/sources
+```
+
+then review and install `/data/sources/private_tool` at `v1.2.0` from the Install a package form
+(or `POST /api/packages/review` with `{"source": "/data/sources/private_tool", "ref": "v1.2.0"}`).
+Swarmify clones the folder at that ref as it would a URL, running none of it, so uncommitted
+changes there do not install. `docker compose cp` makes the copy root's, the user the api runs as,
+so git does not refuse it as another user's repository. `SWARMIFY_PACKAGE_SOURCES`, when set, limits local
+paths to the folders it lists, separated as `PATH` is (`/data/sources`): any other is refused
+saying so. This repository's own folders (`connectors/<name>`) and the add form's local packages
+always install; unset, any existing folder does, as before.
+
 The curated index (ADR 0019, issue 226): one TOML file listing known packages, one
 `[[packages]]` table each with `name`, `description`, `git`, an optional `subfolder`, the
 recommended `ref` and its `permissions` as the review lists them. The format, and how authors
@@ -672,7 +691,11 @@ sandboxed command any user namespace of its own.
   Without the variable (not granted, or run outside Swarmify) a package runs unlocked.
   remotion_render holds it for each GPU render chunk.
 - Environment: its own Setup values and the few variables every process needs, never another
-  package's nor the API's own (the sign-in password, the Claude token), whatever starts it. Nor
+  package's nor the API's own (the sign-in password, the Claude token), whatever starts it. A
+  tool's MCP server (a swarm stage's, a Build Session's) also gets `SWARMIFY_ASSETS`, the full
+  path of its world's assets folder (`<data dir>/worlds/<world>/assets`), where its Owned Folders
+  are (`$SWARMIFY_ASSETS/<folder>`). It grants nothing: what it may read and write there is still
+  its Owned Folders and `permissions.folders`. Nor
   can it read another process's: on Linux the sandbox's PID namespace hides them, on macOS the
   launcher adds Seatbelt rules denying every process outside its own sandbox's (`process-info*`
   and the `kern.procargs` sysctls `ps eww` reads), which sandbox-runtime's profile leaves open.
@@ -1450,6 +1473,7 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    SWARMIFY_BASE_URL=http://192.168.1.20:8000 # optional: where Slack deep links point
    SWARMIFY_BIND=0.0.0.0                      # optional: 127.0.0.1 keeps it off the LAN
    SWARMIFY_PORT=8000                         # optional: the host port
+   SWARMIFY_PACKAGE_SOURCES=/data/sources     # optional: where local-path package installs may come from
    BUILDX_NO_DEFAULT_ATTESTATIONS=1           # keeps an unchanged api image the same image
    ```
 
@@ -1466,6 +1490,14 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    dependencies, so it needs the network once.
 4. Start the Services a package calls (a model server, say) from the compose file in its folder,
    as its README says, and set its Setup on the Connectors page.
+
+   A connector process runs in the `sandbox` service, which is on the `swarmify` network, so it
+   reaches a container there by its service name. A Service's compose file joins that network
+   (`networks: default: {name: swarmify, external: true}`, as `connectors/speech/compose.yaml`),
+   and the package names the address in a `url` Setting its `[[services]]` table points at
+   (`http://kokoro:8880`): the sandbox's proxy lets it reach that host and port, and the
+   Connectors page checks its `health`. A fixed host may instead be listed in
+   `permissions.network` (`kokoro:8880`). A container on any other network is not reachable.
 
 - Updating: `git pull`, then the same `docker compose up -d --build`, and each package's
   compose command. Only images whose inputs changed are rebuilt, and only their containers restart:

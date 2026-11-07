@@ -159,6 +159,26 @@ def test_a_source_outside_the_repo_or_missing_is_refused(packages: Packages) -> 
         packages.install("packages/nothing")
 
 
+def test_package_sources_limit_local_paths_to_the_listed_folders(
+    packages: Packages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = copy_echo(tmp_path, '["python3", "-c", "pass"]')
+    allowed = tmp_path / "sources"
+    monkeypatch.setenv("SWARMIFY_PACKAGE_SOURCES", f"{tmp_path / 'other'}:{allowed}")
+    with pytest.raises(InstallError, match="not in SWARMIFY_PACKAGE_SOURCES"):
+        packages.review(str(source))
+    with pytest.raises(InstallError, match="not in SWARMIFY_PACKAGE_SOURCES"):
+        packages.install(str(source), ref="main")
+    # this repository's own folders and a package Swarmify writes still install
+    assert packages.install("packages/echo").version == "1.0.0"
+    assert packages.install_local({**read_manifest(source), "name": "drafted"}).version == "0.0.1"
+    allowed.mkdir()
+    shutil.move(source, allowed / "echo")
+    monkeypatch.setenv("SWARMIFY_PACKAGE_SOURCES", f"{allowed}/")
+    with pytest.raises(InstallError, match="already installed"):  # past the source check
+        packages.review(str(allowed / "echo"))
+
+
 def test_an_installed_package_whose_manifest_went_bad_lists_as_invalid(
     packages: Packages,
 ) -> None:

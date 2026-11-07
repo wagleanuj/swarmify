@@ -210,15 +210,27 @@ def test_agent_servers_hand_a_swarm_stage_its_connectors_with_credentials(
     assert servers["notes_api"] == {"type": "http", "url": "https://x.test/mcp", "headers": {}}
     # the command starts in the connector sandbox, with only its own key and uvx's registry
     fal_server = servers["fal_video"]
-    assert fal_server["env"] == {"FAL_KEY": "s3cret"}
+    assets = connectors.data_dir / "worlds" / W / "assets"
+    assert fal_server["env"] == {"FAL_KEY": "s3cret", "SWARMIFY_ASSETS": str(assets)}
     assert fal_server["args"][0] == str(LAUNCHER)
     assert fal_server["args"][2:] == ["--", "uvx", "fal-mcp", "--model", "kling 2"]
     plan = json.loads(Path(fal_server["args"][1]).read_text())
-    assert plan["pass"] == ["FAL_KEY"] and plan["session"] is True
+    assert plan["pass"] == ["FAL_KEY", "SWARMIFY_ASSETS"] and plan["session"] is True
     assert plan["sandbox"]["network"]["allowedDomains"] == REGISTRIES["uv"]
     connectors.setups.path.write_text("{}")
     with pytest.raises(ConnectorError, match="needs its Setup"):
         connectors.agent_servers(W, ["fal_video"])
+
+
+def test_a_tool_server_knows_its_worlds_assets_folder(connectors: Connectors) -> None:
+    for world in ("world_a", "world_b"):
+        connectors.add(
+            fal(connectors, world_id=world, kind="tool", stage_types=["swarm"]), {"FAL_KEY": "k"}
+        )
+        # a swarm stage's tools, and a Build Session's, which run confined to its stage
+        for stage in (None, ("run_1", "build")):
+            env = connectors.agent_servers(world, ["fal_video"], stage=stage)["fal_video"]["env"]
+            assert env["SWARMIFY_ASSETS"] == str(connectors.data_dir / "worlds" / world / "assets")
 
 
 def test_missing_lists_the_keys_its_setup_lacks(connectors: Connectors) -> None:
