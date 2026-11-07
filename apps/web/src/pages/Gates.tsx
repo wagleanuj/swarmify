@@ -356,6 +356,12 @@ export function GateCard({
       </div>
       )}
       <p className="ask">{gate.ask}</p>
+      {/* Holds the evidence's place while it loads, so the form below does not jump down. */}
+      {shows && artifacts === null && (
+        <Loading>
+          <Skeleton h={240} />
+        </Loading>
+      )}
       {reviewed.length > 0 && <ArtifactView artifacts={reviewed} worldId={gate.world_id} />}
       {gate.kind === "approve" && artifacts && reviewed.length === 0 && (
         <p className="faint">The earlier stages left nothing to show here; their notes are on the run's timeline.</p>

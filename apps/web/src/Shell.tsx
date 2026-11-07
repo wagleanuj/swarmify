@@ -185,6 +185,7 @@ export function Shell() {
     // Slide from the next frame on, so the first placement does not glide in from the left.
     const frame = requestAnimationFrame(() => nav.setAttribute("data-slide", ""));
     addEventListener("resize", place);
+    void document.fonts?.ready.then(place); // the web font swaps in after the first measure
     return () => {
       cancelAnimationFrame(frame);
       removeEventListener("resize", place);
@@ -214,7 +215,7 @@ export function Shell() {
     <div className="app">
       <header className="topbar">
         <Mark />
-        <button type="button" className="world-chip" aria-haspopup="dialog" aria-expanded={sheet === "world"} onClick={() => setSheet("world")}>
+        <button type="button" className="world-chip" aria-label={worldName ? undefined : "Choose a world"} aria-haspopup="dialog" aria-expanded={sheet === "world"} onClick={() => setSheet("world")}>
           {worldName ?? <Skeleton w={96} h={14} />}
           <Icon name="chev" />
         </button>

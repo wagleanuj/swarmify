@@ -51,6 +51,8 @@ export function Graph() {
   const [answer, setAnswer] = useState<{ question: string; text: string } | null>(null);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The first load failed: the skeletons give way to an alert instead of loading forever.
+  const [failed, setFailed] = useState(false);
 
   // Loads can overlap (a rebuild streams in while one is in flight); only the latest one shows.
   const loads = useRef(0);
@@ -58,7 +60,10 @@ export function Graph() {
     const asked = ++loads.current;
     return api
       .GET("/api/worlds/{world_id}/graph", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && asked === loads.current && setView(data));
+      .then(({ data }) => {
+        if (!data) throw new Error("graph");
+        if (asked === loads.current) setView(data);
+      });
   }
 
   useEffect(() => {
@@ -66,7 +71,7 @@ export function Graph() {
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
       .then(({ data, response }) => setWorld(response.status === 404 ? null : (data ?? null)))
       .catch(() => setError("Could not load this world. Is the API running?"));
-    void load().catch(() => undefined);
+    void load().catch(() => setFailed(true));
   }, [worldId]);
 
   // Rebuilds arrive on the world's stream (ADR 0002); each one reloads the summary. Only new
@@ -199,7 +204,8 @@ export function Graph() {
       )}
       {error && <p role="alert">{error}</p>}
 
-      {!view && (
+      {!view && failed && <p role="alert">Could not load the memory graph. Reload to try again.</p>}
+      {!view && !failed && (
         <Loading className="mem-skeleton mem-figures-skeleton">
           {figures}
         </Loading>
@@ -246,7 +252,7 @@ export function Graph() {
         )}
       </section>
 
-      {!view && <span className="mem-skeleton mem-cols-skeleton">{columns}</span>}
+      {!view && !failed && <span className="mem-skeleton mem-cols-skeleton">{columns}</span>}
       {empty && (
         <div className="empty" data-testid="graph-empty">
           <p>

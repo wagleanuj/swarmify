@@ -78,13 +78,12 @@ b { font-weight: 600; }
 .topbar { display: none; position: sticky; top: 0; z-index: 15; height: 48px; align-items: center; justify-content: space-between; padding: 0 12px 0 16px; background: var(--ground); border-bottom: 1px solid var(--border); }
 .topbar .brand { padding: 0; }
 button.icon { min-height: 32px; width: 32px; padding: 0; }
-.menu-close { display: none; }
 /* The phone: a world chip on top, five tabs at the bottom; the sidebar and its menu go. */
 .world-chip, .tabbar { display: none; }
 @media (max-width: 48rem) {
   :root { --tabbar: calc(56px + env(safe-area-inset-bottom)); --fs-body: 14px; }
   .app { grid-template-columns: minmax(0, 1fr); align-content: start; }
-  .sidebar, .sidebar.open, .topbar .brand, .topbar button.icon { display: none; }
+  .sidebar, .topbar .brand { display: none; }
   .topbar { display: flex; padding: 0 16px; border-bottom-color: var(--rule); }
   .world-chip { display: inline-flex; min-width: 0; min-height: 32px; padding: 6px 12px; border: 0; background: var(--raised); font-weight: 600; }
   .world-chip svg { flex: none; color: var(--faint); }
@@ -265,6 +264,7 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 @media (max-width: 48rem), (pointer: coarse) {
   input, select, textarea { font-size: 16px !important; }
   button:not(.link), a.button, label.button, select { min-height: 44px; }
+  input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color]) { min-height: 44px; }
   button.icon { min-width: 44px; }
   .tab { display: inline-flex; align-items: flex-end; min-height: 44px; }
 }

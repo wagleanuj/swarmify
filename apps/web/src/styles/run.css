@@ -157,7 +157,7 @@ svg.glyph { color: var(--accent); }
   /* "‹ Runs" and the run menu take the top bar from the world chip */
   .topbar:has(.run-topbar) .world-chip, .run-actions .menu-wrap { display: none; }
   .topbar-slot:has(.run-topbar) { display: flex; flex: 1; }
-  .topbar .run-topbar button.icon { display: inline-flex; } /* the shell hides its own menu button */
+  .topbar .run-topbar button.icon { display: inline-flex; }
   .player { max-height: 300px; }
   .run-loading .sk-title { font-size: 22px; }
   .run-loading .sk-step { display: block; }
@@ -182,7 +182,7 @@ svg.glyph { color: var(--accent); }
 @keyframes bar-out { to { transform: translateY(100%); opacity: 0; } }
 @keyframes answer-in { from { opacity: 0; transform: translateY(8px); } }
 @keyframes draw { from { transform: scaleX(0); } }
-.inline-gate.leaving .gate-actions { animation: bar-out var(--dur-base) var(--ease-in-out) both; }
+.inline-gate.leaving .gate-form .gate-actions { animation: bar-out var(--dur-base) var(--ease-in-out) both; }
 .answered { animation: answer-in var(--dur-base) var(--ease-out) both; }
 .answered .notice { position: relative; }
 .answered .notice::after { content: ""; position: absolute; left: 16px; bottom: 8px; width: min(8em, 40%); height: 1px; background: var(--accent); transform-origin: left; animation: draw var(--dur-slow) var(--ease-out) var(--dur-base) both; }

@@ -250,3 +250,14 @@ test.each([
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
   await page.viewport(1280, 800);
 });
+
+test("a graph that does not load is an alert, not a skeleton that loads forever", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": () => new Response(null, { status: 500 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect.element(screen.getByRole("alert")).toMatchTextContent(/Could not load the memory graph/);
+  expect(screen.container.querySelector("[aria-busy='true']")).toBeNull();
+  expect(screen.container.querySelector(".mem-skeleton")).toBeNull();
+});

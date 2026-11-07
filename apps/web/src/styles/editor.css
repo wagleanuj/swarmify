@@ -63,7 +63,6 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
 .scores td.action { text-align: right; }
 
 .score-rows-loading { display: grid; gap: 8px; }
-@keyframes bar-up { from { transform: translateY(100%); } }
 
 /* The editor on a phone: the same views over the same text. Workflow fields in a panel, stage
    rows that open a sheet, add chips, and the save bar pinned above the tab bar. */
@@ -143,15 +142,4 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .score-rows td, .scores.score-rows td.num { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; }
   .score-rows td::before { content: attr(data-label); color: var(--faint); font-weight: 400; text-align: left; }
   .score-rows td:first-child { display: block; padding-bottom: 6px; text-align: left; }
-  /* Workflows as cards: the full name, one line of numbers, Start run wide beside Edit */
-  .wf-cards { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
-  .wf-card { padding: 12px; gap: 2px; border-radius: 10px; }
-  .wf-card h2 { margin: 0 0 4px; font-size: 15px; }
-  .wf-card p.faint { color: var(--faint); }
-  .wf-card .num { font-weight: 400; }
-  .wf-card .warn { color: var(--pill-warning-ink); }
-  .wf-actions { display: flex; gap: 8px; margin-top: 10px; }
-  .wf-actions > *, a.button.wf-new { min-height: 44px; padding: 0 18px; font-size: 14px; font-weight: 600; }
-  .wf-actions button { flex: 1; }
-  a.button.wf-new { display: flex; }
 }

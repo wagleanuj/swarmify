@@ -292,7 +292,8 @@ export function RunTimeline() {
     setLeaving(true);
     await new Promise((done) => setTimeout(done, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : BAR_OUT_MS));
     setLeaving(false);
-    setGate(null);
+    // The run's next gate may have loaded while the bar slid out; keep it.
+    setGate((cur) => (cur?.stage_id === g.stage_id ? null : cur));
     dropGate(g.stage_id);
     setAnswered({ stageId: g.stage_id, said, at: new Date().toISOString() });
   };

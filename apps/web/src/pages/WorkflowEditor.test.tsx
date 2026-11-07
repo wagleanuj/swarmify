@@ -153,6 +153,29 @@ test("saving a new workflow posts the YAML and stays in its editor with the vers
   await expect.element(screen.getByRole("tab", { name: "Stages" })).toHaveAttribute("aria-selected", "true");
 });
 
+test("what is typed while a new workflow's first save is in flight stays the draft", async () => {
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fake({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "POST /api/worlds/world_1/workflows/check": check,
+    "POST /api/worlds/world_1/workflows": async () => {
+      await held;
+      return Response.json(v1, { status: 201 });
+    },
+    "GET /api/workflows/wf_1/versions": () => Response.json([v1]),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/workflows/new?tab=yaml");
+  await screen.getByRole("button", { name: "Save as version 1" }).click();
+  const yaml = screen.getByRole("textbox", { name: "Workflow YAML" });
+  await yaml.fill(STARTER.replace("Weekly short", "Weekly long"));
+  release();
+  await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v1/);
+  expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
+  await expect.element(yaml).toHaveValue(STARTER.replace("Weekly short", "Weekly long"));
+  await expect.element(screen.getByRole("button", { name: "Save as version 2" })).toBeEnabled();
+});
+
 test("an existing workflow loads its latest version, saves a new one and can open old ones", async () => {
   const v2 = { ...v1, id: "wfv_2", number: 2, yaml: STARTER.replace("Weekly short", "Daily short") };
   const versions = [v1, v2];

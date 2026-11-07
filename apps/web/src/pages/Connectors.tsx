@@ -125,7 +125,7 @@ export function Connectors() {
   function load() {
     return api
       .GET("/api/worlds/{world_id}/connectors", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setConnectors(data));
+      .then(({ data }) => setConnectors((c) => data ?? c ?? [])); // a failed load ends the skeleton
   }
 
   function loadPackages() {
@@ -143,7 +143,7 @@ export function Connectors() {
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
       .then(({ data, response }) => setWorld(response.status === 404 ? null : (data ?? null)))
       .catch(() => setError("Could not load this world. Is the API running?"));
-    void load().catch(() => undefined);
+    void load().catch(() => setConnectors((c) => c ?? []));
     void loadEnabled().catch(() => undefined);
     void loadPackages().catch(() => undefined);
   }, [worldId]);

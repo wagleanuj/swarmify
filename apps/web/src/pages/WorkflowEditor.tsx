@@ -198,8 +198,11 @@ export function WorkflowEditor() {
       });
   }, [workflowId]);
 
+  // A new workflow's first save moves here; what was typed while it saved stays the draft.
+  const firstSave = useRef<string | null>(null);
   useEffect(() => {
     if (!workflowId) return;
+    const keep = firstSave.current === workflowId;
     api
       .GET("/api/workflows/{workflow_id}/versions", {
         params: { path: { workflow_id: workflowId } },
@@ -210,7 +213,8 @@ export function WorkflowEditor() {
         setVersions(data);
         // a workflow with no version yet opens empty rather than loading forever
         const yaml = data[data.length - 1]?.yaml ?? "";
-        setText(yaml);
+        firstSave.current = null;
+        setText((t) => (keep && t !== null ? t : yaml));
         setSavedText(yaml);
       })
       .catch(() => setError("Could not load this workflow. It may have been deleted."));
@@ -379,6 +383,7 @@ export function WorkflowEditor() {
     unsaved.current = false;
     setNotice(`Saved as version ${version.number}; runs already started keep their version.`);
     if (!workflowId) {
+      firstSave.current = version.workflow_id;
       void router.navigate({
         to: "/worlds/$worldId/workflows/$workflowId",
         params: { worldId, workflowId: version.workflow_id },
