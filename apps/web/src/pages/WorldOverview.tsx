@@ -101,10 +101,8 @@ export function WorldOverview() {
     source.addEventListener("run.updated", (e) => {
       const run = (JSON.parse((e as MessageEvent<string>).data) as { payload?: Run }).payload;
       if (!run) return;
-      setRuns((prev) => {
-        const list = prev ?? [];
-        return list.some((r) => r.id === run.id) ? list.map((r) => (r.id === run.id ? run : r)) : [run, ...list];
-      });
+      // Before the GET answers, the skeleton holds; the GET carries this run's state.
+      setRuns((prev) => prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
     });
     // A setting changed elsewhere (Crew in another tab): switching views sends the skin as it is now.
     source.addEventListener("world.updated", (e) => {

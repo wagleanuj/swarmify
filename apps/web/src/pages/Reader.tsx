@@ -61,7 +61,7 @@ export function Reader() {
           <header className="page">
             <div>
               <h1>
-                <Skeleton w="60%" h="1lh" />
+                <Skeleton w="14rem" h="1lh" />
               </h1>
               <p className="sub">
                 <Skeleton w="5rem" h="1.4em" />

@@ -67,12 +67,10 @@ export function Runs() {
   }, [worldId]);
 
   useRunUpdates(worldId, (run) =>
-    setRuns((prev) => {
-      const list = prev ?? [];
-      return list.some((r) => r.id === run.id)
-        ? list.map((r) => (r.id === run.id ? run : r))
-        : [run, ...list];
-    }),
+    // Before the GET answers, the skeleton holds; the GET carries this run's state.
+    setRuns((prev) =>
+      prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]),
+    ),
   );
 
   // ponytail: filtered here, not by the API, so live updates land in the same filter. Add query
