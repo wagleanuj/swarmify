@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { readerRoute } from "../router";
+import { Loading, Skeleton } from "../Skeleton";
 import { fileUrl, Markdown, rawUrl, TypedText } from "./Artifacts";
 
 type Item = components["schemas"]["LibraryItem"];
@@ -56,7 +57,22 @@ export function Reader() {
   if (doc === undefined) {
     return (
       <main>
-        <p role="status">Loading the document...</p>
+        <Loading className="reader">
+          <header className="page">
+            <div>
+              <h1>
+                <Skeleton w="14rem" h="1lh" />
+              </h1>
+              <p className="sub">
+                <Skeleton w="5rem" h="1.4em" />
+              </p>
+            </div>
+          </header>
+          <Skeleton lines={2} w="16rem" />
+          <div className="panel">
+            <Skeleton lines={8} />
+          </div>
+        </Loading>
       </main>
     );
   }
@@ -113,7 +129,7 @@ export function Reader() {
           </a>
         </dd>
       </dl>
-      <article className="panel" data-testid="document">
+      <article className="panel enter" data-testid="document">
         {doc.fields.deleted ? (
           <p className="faint">{doc.name} was deleted by retention; its record stays.</p>
         ) : (

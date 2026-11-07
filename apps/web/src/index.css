@@ -1,5 +1,6 @@
 /* The shared base, then one file per area, so each area's slice of the redesign lands alone. */
 @import "./styles/base.css";
+@import "./styles/motion.css";
 @import "./styles/overview.css";
 @import "./styles/lists.css";
 @import "./styles/run.css";

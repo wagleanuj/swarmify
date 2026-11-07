@@ -66,20 +66,14 @@ test("the world switcher names the route's world, and a global route keeps it", 
   await expect.element(nav.getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/worlds/world_2/runs");
 });
 
-test("on a narrow screen the sidebar folds behind a menu button into a full-screen sheet", async () => {
+test("from 769px up the sidebar shows, with no menu button", async () => {
   await page.viewport(800, 844);
   fakeFetch({ "GET /api/worlds": () => Response.json(worlds), "GET /api/gates": () => Response.json([]) });
   const { screen } = await mountAt("/worlds/world_1/cast");
-  const nav = screen.getByRole("navigation", { name: "Main", includeHidden: true });
   await expect.element(screen.getByRole("heading", { level: 1 })).toBeVisible();
-  await expect.element(nav).not.toBeVisible();
-  await screen.getByRole("button", { name: "Menu" }).click();
-  await expect.element(nav).toBeVisible();
-  await nav.getByRole("link", { name: "Library" }).click();
-  await expect.element(nav).not.toBeVisible();
-  await screen.getByRole("button", { name: "Menu" }).click();
-  await nav.getByRole("button", { name: "Close menu" }).click();
-  await expect.element(nav).not.toBeVisible();
+  await expect.element(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Menu", includeHidden: true })).not.toBeVisible();
+  await expect.element(screen.getByRole("navigation", { name: "Tabs", includeHidden: true })).not.toBeVisible();
 });
 
 test("at desktop width there is no tab bar or world chip", async () => {

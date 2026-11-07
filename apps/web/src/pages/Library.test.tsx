@@ -323,3 +323,28 @@ test("on a phone the library opens on search and type chips, with the other filt
   await screen.getByRole("dialog", { name: "Filters" }).getByRole("button", { name: "Clear filters" }).click();
   await expect.element(screen.getByTestId("sheet-count")).toHaveTextContent("4 of 4");
 });
+
+test("on a phone, while the library loads, the search is real and six item rows wait as skeletons", async () => {
+  await page.viewport(390, 844);
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([short, long]),
+    "GET /api/worlds/world_1/library": async () => {
+      await held;
+      return Response.json([decision, hook, ideas, brief]);
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/library");
+  await expect.element(screen.getByRole("searchbox", { name: "Search the library" })).toBeVisible();
+  const busy = screen.getByRole("region", { name: "Items" }).element().querySelector("[aria-busy='true']");
+  expect(busy?.querySelectorAll(".sk")).toHaveLength(6);
+  expect(screen.getByText("Loading...").elements()).toHaveLength(0);
+
+  release();
+  await expect.element(screen.getByTestId("artifact").first()).toBeVisible();
+  expect(document.querySelector("main [aria-busy='true']")).toBeNull();
+  expect(screen.getByTestId("artifact").elements()).toHaveLength(4);
+});

@@ -109,3 +109,27 @@ test("the rows show before the slow check answers, then a failing workflow says 
   answer(Response.json([{ ...workflows[0], violations }, workflows[1]]));
   await expect.element(rows.first()).toMatchTextContent(/Fails today's check: connector 'gone' is not installed\./);
 });
+
+test("on a phone, while the workflows load, three cards wait as skeletons, then the cards fade up", async () => {
+  await page.viewport(390, 844);
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([{ id: "world_1", name: "Video", purpose: "", created_at: ts }]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": async () => {
+      await held;
+      return Response.json(workflows);
+    },
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows");
+  await expect.element(screen.getByRole("heading", { name: "Workflows", level: 1 })).toBeVisible();
+  await expect.poll(() => document.querySelector("main [aria-busy='true']")?.querySelectorAll(".sk").length).toBe(3);
+  expect(screen.getByText("Loading...").elements()).toHaveLength(0);
+
+  release();
+  await expect.element(screen.getByTestId("workflow-card").first()).toBeVisible();
+  expect(document.querySelector("main [aria-busy='true']")).toBeNull();
+  expect(screen.getByTestId("workflow-card").first().element().parentElement?.classList).toContain("stagger");
+});

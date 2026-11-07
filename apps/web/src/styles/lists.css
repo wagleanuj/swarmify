@@ -11,6 +11,13 @@
 .runs-table .mono { font-size: 12px; }
 .run-strip { width: 22%; min-width: 120px; }
 .runs-table tfoot td { color: var(--muted); }
+/* While runs load: the header row's height, then five rows at a row's height */
+.runs-loading { display: grid; gap: 1px; padding-top: 27px; }
+.runs-loading .sk { --sk-h: 60px; }
+.wf-loading { display: grid; gap: 1px; padding-top: 35px; }
+.wf-loading .sk { --sk-h: 50px; }
+.evals-loading { display: grid; gap: 16px; }
+.sk.sk-inline { display: inline-block; vertical-align: middle; }
 
 /* Connectors: a panel per kind, a row per connector with its health dot */
 .con-groups { display: grid; gap: var(--gap); }
@@ -65,9 +72,14 @@
 .filters input[type="search"] { flex: 0 1 18rem; }
 .filters label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .filters input[type="date"], .filters select { padding: 5px 8px; min-height: 32px; }
+/* a set width, so the row wraps the same before and after the options load */
+.lib-head .filters select { width: 10rem; }
 .lib-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--gap); align-items: start; margin-bottom: var(--gap); }
 .panel.lib-list { padding: 6px; display: block; }
 .lib-list > .faint { padding: 8px; }
+.lib-loading { display: grid; gap: 1px; }
+.lib-loading .sk { --sk-h: 55px; }
+.menu-loading { display: block; padding: 8px 12px; min-width: 14rem; }
 .lib-list ul { list-style: none; margin: 0; padding: 0; display: grid; }
 .lib-list li + li { border-top: 1px solid var(--rule); }
 .lib-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 4px; text-decoration: none; }
@@ -121,14 +133,15 @@
 
 @media (max-width: 48rem) {
   .tabs.chip-row { flex-wrap: nowrap; gap: 6px; overflow-x: auto; margin: 0 -16px 16px; padding: 0 16px; border-bottom: 0; scrollbar-width: none; }
-  .chip-row .tab { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px; border: 1px solid var(--control); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .chip-row .tab { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; border: 1px solid var(--control); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
   .chip-row .tab[aria-current="page"] { background: var(--text); border-color: var(--text); color: #000; font-weight: 600; }
   .chip-row .tab[aria-current="page"]::after { display: none; }
   .chip-row .tab .num { color: inherit; font-weight: inherit; }
   .lib-head { display: flex; flex-direction: column; }
   .lib-head .filters { order: -1; margin-bottom: 12px; }
   .lib-head .filters > :not([type="search"]) { display: none; }
-  .lib-head .filters input[type="search"] { flex: 1 1 100%; min-height: 40px; }
+  .lib-head .filters input[type="search"] { flex: 1 1 100%; min-height: 44px; }
+  .filters select { min-height: 44px; }
   .mem-cols, .lib-grid { grid-template-columns: minmax(0, 1fr); }
   .lib-grid.has-sel .lib-list { display: none; }
   .lib-detail { position: static; }
@@ -143,4 +156,19 @@
   .runs-table tfoot td:first-child { grid-column: 1 / 3; }
   .versions-table tr { grid-template-columns: minmax(0, 1fr) auto auto auto; }
   .versions-table td:first-child, .versions-table tfoot td:first-child { grid-column: auto; }
+  .runs-loading { padding-top: 0; }
+  .runs-loading .sk { --sk-h: 85px; }
+  .lib-loading .sk { --sk-h: 74px; }
+  /* Workflows on a phone: one card each with Start run and Edit, then New workflow */
+  .wf-cards { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+  .wf-cards > .sk { --sk-h: 150px; border-radius: 10px; }
+  .wf-card { padding: 12px; gap: 2px; border-radius: 10px; }
+  .wf-card h2 { margin: 0 0 4px; font-size: 15px; }
+  .wf-card p.faint { color: var(--faint); }
+  .wf-card .num { font-weight: 400; }
+  .wf-card .warn { color: var(--pill-warning-ink); }
+  .wf-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .wf-actions > *, a.button.wf-new { min-height: 44px; padding: 0 18px; font-size: 14px; font-weight: 600; }
+  .wf-actions button { flex: 1; }
+  a.button.wf-new { display: flex; }
 }
