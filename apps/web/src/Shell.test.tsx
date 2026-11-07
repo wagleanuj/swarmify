@@ -12,6 +12,7 @@ const worlds = [
 ];
 
 beforeEach(async () => {
+  localStorage.clear();
   FakeEventSource.install();
   await page.viewport(1280, 800);
 });
@@ -72,7 +73,7 @@ test("from 769px up the sidebar shows, with no menu button", async () => {
   const { screen } = await mountAt("/worlds/world_1/cast");
   await expect.element(screen.getByRole("heading", { level: 1 })).toBeVisible();
   await expect.element(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
-  await expect.element(screen.getByRole("button", { name: "Menu", includeHidden: true })).not.toBeVisible();
+  expect(screen.getByRole("button", { name: /menu/i, includeHidden: true }).elements()).toHaveLength(0);
   await expect.element(screen.getByRole("navigation", { name: "Tabs", includeHidden: true })).not.toBeVisible();
 });
 
@@ -95,7 +96,7 @@ test("on a phone five thumb-sized tabs replace the menu, with the open decisions
   const tabs = screen.getByRole("navigation", { name: "Tabs" });
   await expect.element(tabs.getByRole("link", { name: /^Needs you/ })).toHaveAccessibleName("Needs you 2 waiting");
   await expect.element(screen.getByRole("navigation", { name: "Main", includeHidden: true })).not.toBeVisible();
-  await expect.element(screen.getByRole("button", { name: "Menu", includeHidden: true })).not.toBeVisible();
+  expect(screen.getByRole("button", { name: /menu/i, includeHidden: true }).elements()).toHaveLength(0);
   expect(tabs.getByRole("link").elements().map((a) => a.textContent)).toEqual(["Needs you2", "Runs", "Workflows", "Library"]);
   await expect.element(tabs.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
   await expect.element(tabs.getByRole("link", { name: "Runs" })).toHaveClass("on");
@@ -169,4 +170,80 @@ test("on a phone More lists every other page with a one-line summary, and the ba
   await expect.element(sheet).not.toBeVisible();
   expect(router.state.location.pathname).toBe("/");
   await expect.element(more).toHaveClass("on");
+});
+
+test("on a phone, before the worlds load, five tabs stand and the chip names the last world", async () => {
+  await page.viewport(390, 844);
+  localStorage.setItem("swarmify.world", JSON.stringify({ id: "world_2", name: "Podcast" }));
+  fakeFetch({ "GET /api/worlds": () => new Promise<Response>(() => undefined), "GET /api/gates": () => Response.json([]) });
+  const { screen } = await mountAt("/gates");
+  const tabs = screen.getByRole("navigation", { name: "Tabs" });
+  await expect.element(tabs).toBeVisible();
+  expect(screen.container.querySelectorAll(".tabbar-item")).toHaveLength(5);
+  await expect.element(screen.getByRole("button", { name: "Podcast" })).toBeVisible();
+  await expect.element(tabs.getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/worlds/world_2/runs");
+  expect(screen.container.textContent).not.toContain("...");
+});
+
+test("on a phone with no world known yet, the world tabs wait as labelled placeholders", async () => {
+  await page.viewport(390, 844);
+  let answer: (r: Response) => void = () => undefined;
+  fakeFetch({
+    "GET /api/worlds": () => new Promise<Response>((done) => (answer = done)),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/gates");
+  await expect.element(screen.getByRole("navigation", { name: "Tabs" })).toBeVisible();
+  const items = [...screen.container.querySelectorAll(".tabbar-item")];
+  expect(items.map((t) => t.textContent)).toEqual(["Needs you", "Runs", "Workflows", "Library", "More"]);
+  expect(items.slice(1, 4).every((t) => t.getAttribute("aria-disabled") === "true" && !t.closest("a"))).toBe(true);
+  expect(screen.container.querySelector(".world-chip .sk")).not.toBeNull();
+  expect(screen.container.querySelector(".world-chip")?.textContent).not.toContain("...");
+
+  answer(Response.json(worlds));
+  const tabs = screen.getByRole("navigation", { name: "Tabs" });
+  await expect.element(tabs.getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+  await expect.element(screen.getByRole("button", { name: "Video" })).toBeVisible();
+  expect(JSON.parse(localStorage.getItem("swarmify.world") ?? "{}")).toEqual({ id: "world_1", name: "Video" });
+});
+
+test("a remembered world that is gone gives way to the first one", async () => {
+  await page.viewport(390, 844);
+  localStorage.setItem("swarmify.world", JSON.stringify({ id: "world_9", name: "Deleted" }));
+  fakeFetch({ "GET /api/worlds": () => Response.json(worlds), "GET /api/gates": () => Response.json([]) });
+  const { screen } = await mountAt("/gates");
+  await expect.element(screen.getByRole("button", { name: "Video" })).toBeVisible();
+  await expect.element(screen.getByRole("navigation", { name: "Tabs" }).getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+});
+
+test("on a phone one green line sits over the current tab's label and moves with it", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json(worlds),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "GET /api/worlds/world_1/library": () => Response.json([]),
+  });
+  const { router, screen } = await mountAt("/worlds/world_1/runs");
+  const line = () => screen.container.querySelector(".tabbar-line")!.getBoundingClientRect();
+  const label = (name: string) => screen.getByRole("navigation", { name: "Tabs" }).getByText(name, { exact: true }).element().getBoundingClientRect();
+  const over = async (name: string) =>
+    await expect.poll(() => [Math.round(line().left), Math.round(line().width)]).toEqual([Math.round(label(name).left), Math.round(label(name).width)]);
+
+  await over("Runs");
+  expect(line().height).toBe(1);
+  await router.navigate({ to: "/worlds/$worldId/library", params: { worldId: "world_1" } });
+  await over("Library");
+  await screen.getByRole("navigation", { name: "Tabs" }).getByRole("button", { name: "More" }).click();
+  await over("More");
+});
+
+test("on a phone the world chip is a 44px tap", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({ "GET /api/worlds": () => Response.json(worlds), "GET /api/gates": () => Response.json([]), "GET /api/worlds/world_1/runs": () => Response.json([]) });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  const chip = screen.getByRole("button", { name: "Video" });
+  await expect.element(chip).toBeVisible();
+  expect(chip.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 });

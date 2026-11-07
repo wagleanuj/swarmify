@@ -5,7 +5,9 @@ import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { CurrentWorld } from "../Shell";
+import { Loading, Skeleton } from "../Skeleton";
 import { worldHome } from "../skin";
+import { usePhone } from "../usePhone";
 
 type World = components["schemas"]["World"];
 
@@ -15,6 +17,7 @@ const isEval = (w: World) => w.name === "Evals" || w.name.startsWith("Eval ");
 export function Worlds() {
   const router = useRouter();
   const current = useContext(CurrentWorld);
+  const phone = usePhone();
   const [worlds, setWorlds] = useState<World[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +52,29 @@ export function Worlds() {
     void router.navigate({ to: "/worlds/$worldId", params: { worldId: data.id } });
   }
 
+  const mark = (w: World) =>
+    w.id === current && (
+      <>
+        {" "}
+        <span className="pill current">Current</span>
+      </>
+    );
+  // A phone stacks each world into one tappable row: its name, then its figures on one line.
+  const item = (w: World) => (
+    <li key={w.id} data-testid="world-row">
+      <Link to={worldHome(w)} params={{ worldId: w.id }}>
+        <span>
+          {w.name}
+          {mark(w)}
+        </span>
+        <small>
+          Created {new Date(w.created_at).toLocaleDateString()} · cap {w.run_cap ?? 2} ·{" "}
+          {w.monthly_budget_usd == null ? "no ceiling" : `${money(w.monthly_budget_usd)} a month`}
+        </small>
+      </Link>
+    </li>
+  );
+  const list = (ws: World[]) => (phone ? <ul className="world-list stagger">{ws.map(item)}</ul> : <table className="scores">{head}<tbody>{ws.map(row)}</tbody></table>);
   const own = worlds?.filter((w) => !isEval(w)) ?? [];
   const evals = worlds?.filter(isEval) ?? [];
   const head = (
@@ -67,12 +93,7 @@ export function Worlds() {
         <Link to={worldHome(w)} params={{ worldId: w.id }}>
           {w.name}
         </Link>
-        {w.id === current && (
-          <>
-            {" "}
-            <span className="pill current">Current</span>
-          </>
-        )}
+        {mark(w)}
       </td>
       <td className="num">{new Date(w.created_at).toLocaleDateString()}</td>
       <td className="num">{w.run_cap ?? 2}</td>
@@ -95,23 +116,25 @@ export function Worlds() {
       {error && <p role="alert">{error}</p>}
       <div className="worlds-layout">
         <section className="panel" aria-label="Worlds">
-          {worlds?.length === 0 ? (
+          {worlds === null ? (
+            !error && (
+              <Loading className="world-skeleton">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <Skeleton key={i} h={phone ? 52 : 34} />
+                ))}
+              </Loading>
+            )
+          ) : worlds.length === 0 ? (
             <p className="faint" data-testid="empty">
               Nothing here yet. Give each kind of work its own world so Video never learns from Market research.
             </p>
           ) : (
-            <table className="scores">
-              {head}
-              <tbody>{own.map(row)}</tbody>
-            </table>
+            list(own)
           )}
           {evals.length > 0 && (
             <details className="eval-worlds" data-testid="eval-worlds">
               <summary>Eval worlds ({evals.length})</summary>
-              <table className="scores">
-                {head}
-                <tbody>{evals.map(row)}</tbody>
-              </table>
+              {list(evals)}
             </details>
           )}
         </section>

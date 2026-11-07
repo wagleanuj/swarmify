@@ -48,3 +48,15 @@
   .overview .goal { flex-wrap: wrap; }
   .overview .goal input:first-child { flex-basis: 100%; }
 }
+
+/* Worlds: below 48rem each world is one stacked, tappable row (Worlds.tsx renders a list, not the table). */
+.world-skeleton { display: grid; gap: 8px; }
+.world-list { margin: 0; padding: 0; list-style: none; }
+.world-list li + li { border-top: 1px solid var(--rule); }
+.world-list a { display: grid; gap: 2px; min-height: 44px; padding: 10px 2px; text-decoration: none; transition: background var(--dur-fast); }
+.world-list a:active { background: var(--raised); }
+.world-list a > span { font-weight: 600; overflow-wrap: anywhere; }
+.world-list small { color: var(--faint); font-size: 12px; }
+@media (max-width: 48rem) {
+  .eval-worlds summary { display: flex; align-items: center; min-height: 44px; margin: 4px 0 0; }
+}
