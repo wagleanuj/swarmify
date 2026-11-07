@@ -38,13 +38,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** On screen without scrolling: inside the viewport and clear of the tab bar under it. */
-function inReach(el: Element) {
-  const bar = el.getBoundingClientRect();
-  const tabs = document.querySelector("nav.tabbar")!.getBoundingClientRect();
-  expect(window.scrollY).toBe(0);
-  expect(bar.top).toBeGreaterThan(0);
-  expect(bar.bottom).toBeLessThanOrEqual(tabs.top);
+/** On screen without scrolling: inside the viewport and clear of the tab bar under it, once the
+ * bar has slid up. */
+async function inReach(el: Element) {
+  await vi.waitFor(() => {
+    const bar = el.getBoundingClientRect();
+    const tabs = document.querySelector("nav.tabbar")!.getBoundingClientRect();
+    expect(window.scrollY).toBe(0);
+    expect(bar.top).toBeGreaterThan(0);
+    expect(bar.bottom).toBeLessThanOrEqual(tabs.top);
+  });
 }
 
 test("on a phone Needs you shows the queue as chips and the pick's answer in reach, named once chosen", async () => {
@@ -69,7 +72,7 @@ test("on a phone Needs you shows the queue as chips and the pick's answer in rea
   const card = screen.getByTestId("gate-run_1");
   const primary = card.getByRole("button", { name: "Continue", exact: true });
   await expect.element(primary).toBeDisabled();
-  inReach(card.element().querySelector(".gate-actions")!);
+  await inReach(card.element().querySelector(".gate-actions")!);
 
   await card.getByText("The cereal fired out of cannons").click();
   await expect.element(card.getByRole("button", { name: "Continue with #2" })).toBeEnabled();
@@ -106,7 +109,7 @@ test("on a phone a run waiting at an approve gate keeps Send back and Approve in
   await expect.element(approve).toBeEnabled();
   const back = panel.getByRole("button", { name: "Send back to..." });
   await expect.element(back).toHaveTextContent("Send back…");
-  inReach(approve.element().closest(".gate-actions")!);
+  await inReach(approve.element().closest(".gate-actions")!);
   // Send back sits before the primary, as the thumb reads it.
   expect(back.element().getBoundingClientRect().left).toBeLessThan(approve.element().getBoundingClientRect().left);
   // The video is capped, so the run does not open on a full screen of it.
