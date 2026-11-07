@@ -325,6 +325,36 @@ def test_a_process_keeps_its_last_stderr_lines_in_its_scratch_folder(tmp_path: P
     assert kept[-1] == "sqlite3.OperationalError: attempt to write a readonly database"
 
 
+LISTS_AND_PROBES = """
+import os, sys
+run, missing, secret = sys.argv[1:]
+print(sorted(os.listdir(run)))
+for path in (missing, secret):
+    try:
+        open(path).read()
+    except OSError as exc:
+        print("refused", exc.errno)
+"""
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the tripwire is Linux's (observe.py)")
+def test_only_a_read_of_what_exists_outside_the_grants_is_reported(tmp_path: Path) -> None:
+    """A run folder granted whole, its stage folder writable, lists with no denial; a probe of a
+    path that is nowhere (a build machine's, as Blender's libheif) is not reported; a real
+    denied file still is."""
+    data = tmp_path.resolve()
+    run = data / "worlds" / "w1" / "runs" / "r1"
+    (run / "s0").mkdir(parents=True)
+    (run / "s1").mkdir()
+    (data / "setup.json").write_text("{}")
+    grants = Grants(reads=[run], writes=[run / "s1"])
+    argv = [sys.executable, "-c", LISTS_AND_PROBES, str(run), str(data / "nowhere" / "lib")]
+    confined = Sandbox(data).wrap([*argv, str(data / "setup.json")], None, grants)
+    done = subprocess.run(confined.argv, capture_output=True, text=True, timeout=60)
+    assert done.stdout.startswith("['s0', 's1']"), done
+    assert confined.blocked() == [f"read {data / 'setup.json'}"]
+
+
 UNIX_SOCKET = """
 import socket
 try:
@@ -466,6 +496,10 @@ def test_the_tripwire_judges_each_open_and_dial_as_the_sandbox_does() -> None:
     assert observe.verdict("/etc/passwd", observe.os.O_WRONLY, rules) == "write"
     assert observe.verdict("/w/out.mp4", observe.os.O_CREAT | observe.os.O_WRONLY, rules) is None
     assert observe.verdict("/dev/null", observe.os.O_WRONLY, rules) is None
+    # a folder above a readable one: the jail makes it, and it lists only what is granted
+    assert observe.verdict("/data/packages", 0, rules) is None
+    assert observe.verdict("/data", 0, rules) is None
+    assert observe.verdict("/data/pack", 0, rules) == "read"  # a prefix, not a folder above
 
     def sockaddr(family: int, port: int, address: bytes) -> bytes:
         head = struct.pack("<H", family) + struct.pack(">H", port)

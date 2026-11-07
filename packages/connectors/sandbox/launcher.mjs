@@ -19,7 +19,7 @@
 // launcher stops that whole group.
 
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
@@ -217,8 +217,11 @@ process.stdin.pipe(child.stdin);
 child.stdout.pipe(process.stdout);
 const mark = `\x1fswarmify-blocked ${plan.nonce} `;
 createInterface({ input: child.stderr, crlfDelay: Infinity }).on("line", (line) => {
-  if (plan.observe && line.startsWith(mark)) blocked(line.slice(mark.length));
-  else said(line);
+  if (!plan.observe || !line.startsWith(mark)) return said(line);
+  const report = line.slice(mark.length);
+  // a read of what is not there outside the jail either (a runtime probing a path compiled in
+  // on its build machine, as Blender's libheif) kept nothing from it
+  if (!report.startsWith("read ") || existsSync(report.slice(5))) blocked(report);
 });
 
 let stdinDone = false;

@@ -7,11 +7,12 @@ its network namespace has no route out, and neither says anything when a process
 reports the attempts the way Seatbelt's log does on macOS (the proxy reports those through it).
 It runs the command under a seccomp filter that hands every `open` and `connect` to this
 process, which reads the arguments, lets the call go on unchanged, and writes one line to stderr,
-after the launcher's nonce, for each path inside a `denied` folder and outside the `readable`
-ones (`read <path>`), opened for writing outside the `writable` ones (`write <path>`), or each
-address off this host it dials past the proxy (`connect <address>:<port>`). The mounts and the
-namespace are the wall; this is a tripwire, and what it reads can be changed under it, so it
-never decides anything.
+after the launcher's nonce, for each path inside a `denied` folder, outside the `readable` ones
+and not a folder above one of them (`read <path>`), opened for writing outside the `writable`
+ones (`write <path>`), or each address off this host it dials past the proxy
+(`connect <address>:<port>`). The launcher drops a read of what does not exist outside the jail
+either. The mounts and the namespace are the wall; this is a tripwire, and what it reads can
+be changed under it, so it never decides anything.
 
 It ends once every process under the filter has ended, not only the command: a long job the
 command left running keeps the sandbox up until it is done. stdin and stdout are the command's
@@ -63,7 +64,8 @@ def verdict(path: str, flags: int, rules: dict[str, list[str]]) -> str | None:
     if flags & WRITE and not within(path, rules["writable"]) and not within(path, list(PROC)):
         return "write"
     if within(path, rules["denied"]) and not within(path, rules["readable"]):
-        return "read"
+        # a folder above a readable one, which the jail makes to hold it, lists only what is granted
+        return None if any(within(r, [path]) for r in rules["readable"]) else "read"
     return None
 
 
