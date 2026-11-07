@@ -33,7 +33,10 @@ export function Sheet({
   return (
     // The dialog itself is only hit outside the body, on the backdrop.
     <dialog ref={ref} className={`sheet ${className}`.trim()} aria-label={label} onClose={onClose} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet-body">{kept && children}</div>
+      {/* Inert while it slides out, so a tap on the leaving sheet does nothing. */}
+      <div className="sheet-body" inert={!open}>
+        {kept && children}
+      </div>
     </dialog>
   );
 }

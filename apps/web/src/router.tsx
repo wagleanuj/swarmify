@@ -220,9 +220,10 @@ const routeTree = rootRoute.addChildren([
 
 // `history` is injectable so tests can mount a page at a given URL with a memory history.
 export function createAppRouter(history?: RouterHistory) {
-  // Pages crossfade where the browser has view transitions, unless motion is reduced; a lazy
-  // route shows the progress line.
-  const crossfade = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Pages crossfade where the browser has view transitions, unless motion is reduced. Only a new
+  // page does: a search-only change (a keystroke in a search box, an editor tab) swaps in place.
+  // A lazy route shows the progress line.
+  const crossfade = !matchMedia("(prefers-reduced-motion: reduce)").matches && { types: ({ pathChanged }: { pathChanged: boolean }) => (pathChanged ? [] : false) };
   return createRouter({ routeTree, history, defaultViewTransition: crossfade, defaultPendingComponent: ProgressLine });
 }
 

@@ -34,3 +34,14 @@ test("a fast call never shows the line", async () => {
   await wait(250);
   expect(screen.getByTestId("route-progress").query()).toBeNull();
 });
+
+test("a call that fails or is aborted still clears the line", async () => {
+  vi.stubGlobal("fetch", (req: Request) => new Promise<Response>((_, fail) => req.signal.addEventListener("abort", () => fail(req.signal.reason))));
+  const screen = await render(<Progress />);
+  const stop = new AbortController();
+  const call = api.GET("/api/worlds", { signal: stop.signal });
+  await expect.element(screen.getByTestId("route-progress")).toBeInTheDocument();
+  stop.abort();
+  await expect(call).rejects.toThrow();
+  await expect.element(screen.getByTestId("route-progress")).not.toBeInTheDocument();
+});
