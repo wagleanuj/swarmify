@@ -96,16 +96,18 @@ def build_run(
     after: str = "",
     calls: str = "remotion_build",
     before: Callable[[Path], None] = lambda _: None,
+    retro: bool = False,
 ) -> tuple[TestClient, dict]:
     """`inputs` is the build stage's input line; a notes stage writing notes.md runs before it
     when it names notes.md. `after` is YAML for stages after it; the run is returned once it
     ends or waits at a gate. `calls` is the build package; HyperFrames' are enabled first.
-    `before` gets the world's folder before the run starts."""
+    `before` gets the world's folder before the run starts; `retro` ends the run with its Retro,
+    whose session the script answers."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     (data / ".env").write_text("UPLOAD_POST_API_KEY=k3y\n")
     (data / ".env").chmod(0o600)
-    app = create_app(data, poll_seconds=0.05, retro=False, runtime=runtime, extract=fake_extract)
+    app = create_app(data, poll_seconds=0.05, retro=retro, runtime=runtime, extract=fake_extract)
     client = TestClient(app)
     client.__enter__()
     opened.append(client)
@@ -458,3 +460,64 @@ def test_a_blender_build_starts_from_a_template_and_a_send_back_revises_it(
     assert (stage / "build/shots/s02.py").is_file() and (stage / "build/shots/s03.py").is_file()
     assert (stage / "build.v1/shots/s02.py").is_file() and (stage / "build.v1.mp4").is_file()
     assert not (stage / "build.v1/shots/s03.py").exists()
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_rerun_of_a_build_whose_render_failed_revises_it_and_reuses_the_rendered_shots(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """Issue 418: every shot rendered, then the finish step failed, so the stage failed and the
+    run waits at its Retro. A Rerun with a note revises the kept build in place, and the render
+    reuses the shot it already made."""
+
+    def finish(command: list[str] | None) -> Answer:  # the scripted CLI runs no tools
+        def write(options: Any) -> None:
+            spec = json.loads((Path(options.cwd) / "render.json").read_text())
+            spec.pop("finish", None)
+            (Path(options.cwd) / "render.json").write_text(
+                json.dumps({**spec, **({"finish": command} if command else {})})
+            )
+
+        return Answer(write)
+
+    skill = "---\nname: finish\ndescription: Test the finish.\n---\n\nRun it first.\n"
+    proposal = {
+        "skill": {
+            "action": "new", "name": "finish", "content": skill, "summary": "Test the finish",
+            "evidence": ["video: the finish step exited with 1"],
+        },
+        "workflow": None,
+    }  # fmt: skip
+    script = Script(
+        [finish(["false"]), Say("v1")],
+        [Answer(proposal)],
+        [finish(None), Say("v2")],
+        [Answer({"skill": None, "workflow": None})],
+    )
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened,
+        calls="blender_build", retro=True,
+    )  # fmt: skip
+    assert [s["status"] for s in run["stages"]] == ["done", "failed", "waiting"], run
+    video_id = run["stages"][1]["id"]
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    shot = (stage / "shots/s01.mp4").stat().st_mtime_ns
+
+    note = "Drop the finish step; join the shots."
+    change = {"kind": "rerun", "stage": video_id, "payload": {"note": note}}
+    proposed = client.post(f"/api/runs/{run['id']}/changes/propose", json=change).json()
+    assert proposed["violations"] == [] and proposed["in_place"], proposed
+    assert proposed["before"] == {"video": "failed", "retro": "waiting"}
+    revision = proposed["revision"]
+    applied = client.post(f"/api/runs/{run['id']}/changes", json={**change, "revision": revision})
+    assert applied.status_code == 201, applied.text
+    run = settled(client, run["id"], send_backs=1)
+    assert run["status"] == "done", run
+
+    revising = next(p for p in script.prompts if p.startswith("This is a revision"))
+    assert note in revising and f"before you change anything: {stage}/build.v1." in revising
+    assert "finish" in json.loads((stage / "build.v1/render.json").read_text())
+    assert "finish" not in json.loads((stage / "build/render.json").read_text())
+    assert (stage / "shots/s01.mp4").stat().st_mtime_ns == shot, "the shot was reused"
+    call = client.get(f"/api/stages/{video_id}/call").json()
+    assert (call["visit"], call["status"]) == (1, "done")

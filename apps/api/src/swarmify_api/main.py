@@ -575,9 +575,10 @@ def create_app(
         call = registry.call_for(stage_id)
         template = call.template if call is not None else None
         if call is None or call.visit != run.send_backs or call.status == "failed":
-            # A send-back revises the last good build, kept as build.v<n> (n counting visits
-            # from 1); a stage never run, or one whose last call failed, starts fresh.
-            last = call if call is not None and call.status == "done" else None
+            # A send-back or Rerun revises the last build, kept as build.v<n> (n counting visits
+            # from 1), even one whose render failed; a stage never run, or a retry of the same
+            # visit whose call failed, starts fresh.
+            last = call if call is not None and call.visit != run.send_backs else None
             previous = project.with_name(f"build.v{last.visit + 1}") if last else None
             try:
                 if previous and (previous.exists() or project.exists()):
@@ -607,7 +608,8 @@ def create_app(
             domains = package.manifest.get("permissions", {}).get("network", [])
             revises = [previous] if previous else []
             if previous and made:
-                revises.append(previous.with_name(previous.name + made.suffix))
+                video = previous.with_name(previous.name + made.suffix)
+                revises += [video] if video.is_file() else []  # none when its render failed
             # Its tool servers, confined to the stage: the `[build_session].tools` of the package
             # it renders with (a preview, never the render) and every package `params.tools`
             # names, whole, as a swarm stage's.

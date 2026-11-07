@@ -155,3 +155,15 @@ test("on a run that failed at its last step, Re-run from here continues as a new
   await vi.waitFor(() => expect(sent).toEqual([{ kind: "rerun", stage: "stage_1", payload: { note: "" }, revision: 6 }]));
   await expect.element(card.getByTestId("continues-in")).toMatchTextContent(/Continues in.*Short/);
 });
+
+test("a step that failed while its retro waits offers Re-run from here, in place", async () => {
+  const atRetro = run("waiting_gate", [
+    stage(0, "video", "connector", "failed", { started_at: ts, ended_at: ts, error: "the finish step exited with 1" }),
+    stage(1, "retro", "retro", "waiting", { started_at: ts }),
+  ]);
+  fakeFetch({ "GET /api/runs/run_1": () => Response.json(atRetro) });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_0");
+  await screen.getByRole("button", { name: "Run actions" }).click();
+  await expect.element(screen.getByRole("menuitem", { name: /^Re-run from here/ })).toBeVisible();
+  expect(screen.getByRole("menuitem", { name: /^Skip/ }).elements()).toHaveLength(0);
+});

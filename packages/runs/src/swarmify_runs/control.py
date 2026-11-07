@@ -37,6 +37,7 @@ from swarmify_runs.machine import (
     RunState,
     SentBack,
     Skip,
+    rerun_again,
     rerun_from,
     transition,
 )
@@ -629,21 +630,23 @@ class RunControl:
         it changes by name with their status now, why the run cannot take it now, the workflow
         check's violations the change itself brings (a Skip's missing input or ungated
         publish, ADR 0007), and on a run that has ended the stage its Fork runs anew from (the
-        Rerun's start, the skipped stage), else None. A run that has ended can re-run a stage
-        that failed, or skip it."""
+        Rerun's start, the skipped stage), else None. A stage that failed re-runs too: in place
+        while the run is live, as a failed run is until its retro settles (waiting at its gate,
+        or paused), the stages the failure passed over running again; as a Fork once the run
+        has ended. A run that has ended can skip a stage that failed too."""
         stage = target(run, change)
         ended = run.status in TERMINAL
         violations: list[str] = []
         if change.kind == "rerun":
-            event: RunEvent = Rerun(stage.index)
+            keep = tuple(c.stage_index for c in run.changes if c.kind == "skip")
+            event: RunEvent = Rerun(stage.index, keep=keep)
             start = rerun_from(kinds_of(run), [s.status for s in run.stages], stage.index)
-            resets = [s for s in run.stages[start:] if s.status not in ("pending", "skipped")]
+            again = rerun_again([s.status for s in run.stages], start, keep)
+            resets = [s for s, a in zip(run.stages[start:], again, strict=True) if s.status != a]
             before = {s.name: s.status for s in resets}
-            if ended:
-                fine = stage.status in ("done", "failed")
-                not_now = None if fine else f"{stage.name} has not run"
-            else:
-                not_now = None if stage.status == "done" else f"{stage.name} has not finished"
+            not_now = None
+            if stage.status not in ("done", "failed"):
+                not_now = f"{stage.name} has not {'run' if ended else 'finished'}"
         else:
             event, start = Skip(stage.index), stage.index
             before = {stage.name: stage.status}
@@ -710,7 +713,8 @@ class RunControl:
         # ponytail: a DBOS outage here leaves the change recorded but not taken; the run page
         # still shows the stage as it was, so apply it again once DBOS is reachable.
         if isinstance(event, Rerun):
-            self._send(run.id, {"action": "rerun", "to": event.to, "change": applied.id})
+            message = {"action": "rerun", "to": event.to, "change": applied.id}
+            self._send(run.id, {**message, "keep": list(event.keep)})
         else:
             self._send(run.id, {"action": "skip", "index": stage.index, "change": applied.id})
         return applied

@@ -365,6 +365,19 @@ def test_a_rerun_needs_a_finished_stage_and_a_run_at_rest() -> None:
         transition(kinds, spent, Rerun(0))
 
 
+def test_a_rerun_of_a_failed_stage_at_its_retro_gate_resets_what_the_failure_passed_over() -> None:
+    """A stage a Skip passed over (`keep`) stays skipped; the failure's are pending again."""
+    kinds = ("swarm", "connector", "connector", "connector", "retro")
+    state, _ = transition(kinds, RunState.new(5), Started())
+    state, _ = transition(kinds, state, Skip(3))
+    state, _ = transition(kinds, state, StageFailed(0))
+    state, _ = transition(kinds, state, GateRaised(4))
+    assert state == RunState("waiting_gate", ("failed", "skipped", "skipped", "skipped", "waiting"))
+    again, cmds = transition(kinds, state, Rerun(0, keep=(3,)))
+    assert again.stages == ("running", "pending", "pending", "skipped", "pending")
+    assert again.status == "running" and cmds == [RunStage(0)]
+
+
 def test_a_skip_passes_over_a_stage_that_has_not_started() -> None:
     kinds = ("connector", "gate", "connector")
     state, _ = transition(kinds, RunState.new(3), Started())
