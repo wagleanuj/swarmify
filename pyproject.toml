@@ -10,6 +10,7 @@ dependencies = []
 dev = [
   "httpx>=0.28",
   "hypothesis>=6.150",
+  "pillow==12.0.0",
   "pyright>=1.1.414",
   "pytest>=9.1",
   "pytest-cov>=7.1",
