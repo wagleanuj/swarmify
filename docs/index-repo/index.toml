@@ -1,6 +1,24 @@
 # The curated index of Swarmify Connector Packages. Format and how to add one: README.md.
 
 [[packages]]
+name = "blender_render"
+description = "Renders a Blender project's shots on the GPU, then its finish step, into one video."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/blender_render"
+ref = "main"
+permissions = [
+  "install_network: pypi.org",
+  "install_network: files.pythonhosted.org",
+  "install_network: download.blender.org",
+  "install_network: github.com",
+  "install_network: release-assets.githubusercontent.com",
+  "folders: worlds/{world}/assets",
+  "gpu: the host's graphics card",
+  "owned_folders: blender_templates",
+  "capabilities: templates",
+]
+
+[[packages]]
 name = "hyperframes_build"
 description = "Writes a HyperFrames project (HTML and GSAP) from the script in a sandboxed coding session, then renders it. Needs Node 22."
 git = "https://github.com/wagleanuj/swarmify.git"

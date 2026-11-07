@@ -1,0 +1,12 @@
+# The Blender render connector's own uv project, outside the Swarmify workspace: its install step
+# syncs these into the installed version's folder (ADR 0026).
+[project]
+name = "swarmify-blender-render"
+version = "1.0.0"
+description = "Renders a Blender project's shots into one video"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["mcp==2.3.0"]
+
+[tool.uv]
+package = false

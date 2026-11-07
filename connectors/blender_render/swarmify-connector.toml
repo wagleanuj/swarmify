@@ -1,0 +1,67 @@
+# The Blender render connector (README.md beside this file). Installed with Swarmify from this
+# folder but not enabled by default: a world enables it, with blender_build, when it makes videos
+# in Blender.
+name = "blender_render"
+version = "1.0.0"
+label = "Blender render"
+about = "Renders a Blender project's shots on the GPU, then its finish step, into one video."
+kind = "stage"
+stage_types = ["connector"]
+enable_by_default = false
+
+planner_notes = "Use it only when the operator has a finished Blender template; else blender_build makes the video. params.project is the name of one of the world's Blender render Templates."
+
+runtime = "uv"
+# Its Python beside it (uv), then Blender and ffmpeg (fetch.py, each download checked against a
+# pinned SHA-256) in vendor/ here (ADR 0026). `npm run fetch` only runs fetch.py: the test suite's
+# npm only logs, so no test downloads 400 MB.
+install = ["sh", "-c", "uv sync --frozen --no-dev && npm run fetch --silent"]
+command = [".venv/bin/python", "blender_render.py"]
+
+# Its `project` is one of the world's Blender Templates (ADR 0028), in the Owned Folder it shares
+# with blender_build, which a render reads in place and never writes.
+capabilities = ["templates"]
+
+# Its sandbox (ADR 0021). No network at all when it renders. It reads the world's Assets (rigs,
+# motion clips, fonts a shot script loads) and runs Blender on the host's GPU. The install step
+# reaches Blender's download host and GitHub's release downloads for ffmpeg.
+[permissions]
+folders = ["worlds/{world}/assets"]
+gpu = true
+install_network = ["download.blender.org", "github.com", "release-assets.githubusercontent.com"]
+
+[[owned_folders]]
+folder = "blender_templates"
+label = "Blender templates"
+about = "Projects a build starts from: shot scripts, a render.json and a kit."
+
+[templates]
+folder = "blender_templates"
+require = ["render.json"]
+
+[params]
+type = "object"
+required = ["project"]
+[params.properties.project]
+type = "string"
+description = "the Blender project folder, holding render.json"
+[params.properties.quality]
+type = "string"
+default = "draft"
+description = "a quality preset of the project's render.json, passed to every shot"
+
+[[outputs]]
+description = "the video"
+media_type = "video/mp4"
+
+[setup]
+help_url = "https://github.com/wagleanuj/swarmify/tree/main/connectors/blender_render#setup"
+
+[[config]]
+key = "blender_version"
+label = "Blender version"
+type = "string"
+default = "5.2.1"
+pattern = "[0-9]+\\.[0-9]+\\.[0-9]+"
+env = "SWARMIFY_BLENDER_VERSION"
+help = "The Blender a render runs, one the package pins a checksum for and installed (5.2.1)."

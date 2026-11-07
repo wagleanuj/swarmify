@@ -806,6 +806,9 @@ stage and its params, what it answers, the Services it calls and how its V1 sett
 - [`hyperframes_render`](connectors/hyperframes_render/README.md) and
   [`hyperframes_build`](connectors/hyperframes_build/README.md): the same pair for HyperFrames
   (HTML and GSAP), installed but enabled only in the worlds that ask for them.
+- [`blender_render`](connectors/blender_render/README.md): renders a Blender project's shots on
+  the GPU, then its own finish step, into one video; installed but enabled only in the worlds that
+  ask for it.
 - [`youtube`](connectors/youtube/README.md) and [`upload_post`](connectors/upload_post/README.md):
   publish connectors, with Outcomes.
 - [`meta`](connectors/meta/README.md): Reels to a world's Instagram and Facebook Page, its
