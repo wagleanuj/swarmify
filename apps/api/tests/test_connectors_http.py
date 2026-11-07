@@ -123,13 +123,13 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
         ("blender_build", "1.0.0", "connectors/blender_build"),
-        ("blender_render", "1.0.1", "connectors/blender_render"),
+        ("blender_render", "1.0.2", "connectors/blender_render"),
         ("fal_video", "0.0.1", "local"),
         ("hyperframes_build", "1.0.1", "connectors/hyperframes_build"),
         ("hyperframes_render", "1.0.1", "connectors/hyperframes_render"),
         ("meta", "1.0.1", "connectors/meta"),
         ("remotion_build", "1.0.2", "connectors/remotion_build"),
-        ("remotion_render", "1.0.5", "connectors/remotion_render"),
+        ("remotion_render", "1.0.6", "connectors/remotion_render"),
         ("slack", "1.1.0", "connectors/slack"),
         ("speech", "1.1.0", "connectors/speech"),
         ("upload_post", "1.0.0", "connectors/upload_post"),
@@ -139,7 +139,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
         {"name": "fal_video", "version": "0.0.1"},
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},
-        {"name": "remotion_render", "version": "1.0.5"},
+        {"name": "remotion_render", "version": "1.0.6"},
         {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
@@ -281,6 +281,21 @@ def test_a_connector_stage_records_its_raw_call_keyed_by_the_stage_id(
     assert (call["run_id"], call["world_id"]) == (run["id"], run["world_id"])
     assert transport.calls[0][3] == {"FAL_KEY": "s3cret"}
     assert running.get(f"/api/stages/{run['stages'][1]['id']}/call").status_code == 404
+
+
+def test_aborting_a_run_cancels_its_connector_stage_long_job(
+    running: TestClient, transport: FakeTransport
+) -> None:
+    transport.outputs["fal_video"] = [{"job_id": "j1", "poll": "fal_status"}]
+    transport.outputs["fal_status"] = [{"status": "running", "progress": 0.5}]  # never ends
+    run = start(running)
+    url = f"/api/runs/{run['id']}"
+    until(lambda: any(c[1] == "fal_status" for c in transport.calls))
+    assert running.post(f"{url}/abort").status_code == 200
+    until(lambda: running.get(url).json()["status"] == "aborted")
+    assert transport.calls[-1][1:3] == ("fal_status", {"job_id": "j1", "cancel": True})
+    # an abort ends a running stage as it ends a swarm stage's, with no error of its own
+    assert running.get(url).json()["stages"][0]["error"] is None
 
 
 def test_a_failing_connector_fails_the_run_with_its_error(
@@ -517,7 +532,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "echo", "version": "1.0.0"},
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},  # the default packages
-        {"name": "remotion_render", "version": "1.0.5"},
+        {"name": "remotion_render", "version": "1.0.6"},
         {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
@@ -534,7 +549,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
     assert client.get(f"/api/worlds/{one}/packages").json() == [
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},
-        {"name": "remotion_render", "version": "1.0.5"},
+        {"name": "remotion_render", "version": "1.0.6"},
         {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},
@@ -543,7 +558,7 @@ def test_worlds_enable_a_package_at_a_pinned_version(client: TestClient) -> None
         {"name": "echo", "version": "1.0.0"},
         {"name": "meta", "version": "1.0.1"},
         {"name": "remotion_build", "version": "1.0.2"},
-        {"name": "remotion_render", "version": "1.0.5"},
+        {"name": "remotion_render", "version": "1.0.6"},
         {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
         {"name": "youtube", "version": "1.1.0"},

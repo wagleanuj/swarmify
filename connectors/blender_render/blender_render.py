@@ -37,8 +37,9 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
@@ -55,6 +56,8 @@ DEFAULT_VERSION = "5.2.1"
 GPU_LOCK = "SWARMIFY_GPU_LOCK"
 """The lock file every process granted the GPU shares, which each Blender process holds."""
 WAITING = "Waiting for the GPU"
+GRACE = 5.0
+"""Seconds a cancelled job has to stop on SIGTERM before it is killed."""
 FINISHING = "Finishing"
 DEV = Path("/dev")
 GPU = ("nvidia0", "dri/renderD*")
@@ -353,12 +356,43 @@ def blender_render(
     return {**answer, "message": "render started"}
 
 
-@mcp.tool(description="Poll a Blender render started by blender_render.")
-def blender_render_status(job_id: str) -> dict[str, Any]:
+def stop(pid: int) -> None:
+    """Stop a job: SIGTERM to its process, then, once it is gone or GRACE seconds pass, SIGKILL
+    to its process group, so nothing it started (or a job that ignored SIGTERM) runs on."""
+    if pid <= 0:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    end = time.monotonic() + GRACE
+    while not _gone(pid) and time.monotonic() < end:
+        time.sleep(0.05)
+    with suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGKILL)
+
+
+def _gone(pid: int) -> bool:
+    try:
+        return os.waitpid(pid, os.WNOHANG)[0] == pid  # this process started it: reap it
+    except ChildProcessError:
+        return not alive(pid)
+
+
+@mcp.tool(description="Poll a Blender render started by blender_render; cancel: true stops it.")
+def blender_render_status(job_id: str, cancel: bool = False) -> dict[str, Any]:
+    """`cancel` stops a running render (`stop`), as when its run is aborted; the job fails
+    saying it was cancelled."""
     job = Path(job_id)
     if not job.name.endswith(".job.json") or not job.is_file():
         raise ToolError(f"no render job at {job_id}")
     state = _read(job)
+    if cancel and state["status"] == "running":
+        stop(state["pid"])
+        state = _read(job)
+        if state["status"] == "running":  # killed before it could say so
+            state = {**state, "status": "failed", "error": "the render was cancelled"}
+            _write(job, state)
     if state["status"] == "done":
         return {
             "status": "done",

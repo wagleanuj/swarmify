@@ -12,6 +12,7 @@ from swarmify_connectors import (
     ConnectorError,
     Connectors,
     FakeTransport,
+    JobCancelled,
     Tool,
 )
 from swarmify_connectors.sandbox import LAUNCHER, REGISTRIES
@@ -300,6 +301,37 @@ def test_a_crash_mid_job_resumes_polling_without_calling_again(
     call = connectors.run_stage(W, "run_1", "stage_1", STAGE)
     assert call.status == "done" and call.attempts == 1
     assert [c[1] for c in transport.calls] == ["fal_video", "status", "status"]
+
+
+def test_an_aborted_run_cancels_its_long_job_and_stops_polling(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    connectors.add(fal(connectors), {"FAL_KEY": "k"})
+    transport.outputs["fal_video"] = [{"job_id": "j1", "poll": "status"}]
+    transport.outputs["status"] = [{"status": "running", "progress": 0.2}]
+    connectors.aborted = lambda run_id: run_id == "run_1" and len(transport.calls) >= 3
+    with pytest.raises(JobCancelled, match="aborted"):
+        connectors.run_stage(W, "run_1", "stage_1", STAGE)
+    assert [c[1:3] for c in transport.calls[1:]] == [
+        ("status", {"job_id": "j1"}),
+        ("status", {"job_id": "j1"}),
+        ("status", {"job_id": "j1", "cancel": True}),
+    ]
+    call = connectors.call_for("stage_1")
+    assert call is not None and call.status == "failed" and "aborted" in (call.error or "")
+
+
+def test_a_job_that_cannot_cancel_still_ends_the_aborted_stage(
+    connectors: Connectors, transport: FakeTransport
+) -> None:
+    connectors.add(fal(connectors), {"FAL_KEY": "k"})
+    transport.outputs["fal_video"] = [{"job_id": "j1", "poll": "status"}]
+    transport.outputs["status"] = [ConnectorError("unexpected argument cancel")]
+    connectors.aborted = lambda _run_id: True
+    with pytest.raises(JobCancelled):
+        connectors.run_stage(W, "run_1", "stage_1", STAGE)
+    assert transport.calls[-1][1:3] == ("status", {"job_id": "j1", "cancel": True})
+    assert len(transport.calls) == 2  # the call, then the cancel: never a poll
 
 
 def test_a_failed_call_is_recorded_and_a_retry_calls_again(

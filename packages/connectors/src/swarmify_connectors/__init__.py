@@ -27,7 +27,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 from jsonschema.exceptions import SchemaError
@@ -44,6 +44,7 @@ from swarmify_connectors.model import (
     Connector,
     ConnectorError,
     HealthCheck,
+    JobCancelled,
     KeyCheck,
     Tool,
 )
@@ -76,6 +77,7 @@ __all__ = [
     "FakeTransport",
     "HealthCheck",
     "InstallError",
+    "JobCancelled",
     "KeyCheck",
     "ManifestError",
     "McpTransport",
@@ -239,6 +241,8 @@ class Connectors:
         self.data_dir = credentials.path.parent  # credentials live in `<data dir>/.env`
         self.packages = packages or Packages(self.data_dir / "packages", self.data_dir)
         self.on_blocked = on_blocked
+        self.aborted: Callable[[str], bool] = lambda _run_id: False
+        """Whether a run was aborted, asked between polls so a long job stops with its run."""
         self._watched: list[tuple[Connector, Confined]] = []
         """Processes others start (a swarm stage's agents), whose blocks `drain` reports."""
         self.setups = SetupStore(self.data_dir / "setup.json")
@@ -1300,8 +1304,22 @@ class Connectors:
                 call = self._call(connector, world_id, run_id, stage_id, visit, config, tool, call)
             while call.status == "polling":
                 time.sleep(self.poll_seconds)
+                if self.aborted(run_id):
+                    self._cancel(connector, call, tool)
                 call = self._poll(connector, call, tool)
         return call
+
+    def _cancel(self, connector: Connector, call: Call, call_tool: Caller) -> NoReturn:
+        """Cancel the job of an aborted run: its poll tool, called with `cancel: true`, stops the
+        job's process (SIGTERM, then SIGKILL after a short grace). Records the call failed and
+        raises JobCancelled, so the stage stops as aborted."""
+        assert call.poll_tool is not None
+        try:
+            call_tool(call.poll_tool, {"job_id": call.job_id, "cancel": True})
+        except Exception as exc:  # a package that cannot cancel: its job runs on, unwatched
+            log.warning("%s could not cancel job %s: %s", connector.name, call.job_id, exc)
+        self._fail(call, "the run was aborted, so its job was cancelled")
+        raise JobCancelled(f"{connector.name}: the run was aborted")
 
     def _call(
         self,

@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -27,6 +28,7 @@ from swarmify_connectors import (
     Connectors,
     Credentials,
     FakeTransport,
+    JobCancelled,
     McpTransport,
     SqliteStorage,
     read_manifest,
@@ -55,7 +57,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     `uv sync`ed there, then the (fake) npm and Remotion browser steps."""
     data = tmp_path_factory.mktemp("data")
     defaults = registry(data, FakeTransport()).install_defaults()
-    assert defaults["remotion_render"] == "1.0.5"
+    assert defaults["remotion_render"] == "1.0.6"
     return data / "packages"
 
 
@@ -151,7 +153,7 @@ def test_the_manifest_passes_and_shares_remotion_builds_templates() -> None:
 def test_install_puts_its_python_the_remotion_cli_and_its_browser_beside_it(
     installed: Path,
 ) -> None:
-    folder = installed / "remotion_render" / "1.0.5"
+    folder = installed / "remotion_render" / "1.0.6"
     assert (folder / ".venv" / "bin" / "python").is_file()
     assert (folder / "fake-install.log").read_text().splitlines() == [
         "npm ci --ignore-scripts --no-audit --no-fund",
@@ -164,7 +166,7 @@ def test_its_settings_reach_the_process_and_no_templates_folder_is_one(given: Gi
     """Its Templates are the world's (ADR 0028), not a folder of the data directory."""
     connectors = given(FakeTransport())
     render = connectors.find(W, "remotion_render")
-    assert render is not None and render.version == "1.0.5"
+    assert render is not None and render.version == "1.0.6"
     assert connectors._env(render) == {}
     connectors.save_setup(W, "remotion_render", {}, {"concurrency": "2"})
     assert connectors._env(render) == {"SWARMIFY_RENDER_CONCURRENCY": "2"}
@@ -242,7 +244,7 @@ def test_renders_the_script_into_a_video_with_a_sidecar(
 @pytest.fixture
 def own_browser(installed: Path) -> Iterator[Path]:
     """What `remotion browser ensure` leaves beside the installed package, for one test."""
-    browsers = installed / "remotion_render" / "1.0.5" / "node_modules" / ".remotion"
+    browsers = installed / "remotion_render" / "1.0.6" / "node_modules" / ".remotion"
     shell = browsers / "chrome-headless-shell" / "linux64" / "chrome-headless-shell"
     shell.parent.mkdir(parents=True)
     shell.write_text("#!/bin/sh\n")
@@ -483,6 +485,47 @@ def test_progress_reaches_the_call_while_it_renders(
     assert any(m and m.startswith("rendered ") for m in messages), messages
     values = [p["progress"] for p in seen if p["progress"] is not None]
     assert values == sorted(values) and values[-1] == 1.0
+
+
+def test_aborting_the_run_stops_the_render_and_its_cli(
+    tmp_path: Path, real: Connectors, fake_npx: Path
+) -> None:
+    config = stage(tmp_path, fake_npx, "Long")
+    log = Path(config["params"]["output_path"]).with_name(".short.mp4.log")
+    # aborted once the CLI renders frames
+    real.aborted = lambda _: log.exists() and "Rendered 3/" in log.read_text()
+    with pytest.raises(JobCancelled, match="aborted"):
+        real.run_stage(W, "run_1", "stage_2", config)
+    call = real.call_for("stage_2")
+    assert call is not None and call.status == "failed"
+    state = json.loads(Path(call.job_id or "").read_text())
+    assert (state["status"], state["error"]) == ("failed", "the render was cancelled")
+    size = log.stat().st_size
+    time.sleep(0.5)  # the CLI wrote a frame every 0.1 s while it ran
+    assert log.stat().st_size == size, "the CLI outlived the cancel"
+
+
+def test_a_job_that_ignores_sigterm_is_killed_after_the_grace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(rr, "GRACE", 0.3)
+    stubborn = subprocess.Popen(
+        [sys.executable, "-c", IGNORES_SIGTERM], start_new_session=True, stdout=subprocess.PIPE
+    )
+    assert stubborn.stdout is not None and stubborn.stdout.readline() == b"ready\n"
+    job = tmp_path / ".short.mp4.job.json"
+    job.write_text(json.dumps({"status": "running", "pid": stubborn.pid, "log": "/nonexistent"}))
+    started = time.monotonic()
+    answer = rr.remotion_render_status(str(job), cancel=True)
+    assert answer["status"] == "failed" and answer["error"].startswith("the render was cancelled")
+    assert stubborn.wait(timeout=5) == -signal.SIGKILL
+    assert 0.3 <= time.monotonic() - started < 5
+
+
+IGNORES_SIGTERM = (
+    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready',"
+    " flush=True); time.sleep(60)"
+)
 
 
 def test_a_failed_render_fails_the_stage_with_the_cli_output(

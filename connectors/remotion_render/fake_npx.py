@@ -3,7 +3,8 @@ the `fake_npx` fixture.
 
 It prints the real CLI's progress lines and writes the props it was given as the "video", so a
 test can see the script arrived. Composition `Broken` fails like a bad render; `Slow` pauses
-between frames so a poll can catch it mid-render; `Empty` exits 0 without writing a file;
+between frames so a poll can catch it mid-render; `Long` renders a frame every 0.1 s until it is
+stopped; `Empty` exits 0 without writing a file;
 `Snoop` is an agent's project trying to break out of the connector sandbox (to read the data
 directory's keys and the world's other assets, write outside its stage and into its own project,
 and reach the internet) and records what it got.
@@ -70,8 +71,12 @@ if composition == "Broken" and (not last or int(first) <= 900 <= int(last)):
     print("Bundling 100%")
     print(f"Error: No composition with the ID {composition} found.", flush=True)
     sys.exit(1)
+if composition == "Long":
+    count = 10**9
 for frame in range(1, count + 1):
     print(f"Rendered {frame}/{count}, time remaining: 0s", flush=True)
+    if composition == "Long":
+        time.sleep(0.1)
     if composition == "Slow":
         time.sleep(1.0)  # longer than a poll takes on a loaded CI runner
 print(f"Encoded {count}/{count}", flush=True)

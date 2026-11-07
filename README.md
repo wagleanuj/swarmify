@@ -369,7 +369,10 @@ connector gets them as request headers of the same name.
   of calling again, and a send-back that reruns the stage calls the connector again.
 - A long job answers `{"job_id": ..., "poll": "<tool>"}`; swarmify calls that tool with
   `{"job_id": ...}` every 2 s until it answers `status: done` or `failed`, with optional `progress`
-  (0 to 1) and `message`. The stage keeps one MCP session, so one process in its sandbox, for the
+  (0 to 1) and `message`. When the run is aborted it calls the tool once more with
+  `{"job_id": ..., "cancel": true}`, which should stop the job (the render packages SIGTERM its
+  process, then SIGKILL its process group after a short grace), and stops polling; the run ends
+  aborted. The stage keeps one MCP session, so one process in its sandbox, for the
   call and its polls; a wrapper still keeps job state outside its process, since a job resumed
   after a restart is polled in a new session.
 - Every change to a call appends a `connector_call.updated` event carrying the whole call, progress
