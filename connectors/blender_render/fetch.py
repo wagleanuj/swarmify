@@ -5,9 +5,10 @@ and ffmpeg, each checked against a pinned SHA-256, into `vendor/`.
   `.sha256` file beside it gave the pin), unpacked to `vendor/blender/<version>/`. Elsewhere there
   is none to unpack, and a render uses a `blender` on PATH. `python fetch.py <version>` fetches one
   version, refused without a pin.
-- ffmpeg and ffprobe: ffmpeg-static's release builds, the ones hyperframes_render fetches
-  (ffmpeg.mjs there), into `vendor/bin/`. The Linux x64 one carries libass, so a finish step can
-  burn ASS captions.
+- ffmpeg and ffprobe, into `vendor/bin/`, with the drawtext, ass and subtitles filters and libx264
+  a finish step is promised: on Linux x64 from BtbN's FFmpeg-Builds GPL tarball (ffmpeg-static's
+  b6.1.1 there has no drawtext, which ffmpeg 6.1 builds only with harfbuzz), elsewhere
+  ffmpeg-static's release builds, the ones hyperframes_render fetches (ffmpeg.mjs there).
 """
 
 import gzip
@@ -32,12 +33,16 @@ FFMPEG = {
     "ffmpeg-darwin-arm64": "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa",
     "ffmpeg-darwin-x64": "929b375c1182d956c51f7ac25e0b2b0411fb01f6f407aa15c9758efeb4242106",
     "ffmpeg-linux-arm64": "754a678672298bc68156adff58aa7385a592c2b30b1d0ae8750c45c915c4bac0",
-    "ffmpeg-linux-x64": "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa",
     "ffprobe-darwin-arm64": "d986a8ec7b030899fe66a8a288ed809a3543338705a3ce178cfb85869c5d80be",
     "ffprobe-darwin-x64": "d4da574d6e2e197bd259b47d69cf262df9e312af24ad960444f6d806d3d4c186",
     "ffprobe-linux-arm64": "2ab6aba60ee84412dff9188720703376cb4e7aaf7e0b5e43aa8249f2acae5bf8",
-    "ffprobe-linux-x64": "25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067",
 }
+FFMPEG_LINUX_X64 = (
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/"
+    "ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1.tar.xz",
+    "41e9c565594c390622cf968d82fa4135d9e9a11d06c1515644288cbc844e3380",
+)
+"""ffmpeg 8.1.3, a month-end build BtbN keeps (its dailies are deleted), and its SHA-256."""
 ARCH = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}
 
 
@@ -75,6 +80,17 @@ def blender(version: str) -> None:
 def ffmpeg() -> None:
     system, arch = sys.platform, ARCH.get(platform.machine().lower(), platform.machine())
     (VENDOR / "bin").mkdir(parents=True, exist_ok=True)
+    if (system, arch) == ("linux", "x64"):
+        url, sha256 = FFMPEG_LINUX_X64
+        with tempfile.TemporaryDirectory(dir=VENDOR) as tmp:
+            tarball = Path(tmp) / "ffmpeg.tar.xz"
+            download(url, sha256, tarball)
+            with tarfile.open(tarball) as tar:
+                wanted = [m for m in tar if m.name.endswith(("/bin/ffmpeg", "/bin/ffprobe"))]
+                tar.extractall(tmp, members=wanted, filter="data")
+            for member in wanted:
+                os.replace(Path(tmp) / member.name, VENDOR / "bin" / Path(member.name).name)
+        return
     for tool in ("ffmpeg", "ffprobe"):
         name = f"{tool}-{system}-{arch}"
         if name not in FFMPEG:
