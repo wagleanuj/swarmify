@@ -245,6 +245,28 @@ def test_the_answer_is_on_screen_above_the_tab_bar(phone: Page, ids: dict, where
     _fits(phone)
 
 
+def test_a_run_waiting_at_a_gate_loads_without_jumping(phone: Page, ids: dict) -> None:
+    """On a slow link the run, its gate and its files arrive one after another: the skeleton holds
+    the page, so they shift the layout by less than 0.1 (Core Web Vitals' good)."""
+    cdp = phone.context.new_cdp_session(phone)
+    slow = {"latency": 500, "downloadThroughput": 400_000, "uploadThroughput": 100_000}
+    cdp.send("Network.emulateNetworkConditions", {"offline": False, **slow})
+    phone.goto(f"/worlds/{ids['world']}/runs/{ids['long']}")
+    card = phone.get_by_test_id(f"gate-{ids['long']}")
+    expect(card.get_by_role("button", name="Approve", exact=True)).to_be_visible(timeout=20_000)
+    phone.wait_for_timeout(3000)  # the gate's artifacts and the run's other calls land
+    shift = phone.evaluate(
+        """() => new Promise(done => {
+            let sum = 0;
+            new PerformanceObserver(list => {
+                for (const e of list.getEntries()) if (!e.hadRecentInput) sum += e.value;
+            }).observe({ type: "layout-shift", buffered: true });
+            setTimeout(() => done(sum), 200);
+        })"""
+    )
+    assert shift < 0.1, f"the run page shifted by {shift}"
+
+
 def test_a_running_run_and_a_done_run_with_its_video(phone: Page, ids: dict) -> None:
     phone.goto(f"/worlds/{ids['world']}/runs/{ids['running']}")
     expect(phone.get_by_test_id("run-pill")).to_have_text(re.compile("^running$", re.I))
