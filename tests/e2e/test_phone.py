@@ -302,3 +302,47 @@ def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
         sheet.get_by_text("This is my voice, or I have the speaker's permission")
     ).to_be_visible()
     _fits(phone)
+
+
+# Sums every layout shift not caused by input; read once the page has settled.
+SHIFTS = """window.__cls = 0;
+new PerformanceObserver((list) => {
+  for (const e of list.getEntries()) if (!e.hadRecentInput) window.__cls += e.value;
+}).observe({ type: "layout-shift", buffered: true });"""
+LISTS = [
+    "/worlds/{world}",
+    "/worlds/{world}/workflows",
+    "/worlds/{world}/runs",
+    "/worlds/{world}/library",
+    "/worlds/{world}/read?path={doc}",
+    "/evals",
+]
+
+
+def settled_shift(page: Page, path: str, latency_ms: int = 300) -> float:
+    """Load `path` with every request `latency_ms` slow, wait until no region is busy, and
+    return the page's cumulative layout shift."""
+    page.add_init_script(SHIFTS)
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("Network.enable")
+    conditions = {
+        "offline": False,
+        "latency": latency_ms,
+        "downloadThroughput": -1,
+        "uploadThroughput": -1,
+    }
+    cdp.send("Network.emulateNetworkConditions", conditions)
+    page.goto(path)
+    expect(page.locator("h1").first).to_be_visible()
+    expect(page.locator("main [aria-busy='true']")).to_have_count(0, timeout=15_000)
+    page.wait_for_timeout(1000)  # the last fetches (checks, scorecards) land and paint
+    return page.evaluate("window.__cls")
+
+
+@pytest.mark.parametrize("path", LISTS)
+def test_lists_load_in_place(phone: Page, ids: dict[str, str], path: str) -> None:
+    """Skeletons hold each list's place while it loads on a slow link, so nothing jumps: CLS under
+    0.1, and never the word "Loading...". Then the rows are there."""
+    shift = settled_shift(phone, path.format(**ids))
+    expect(phone.get_by_text("Loading...")).to_have_count(0)
+    assert shift < 0.1, f"{path} shifts by {shift:.3f} while it loads"

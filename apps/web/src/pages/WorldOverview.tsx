@@ -1,11 +1,12 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
+import { Loading, Skeleton } from "../Skeleton";
 import { baseline, saveSkin } from "../skin";
 
 type World = components["schemas"]["World"];
@@ -31,8 +32,8 @@ export function WorldOverview() {
   const { worldId } = worldRoute.useParams();
   const router = useRouter();
   const [world, setWorld] = useState<World | null | undefined>(undefined);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
+  const [runs, setRuns] = useState<Run[] | null>(null);
   const [scores, setScores] = useState<Score[]>([]);
   const gates = (useOpenGates().gates ?? []).filter((g) => g.world_id === worldId);
   const [starting, setStarting] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export function WorldOverview() {
       .then(({ data }) => {
         if (!checked) setWorkflows(data ?? []);
       })
-      .catch(() => undefined);
+      .catch(() => setWorkflows((prev) => prev ?? []));
     api
       .GET("/api/worlds/{world_id}/workflows", { params: { path } })
       .then(({ data }) => {
@@ -76,15 +77,15 @@ export function WorldOverview() {
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setRuns(data))
-      .catch(() => undefined);
+      .then(({ data }) => setRuns(data ?? []))
+      .catch(() => setRuns([]));
   }, [worldId]);
 
   // ponytail: one scorecard per workflow, read when the list loads, so a run judged while the page
   // is open shows on the next visit. Add a world scorecard endpoint when worlds hold many workflows.
   useEffect(() => {
     void Promise.all(
-      workflows.map((w) =>
+      (workflows ?? []).map((w) =>
         api
           .GET("/api/workflows/{workflow_id}/scorecard", { params: { path: { workflow_id: w.id } } })
           .then(({ data }) => data?.runs ?? [])
@@ -100,7 +101,10 @@ export function WorldOverview() {
     source.addEventListener("run.updated", (e) => {
       const run = (JSON.parse((e as MessageEvent<string>).data) as { payload?: Run }).payload;
       if (!run) return;
-      setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
+      setRuns((prev) => {
+        const list = prev ?? [];
+        return list.some((r) => r.id === run.id) ? list.map((r) => (r.id === run.id ? run : r)) : [run, ...list];
+      });
     });
     // A setting changed elsewhere (Crew in another tab): switching views sends the skin as it is now.
     source.addEventListener("world.updated", (e) => {
@@ -161,10 +165,10 @@ export function WorldOverview() {
     else setError("Could not switch to the office. Try again.");
   }
 
-  if (world === undefined) {
+  if (world === undefined && error) {
     return (
       <main>
-        {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
+        <p role="alert">{error}</p>
       </main>
     );
   }
@@ -179,15 +183,17 @@ export function WorldOverview() {
     );
   }
 
-  const f = figures(runs, scores);
+  const f = figures(runs ?? [], scores);
+  // Until the world and its runs load, each figure is a block where its value will be.
+  const figure = (value: ReactNode) => (world && runs ? value : <Skeleton w="3ch" h="1lh" />);
   return (
     <main className="overview">
       <header className="page">
         <div>
-          <h1>{world.name}</h1>
-          <p className="sub">{world.purpose || "No purpose written yet."}</p>
+          <h1>{world ? world.name : <Skeleton w="12ch" h="1lh" />}</h1>
+          <p className="sub">{world ? world.purpose || "No purpose written yet." : <Skeleton w="60%" h="1lh" />}</p>
         </div>
-        <button type="button" onClick={() => void officeView()}>
+        <button type="button" onClick={() => void officeView()} disabled={!world}>
           Office
         </button>
       </header>
@@ -195,22 +201,30 @@ export function WorldOverview() {
       <section className="kpis" aria-label="Figures">
         <div className="kpi">
           <div className="kpi-label">Runs today</div>
-          <div className="kpi-value num">{f.today}</div>
+          <div className="kpi-value num">{figure(f.today)}</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Spent today</div>
-          <div className="kpi-value num">{money(f.spent)}</div>
+          <div className="kpi-value num">{figure(money(f.spent))}</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Run slots in use</div>
           <div className="kpi-value num">
-            {f.inUse} <small>of {world.run_cap}</small>
+            {figure(
+              <>
+                {f.inUse} <small>of {world?.run_cap}</small>
+              </>,
+            )}
           </div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Accepted first try</div>
           <div className="kpi-value num">
-            {f.firstTry} <small>of {f.judged} judged</small>
+            {figure(
+              <>
+                {f.firstTry} <small>of {f.judged} judged</small>
+              </>,
+            )}
           </div>
         </div>
       </section>
@@ -219,13 +233,19 @@ export function WorldOverview() {
           <section className="panel" aria-label="Runs">
             <div className="panel-head">
               <h2>Runs</h2>
-              {runs.length > 0 && (
+              {runs && runs.length > 0 && (
                 <Link to="/worlds/$worldId/runs" params={{ worldId }} className="card-link">
                   View all {runs.length}
                 </Link>
               )}
             </div>
-            {runs.length === 0 ? (
+            {runs === null ? (
+              <Loading className="rows-loading table-loading">
+                {Array.from({ length: SHOWN }, (_, i) => (
+                  <Skeleton key={i} />
+                ))}
+              </Loading>
+            ) : runs.length === 0 ? (
               <p className="faint">None yet. Start one from a workflow or a goal.</p>
             ) : (
               <table className="scores" data-testid="runs">
@@ -238,7 +258,7 @@ export function WorldOverview() {
                     <th className="num">Spent</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="stagger">
                   {runs.slice(0, SHOWN).map((r) => {
                     const seconds = duration(r);
                     return (
@@ -279,6 +299,7 @@ export function WorldOverview() {
               />
               <input
                 type="number"
+                inputMode="decimal"
                 min="0.01"
                 step="0.01"
                 aria-label="Budget in USD"
@@ -332,14 +353,20 @@ export function WorldOverview() {
                 New workflow
               </Link>
             </div>
-            {workflows.length === 0 ? (
+            {workflows === null ? (
+              <Loading className="rows-loading">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <Skeleton key={i} />
+                ))}
+              </Loading>
+            ) : workflows.length === 0 ? (
               <p className="faint" data-testid="no-workflows">
                 A workflow is the recipe a run follows: research, pick, script, render, review,
                 publish. Write the first one in YAML and the editor checks every rule as you type.
               </p>
             ) : (
               <>
-                <ul className="rows" data-testid="workflow-list">
+                <ul className="rows stagger" data-testid="workflow-list">
                   {workflows.map((w) => (
                     <li key={w.id} className="row">
                       <span className="grow">
@@ -387,11 +414,11 @@ export function WorldOverview() {
                   <legend className="faint">For the next run you start above; blank keeps the workflow's</legend>
                   <label>
                     Run budget in USD
-                    <input type="number" min="0.01" step="0.01" value={runBudget} onChange={(e) => setRunBudget(e.target.value)} />
+                    <input type="number" inputMode="decimal" min="0.01" step="0.01" value={runBudget} onChange={(e) => setRunBudget(e.target.value)} />
                   </label>
                   <label>
                     Workers per swarm stage
-                    <input type="number" min="1" max="8" step="1" value={agents} onChange={(e) => setAgents(e.target.value)} />
+                    <input type="number" inputMode="numeric" min="1" max="8" step="1" value={agents} onChange={(e) => setAgents(e.target.value)} />
                   </label>
                 </fieldset>
               </>

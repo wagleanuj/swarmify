@@ -35,6 +35,11 @@
 .overview .goal { display: flex; gap: 8px; }
 .overview .goal input:first-child { flex: 1; }
 .overview .goal input[type="number"] { width: 7rem; }
+/* While the runs and workflows load: their rows at a row's height */
+.overview .rows-loading { display: grid; gap: 1px; }
+.overview .rows-loading .sk { --sk-h: 97px; }
+.overview .rows-loading.table-loading { padding-top: 35px; }
+.overview .rows-loading.table-loading .sk { --sk-h: 38px; }
 
 @media (max-width: 64rem) {
   .overview .cols-main { grid-template-columns: minmax(0, 1fr); }
@@ -45,6 +50,14 @@
   .overview .kpi:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .overview .kpi:nth-child(2n) { border-left: 1px solid var(--border); }
   .overview .scores :is(th, td):is(:nth-child(3), :nth-child(4)) { display: none; }
+  /* Goal full width, then Budget and Run goal side by side; every control a 44px tap */
   .overview .goal { flex-wrap: wrap; }
   .overview .goal input:first-child { flex-basis: 100%; }
+  .overview .goal input, .overview .goal button { min-height: 44px; }
+  .overview .goal input[type="number"], .overview .goal button { flex: 1 1 0; min-width: 0; width: auto; }
+  .overview .rows a.button, .overview .workflows button { min-height: 44px; font-size: 14px; }
+  /* a 44px tap that takes no more room than its line */
+  .overview a.card-link { display: inline-flex; align-items: center; min-height: 44px; margin-block: -12px; }
+  .overview .panel-head { align-items: center; }
+  .overview .rows-loading .sk { --sk-h: 112px; }
 }
