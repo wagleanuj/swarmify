@@ -248,8 +248,11 @@ def render_shot(
         return _run(argv, folder, env, log)
 
 
-def _tail(log: Path) -> str:
-    text = log.read_text(errors="replace") if log.exists() else ""
+def _tail(log: Path, start: int = 0) -> str:
+    """The last TAIL lines of the log from byte `start` (a failed finish step's own output)."""
+    with log.open("rb") if log.exists() else open(os.devnull, "rb") as f:
+        f.seek(start)
+        text = f.read().decode(errors="replace")
     return "\n".join(text.strip().splitlines()[-TAIL:])
 
 
@@ -407,7 +410,8 @@ def blender_render_status(job_id: str, cancel: bool = False) -> dict[str, Any]:
             state = {**state, "status": "failed", "error": "the render process died"}
             _write(job, state)
     if state["status"] == "failed":
-        return {"status": "failed", "error": f"{state['error']}\n{_tail(Path(state['log']))}"}
+        tail = _tail(Path(state["log"]), state.get("finish_log", 0))
+        return {"status": "failed", "error": f"{state['error']}\n{tail}"}
     log = Path(state["log"])
     value, message = progress(log.read_text() if log.exists() else "")
     return {"status": "running", "progress": value, "message": message}
@@ -485,6 +489,7 @@ def _render(state: dict[str, Any], log: IO[str]) -> None:
             "BLENDER_RUN": str(stage.parent),
             "BLENDER_OUTPUT": str(output),
         }
+        state["finish_log"] = log.tell()  # a failure shows the finish's output, not the shots'
         code = _run(finish, folder, env, log)
         if code != 0:
             raise RuntimeError(f"the finish step exited with {code}")

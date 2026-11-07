@@ -72,7 +72,7 @@ def given(installed: Path, tmp_path: Path) -> Given:
         connectors = registry(data, transport)
         connectors.install_defaults()  # installed already: only remembered
         connectors.offer_defaults(W)
-        connectors.enable(W, "blender_render", "1.0.3")
+        connectors.enable(W, "blender_render", "1.0.4")
         return connectors
 
     return make
@@ -186,7 +186,7 @@ def test_the_manifest_passes_off_by_default_on_the_gpu_with_no_network() -> None
 
 
 def test_install_syncs_its_python_then_fetches_blender_and_ffmpeg(installed: Path) -> None:
-    folder = installed / "blender_render" / "1.0.3"
+    folder = installed / "blender_render" / "1.0.4"
     assert (folder / ".venv" / "bin" / "python").exists()
     assert (folder / "fake-install.log").read_text() == "npm run fetch --silent\n"
 
@@ -340,7 +340,7 @@ def test_a_finish_step_makes_the_video_with_the_documented_environment(
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
     output = Path(config["params"]["output_path"])
     made = json.loads(output.read_text())
-    package = tmp_path / "packages" / "blender_render" / "1.0.3"
+    package = tmp_path / "packages" / "blender_render" / "1.0.4"
     assert {k: v for k, v in made.items() if k.startswith("BLENDER_")} == {
         "BLENDER_PROJECT": str(project),
         "BLENDER_ASSETS": str(tmp_path / "worlds" / W / "assets"),
@@ -372,6 +372,21 @@ def test_a_failure_fails_the_stage_naming_its_cause_with_the_log(
     assert said in str(raised.value)
     if "fail" in notes.values():
         assert "RuntimeError: boom in the shot script" in str(raised.value)
+
+
+def test_a_failed_finish_step_leads_the_error_with_its_own_output(
+    tmp_path: Path, given: Given, path_tools: Path
+) -> None:
+    connectors = given(McpTransport())
+    shout = "import sys; print('No such filter: tpad'); print('finish broke', file=sys.stderr)"
+    finish = ["python3", "-c", f"{shout}; sys.exit(1)"]
+    project = make_project(tmp_path / TEMPLATES / "short", finish=finish)
+    with pytest.raises(ConnectorError) as raised:
+        connectors.run_stage(W, "run_1", "stage_2", stage(tmp_path, project))
+    error = str(raised.value).removeprefix("blender_render: ")
+    assert error.startswith("the finish step exited with 1\n"), error
+    assert "No such filter: tpad" in error and "finish broke" in error
+    assert "Saved:" not in error and "Blender" not in error
 
 
 @pytest.mark.parametrize(
