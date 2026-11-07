@@ -521,6 +521,11 @@ def _escaping(folder: Path) -> str | None:
     return None
 
 
+def _listed_sources() -> list[str]:
+    """The folders SWARMIFY_PACKAGE_SOURCES lists, separated as PATH is; none when unset."""
+    return [f for f in os.environ.get("SWARMIFY_PACKAGE_SOURCES", "").split(os.pathsep) if f]
+
+
 def _git(*args: str) -> str:
     """Run git on a package's clone with none of the operator's git config (no credential
     helper, no hooks, no filters an attribute could run), no prompt, an empty HOME (no
@@ -669,6 +674,14 @@ class Packages:
                 raise InstallError(f"{source} is outside this repository")
         if not path.is_dir():
             raise InstallError(f"no package folder at {path}")
+        # An operator's local source (a private package cloned on the host) may be held to the
+        # folders SWARMIFY_PACKAGE_SOURCES lists; this repository's own folders always install.
+        listed = [Path(f).expanduser().resolve() for f in _listed_sources()]
+        real = path.resolve()
+        if listed and not real.is_relative_to(self.repo.resolve()):
+            if not any(real.is_relative_to(f) for f in listed):
+                where = os.pathsep.join(map(str, listed))
+                raise InstallError(f"{path} is not in SWARMIFY_PACKAGE_SOURCES ({where})")
         return path
 
     def install_local(self, manifest: dict[str, Any]) -> Package:
@@ -689,7 +702,7 @@ class Packages:
         with tempfile.TemporaryDirectory() as folder:
             text = write_manifest({**manifest, "version": f"0.0.{n}"})
             (Path(folder) / MANIFEST).write_text(text)
-            return self.install(folder, LOCAL)
+            return self._install(Path(folder), {"source": LOCAL}, None, None, None)
 
     @contextmanager
     def _fetched(
