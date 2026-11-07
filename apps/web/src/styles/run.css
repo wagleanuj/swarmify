@@ -123,6 +123,7 @@ svg.glyph { color: var(--accent); }
 .agents h2, .agents h3 { margin: 0; }
 .log time { font-variant-numeric: tabular-nums; }
 .log-denied, .log-error { color: var(--negative); }
+.log-error span { white-space: pre-wrap; } /* a tool server's stderr lines */
 
 /* Whiteboard */
 .whiteboard { margin-top: 24px; display: grid; gap: 12px; }

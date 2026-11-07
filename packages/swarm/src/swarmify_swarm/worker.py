@@ -1116,6 +1116,11 @@ class _Hooks:
         self.board.log(
             self.stage_id, self.agent, "error" if init.plugin_errors else "session", detail
         )
+        for server, lines in init.failed_servers.items():
+            said = "\n".join(lines) or "nothing on stderr"
+            self.board.log(
+                self.stage_id, self.agent, "error", f"Tool server {server} failed to start: {said}"
+            )
 
     def before_tool(self, tool: str, input: dict[str, Any]) -> str | None:
         self._renew()

@@ -710,6 +710,10 @@ sandboxed command any user namespace of its own.
   which drops some of its reports when the machine is busy or a process floods it: those attempts
   are blocked all the same, and what is reported is right, but a read, a write or a connection
   past the proxy may go unreported.
+- Its last 50 stderr lines (each cut to 1000 characters) are kept in its scratch folder,
+  `<data>/sandbox/<id>/stderr.log`, and still passed on. A tool's MCP server that fails to start
+  (a swarm stage's, a Build Session's), whose stderr the Agent SDK's CLI drops, is logged on the
+  stage under the agent with those lines: `Tool server <name> failed to start: <its stderr>`.
 - A stage keeps one sandboxed process for its call and polls. A process it leaves running for a
   long job stays in the sandbox until it ends, without network once its session closes.
 
@@ -862,6 +866,10 @@ stage and its params, what it answers, the Services it calls and how its V1 sett
 A package may own folders of each world's assets (`[[owned_folders]]` in its Manifest, ADR 0025),
 as a voice package owns `voices/`, its clips and a file describing them. Swarmify knows nothing of what they mean; it lists, plays, uploads, renames and deletes
 their files, and the package reads the folder through `assets_path` as before.
+- Files the operator copies into an Owned Folder by hand (not through the Assets page) must be
+  owned by the user the sandbox maps the connector to, `root` in the Docker setup
+  (`chown -R root:root` there), or they are read-only inside its sandbox: a tool server opening
+  its store there fails with errors such as sqlite's `attempt to write a readonly database`.
 - The world's Assets page (sidebar, or More on a phone) shows each Owned Folder of the packages
   the world enables as a group of cards above Files: an audio file plays from its card, any other
   opens; each card's menu renames it in place or deletes it after a confirm naming the package.

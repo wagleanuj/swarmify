@@ -411,6 +411,39 @@ def test_tools_outside_the_stage_allowlist_are_denied(board: SqliteStorage, tmp_
     assert all(t in judge.allowed_tools for t in HARNESS)
 
 
+def test_a_tool_server_that_fails_to_start_has_its_stderr_in_the_stage_log(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    for name, said in (
+        ("broken", "Traceback\nsqlite3.OperationalError: attempt to write a readonly database"),
+        ("chatty", "listening"),
+    ):
+        (tmp_path / f"{name}.log").write_text(said + "\n")
+
+    def connectors(
+        world_id: str, names: list[str], packages: dict[str, str]
+    ) -> dict[str, dict[str, object]]:
+        return {
+            n: {"type": "stdio", "command": n, "stderr": str(tmp_path / f"{n}.log")} for n in names
+        }
+
+    script = Script([GRAPH, CLAIM, FINISH], PASS, failed=["broken"])
+    stage = {**STAGE, "tools": ["broken", "chatty"]}
+    _run(_swarm(board, tmp_path, script, servers=connectors), tmp_path, stage)
+    errors = [e for e in board.list_log(S) if e.kind == "error"]
+    assert [(e.agent, e.detail) for e in errors] == [
+        (
+            WORKER,
+            "Tool server broken failed to start: Traceback\n"
+            "sqlite3.OperationalError: attempt to write a readonly database",
+        )
+    ]
+    # a healthy server's stderr is kept, not logged; the CLI never sees the `stderr` key
+    assert not any("chatty" in e.detail for e in board.list_log(S))
+    assert script.sessions[0].mcp_servers["chatty"] == {"type": "stdio", "command": "chatty"}  # type: ignore[index]
+
+
 def test_world_skills_load_as_a_plugin_without_host_settings(
     board: SqliteStorage, tmp_path: Path
 ) -> None:

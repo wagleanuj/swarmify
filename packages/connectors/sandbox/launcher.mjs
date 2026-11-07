@@ -8,7 +8,9 @@
 // Setup values), besides a few every process needs; `blocked`, the file each attempt the sandbox
 // blocks is appended to as one JSON line, for Swarmify to log; `observe`, on Linux, the read
 // tripwire the command runs under (observe.py), whose reports arrive on stderr after `nonce`;
-// and `session`, true for an MCP server over stdio.
+// `session`, true for an MCP server over stdio; and `stderr`, the file the command's last stderr
+// lines are kept in (its scratch folder's), which the Agent SDK's CLI drops for an MCP server, for
+// Swarmify to show when one fails to start.
 //
 // The command's stdin and stdout are relayed and its exit code is ours. With `session` the
 // launcher also ends once its stdin and the command's stdout have both closed: the MCP session is
@@ -17,12 +19,15 @@
 // launcher stops that whole group.
 
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
 // macOS reports a Seatbelt denial through its log a beat after it happens.
 const LATE_MS = process.platform === "darwin" ? 250 : 50;
+// The stderr lines kept, each cut to at most LINE characters.
+const TAIL = 50;
+const LINE = 1000;
 
 const [planPath, dashes, ...argv] = process.argv.slice(2);
 if (!planPath || dashes !== "--" || argv.length === 0) {
@@ -91,6 +96,19 @@ if (browser) {
 }
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 const blocked = (line) => appendFileSync(plan.blocked, JSON.stringify({ line }) + "\n");
+const tail = [];
+let saving; // a write of the tail, soon: a chatty command does not rewrite it per line
+function save() {
+  clearTimeout(saving);
+  saving = undefined;
+  if (plan.stderr && tail.length) writeFileSync(plan.stderr, tail.join("\n") + "\n");
+}
+function said(line) {
+  process.stderr.write(line + "\n");
+  tail.push(line.slice(0, LINE));
+  if (tail.length > TAIL) tail.shift();
+  saving ??= setTimeout(save, 200);
+}
 
 let child;
 let seatbelt; // macOS's log, followed for the sandbox's denials
@@ -99,6 +117,7 @@ async function end(code) {
   if (ending) return;
   ending = true;
   await new Promise((r) => setTimeout(r, LATE_MS));
+  save(); // before our stdout closes, which tells the CLI the server is gone
   seatbelt?.kill();
   if (sockets) rmSync(sockets, { recursive: true, force: true });
   process.exit(code);
@@ -175,17 +194,18 @@ try {
       ...Object.fromEntries([...BASE, ...plan.pass].filter((k) => k in process.env).map((k) => [k, process.env[k]])),
       ...plan.env,
     },
-    stdio: ["pipe", "pipe", plan.observe ? "pipe" : "inherit"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 } catch (error) {
-  console.error(`the connector sandbox did not start: ${error instanceof Error ? error.message : error}`);
+  said(`the connector sandbox did not start: ${error instanceof Error ? error.message : error}`);
+  save();
   process.exit(1);
 }
 
 process.on("SIGTERM", () => stop("SIGTERM"));
 process.on("SIGINT", () => stop("SIGINT"));
 child.on("error", (error) => {
-  console.error(`the sandboxed command did not start: ${error.message}`);
+  said(`the sandboxed command did not start: ${error.message}`);
   void end(1);
 });
 child.on("exit", (code, signal) => {
@@ -195,13 +215,11 @@ child.on("exit", (code, signal) => {
 child.stdin.on("error", () => {}); // the command may close its stdin first
 process.stdin.pipe(child.stdin);
 child.stdout.pipe(process.stdout);
-if (plan.observe) {
-  const mark = `\x1fswarmify-blocked ${plan.nonce} `;
-  createInterface({ input: child.stderr, crlfDelay: Infinity }).on("line", (line) => {
-    if (line.startsWith(mark)) blocked(line.slice(mark.length));
-    else process.stderr.write(line + "\n");
-  });
-}
+const mark = `\x1fswarmify-blocked ${plan.nonce} `;
+createInterface({ input: child.stderr, crlfDelay: Infinity }).on("line", (line) => {
+  if (plan.observe && line.startsWith(mark)) blocked(line.slice(mark.length));
+  else said(line);
+});
 
 let stdinDone = false;
 let stdoutDone = false;

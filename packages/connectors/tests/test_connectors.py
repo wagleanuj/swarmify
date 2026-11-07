@@ -15,7 +15,7 @@ from swarmify_connectors import (
     JobCancelled,
     Tool,
 )
-from swarmify_connectors.sandbox import LAUNCHER, REGISTRIES
+from swarmify_connectors.sandbox import LAUNCHER, REGISTRIES, STDERR
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
 
@@ -216,6 +216,10 @@ def test_agent_servers_hand_a_swarm_stage_its_connectors_with_credentials(
     assert fal_server["args"][2:] == ["--", "uvx", "fal-mcp", "--model", "kling 2"]
     plan = json.loads(Path(fal_server["args"][1]).read_text())
     assert plan["pass"] == ["FAL_KEY", "SWARMIFY_ASSETS"] and plan["session"] is True
+    # where its last stderr lines land, for the session to show if it fails to start
+    assert (
+        fal_server["stderr"] == plan["stderr"] == str(Path(fal_server["args"][1]).parent / STDERR)
+    )
     assert plan["sandbox"]["network"]["allowedDomains"] == REGISTRIES["uv"]
     connectors.setups.path.write_text("{}")
     with pytest.raises(ConnectorError, match="needs its Setup"):

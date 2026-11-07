@@ -91,6 +91,7 @@ class Script:
         cost: float = 0.01,
         cycle: bool = False,
         usage: dict[str, int] | None = None,
+        failed: Sequence[str] = (),
     ) -> None:
         self.scripts: Sequence[Sequence[Step]] = list(sessions) or [[]]
         self.cost = cost
@@ -98,6 +99,8 @@ class Script:
         """Start over at the first step list after the last, instead of repeating it."""
         self.usage = usage
         """The usage of each step that calls a tool, e.g. `{"input_tokens": 250_000}`."""
+        self.failed = failed
+        """The MCP servers the init message reports as failed to start."""
         self.sessions: list[ClaudeAgentOptions] = []
         self.prompts: list[str] = []
         """The prompt each session was started with."""
@@ -215,7 +218,10 @@ class ScriptedTransport(Transport):
             "model": self.options.model or "scripted",
             "permissionMode": self.options.permission_mode,
             "tools": list(self.options.allowed_tools),
-            "mcp_servers": [{"name": n, "status": "connected"} for n in self.options.mcp_servers],  # type: ignore[union-attr]
+            "mcp_servers": [
+                {"name": n, "status": "failed" if n in self.script.failed else "connected"}
+                for n in self.options.mcp_servers  # type: ignore[union-attr]
+            ],
             "skills": skills,
             "plugins": plugins,
         }

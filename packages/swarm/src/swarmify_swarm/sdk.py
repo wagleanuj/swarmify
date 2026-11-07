@@ -8,6 +8,7 @@ that returns a scripted transport, which the SDK drives exactly like the CLI.
 
 import os
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import (
@@ -89,6 +90,18 @@ session with no usable answer."""
 NO_CONVERSATION = "No conversation found with session ID"
 """How the CLI refuses to resume a session it has no transcript for."""
 
+STDERR_LINES = 20
+"""The last stderr lines of a tool server that failed to start, for the stage log."""
+
+
+def _stderr(config: dict[str, Any]) -> list[str]:
+    """The last lines a server wrote to stderr, from the file its config names as `stderr`."""
+    try:
+        return Path(config["stderr"]).read_text(errors="replace").splitlines()[-STDERR_LINES:]
+    except (KeyError, OSError):
+        return []
+
+
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
 """Builds the SDK `Transport` for a session from its options (the SDK's own test seam)."""
 
@@ -125,7 +138,8 @@ def options(
 
     servers: dict[str, McpServerConfig] = {
         TOOL_SERVER: create_sdk_mcp_server(TOOL_SERVER, tools=[_sdk_tool(t) for t in spec.tools]),
-        **spec.servers,  # type: ignore[dict-item]  # standard MCP config dicts
+        # standard MCP config dicts, without our `stderr` file
+        **{n: {k: v for k, v in c.items() if k != "stderr"} for n, c in spec.servers.items()},  # type: ignore[misc]
     }
     return ClaudeAgentOptions(
         system_prompt=spec.system_prompt,
@@ -197,12 +211,18 @@ class SdkRuntime:
                 elif isinstance(msg, SystemMessage) and msg.subtype == "init":
                     session = msg.data["session_id"]
                     errors = msg.data.get("plugin_errors") or []
+                    failed = {
+                        s["name"]: _stderr(spec.servers.get(s["name"], {}))
+                        for s in msg.data.get("mcp_servers") or []
+                        if s.get("status") == "failed"
+                    }
                     hooks.started(
                         SessionInit(
                             msg.data["session_id"],
                             list(msg.data.get("skills") or []),
                             [f"{e.get('plugin')}: {e.get('message')}" for e in errors],
                             msg.data.get("model") or opts.model or "",
+                            failed,
                         )
                     )
                 elif isinstance(msg, ResultMessage):

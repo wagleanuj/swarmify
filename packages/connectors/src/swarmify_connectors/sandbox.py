@@ -16,7 +16,8 @@ the layer the Agent SDK puts a Build Session's Bash in (ADR 0018).
 - environment: what the caller gives it, which for a connector is its own Setup values only, and
   no other process's (Linux's PID namespace; on macOS, launcher.mjs's Seatbelt rules).
 
-Every attempt the sandbox blocks lands in the launcher's `blocked.jsonl`, which `Confined.blocked`
+Its last stderr lines land in `stderr.log` beside it (`STDERR`). Every attempt the sandbox blocks
+lands in the launcher's `blocked.jsonl`, which `Confined.blocked`
 reads: proxy denials everywhere, Seatbelt's file denials on macOS, and on Linux the reads and
 writes `observe.py` sees. With `SWARMIFY_SANDBOX_RUNNER` set to a socket, the launcher runs in the
 sandbox runner container instead (`runner.py`), so the API container keeps Docker's default
@@ -66,6 +67,9 @@ PROXIED_NODE = ((22, 21), (23,), (24, 5))
 """The Node versions that send a process's own connections through the sandbox's proxy when told
 to (`NODE_USE_ENV_PROXY`): 22.21 up to 23, and 24.5 on. An older one dials every host itself,
 which the sandbox refuses (`ENOTFOUND`, `EPERM`), so a Node install step or connector would fail."""
+STDERR = "stderr.log"
+"""The file in a process's scratch folder holding its last stderr lines (at most 50, the
+launcher's), which the Agent SDK's CLI drops for an MCP server."""
 KEEP_SECONDS = 24 * 3600
 """How long a process's scratch folder outlives it, as a long job may still use it."""
 
@@ -256,6 +260,7 @@ class Sandbox:
             "cwd": str(cwd),
             "pass": sorted(set(names)),
             "blocked": str(folder / "blocked.jsonl"),
+            "stderr": str(folder / STDERR),
             "nonce": nonce,
             "session": session,
             "observe": self._observer(denied, reads, writes) if sys.platform == "linux" else None,
