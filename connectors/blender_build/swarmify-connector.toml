@@ -1,0 +1,76 @@
+# The Blender build connector (README.md beside this file). Installed with Swarmify from this
+# folder but not enabled by default: a world enables it with blender_render when it makes videos in
+# Blender. It has no server of its own: it asks the core for a Build Session, then renders through
+# blender_render, whose stills the session uses to see its work.
+name = "blender_build"
+version = "1.0.0"
+label = "Blender build"
+about = "Writes a Blender project from the script in a sandboxed coding session, checking shots with stills, then renders it on the GPU."
+kind = "stage"
+stage_types = ["connector"]
+enable_by_default = false
+runtime = "uv"
+
+planner_notes = "Makes a video in Blender: one sandboxed coding session writes a Blender project for the script (shot scripts against a world Template's kit, checked with stills), reading the run's gate decisions, then swarmify renders it on the GPU through blender_render. Use it only where the world enabled both; params.base names the world's Blender Template to start from. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read (as speech's timings.json)."
+
+capabilities = ["build_session", "templates"]
+
+# Each world's Blender Templates (ADR 0028), one subfolder each, shared with blender_render.
+[[owned_folders]]
+folder = "blender_templates"
+label = "Blender templates"
+about = "Projects a build starts from: shot scripts, a render.json and a kit."
+
+[templates]
+folder = "blender_templates"
+require = ["render.json"]
+# what blender_render keeps of a project's own renders, should a project hold any
+strip = ["renders", "output"]
+guide = "TEMPLATE.md"
+
+[build_session]
+system = "system.md"
+brief = "brief.md"
+starter = "starter"
+output = "video.mp4"
+# The render is blender_render's own, after the session; the session only previews with stills.
+connector = "blender_render"
+tool = "blender_render"
+tools = ["stills"]
+arguments = { project = "$folder", quality = "$quality" }
+
+[build_session.notes]
+"timings.json" = "voice_first.md"   # the speech package's narration: the brief turns voice first
+
+[params]
+type = "object"
+[params.properties.base]
+type = "string"
+description = "one of the world's Blender Templates to start from, else a minimal starter"
+[params.properties.brief]
+type = "string"
+description = "free text for the builder: style, length, pacing"
+[params.properties.model]
+type = "string"
+[params.properties.max_turns]
+type = "integer"
+default = 80
+[params.properties.minutes]
+type = "integer"
+description = "a time limit for the session, in minutes; none by default"
+[params.properties.quality]
+type = "string"
+default = "draft"
+description = "a quality preset of the project's render.json, for the render after the session"
+[params.properties.tools]
+type = "array"
+items = { type = "string" }
+description = "packages of the world the session may also call, whole (as a motion search)"
+
+[[inputs]]
+description = "the script"
+media_type = "text/markdown"
+
+[[outputs]]
+description = "the video, video.mp4 by default"
+media_type = "video/mp4"

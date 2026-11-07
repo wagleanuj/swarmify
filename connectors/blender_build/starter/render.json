@@ -1,0 +1,7 @@
+{
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "shots": [{"id": "s01", "script": "shots/s01.py"}],
+  "quality": {"draft": {"samples": 16}, "final": {"samples": 64}}
+}
