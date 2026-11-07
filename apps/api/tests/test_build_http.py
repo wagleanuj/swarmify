@@ -1,6 +1,7 @@
-"""A script stage then a `remotion_build` (or `hyperframes_build`) stage, end to end through the
-API: real DBOS on SQLite, the real MCP transport and render wrapper, the Agent SDK client with a
-scripted CLI as the builder, and a fake Remotion (or HyperFrames) CLI as the project's own,
+"""A script stage then a `remotion_build` (or `hyperframes_build`, or `blender_build`) stage, end
+to end through the API: real DBOS on SQLite, the real MCP transport and render wrapper, the Agent
+SDK client with a scripted CLI as the builder, and a fake Remotion (or HyperFrames) CLI as the
+project's own (or blender_render's fake Blender and ffmpeg on PATH),
 rendering inside the OS sandbox. One real build of each, on the subscription and the real CLI,
 runs when you opt in with SWARMIFY_REAL_BUILD=1."""
 
@@ -28,8 +29,12 @@ real_default_installs = True
 HERE = Path(__file__).parent
 FAKE_NPX = HERE.parents[2] / "connectors/remotion_render/fake_npx.py"
 FAKE_HYPERFRAMES = HERE.parents[2] / "connectors/hyperframes_render/fake_hyperframes.py"
-HYPERFRAMES = ("hyperframes_build", "hyperframes_render")
-"""Installed with Swarmify but not defaults: a world enables both to build with HyperFrames."""
+BLENDER_RENDER = HERE.parents[2] / "connectors/blender_render"
+OFF_BY_DEFAULT = {
+    "hyperframes_build": {"hyperframes_build": "1.0.1", "hyperframes_render": "1.0.1"},
+    "blender_build": {"blender_build": "1.0.0", "blender_render": "1.0.1"},
+}
+"""Installed with Swarmify but not defaults: a world enables the pair to build with it."""
 SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")
 
 
@@ -44,6 +49,20 @@ def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (bin_dir / name).write_text("#!/bin/sh\n")
         (bin_dir / name).chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+
+@pytest.fixture
+def fake_blender(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """blender_render's fake Blender, ffmpeg and ffprobe on PATH, as an operator running natively
+    has the real ones."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, source in (("blender", "fake_blender.py"), ("ffmpeg", "fake_ffmpeg.py")):
+        (bin_dir / name).write_text(f"#!{sys.executable}\n" + (BLENDER_RENDER / source).read_text())
+        (bin_dir / name).chmod(0o755)
+    os.link(bin_dir / "ffmpeg", bin_dir / "ffprobe")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("SWARMIFY_GPU_LOCK", raising=False)
 
 
 @pytest.fixture
@@ -103,10 +122,9 @@ def build_run(
         },
     )
     assert added.status_code == 201, added.text
-    if calls in HYPERFRAMES:
-        for name in HYPERFRAMES:
-            enabled = client.put(f"/api/worlds/{w}/packages/{name}", json={"version": "1.0.1"})
-            assert enabled.status_code == 200, enabled.text
+    for name, version in OFF_BY_DEFAULT.get(calls, {}).items():
+        enabled = client.put(f"/api/worlds/{w}/packages/{name}", json={"version": version})
+        assert enabled.status_code == 200, enabled.text
     notes = "  - connector: notes\n    calls: script_writer\n    output: notes.md\n"
     yaml = f"""name: Script then build
 stages:
@@ -363,3 +381,80 @@ def test_a_real_hyperframes_build_renders_offline(tmp_path: Path, opened: list[T
     video = folder / run["stages"][1]["id"] / "artifacts/video.mp4"
     assert video.stat().st_size > 1000 and video.read_bytes()[4:8] == b"ftyp"
     print(f"\nreal hyperframes build: ${run['spent_usd']:.2f}, video {video}")
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_blender_build_previews_with_stills_and_blender_render_makes_the_video(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """Issue 407: seeded from the starter, offered blender_render's stills (never its render),
+    then blender_render renders the build folder at the stage's quality into video.mp4."""
+    script = Script([Say("A cube turns in the dark.")])
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened, calls="blender_build"
+    )
+    assert run["status"] == "done", run
+    script_id, video_id = run["stages"][0]["id"], run["stages"][1]["id"]
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    project = folder / video_id / "build"
+    starter = BLENDER_RENDER.parent / "blender_build/starter"
+    assert (project / "render.json").read_text() == (starter / "render.json").read_text()
+    rendered = json.loads((folder / video_id / "artifacts/video.mp4").read_text())
+    assert rendered["inputs"] == [str(folder / video_id / "shots/s01.mp4")]  # joined, no finish
+    assert (folder / video_id / "artifacts/video.mp4.md").is_file()
+    call = client.get(f"/api/stages/{video_id}/call").json()
+    assert call["connector"] == "blender_render"
+    assert (call["request"]["project"], call["request"]["quality"]) == (str(project), "draft")
+    [artifact] = client.get(f"/api/runs/{run['id']}/stages/{video_id}/artifacts").json()
+    assert (artifact["name"], artifact["type"]) == ("video.mp4", "video")
+
+    (options,) = script.sessions
+    assert options.cwd == project and "stills" in str(options.system_prompt)
+    assert "blender_render" in options.mcp_servers  # type: ignore[operator]
+    assert "mcp__blender_render__stills" in options.allowed_tools
+    assert not [t for t in options.allowed_tools if t.startswith("mcp__blender_render__blender")]
+    assert (options.sandbox or {}).get("network", {}).get("allowedDomains") == []
+    assert f"turns the script at {folder / script_id}" in script.prompts[0]
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_blender_build_starts_from_a_template_and_a_send_back_revises_it(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    def kit(world: Path) -> None:
+        folder = world / "assets/blender_templates/kit"
+        shutil.copytree(BLENDER_RENDER.parent / "blender_build/starter", folder)
+        (folder / "TEMPLATE.md").write_text("Use kit.py.\n")
+
+    def writes(name: str) -> Answer:  # the scripted CLI runs no tools, so the step writes
+        return Answer(lambda options: (Path(options.cwd) / "shots" / name).write_text("# 1"))
+
+    script = Script([writes("s02.py"), Say("v1")], [writes("s03.py"), Say("v2")])
+    review = "  - gate: review\n    ask: Good?\n"
+    client, run = build_run(
+        tmp_path,
+        SdkRuntime(transport=script.transport),
+        "{base: kit, quality: final}",
+        opened,
+        after=review,
+        calls="blender_build",
+        before=kit,
+    )
+    assert run["status"] == "waiting_gate", run
+    video_id = run["stages"][1]["id"]
+    stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
+    assert f"Read {stage}/build/TEMPLATE.md first" in script.prompts[0]
+    assert "quality `final`" in script.prompts[0]
+    call = client.get(f"/api/stages/{video_id}/call").json()
+    assert call["template"]["name"] == "kit" and call["request"]["quality"] == "final"
+
+    sent = client.post(
+        f"/api/runs/{run['id']}/decision", json={"note": "Slower.", "send_back_to": "video"}
+    )
+    assert sent.status_code == 200, sent.text
+    run = settled(client, run["id"], send_backs=1)
+    assert run["status"] == "waiting_gate", run
+    assert script.prompts[1].startswith("This is a revision, not a fresh start.")
+    assert (stage / "build/shots/s02.py").is_file() and (stage / "build/shots/s03.py").is_file()
+    assert (stage / "build.v1/shots/s02.py").is_file() and (stage / "build.v1.mp4").is_file()
+    assert not (stage / "build.v1/shots/s03.py").exists()

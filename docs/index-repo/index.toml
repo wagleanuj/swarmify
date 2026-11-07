@@ -1,6 +1,18 @@
 # The curated index of Swarmify Connector Packages. Format and how to add one: README.md.
 
 [[packages]]
+name = "blender_build"
+description = "Writes a Blender project from the script in a sandboxed coding session, checking shots with stills, then renders it on the GPU."
+git = "https://github.com/wagleanuj/swarmify.git"
+subfolder = "connectors/blender_build"
+ref = "main"
+permissions = [
+  "owned_folders: blender_templates",
+  "capabilities: build_session",
+  "capabilities: templates",
+]
+
+[[packages]]
 name = "blender_render"
 description = "Renders a Blender project's shots on the GPU, then its finish step, into one video."
 git = "https://github.com/wagleanuj/swarmify.git"

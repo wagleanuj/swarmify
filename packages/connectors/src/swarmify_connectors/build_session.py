@@ -4,7 +4,8 @@ supplies, read from its folder, and the build folder the core seeds for the sess
 `system` and `brief` are files of the package; the brief and each of its `notes` (a file per
 input file name, added when the stage has an input of that name) are `string.Template` text, with
 `$input` (the stage's first input), `$folder` (the build folder) and each of the stage's params,
-and in a note `$file` and `$name`, the input it is for. `arguments` are filled the same way.
+and in a note `$file`, `$name` and `$dir`, the input it is for, its name and its folder.
+`arguments` are filled the same way.
 A stage's `base` names a Template of the world (ADR 0028) to seed from instead of the starter;
 the `project` of a package with Templates but no Build Session (a direct render) names one it
 reads in place, once prepared.
@@ -48,7 +49,9 @@ def task(
     for path in inputs:
         if path.name in notes:
             note = (package / notes[path.name]).read_text()
-            parts.append(fill(note, {**values, "file": path, "name": path.name}))
+            parts.append(
+                fill(note, {**values, "file": path, "name": path.name, "dir": path.parent})
+            )
     if template and guide and (Path(values["folder"]) / guide).is_file():
         parts.append(
             f"Read {Path(values['folder']) / guide} first: the guide of the Template {template}"

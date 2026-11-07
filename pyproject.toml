@@ -50,7 +50,7 @@ known-first-party = ["swarmify_*", "check_imports", "check_office_imports", "sam
 venvPath = "."
 venv = ".venv"
 include = ["packages", "apps/api", "tools", "tests", "connectors"]
-exclude = ["**/node_modules", "**/.venv", "**/dist", "connectors/*/chatterbox"]
+exclude = ["**/node_modules", "**/.venv", "**/dist", "connectors/*/chatterbox", "connectors/*/starter"]
 typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]

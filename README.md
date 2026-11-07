@@ -734,7 +734,7 @@ arguments = { site = "$folder" }       # the tool's arguments, beside input_path
 tools = ["preview"]                    # optional: tools of that package the session may call
 
 [build_session.notes]
-"palette.json" = "palette.md"          # added to the brief when an input has this name ($file)
+"palette.json" = "palette.md"          # added to the brief when an input has this name ($file, $name, $dir)
 ```
 
 A stage calling such a package copies the starter (or, when the package also declares the
@@ -806,9 +806,10 @@ stage and its params, what it answers, the Services it calls and how its V1 sett
 - [`hyperframes_render`](connectors/hyperframes_render/README.md) and
   [`hyperframes_build`](connectors/hyperframes_build/README.md): the same pair for HyperFrames
   (HTML and GSAP), installed but enabled only in the worlds that ask for them.
-- [`blender_render`](connectors/blender_render/README.md): renders a Blender project's shots on
-  the GPU, then its own finish step, into one video; installed but enabled only in the worlds that
-  ask for it.
+- [`blender_render`](connectors/blender_render/README.md) and
+  [`blender_build`](connectors/blender_build/README.md): renders a Blender project's shots on
+  the GPU, then its own finish step, into one video, and a Build Session that writes the project,
+  checking its shots with stills; installed but enabled only in the worlds that ask for them.
 - [`youtube`](connectors/youtube/README.md) and [`upload_post`](connectors/upload_post/README.md):
   publish connectors, with Outcomes.
 - [`meta`](connectors/meta/README.md): Reels to a world's Instagram and Facebook Page, its
