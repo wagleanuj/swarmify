@@ -59,7 +59,14 @@ from swarmify_connectors.packages import (
     read_manifest,
 )
 from swarmify_connectors.ports import ConnectorTransport, Storage
-from swarmify_connectors.sandbox import REGISTRIES, Confined, Grants, SandboxUnavailable, domain
+from swarmify_connectors.sandbox import (
+    REGISTRIES,
+    STDERR,
+    Confined,
+    Grants,
+    SandboxUnavailable,
+    domain,
+)
 from swarmify_connectors.setup import SetupStore
 from swarmify_connectors.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_kernel import AGENT_TOOLS, new_id, posts_privately
@@ -1017,7 +1024,9 @@ class Connectors:
         each runs confined to it, as a connector stage's process: reading the run's folders and
         writing the stage's (a build's folder in it). A command's process also gets
         `SWARMIFY_ASSETS`, the world's assets folder, where its Owned Folders are; it grants
-        nothing. Raises ConnectorError when one is missing a credential."""
+        nothing. A command's config also names, as `stderr`, the file its last stderr lines land
+        in, for the session to show when it fails to start; not MCP's, so the runtime takes it
+        out before handing the config on. Raises ConnectorError when one is missing a credential."""
         servers: dict[str, dict[str, Any]] = {}
         for name in names:
             connector = self.find(world_id, name, pins)
@@ -1036,6 +1045,7 @@ class Connectors:
                 "command": sandboxed.command[0],
                 "args": sandboxed.command[1:],
                 "env": env,
+                "stderr": str(confined.folder / STDERR),
             }
         return servers
 

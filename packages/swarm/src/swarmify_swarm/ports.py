@@ -172,7 +172,8 @@ class SessionSpec:
     tools: list[AgentTool]
     allowed: list[str]
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
-    """External MCP servers by name, in the standard MCP config shape (the stage's connectors)."""
+    """External MCP servers by name, in the standard MCP config shape (the stage's connectors).
+    A command's config may also name, as `stderr`, the file its last stderr lines land in."""
     resume: str | None = None
     max_turns: int | None = None
     output_schema: dict[str, Any] | None = None
@@ -195,6 +196,8 @@ class SessionInit:
     plugin_errors: list[str]
     model: str = ""
     """The model the session runs on."""
+    failed_servers: dict[str, list[str]] = field(default_factory=dict)
+    """Each MCP server that failed to start, with the last lines it wrote to stderr."""
 
 
 @dataclass(frozen=True)

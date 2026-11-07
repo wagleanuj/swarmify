@@ -22,6 +22,7 @@ from swarmify_connectors.packages import MANIFEST
 from swarmify_connectors.sandbox import (
     LAUNCHER,
     RUNNER,
+    STDERR,
     Confined,
     Grants,
     Sandbox,
@@ -302,6 +303,26 @@ def test_a_process_granted_the_gpu_gets_the_one_shared_gpu_lock_and_others_none(
     one, two = said(Grants(gpu=True)), said(Grants(gpu=True))
     assert one == two == str(sandbox.scratch / "gpu.lock")
     assert said(Grants()) == "none"
+
+
+FAILING_SERVER = """
+import sys
+for n in range(60):
+    print(f"line {n}", file=sys.stderr)
+print("x" * 5000, file=sys.stderr)
+sys.exit("sqlite3.OperationalError: attempt to write a readonly database")
+"""
+
+
+def test_a_process_keeps_its_last_stderr_lines_in_its_scratch_folder(tmp_path: Path) -> None:
+    """The Agent SDK's CLI drops an MCP server's stderr: the launcher keeps its last 50 lines,
+    each cut to 1000 characters, beside its plan, and still passes them on."""
+    confined = Sandbox(tmp_path).wrap([sys.executable, "-c", FAILING_SERVER], None, Grants())
+    done = subprocess.run(confined.argv, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 1 and "line 0" in done.stderr
+    kept = (confined.folder / STDERR).read_text().splitlines()
+    assert len(kept) == 50 and kept[0] == "line 12" and kept[-2] == "x" * 1000
+    assert kept[-1] == "sqlite3.OperationalError: attempt to write a readonly database"
 
 
 UNIX_SOCKET = """
