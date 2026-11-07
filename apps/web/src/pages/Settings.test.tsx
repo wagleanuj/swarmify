@@ -205,3 +205,21 @@ test("the world's panels wait for the world, so a slow load cannot wipe what was
   await budget.fill("50");
   await expect.element(budget).toHaveValue(50);
 });
+
+test("while the world loads, its line, spend and Slack state are skeletons, not Loading text", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => new Promise<Response>(() => undefined),
+    "GET /api/worlds/world_1/notifications": () => new Promise<Response>(() => undefined),
+    "GET /api/tokens": () => new Promise<Response>(() => undefined),
+  });
+  const { screen } = await mountAt("/worlds/world_1/settings");
+  await expect.element(screen.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  expect(screen.container.querySelector("[aria-busy='true']")).not.toBeNull();
+  expect(screen.getByTestId("slack-state").element().querySelector(".sk")).not.toBeNull();
+  expect(screen.getByTestId("spent").element().querySelector(".sk")).not.toBeNull();
+  expect(screen.container.querySelectorAll(".token-list .sk")).toHaveLength(2);
+  expect(screen.container.textContent).not.toMatch(/Loading\.\.\.|Loading \w/);
+  // number pads on a phone
+  await expect.element(screen.getByRole("spinbutton", { name: "Monthly budget, dollars" })).toHaveAttribute("inputmode", "decimal");
+  await expect.element(screen.getByRole("spinbutton", { name: "Run cap" })).toHaveAttribute("inputmode", "numeric");
+});

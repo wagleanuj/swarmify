@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -234,4 +237,40 @@ test("a skill's history lists its versions and restores an older one as the next
   await expect.element(screen.getByRole("status")).toMatchTextContent(/Restored v1 of hooks as v3/);
   await expect.element(screen.getByTestId("skill-hooks")).toMatchTextContent(/v3/);
   await expect.element(history).toMatchTextContent(/v3.*Restored v1\..*current/);
+});
+
+test("while the cast loads its rows are skeletons, not a Loading line", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/cast": () => new Promise<Response>(() => undefined),
+    "GET /api/worlds/world_1/skills": () => new Promise<Response>(() => undefined),
+  });
+  const { screen } = await mountAt("/worlds/world_1/cast");
+  await expect.element(screen.getByRole("heading", { name: "Cast", level: 1 })).toBeVisible();
+  expect(screen.container.querySelectorAll("[aria-busy='true']")).toHaveLength(2);
+  expect(screen.container.querySelectorAll(".cast-skeleton .sk")).toHaveLength(4);
+  expect(screen.container.textContent).not.toMatch(/Loading\.\.\.|Loading \w/);
+});
+
+test("at 360 wide each agent is a stacked row and nothing reaches past the screen", async () => {
+  await page.viewport(360, 740);
+  fakeFetch({
+    "GET /api/models": () => Response.json({ default: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5"] }),
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/cast": () => Response.json(cast),
+  });
+  const { screen } = await mountAt("/worlds/world_1/cast");
+  const row = screen.getByTestId("cast-worker-1");
+  await expect.element(row).toMatchTextContent(/321 of 21\$0\.7100/);
+  // each figure says what it is, as the hidden table head did
+  const labels = [...row.element().querySelectorAll("td.num")].map((td) => getComputedStyle(td, "::before").content);
+  expect(labels).toEqual(['"Tasks "', '"Judged "', '"First try "', '"Send backs "', '"Cost "']);
+  const past = [...document.querySelectorAll("main *")].filter((e) => e.getBoundingClientRect().right > 361);
+  expect(past.map((e) => `${e.tagName}.${e.className}`)).toEqual([]);
+  // who, then the model picker the full width under it
+  const [who, model] = [...row.element().querySelectorAll("tr:first-child > td")].map((td) => td.getBoundingClientRect());
+  expect(model!.top).toBeGreaterThanOrEqual(who!.bottom);
+  expect(model!.width).toBe(who!.width);
+  for (const b of row.getByRole("button").elements()) expect(b.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  await page.viewport(1280, 800);
 });

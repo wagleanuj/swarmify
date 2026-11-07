@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { api, SIGNED_OUT } from "../api/client";
 import type { components } from "../api/schema";
+import { Loading, Skeleton } from "../Skeleton";
 
 type Token = components["schemas"]["Token"];
 type Said = { text: string; bad?: boolean };
@@ -79,7 +80,10 @@ export function Tokens({ Row }: { Row: (p: { title: string; about: string; child
             </div>
           )}
           {tokens === null ? (
-            <p className="faint">Loading...</p>
+            <Loading className="token-list">
+              <Skeleton h={42} />
+              <Skeleton h={42} />
+            </Loading>
           ) : tokens.length === 0 ? (
             <p className="faint">No tokens yet.</p>
           ) : (

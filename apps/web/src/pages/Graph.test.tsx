@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -212,4 +215,38 @@ test("a slow load that answers after a newer one does not undo it", async () => 
   await late;
   await new Promise((r) => setTimeout(r, 50));
   await expect.element(screen.getByTestId("rebuilt")).toMatchTextContent(/\+31 nodes/);
+});
+
+test("while the world and its graph load, Memory shows its heading and skeletons, not a Loading line", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => new Promise<Response>(() => undefined),
+    "GET /api/worlds/world_1/graph": () => new Promise<Response>(() => undefined),
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect.element(screen.getByRole("heading", { name: "Memory", level: 1 })).toBeVisible();
+  const busy = screen.container.querySelector("[aria-busy='true']");
+  expect(busy?.querySelectorAll(".sk").length).toBeGreaterThanOrEqual(3);
+  expect(screen.container.textContent).not.toMatch(/Loading\.\.\./);
+});
+
+// the box's real failure: a command line with one unbroken path in it
+const error = "Command '['/data/swarmify/worlds/world_1/.graphify/venv/bin/graphify_extract_and_write_everything_it_knows']' returned non-zero exit status 1";
+const long = { ...built, god_nodes: [{ label: "remotion_build_preflight_skill_for_vertical_shorts.md", degree: 9 }], failed: { at: new Date().toISOString(), error } };
+
+test.each([
+  [360, "loading"],
+  [360, "failed"],
+  [390, "loading"],
+  [390, "failed"],
+])("at %i wide, Memory has no sideways scroll when %s", async (width, state) => {
+  await page.viewport(width, 740);
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/graph": () => (state === "loading" ? new Promise<Response>(() => undefined) : Response.json(long)),
+  });
+  const { screen } = await mountAt("/worlds/world_1/graph");
+  await expect.element(screen.getByRole("textbox", { name: "Ask the graph" })).toBeVisible();
+  if (state === "failed") await expect.element(screen.getByTestId("failed")).toBeVisible();
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+  await page.viewport(1280, 800);
 });
