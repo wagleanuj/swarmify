@@ -5,6 +5,7 @@ connector sandbox and rendering with a fake Blender and ffmpeg on PATH (`fake_bl
 renders run in this process, as remotion_render's tests do, to watch the job closely. With a real
 `blender` and `ffmpeg` on PATH one 3-frame shot renders for real."""
 
+import base64
 import fcntl
 import json
 import os
@@ -14,13 +15,16 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+import anyio
 import blender_render as br
 import fetch
 import pytest
+from mcp import Client, StdioServerParameters
 
 from swarmify_connectors import (
     MIGRATIONS,
@@ -68,7 +72,7 @@ def given(installed: Path, tmp_path: Path) -> Given:
         connectors = registry(data, transport)
         connectors.install_defaults()  # installed already: only remembered
         connectors.offer_defaults(W)
-        connectors.enable(W, "blender_render", "1.0.0")
+        connectors.enable(W, "blender_render", "1.0.1")
         return connectors
 
     return make
@@ -136,11 +140,16 @@ def stage(data: Path, project: Path, at: str = "stage_2", **params: Any) -> dict
     }
 
 
-def calls(output: Path, event: str = "start") -> list[dict]:
-    """The fake Blender's runs for the stage of `output`."""
-    file = output.parents[1] / "frames" / "calls.jsonl"
+def records(folder: Path, event: str = "start") -> list[dict]:
+    """The fake Blender's runs that wrote into a subfolder of `folder`."""
+    file = folder / "calls.jsonl"
     lines = file.read_text().splitlines() if file.exists() else []
     return [r for r in map(json.loads, lines) if r["event"] == event]
+
+
+def calls(output: Path, event: str = "start") -> list[dict]:
+    """The fake Blender's runs for the stage of `output`."""
+    return records(output.parents[1] / "frames", event)
 
 
 def here(params: dict, key: str = "k") -> tuple[Path, list[dict]]:
@@ -177,7 +186,7 @@ def test_the_manifest_passes_off_by_default_on_the_gpu_with_no_network() -> None
 
 
 def test_install_syncs_its_python_then_fetches_blender_and_ffmpeg(installed: Path) -> None:
-    folder = installed / "blender_render" / "1.0.0"
+    folder = installed / "blender_render" / "1.0.1"
     assert (folder / ".venv" / "bin" / "python").exists()
     assert (folder / "fake-install.log").read_text() == "npm run fetch --silent\n"
 
@@ -291,7 +300,7 @@ def test_a_finish_step_makes_the_video_with_the_documented_environment(
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
     output = Path(config["params"]["output_path"])
     made = json.loads(output.read_text())
-    package = tmp_path / "packages" / "blender_render" / "1.0.0"
+    package = tmp_path / "packages" / "blender_render" / "1.0.1"
     assert {k: v for k, v in made.items() if k.startswith("BLENDER_")} == {
         "BLENDER_PROJECT": str(project),
         "BLENDER_ASSETS": str(tmp_path / "worlds" / W / "assets"),
@@ -493,3 +502,107 @@ def test_a_real_blender_renders_a_3_frame_shot(tmp_path: Path) -> None:
         capture_output=True, text=True, check=True,
     )  # fmt: skip
     assert probe.stdout.strip() == "3"
+
+
+# Stills, as a Build Session calls them (#403): the server confined to the build's stage
+
+
+def still(connectors: Connectors, **arguments: Any) -> Any:
+    """`stills` called over stdio MCP on the server a Build Session of stage_2 is given."""
+    server = connectors.agent_servers(W, ["blender_render"], None, ("run_1", "stage_2"))
+    config = server["blender_render"]
+    params = StdioServerParameters(
+        command=config["command"], args=config["args"], env=config["env"]
+    )
+
+    async def call() -> Any:
+        async with Client(params, cache=None) as client:
+            return await client.call_tool("stills", arguments)
+
+    return anyio.run(call)
+
+
+@pytest.fixture
+def build(tmp_path: Path, path_tools: Path) -> Path:
+    return make_project(tmp_path / RUN / "stage_2" / "build", s02="empty")
+
+
+def test_stills_render_only_the_frames_asked_into_one_labelled_sheet(
+    tmp_path: Path, given: Given, build: Path
+) -> None:
+    from PIL import Image as Picture  # pyright: ignore[reportMissingImports]
+
+    result = still(given(McpTransport()), project=str(build), shot="s01", frames=[3, 1])
+    assert not result.is_error, result
+    image, path = result.content
+    assert (image.type, image.mime_type, path.type) == ("image", "image/png", "text")
+    sheet = Path(path.text)
+    assert sheet == build.parent / "stills" / "s01.png"
+    assert base64.b64decode(image.data) == sheet.read_bytes()
+    with Picture.open(sheet) as picture:
+        assert picture.size == (2 * 270, 480 + 28)  # two 18x32 frames scaled to 480 high
+    (run,) = records(build.parent / "stills")
+    assert run["env"]["BLENDER_SHOT_FRAMES"] == "1,3"
+    assert run["env"]["BLENDER_SHOT_OUT"] == str(build.parent / "stills" / "s01")
+    assert run["env"]["__GL_SHADER_DISK_CACHE_PATH"] == str(build.parent / "shader-cache")
+    assert run["env"]["BLENDER_ASSETS"] == str(tmp_path / "worlds" / W / "assets")
+    assert sorted(p.name for p in (build.parent / "stills" / "s01").iterdir()) == [
+        "frame_0001.png",
+        "frame_0003.png",
+    ]
+
+
+def test_the_sheet_labels_each_tile_with_its_shot_and_frame(tmp_path: Path) -> None:
+    from PIL import Image as Picture  # pyright: ignore[reportMissingImports]
+
+    frame = tmp_path / "f.png"
+    Picture.new("RGB", (18, 32), (40, 80, 160)).save(frame)
+    plain, labelled = tmp_path / "plain.png", tmp_path / "labelled.png"
+    br.contact_sheet([(frame, "")], plain, 18, 32)
+    br.contact_sheet([(frame, "s01 frame 12")], labelled, 18, 32)
+    with Picture.open(plain) as a, Picture.open(labelled) as b:
+        strip = (0, 0, a.width, 28)
+        assert a.crop(strip).getextrema() == ((0, 0), (0, 0), (0, 0))  # black
+        assert b.crop(strip).getextrema() != a.crop(strip).getextrema()  # the label drawn
+        assert (
+            a.crop((0, 28, a.width, a.height)).tobytes()
+            == b.crop((0, 28, b.width, b.height)).tobytes()
+        )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "said"),
+    [
+        ({"shot": "s09", "frames": [1]}, "no shot 's09' in render.json; its shots: s01, s02"),
+        ({"shot": "s02", "frames": [1, 2]}, "shot s02 wrote no frames"),
+        ({"shot": "s01", "frames": [2, 7]}, "shot s01 wrote no frame [7]"),
+        ({"shot": "s01", "frames": []}, "frames must be 1 to 24 frame numbers from 1"),
+        ({"shot": "s01", "frames": [1], "quality": "ultra"}, "quality ultra is not one of"),
+    ],
+)
+def test_stills_that_cannot_make_a_sheet_say_why(
+    given: Given, build: Path, arguments: dict, said: str
+) -> None:
+    result = still(given(McpTransport()), project=str(build), **arguments)
+    assert result.is_error
+    assert said in result.content[0].text
+    assert not (build.parent / "stills" / f"{arguments['shot']}.png").exists()
+
+
+def test_stills_wait_for_the_gpu_like_the_render(
+    tmp_path: Path, build: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock = tmp_path / "gpu.lock"
+    monkeypatch.setenv("SWARMIFY_GPU_LOCK", str(lock))
+    log = build.parent / "stills" / "s01.log"
+    with open(lock, "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        with ThreadPoolExecutor(1) as pool:
+            done = pool.submit(br.stills, str(build), "s01", [1])
+            deadline = time.monotonic() + 30
+            while not (log.exists() and br.WAITING in log.read_text()):
+                assert time.monotonic() < deadline and not done.done()
+                time.sleep(0.02)
+            assert not (build.parent / "stills" / "calls.jsonl").exists()  # no Blender yet
+            fcntl.flock(held, fcntl.LOCK_UN)
+            assert done.result(timeout=30)[1] == str(build.parent / "stills" / "s01.png")

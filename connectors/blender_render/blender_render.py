@@ -15,6 +15,9 @@ log live beside the output as hidden files. A shot whose stamp (its script, the 
 files, the quality) is unchanged and whose frames are there is not rendered again. SIGTERM to the
 job (a cancel) kills the Blender it runs and fails the job.
 
+`stills` renders chosen frames of one shot and answers with one labelled contact sheet, as an
+image and its path: what a Build Session (blender_build's) looks at to check its work.
+
 Each Blender process holds the shared GPU lock (`SWARMIFY_GPU_LOCK`) while it runs, and NVIDIA's
 shader disk cache is a folder of the stage, so only the first process of a stage compiles shaders.
 
@@ -27,6 +30,7 @@ folder and its scratch folder, and reaches no network.
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -42,6 +46,7 @@ from typing import IO, Any
 import fetch
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.utilities.types import Image
 
 POLL = "blender_render_status"
 TAIL = 40
@@ -58,6 +63,10 @@ NO_GPU = "No GPU here: Blender renders on the CPU, slowly"
 NOT_SHARED = {"__pycache__", ".git", "node_modules", "renders", "output"}
 """Folders of a project that are not its shared files: what Python and tools leave behind, and
 renders a project keeps of its own."""
+STILLS = 24
+"""The most frames one contact sheet shows."""
+TILE = 480
+"""The longer side of one frame on a contact sheet, in pixels."""
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 _SHOT = re.compile(r"^Shot (\d+)/(\d+): (\S+)", re.M)
 
@@ -203,7 +212,7 @@ def _run(argv: list[str], cwd: Path, env: dict[str, str], log: IO[str]) -> int:
             child.wait()
 
 
-def shot(
+def render_shot(
     folder: Path,
     entry: dict[str, Any],
     quality: str,
@@ -416,7 +425,7 @@ def _render(state: dict[str, Any], log: IO[str]) -> None:
             continue
         mark.unlink(missing_ok=True)
         shutil.rmtree(out, ignore_errors=True)
-        code = shot(folder, entry, quality, out, "", state["assets"], cache, log)
+        code = render_shot(folder, entry, quality, out, "", state["assets"], cache, log)
         if code != 0:
             raise RuntimeError(f"shot {sid}: Blender exited with {code}")
         if not any(out.glob("frame_*.png")):
@@ -498,6 +507,66 @@ def run_job(job: Path) -> None:
     else:
         state = {"error": "the render wrote no video", **state, "status": "failed"}
     _write(job, {**state, "ended": _now()})
+
+
+# Stills
+
+
+def contact_sheet(tiles: list[tuple[Path, str]], to: Path, width: int, height: int) -> None:
+    """The frames side by side, at most four a row, each scaled to TILE on its longer side under
+    its label. Pillow is in this package's environment only, so it is imported here."""
+    from PIL import Image as Picture  # pyright: ignore[reportMissingImports]
+    from PIL import ImageDraw, ImageFont  # pyright: ignore[reportMissingImports]
+
+    scale = TILE / max(width, height)
+    w, h, label = max(1, round(width * scale)), max(1, round(height * scale)), 28
+    cols = min(len(tiles), 4)
+    sheet = Picture.new("RGB", (cols * w, math.ceil(len(tiles) / cols) * (h + label)), "black")
+    draw, font = ImageDraw.Draw(sheet), ImageFont.load_default(size=18)
+    for i, (path, text) in enumerate(tiles):
+        x, y = (i % cols) * w, (i // cols) * (h + label)
+        with Picture.open(path) as frame:
+            sheet.paste(frame.convert("RGB").resize((w, h)), (x, y + label))
+        draw.text((x + 6, y + 4), text, fill="white", font=font)
+    sheet.save(to)
+
+
+@mcp.tool(
+    description="Render chosen frames of one shot of a Blender project and return them as one"
+    " labelled contact sheet image, plus its path. Waits for the GPU like a render."
+)
+def stills(project: str, shot: str, frames: list[int], quality: str = "draft") -> list[Image | str]:
+    """`project` is the Blender project folder, a full path (a build's folder: the sheet and its
+    frames go in `stills/` beside it, in the stage's folder); `shot` one of its render.json's shot
+    ids; `frames` frame numbers from 1, at most STILLS; `quality` one of its presets."""
+    folder = project_folder(project)
+    spec = load(folder)
+    quality_of(spec, quality)
+    entry = next((s for s in spec["shots"] if s["id"] == shot), None)
+    if entry is None:
+        ids = ", ".join(s["id"] for s in spec["shots"])
+        raise ToolError(f"no shot {shot!r} in render.json; its shots: {ids}")
+    wanted = sorted(set(frames))
+    if not wanted or wanted[0] < 1 or len(wanted) > STILLS:
+        raise ToolError(f"frames must be 1 to {STILLS} frame numbers from 1, got {frames}")
+    stage = folder.parent
+    out, log = stage / "stills" / shot, stage / "stills" / f"{shot}.log"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    listed = ",".join(map(str, wanted))
+    with open(log, "w") as f:
+        assets = assets_of(folder)
+        code = render_shot(folder, entry, quality, out, listed, assets, stage / "shader-cache", f)
+    if code != 0:
+        raise ToolError(f"shot {shot}: Blender exited with {code}\n{_tail(log)}")
+    paths = [out / f"frame_{n:04d}.png" for n in wanted]
+    if missing := [n for n, p in zip(wanted, paths, strict=True) if not p.is_file()]:
+        said = "no frames" if len(missing) == len(wanted) else f"no frame {missing}"
+        raise ToolError(f"shot {shot} wrote {said}\n{_tail(log)}")
+    sheet = stage / "stills" / f"{shot}.png"
+    tiles = [(p, f"{shot} frame {n}") for n, p in zip(wanted, paths, strict=True)]
+    contact_sheet(tiles, sheet, spec["width"], spec["height"])
+    return [Image(path=sheet), str(sheet)]
 
 
 if __name__ == "__main__":

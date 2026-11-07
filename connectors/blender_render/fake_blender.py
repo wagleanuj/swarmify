@@ -4,9 +4,9 @@ Called as the render calls Blender (`-b --factory-startup -noaudio --python-exit
 <script> -- <quality>`), it reads the shot script for what to do, from comment lines:
 `# frames: N` (3 by default) frames to write, `# fail` raises like a broken script, `# empty`
 exits cleanly with no frames, `# slow` takes 0.3 s a frame. It writes `frame_NNNN.png` at the
-project's width and height into BLENDER_SHOT_OUT, every frame or those BLENDER_SHOT_FRAMES lists,
-and appends a record of each run (its arguments, the environment it read, when it started and
-ended, whether it could read the world's Assets) to `calls.jsonl` beside that folder.
+project's width and height into BLENDER_SHOT_OUT, every frame or those BLENDER_SHOT_FRAMES lists
+up to its last, and appends a record of each run (its arguments, the environment it read, when it
+started and ended, whether it could read the world's Assets) to `calls.jsonl` beside that folder.
 """
 
 import json
@@ -46,7 +46,7 @@ listed = os.environ["BLENDER_SHOT_FRAMES"]
 count = next(
     (int(line.split(":")[1]) for line in said.splitlines() if line.startswith("# frames:")), 3
 )
-frames = [int(f) for f in listed.split(",")] if listed else list(range(1, count + 1))
+frames = [int(f) for f in listed.split(",") if int(f) <= count] if listed else range(1, count + 1)
 env = {k: v for k, v in os.environ.items() if k.startswith(("BLENDER_", "__GL_"))}
 assets = Path(os.environ["BLENDER_ASSETS"]) if os.environ["BLENDER_ASSETS"] else None
 record = {"args": args, "env": env, "pid": os.getpid(), "start": time.time()}

@@ -7,8 +7,9 @@ Package (ADR 0019) installed with Swarmify from this folder into
 (`enable_by_default = false`): a world enables it on the Connectors page, with `blender_build`,
 when it makes videos in Blender. Everything Swarmify knows of it is `swarmify-connector.toml`.
 
-Its install step (ADR 0026) puts beside it its Python (`uv sync`: the MCP SDK), then runs
-`fetch.py` (as `npm run fetch`, so the test suite's npm, which only logs, stands in for it):
+Its install step (ADR 0026) puts beside it its Python (`uv sync`: the MCP SDK and Pillow, for
+contact sheets), then runs `fetch.py` (as `npm run fetch`, so the test suite's npm, which only
+logs, stands in for it):
 
 - **Blender**: the Linux x64 tarball of each version `fetch.py` pins a SHA-256 for (5.2.1, from
   the `.sha256` file beside it on download.blender.org, which serves it directly, no mirror
@@ -147,6 +148,34 @@ finish step wrote no video at <path>`; each followed by the last 40 lines of the
 fails the job with `the render was cancelled`. In Docker the job runs in the connector sandbox's
 PID namespace, so when the stage's sandbox ends every process in it ends too.
 
+## Stills
+
+`stills` renders chosen frames of one shot and answers with one contact sheet: MCP image content
+(a PNG) and the sheet's path as text. A Build Session calls it to check its work:
+`blender_build` lends it to its session through `[build_session] tools = ["stills"]` (#403), so
+the session calls `mcp__blender_render__stills`, its server confined to the build's stage.
+
+| Argument | What |
+| --- | --- |
+| `project` | the project folder, a full path: the build folder (`<stage>/build`) |
+| `shot` | a shot id of its `render.json` |
+| `frames` | frame numbers from 1, 1 to 24 of them |
+| `quality` | a preset of its `render.json`, `draft` by default |
+
+The shot runs as in a render, with `BLENDER_SHOT_FRAMES` listing the frames (sorted, repeats
+dropped) and `BLENDER_SHOT_OUT` the folder `<stage>/stills/<shot>/`, emptied first; the shot
+writes `frame_<NNNN>.png` for each at full width and height. It holds the GPU lock like a render
+and uses the stage's `shader-cache/`, so stills after the stage's first Blender process skip the
+shader compile. The sheet, `<stage>/stills/<shot>.png`, tiles the frames in order, at most four a
+row, each scaled to 480 pixels on its longer side (`width` x `height` of `render.json`) under a
+label naming the shot and frame (`s01 frame 12`); Blender's log is `<stage>/stills/<shot>.log`.
+
+It answers with an error, never an empty sheet, for an unknown shot (naming the project's shots),
+a shot whose Blender exits non-zero, writes no frames or misses some of those asked (naming them),
+each with the last 40 lines of its log; and for no frames, more than 24, or a quality the project
+does not offer. Measured on the box (2026-11-06): eight 1080x1920 EEVEE stills took 15 s cold
+(the shader compile) and 4.3 s warm.
+
 ## GPU
 
 `permissions.gpu = true`: the sandbox binds the host's GPU device files and hands the process
@@ -173,5 +202,6 @@ against 10.7 s on the GPU).
 npm, which only logs), enables it for a world and renders over stdio MCP in the real connector
 sandbox, and in process, with a fake Blender and ffmpeg on `PATH` (`fake_blender.py`,
 `fake_ffmpeg.py`): shot order and environment, the join, the finish environment, the shot cache,
-failures, progress, cancel and the GPU lock with two renders at once. With a real `blender` and
+failures, progress, cancel and the GPU lock with two renders at once; and `stills` over the
+server a Build Session is given, confined to its stage: the sheet, its labels and its errors. With a real `blender` and
 `ffmpeg` on `PATH`, `test_a_real_blender_renders_a_3_frame_shot` renders a 3-frame shot.
