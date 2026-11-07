@@ -16,6 +16,7 @@ command.
 """
 
 import re
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,10 @@ MODEL_CREDENTIALS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
 WRITES = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path"}
 READS = {"Read": "file_path", "Glob": "path", "Grep": "path"}
 _ENV = re.compile(r"(?<![\w.-])\.env(?![\w.-])")
+SKILLS = "skills"
+"""The data folder's shared skills, which a world's skills folder links into."""
+ASSET_FOLDER_LIMIT = 50
+"""An asset subfolder holding more files than this is one line in the prompt."""
 ROLE: AgentRole = "worker"
 AGENT = "builder"
 MAX_TURNS = 80
@@ -100,7 +105,8 @@ def refusal(
     elif tool in READS:
         path = str(input.get(READS[tool]) or build)
         pattern = str(input.get("pattern") or "") if tool == "Glob" else ""
-        if not _within(path, build, build, world_folder) or pattern.startswith(("/", "~", "..")):
+        roots = (build, world_folder, data_dir / SKILLS)
+        if not _within(path, build, *roots) or pattern.startswith(("/", "~", "..")):
             return f"{tool} is limited to the build folder and this world's folder."
         if _ENV.search(path):
             return "A .env file is never readable here."
@@ -118,12 +124,26 @@ def refusal(
     return None
 
 
+def collapse(world_folder: Path, names: Sequence[str]) -> list[str]:
+    """The world's assets (`names` relative to its folder) as prompt lines: each file, except
+    that a top asset subfolder holding over ASSET_FOLDER_LIMIT files is one line,
+    `folder/ (N files)`."""
+    top = Counter(Path(n).parts[1] for n in names if len(Path(n).parts) > 2)
+    big = {f for f, n in top.items() if n > ASSET_FOLDER_LIMIT}
+    lines = [
+        str(world_folder / n)
+        for n in names
+        if len(Path(n).parts) <= 2 or Path(n).parts[1] not in big
+    ]
+    return lines + [f"{world_folder / 'assets' / f}/ ({top[f]} files)" for f in sorted(big)]
+
+
 def prompt(
     task: str,
     brief: str,
     decisions: list[str],
     inputs: Sequence[Path] = (),
-    assets: Sequence[Path] = (),
+    assets: Sequence[Path | str] = (),
 ) -> str:
     """The package's `task` for this stage, then what the core adds to every Build Session:
     the stage's other input files, the world's assets, the run's decisions and the operator's
