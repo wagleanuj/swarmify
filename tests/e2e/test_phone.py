@@ -228,6 +228,8 @@ def test_the_answer_is_on_screen_above_the_tab_bar(phone: Page, ids: dict, where
     expect(approve).to_be_in_viewport(ratio=1)
     expect(card.get_by_role("button", name="Send back to...")).to_be_in_viewport(ratio=1)
     assert phone.evaluate("window.scrollY") == 0
+    # The pinned bar slides up on first show; measure where it settles.
+    approve.evaluate("e => Promise.all(e.closest('.gate-actions').getAnimations().map(a => a.finished))")
     box, bar = approve.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
     if where == "gates":  # several wait, so decision chips lead the page
