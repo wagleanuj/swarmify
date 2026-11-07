@@ -189,3 +189,30 @@ test("on a phone the status tabs are one row of chips that scrolls inside itself
   expect(getComputedStyle(tabs.element()).overflowX).toBe("auto");
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
+
+test("on a phone, while the runs load, the chips are real and five run rows wait as skeletons", async () => {
+  await page.viewport(390, 844);
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": async () => {
+      await held;
+      return Response.json([run("running", [stage(0, "running")], { id: "run_3", name: "Goes" })]);
+    },
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  const chips = screen.getByRole("navigation", { name: "Status" });
+  await expect.element(chips.getByRole("link", { name: /^All/ })).toBeVisible();
+  for (const chip of chips.getByRole("link").elements()) expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  const busy = document.querySelector("main [aria-busy='true']");
+  expect(busy?.querySelectorAll(".sk")).toHaveLength(5);
+  expect(screen.getByText("Loading...").elements()).toHaveLength(0);
+
+  release();
+  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Goes/);
+  expect(document.querySelector("main [aria-busy='true']")).toBeNull();
+  await expect.element(chips.getByRole("link", { name: "Running 1" })).toBeVisible();
+});

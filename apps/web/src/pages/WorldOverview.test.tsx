@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import { FakeEventSource, fakeFetch, gate, run } from "../test/fakes";
 import { mountAt } from "../test/mount";
@@ -10,7 +13,10 @@ const video = {
   created_at: "2026-10-26T10:00:00+00:00",
 };
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -258,4 +264,61 @@ test("a spent monthly budget is shown as the API's reason", async () => {
   await screen.getByRole("textbox", { name: "Goal" }).fill("Anything");
   await screen.getByRole("button", { name: "Run goal" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("Not started: the world's monthly budget of $5.00 is spent.");
+});
+
+test("on a phone, while the world loads, the figures and five run rows are skeletons, then the page fills in", async () => {
+  await page.viewport(390, 844);
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1": async () => {
+      await held;
+      return Response.json(video);
+    },
+    "GET /api/worlds/world_1/runs": async () => {
+      await held;
+      return Response.json(Array.from({ length: 7 }, (_, i) => run("done", [], { id: `run_${i}`, name: `Run ${i}` })));
+    },
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  const figures = screen.getByRole("region", { name: "Figures" });
+  await expect.element(figures).toMatchTextContent(/Runs today\s*Spent today\s*Run slots in use\s*Accepted first try/);
+  expect(figures.element().querySelectorAll(".kpi-value .sk")).toHaveLength(4);
+  const runs = screen.getByRole("region", { name: "Runs" });
+  expect(runs.element().querySelector("[aria-busy='true']")?.querySelectorAll(".sk")).toHaveLength(5);
+  expect(screen.getByText("Loading...").elements()).toHaveLength(0);
+
+  release();
+  await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
+  await expect.element(screen.getByTestId("runs")).toMatchTextContent(/Run 0/);
+  expect(document.querySelector("main [aria-busy='true']")).toBeNull();
+  expect(figures.element().querySelectorAll(".sk")).toHaveLength(0);
+  const all = screen.getByRole("link", { name: "View all 7" });
+  expect(all.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+});
+
+test("on a phone the goal composer is the goal full width, then Budget on a number pad beside Run goal, each 44px", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1": () => Response.json(video),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  const goal = screen.getByRole("textbox", { name: "Goal" });
+  await expect.element(goal).toBeVisible();
+  const budget = screen.getByRole("spinbutton", { name: "Budget in USD" });
+  const send = screen.getByRole("button", { name: "Run goal" });
+  await expect.element(budget).toHaveAttribute("inputmode", "decimal");
+  const g = goal.element().getBoundingClientRect();
+  const b = budget.element().getBoundingClientRect();
+  const s = send.element().getBoundingClientRect();
+  expect(b.top).toBeGreaterThanOrEqual(g.bottom);
+  expect(b.top).toBe(s.top);
+  expect(b.width + s.width).toBeGreaterThan(g.width * 0.9); // the two share the row
+  for (const r of [g, b, s]) expect(r.height).toBeGreaterThanOrEqual(44);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });

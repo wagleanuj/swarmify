@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { clock, duration, money, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
+import { Loading, Skeleton } from "../Skeleton";
 import { baseline } from "../skin";
 import { stageSeconds } from "./StagePanel";
 import { TimeStrip } from "./TimeStrip";
@@ -66,12 +67,10 @@ export function Runs() {
   }, [worldId]);
 
   useRunUpdates(worldId, (run) =>
-    setRuns((prev) => {
-      const list = prev ?? [];
-      return list.some((r) => r.id === run.id)
-        ? list.map((r) => (r.id === run.id ? run : r))
-        : [run, ...list];
-    }),
+    // Before the GET answers, the skeleton holds; the GET carries this run's state.
+    setRuns((prev) =>
+      prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]),
+    ),
   );
 
   // ponytail: filtered here, not by the API, so live updates land in the same filter. Add query
@@ -106,7 +105,6 @@ export function Runs() {
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
-      {runs === null && !error && <p role="status">Loading...</p>}
       {runs?.length === 0 && (
         <div className="empty" data-testid="no-runs">
           <p>
@@ -118,7 +116,7 @@ export function Runs() {
           </Link>
         </div>
       )}
-      {runs && runs.length > 0 && (
+      {(runs === null ? !error : runs.length > 0) && (
         <>
           <nav className="tabs chip-row" aria-label="Status">
             {TABS.map(([v, label, holds]) => (
@@ -130,7 +128,8 @@ export function Runs() {
                 activeOptions={{ exact: true, includeSearch: true }}
                 className="tab"
               >
-                {label} <span className="num">{ofWorkflow.filter(holds).length}</span>
+                {label}{" "}
+                {runs ? <span className="num">{ofWorkflow.filter(holds).length}</span> : <Skeleton w="2ch" h="0.9em" className="sk-inline" />}
               </Link>
             ))}
           </nav>
@@ -149,7 +148,13 @@ export function Runs() {
             </label>
           </form>
           <section className="panel runs-panel">
-            {shown.length === 0 ? (
+            {runs === null ? (
+              <Loading className="runs-loading">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <Skeleton key={i} />
+                ))}
+              </Loading>
+            ) : shown.length === 0 ? (
               <p className="faint" data-testid="no-match">
                 No runs {tab[0] ? tab[1].toLowerCase() : "of this workflow"} in this world.
               </p>
@@ -165,7 +170,7 @@ export function Runs() {
                     <th className="num">Spent</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="stagger">
                   {shown.map((r) => {
                     const secs = duration(r);
                     return (
@@ -210,62 +215,64 @@ export function Runs() {
               </table>
             )}
           </section>
-          <div className="mem-cols">
-            <section className="panel" aria-labelledby="time-went">
-              <div className="panel-head">
-                <h2 id="time-went">Where the time went</h2>
-                <span className="faint">All {all.length} runs</span>
-              </div>
-              <ol className="mem-rows" data-testid="time-went">
-                {steps.slice(0, 4).map(([name, { secs, gate }]) => (
-                  <li key={name} className="bar-row">
-                    <span className="bar-label">
-                      <span>
-                        {name} <span className="faint">{gate ? "waiting for you" : "agents"}</span>
+          {runs && (
+            <div className="mem-cols">
+              <section className="panel" aria-labelledby="time-went">
+                <div className="panel-head">
+                  <h2 id="time-went">Where the time went</h2>
+                  <span className="faint">All {all.length} runs</span>
+                </div>
+                <ol className="mem-rows" data-testid="time-went">
+                  {steps.slice(0, 4).map(([name, { secs, gate }]) => (
+                    <li key={name} className="bar-row">
+                      <span className="bar-label">
+                        <span>
+                          {name} <span className="faint">{gate ? "waiting for you" : "agents"}</span>
+                        </span>
+                        <span className="thin-bar" style={{ width: `${(secs / top) * 100}%` }} />
                       </span>
-                      <span className="thin-bar" style={{ width: `${(secs / top) * 100}%` }} />
-                    </span>
-                    <span className="num">{clock(secs)}</span>
-                  </li>
-                ))}
-              </ol>
-              {steps.length === 0 && <p className="faint">No step has started yet.</p>}
-            </section>
-            <section className="panel" aria-labelledby="by-version">
-              <div className="panel-head">
-                <h2 id="by-version">Spend by workflow version</h2>
-                <span className="faint">All {all.length} runs</span>
-              </div>
-              <table className="runs-table versions-table" data-testid="spend-by-version">
-                <thead>
-                  <tr>
-                    <th>Version</th>
-                    <th className="num">Runs</th>
-                    <th className="num">Spent</th>
-                    <th className="num">A run</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...versions].map(([key, rs]) => (
-                    <tr key={key}>
-                      <td>{key}</td>
-                      <td className="num">{rs.length}</td>
-                      <td className="num">{money(spentOf(rs))}</td>
-                      <td className="num">{money(spentOf(rs) / rs.length)}</td>
-                    </tr>
+                      <span className="num">{clock(secs)}</span>
+                    </li>
                   ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td className="faint">All</td>
-                    <td className="num">{all.length}</td>
-                    <td className="num">{money(spentOf(all))}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
-            </section>
-          </div>
+                </ol>
+                {steps.length === 0 && <p className="faint">No step has started yet.</p>}
+              </section>
+              <section className="panel" aria-labelledby="by-version">
+                <div className="panel-head">
+                  <h2 id="by-version">Spend by workflow version</h2>
+                  <span className="faint">All {all.length} runs</span>
+                </div>
+                <table className="runs-table versions-table" data-testid="spend-by-version">
+                  <thead>
+                    <tr>
+                      <th>Version</th>
+                      <th className="num">Runs</th>
+                      <th className="num">Spent</th>
+                      <th className="num">A run</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...versions].map(([key, rs]) => (
+                      <tr key={key}>
+                        <td>{key}</td>
+                        <td className="num">{rs.length}</td>
+                        <td className="num">{money(spentOf(rs))}</td>
+                        <td className="num">{money(spentOf(rs) / rs.length)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="faint">All</td>
+                      <td className="num">{all.length}</td>
+                      <td className="num">{money(spentOf(all))}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </section>
+            </div>
+          )}
         </>
       )}
     </main>

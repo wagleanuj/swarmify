@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
+import { Loading, Skeleton } from "../Skeleton";
 import { usePhone } from "../usePhone";
 import { when } from "./Runs";
 
@@ -77,7 +78,13 @@ export function Workflows() {
         )}
       </header>
       {error && <p role="alert">{error}</p>}
-      {workflows === null && !error && <p role="status">Loading...</p>}
+      {workflows === null && !error && (
+        <Loading className={phone ? "wf-cards" : "wf-loading"}>
+          {Array.from({ length: phone ? 3 : 5 }, (_, i) => (
+            <Skeleton key={i} />
+          ))}
+        </Loading>
+      )}
       {workflows?.length === 0 && (
         <div className="empty">
           <p>No workflows yet. A workflow is a list of steps you can run again and again.</p>
@@ -85,7 +92,7 @@ export function Workflows() {
       )}
       {phone && workflows && (
         <>
-          <ul className="wf-cards">
+          <ul className="wf-cards stagger">
             {workflows.map((w) => (
               <WorkflowCard key={w.id} worldId={worldId} workflow={w} runs={runs.filter((r) => r.workflow_id === w.id)}>
                 <button
@@ -119,7 +126,7 @@ export function Workflows() {
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="stagger">
               {workflows.map((w) => {
                 const mine = runs.filter((r) => r.workflow_id === w.id);
                 const cost = mine.reduce((sum, r) => sum + r.spent_usd, 0);
