@@ -108,3 +108,7 @@ class KeyCheck:
 
 class ConnectorError(RuntimeError):
     """A connector could not start, refused a call, or reported a failed job."""
+
+
+class JobCancelled(ConnectorError):
+    """The run was aborted while the stage's long job ran, so the job was cancelled."""

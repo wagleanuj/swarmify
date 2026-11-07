@@ -65,7 +65,9 @@ and which outlives a restart of Swarmify, whose stage then resumes polling it; p
 shows on the timeline. On success the video gets a sidecar, `short.mp4.md`, with frontmatter (type
 video, author remotion_render, world, run, stage, created, source script, composition, bytes, and
 the template's git commit when the project is a git checkout). On failure the stage fails with
-the last 40 lines of CLI output. Every render serves its bundle on a port the OS just handed out
+the last 40 lines of CLI output. Aborting the run cancels the render (`remotion_render_status` with
+`cancel: true`): SIGTERM to its process, then SIGKILL to its process group, the CLI and its browser
+included, once it is gone or after 5 s; the job fails with `the render was cancelled`. Every render serves its bundle on a port the OS just handed out
 (`--port`), never Remotion's default 3000, where another server (an open-webui container, say)
 would answer and fail the render with `window.getStaticCompositions is not defined`.
 

@@ -65,6 +65,7 @@ from swarmify_connectors import (
     Connectors,
     ConnectorTransport,
     Credentials,
+    JobCancelled,
     McpTransport,
     Packages,
     build_session,
@@ -748,6 +749,12 @@ def create_app(
             },
         )
 
+    def connector_stage(run: Run, stage_id: str, stage: StageDef) -> None:
+        try:
+            call_connector(run, stage_id, stage)
+        except JobCancelled as exc:  # stopped as agents are, so the run ends aborted, not failed
+            raise OverBudget(str(exc)) from exc
+
     worlds_dir = root / "worlds"
     worlds_dir.mkdir(parents=True, exist_ok=True)
     index = graph_index or McpGraphIndex(worlds_dir)
@@ -863,7 +870,7 @@ def create_app(
     runner = Runner(
         run_storage(root),
         root / "dbos.sqlite",
-        connector or call_connector,
+        connector or connector_stage,
         root,
         notifier or approvers,
         swarm=run_swarm,
@@ -878,6 +885,7 @@ def create_app(
     )
     workflow_svc = workflow_service(root, registry, runner)
     runner.pin = runs.pinner(workflow_svc)
+    registry.aborted = lambda run_id: runner.storage.stop_of(run_id) == "abort"
     runner.check = runs.checker(workflow_svc)
     runner.check_text = text_check(registry, pins)
     runner.stage_spend = stage_spend

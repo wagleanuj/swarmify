@@ -72,7 +72,7 @@ def given(installed: Path, tmp_path: Path) -> Given:
         connectors = registry(data, transport)
         connectors.install_defaults()  # installed already: only remembered
         connectors.offer_defaults(W)
-        connectors.enable(W, "blender_render", "1.0.1")
+        connectors.enable(W, "blender_render", "1.0.2")
         return connectors
 
     return make
@@ -186,7 +186,7 @@ def test_the_manifest_passes_off_by_default_on_the_gpu_with_no_network() -> None
 
 
 def test_install_syncs_its_python_then_fetches_blender_and_ffmpeg(installed: Path) -> None:
-    folder = installed / "blender_render" / "1.0.1"
+    folder = installed / "blender_render" / "1.0.2"
     assert (folder / ".venv" / "bin" / "python").exists()
     assert (folder / "fake-install.log").read_text() == "npm run fetch --silent\n"
 
@@ -300,7 +300,7 @@ def test_a_finish_step_makes_the_video_with_the_documented_environment(
     assert connectors.run_stage(W, "run_1", "stage_2", config).status == "done"
     output = Path(config["params"]["output_path"])
     made = json.loads(output.read_text())
-    package = tmp_path / "packages" / "blender_render" / "1.0.1"
+    package = tmp_path / "packages" / "blender_render" / "1.0.2"
     assert {k: v for k, v in made.items() if k.startswith("BLENDER_")} == {
         "BLENDER_PROJECT": str(project),
         "BLENDER_ASSETS": str(tmp_path / "worlds" / W / "assets"),
@@ -398,15 +398,35 @@ def test_cancelling_the_render_stops_blender(tmp_path: Path, path_tools: Path) -
         assert time.monotonic() < deadline
         time.sleep(0.02)
     (started,) = calls(output)
-    os.kill(json.loads(job.read_text())["pid"], signal.SIGTERM)
-    while br.blender_render_status(str(job))["status"] == "running":
-        assert time.monotonic() < deadline
-        time.sleep(0.02)
-    assert br.blender_render_status(str(job))["error"].startswith("the render was cancelled")
+    cancelled = br.blender_render_status(str(job), cancel=True)  # its SIGTERM handler ends it
+    assert cancelled["error"].startswith("the render was cancelled")
     while br.alive(started["pid"]):  # killed, then reaped by the job
         assert time.monotonic() < deadline, "Blender outlived the cancel"
         time.sleep(0.02)
     assert calls(output, "end") == []
+
+
+def test_a_job_that_ignores_sigterm_is_killed_after_the_grace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(br, "GRACE", 0.3)
+    stubborn = subprocess.Popen(
+        [sys.executable, "-c", IGNORES_SIGTERM], start_new_session=True, stdout=subprocess.PIPE
+    )
+    assert stubborn.stdout is not None and stubborn.stdout.readline() == b"ready\n"
+    job = tmp_path / ".video.mp4.job.json"
+    job.write_text(json.dumps({"status": "running", "pid": stubborn.pid, "log": "/nonexistent"}))
+    started = time.monotonic()
+    answer = br.blender_render_status(str(job), cancel=True)
+    assert answer["status"] == "failed" and answer["error"].startswith("the render was cancelled")
+    assert stubborn.wait(timeout=5) == -signal.SIGKILL
+    assert 0.3 <= time.monotonic() - started < 5
+
+
+IGNORES_SIGTERM = (
+    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready',"
+    " flush=True); time.sleep(60)"
+)
 
 
 def test_each_blender_process_holds_the_gpu_lock(

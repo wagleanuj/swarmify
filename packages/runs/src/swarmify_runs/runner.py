@@ -435,7 +435,8 @@ def execute_run(run_id: str) -> str:
         except Exception as exc:  # a failed stage fails the run; the error lands on the stage
             outcome, error = StageFailed(index), f"{type(exc).__name__}: {exc}"
         # ponytail: a connector stage or a running child run is not stopped midway; a pause or
-        # abort reaches it once it ends (abort still cascades to the child).
+        # abort reaches it once it ends (abort still cascades to the child, and cancels a
+        # connector stage's long job).
         events = [*_drain(run_id), outcome]
 
 

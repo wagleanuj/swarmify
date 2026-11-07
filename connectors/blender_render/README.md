@@ -145,7 +145,9 @@ frames`, a finish that fails or writes nothing with `the finish step exited with
 finish step wrote no video at <path>`; each followed by the last 40 lines of the log.
 
 **Cancel.** SIGTERM to the job process kills the Blender (or ffmpeg, or finish) it is running and
-fails the job with `the render was cancelled`. In Docker the job runs in the connector sandbox's
+fails the job with `the render was cancelled`. Aborting the run cancels it through
+`blender_render_status` with `cancel: true`, which sends that SIGTERM and SIGKILLs the job's process
+group if it is still there after 5 s. In Docker the job runs in the connector sandbox's
 PID namespace, so when the stage's sandbox ends every process in it ends too.
 
 ## Stills
