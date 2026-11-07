@@ -731,6 +731,7 @@ output = "page.html"                   # optional: the stage's output when it na
 tool = "publish_page"                  # called on the result as the stage's call, a long job
 connector = "other_package"            # optional: whose tool it is; no server of its own then
 arguments = { site = "$folder" }       # the tool's arguments, beside input_path and output_path
+tools = ["preview"]                    # optional: tools of that package the session may call
 
 [build_session.notes]
 "palette.json" = "palette.md"          # added to the brief when an input has this name ($file)
@@ -749,6 +750,14 @@ package's `tool` runs on the build folder as the stage's call (on the timeline a
 failed call fails the stage), its output becomes the stage's artifact, and the build folder stays
 for a person to open, without its `node_modules` (`npm ci` brings them back). A restart with the
 call under way resumes it rather than building again.
+
+Tool servers: the session may call the tools `[build_session].tools` names on the package its
+`tool` belongs to (`connector`, else its own), allowed as `mcp__<package>__<tool>` (a preview, as a
+render package's stills; never `tool` itself, which only the core calls after the session), and
+every tool of each package the stage's `params.tools` names, as `mcp__<package>__*`, as a swarm
+stage's. Each server runs in the connector sandbox confined to the stage, as a connector stage's
+process: it reads the run's folders and writes only the stage's, the build folder among them. A
+package the build needs that the world has not enabled fails the stage before the session.
 
 A send-back that reruns the stage revises, it does not start over: the last build is kept as
 `<stage folder>/build.v<n>/` (n counting the run's visits from 1) with the output it made beside

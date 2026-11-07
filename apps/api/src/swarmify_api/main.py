@@ -607,6 +607,19 @@ def create_app(
             revises = [previous] if previous else []
             if previous and made:
                 revises.append(previous.with_name(previous.name + made.suffix))
+            # Its tool servers, confined to the stage: the `[build_session].tools` of the package
+            # it renders with (a preview, never the render) and every package `params.tools`
+            # names, whole, as a swarm stage's.
+            render, lent = session.get("connector", package.name), list(params.get("tools") or [])
+            for name in dict.fromkeys([render, *lent]):
+                if registry.find(run.world_id, name, recorded) is None:
+                    raise ConnectorError(f"{package.name} needs {name}, not enabled for this world")
+            named = [render] if session.get("tools") else []
+            servers = registry.agent_servers(
+                run.world_id, [*named, *lent], recorded, (run.id, stage_id)
+            )
+            tools = [f"mcp__{render}__{t}" for t in session.get("tools", [])]
+            tools += [f"mcp__{name}__*" for name in lent]
             try:
                 swarm.build(
                     run.world_id,
@@ -627,6 +640,8 @@ def create_app(
                     inputs=[Path(p) for p in others],
                     brief=str(params.get("brief") or ""),
                     sandbox=build.sandbox(project, folder, root, cache, secrets, domains),
+                    servers=servers,
+                    tools=tools,
                     env={**dict.fromkeys(secrets, ""), "npm_config_cache": str(cache)},
                     data_dir=root,
                     model=params.get("model") or (world.model_for("worker") if world else None),

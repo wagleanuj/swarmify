@@ -128,6 +128,59 @@ def test_a_package_requesting_a_build_session_gets_one_then_its_tool_runs_on_the
     assert artifact["name"] == "page.html"
 
 
+def test_a_build_session_gets_its_packages_tool_servers_confined_to_the_stage(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    """Issue 403: the session is offered the server of the package it renders with, allowed only
+    the tools its Manifest lends (`[build_session].tools`, never the render), and each package
+    `params.tools` names, whole; each server reads the run and writes only the stage."""
+    client = running
+    script.scripts = [[Say("Done.")]]
+    assert install(client, SKETCH).status_code == 201
+    w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    assert client.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"}).is_success
+    flow = FLOW.replace("brief: Big letters.}", "tools: [draft]}")
+    saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": flow})
+    run = client.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    run = client.get(f"/api/runs/{run['id']}").json()
+    assert run["status"] == "done", run
+
+    (options,) = script.sessions
+    assert {"sketch", "draft"} <= set(options.mcp_servers)  # type: ignore[arg-type]
+    assert {"mcp__sketch__preview", "mcp__draft__*"} <= set(options.allowed_tools)
+    assert "mcp__sketch__*" not in options.allowed_tools and "mcp__sketch__finish" not in str(
+        options.allowed_tools
+    )
+    runs = (tmp_path / "worlds" / w / "runs" / run["id"]).resolve()
+    stage = runs / run["stages"][2]["id"]
+    for name in ("sketch", "draft"):
+        server: dict[str, Any] = options.mcp_servers[name]  # type: ignore[index,assignment]
+        files = json.loads(Path(server["args"][1]).read_text())["sandbox"]["filesystem"]
+        assert str(runs / run["stages"][0]["id"]) in files["allowRead"]  # the run around it
+        worlds = (tmp_path / "worlds").resolve()  # besides its own scratch HOME
+        assert [p for p in files["allowWrite"] if Path(p).is_relative_to(worlds)] == [str(stage)]
+
+
+def test_a_build_whose_tool_package_is_not_enabled_fails_before_its_session(
+    running: TestClient, script: Script
+) -> None:
+    client = running
+    assert install(client, SKETCH).status_code == 201
+    w = client.post("/api/worlds", json={"name": "Pages"}).json()["id"]
+    assert client.post(f"/api/worlds/{w}/connectors", json=DRAFT).status_code == 201
+    assert client.put(f"/api/worlds/{w}/packages/sketch", json={"version": "1.0.0"}).is_success
+    flow = FLOW.replace("brief: Big letters.}", "tools: [nope]}")
+    saved = client.post(f"/api/worlds/{w}/workflows", json={"yaml": flow})
+    run = client.post(f"/api/workflows/{saved.json()['workflow_id']}/runs", json={}).json()
+    until(lambda: client.get(f"/api/runs/{run['id']}").json()["status"] in ("done", "failed"))
+    run = client.get(f"/api/runs/{run['id']}").json()
+    assert run["status"] == "failed"
+    assert "sketch needs nope, not enabled for this world" in run["stages"][2]["error"]
+    assert script.sessions == []
+
+
 @pytest.mark.parametrize("guided", [True, False])
 def test_a_build_with_a_base_starts_from_a_copy_of_the_worlds_template(
     running: TestClient, transport: FakeTransport, script: Script, tmp_path: Path, guided: bool
