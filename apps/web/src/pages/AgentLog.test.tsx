@@ -115,3 +115,17 @@ test("a connector step shows what the sandbox blocked in its live log, under the
   FakeEventSource.emit("agent.logged", { payload: blocked(2, "Blocked by the sandbox: connect example.com:443") });
   await expect.element(log).toMatchTextContent(/intruder: Blocked by the sandbox: connect example\.com:443$/);
 });
+
+test("live log lines fade up as they arrive; the lines there on first paint do not", async () => {
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(researching),
+    "GET /api/runs/run_1/stages/stage_0/log": () => Response.json([entry(1), entry(2)]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const log = screen.getByTestId("log");
+  await vi.waitFor(() => expect(log.getByRole("listitem").elements()).toHaveLength(2));
+  FakeEventSource.emit("agent.logged", { payload: entry(3, { tool: "WebSearch", input: { query: "owls" } }) });
+  await vi.waitFor(() => expect(log.getByRole("listitem").elements()).toHaveLength(3));
+  const arrived = log.getByRole("listitem").elements().map((li) => li.classList.contains("arrived"));
+  expect(arrived).toEqual([false, false, true]);
+});
