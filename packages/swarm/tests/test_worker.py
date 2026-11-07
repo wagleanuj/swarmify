@@ -792,3 +792,34 @@ def test_a_dead_session_still_loses_its_claim(board: SqliteStorage, tmp_path: Pa
     assert board.expire(now + timedelta(minutes=2)) == []
     (task,) = board.expire(now + timedelta(minutes=2, seconds=1))
     assert task.id == task_id and task.status == "open"
+
+
+def test_a_shared_skills_files_are_readable_and_a_link_elsewhere_is_not(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    """A shared skill is a link into `<data>/skills`; the Read rule resolves before it checks,
+    so the shared folder is allowed by name, and any other link out is still refused."""
+    _seed(board)
+    data = tmp_path / "data"
+    world = data / "worlds" / W
+    ref = data / "skills/verify/references/notes.md"
+    ref.parent.mkdir(parents=True)
+    ref.write_text("x")
+    (world / "skills").mkdir(parents=True)
+    (world / "skills/verify").symlink_to(data / "skills/verify", target_is_directory=True)
+    (data / "secret.md").write_text("x")
+    (world / "skills/out").symlink_to(data, target_is_directory=True)
+    script = Script(
+        [
+            Call("Read", {"file_path": str(world / "skills/verify/references/notes.md")}),
+            Call("Read", {"file_path": str(world / "skills/out/secret.md")}),
+            GRAPH,
+            CLAIM,
+            FINISH,
+        ],
+        PASS,
+    )
+    swarm = _swarm(board, data / "worlds", script)
+    swarm.run_stage(W, R, S, "research", dict(STAGE), world)
+    assert _tools(board, "denied") == ["Read"]
+    assert _tools(board)[0] == "Read"

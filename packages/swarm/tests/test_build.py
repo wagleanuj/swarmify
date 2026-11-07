@@ -308,3 +308,37 @@ def test_a_session_takes_messages_past_the_sdks_1_mb_default(data: Path) -> None
     plain = SessionSpec("system", "prompt", data, None, [], [])
     size = options_for(plain, cast(Any, None)).max_buffer_size
     assert size is not None and size >= 32 * 1024 * 1024
+
+
+def test_a_shared_skills_files_are_readable_and_a_link_elsewhere_is_not(tmp_path: Path) -> None:
+    world = tmp_path / "worlds/w"
+    folder = world / "runs/r/s/build"
+    folder.mkdir(parents=True)
+    ref = tmp_path / "skills/verify/references/notes.md"
+    ref.parent.mkdir(parents=True)
+    ref.write_text("x")
+    (world / "skills").mkdir()
+    (world / "skills/verify").symlink_to(ref.parents[1], target_is_directory=True)
+    (world / "skills/out").symlink_to(tmp_path, target_is_directory=True)
+    linked = world / "skills/verify/references/notes.md"
+    assert build.refusal("Read", {"file_path": str(linked)}, folder, world, tmp_path) is None
+    assert (
+        build.refusal("Grep", {"pattern": "x", "path": str(ref.parent)}, folder, world, tmp_path)
+        is None
+    )
+    out = {"file_path": str(world / "skills/out/worlds/other.md")}
+    assert build.refusal("Read", out, folder, world, tmp_path) is not None
+    assert build.refusal("Write", {"file_path": str(linked)}, folder, world, tmp_path) is not None
+
+
+def test_a_big_asset_folder_is_one_line_in_the_prompt(board: SqliteStorage, data: Path) -> None:
+    assets = data / "worlds" / W / "assets"
+    (assets / "library").mkdir(parents=True)
+    for i in range(500):
+        (assets / "library" / f"clip{i}.wav").write_bytes(b"RIFF")
+    (assets / "sfx").mkdir()
+    (assets / "sfx/whoosh.wav").write_bytes(b"RIFF")
+    (assets / "bed.mp3").write_bytes(b"ID3")
+    sent = _scripted(board, data, [Say("Done.")]).prompts[0]
+    assert f"{assets / 'library'}/ (500 files)" in sent and "clip0.wav" not in sent
+    assert str(assets / "sfx/whoosh.wav") in sent and str(assets / "bed.mp3") in sent

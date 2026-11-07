@@ -709,7 +709,7 @@ class Swarm:
         cast = (CastEntry(builds.AGENT, builds.ROLE, model=model),)
         at = _At(world_id, run_id, stage_id, stage_name, {}, world_folder, cast=cast)
         decisions = _decisions(world_folder, run_id)
-        assets = [world_folder / a for a in self.files.assets(world_id)]
+        assets = builds.collapse(world_folder, self.files.assets(world_id))
         hooks = _BuildHooks(
             self.board, stage_id, builds.AGENT, builds.TOOLS, world_folder,
             lambda: self.budget(run_id), graph_first=False, clock=self.clock,
@@ -1081,6 +1081,9 @@ class _Hooks:
         self.agent = agent
         self.allowed = allowed
         self.world_folder = world_folder.resolve()
+        # The data folder's shared skills (`<data>/worlds/<id>` sits beside `<data>/skills`):
+        # a shared skill is a link into it, so its supporting files resolve there.
+        self.shared_skills = self.world_folder.parent.parent / builds.SKILLS
         self.budget = budget
         self.graph_first = graph_first
         self.stopped: str | None = None
@@ -1132,7 +1135,8 @@ class _Hooks:
             return f"{tool} is not allowed in this stage."
         if tool == "Read":
             path = Path(str(input.get("file_path", "")))
-            if not path.is_absolute() or not path.resolve().is_relative_to(self.world_folder):
+            roots = (self.world_folder, self.shared_skills)
+            if not path.is_absolute() or not any(path.resolve().is_relative_to(r) for r in roots):
                 return "Read is limited to this world's folder."
         if (
             tool == CLAIM
