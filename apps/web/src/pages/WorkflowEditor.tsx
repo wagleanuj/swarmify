@@ -265,6 +265,9 @@ export function WorkflowEditor() {
   function edit(next: string) {
     setNotice(null);
     setText(next);
+    // Undo restores the text before a removal, so any later edit retires it rather than lose itself.
+    setRemoved(null);
+    beforeRemove.current = null;
   }
 
   /** Every stage-list edit rewrites the one text the three views project. */
@@ -288,7 +291,8 @@ export function WorkflowEditor() {
     rewrite((_, stages) => {
       const stage = stages[index];
       if (!stage) return;
-      if (value === "" || (Array.isArray(value) && value.length === 0)) delete stage[key];
+      // an emptied name keeps its key: without it the stage has no type
+      if ((value === "" && key !== stageType(stage)) || (Array.isArray(value) && value.length === 0)) delete stage[key];
       else stage[key] = value;
     });
   }
@@ -316,8 +320,9 @@ export function WorkflowEditor() {
 
   function remove(index: number) {
     const stage = parsed?.stages[index];
-    beforeRemove.current = text;
+    const before = text;
     rewrite((_, stages) => void stages.splice(index, 1));
+    beforeRemove.current = before;
     setSelected(Math.max(0, index - 1));
     setSheet(false);
     setRemoved(stage ? stageName(stage, index) : `stage ${index + 1}`);

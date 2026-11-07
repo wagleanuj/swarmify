@@ -584,6 +584,27 @@ test("on a phone a stage is added from its chip, a gate's kind is three segments
   expect(yaml.value).toMatch(/- gate: review\n {4}ask: Approve\?\n {4}kind: pick\n {2}- gate: pick\n/);
 });
 
+test("on a phone an edit after a removal retires its Undo, and an emptied stage name keeps the stage's type", async () => {
+  await page.viewport(390, 844);
+  phoneApp();
+  const { screen } = await mountAt("/worlds/world_1/workflows/wf_1");
+  const rows = screen.getByTestId("stage-rows");
+  await rows.getByRole("button", { name: /research/ }).click();
+  const sheet = screen.getByRole("dialog", { name: "Stage settings" });
+  await sheet.getByRole("button", { name: "Remove research" }).click();
+  await expect.element(screen.getByRole("button", { name: "Undo" })).toBeVisible();
+  await rows.getByRole("button", { name: /draft/ }).click();
+  await sheet.getByLabelText("Goal of draft").fill("Write it twice.");
+  // Undo would restore the text from before the removal and drop this goal, so it goes
+  await expect.poll(() => screen.getByRole("button", { name: "Undo" }).elements().length).toBe(0);
+
+  await sheet.getByLabelText("Name of stage 1").fill("");
+  await expect.element(sheet.getByLabelText("Name of stage 1")).toHaveFocus();
+  await expect.element(sheet.getByTestId("stage-panel")).not.toHaveTextContent("unknown type");
+  await sheet.getByLabelText("Name of stage 1").fill("outline");
+  await expect.element(sheet.getByLabelText("Goal of outline")).toHaveValue("Write it twice.");
+});
+
 test("on a phone the YAML is 16px, does not wrap, and what is typed there is the stage list", async () => {
   await page.viewport(390, 844);
   phoneApp();
