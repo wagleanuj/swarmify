@@ -60,8 +60,10 @@ dialog.sheet[open]::backdrop { opacity: 1; }
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     animation-delay: 0ms !important;
-    transition-duration: 0.01ms !important;
   }
+  /* No transitions at all. A 0.01ms duration here would give every element a transition on
+     every property (transition-property defaults to all), so a class change would leave
+     computed styles, like a tab label's bold, a frame behind whatever measures them. */
+  *, *::before, *::after, ::backdrop { transition: none !important; }
   .sk { animation: none; }
-  dialog.sheet, dialog.sheet::backdrop { transition: none; }
 }
