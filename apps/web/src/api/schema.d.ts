@@ -155,8 +155,10 @@ export interface paths {
         };
         /**
          * World Events
-         * @description Server-sent events for one world. `Last-Event-ID` resumes after a reconnect;
-         *     without it `?since=now` starts at the current head instead of replaying history.
+         * @description Server-sent events for one world after `?since=<seq>`, the `X-Event-Seq` of the
+         *     snapshot the page loaded, so nothing between that read and this subscribe is lost.
+         *     `Last-Event-ID` resumes after a reconnect. With neither it starts at the head;
+         *     `?since=0` replays the whole log.
          *
          *     A world that never existed is a 404. A deleted one still streams, so `world.deleted`
          *     reaches its subscribers.
@@ -2081,6 +2083,11 @@ export interface components {
              * @default false
              */
             pinned: boolean;
+            /**
+             * Size
+             * @default 0
+             */
+            size: number;
         };
         /** Ask */
         Ask: {
@@ -4703,7 +4710,7 @@ export interface operations {
     world_events_api_worlds__world_id__events_get: {
         parameters: {
             query?: {
-                since?: "now" | null;
+                since?: "now" | number | null;
             };
             header?: {
                 "last-event-id"?: number | null;
@@ -4736,7 +4743,7 @@ export interface operations {
     all_events_api_events_get: {
         parameters: {
             query?: {
-                since?: "now" | null;
+                since?: "now" | number | null;
             };
             header?: {
                 "last-event-id"?: number | null;

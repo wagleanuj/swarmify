@@ -116,7 +116,9 @@ def test_an_artifact_edit_is_proposed_applied_kept_streamed_and_read_by_the_next
     listed = client.get(f"/api/runs/{run['id']}/changes").json()
     assert [(c["kind"], c["stage_name"]) for c in listed] == [("artifact_edit", "write")]
 
-    with httpx.stream("GET", f"{live_url}/api/worlds/{run['world_id']}/events", timeout=10) as r:
+    with httpx.stream(
+        "GET", f"{live_url}/api/worlds/{run['world_id']}/events?since=0", timeout=10
+    ) as r:
         created = next(
             data
             for kind, _, data in sse_events(r)

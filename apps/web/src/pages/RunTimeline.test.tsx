@@ -26,6 +26,7 @@ function made(stageId: string, name: string, over: Partial<ArtifactFile> = {}): 
     stage: stageId,
     created: at(5),
     pinned: false,
+    size: 0,
     ...over,
   };
 }
@@ -127,8 +128,8 @@ test("running: the status line says which stage works, the step and the time, an
   // Arriving with no step pins the picked one in the address.
   await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_0" }));
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Render then pick v2");
-  // Beside the shell's one all-worlds stream.
-  expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events"]);
+  // Beside the shell's one all-worlds stream, from the oldest snapshot the page loaded.
+  expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events?since=0"]);
 
   const running = run("running", [research("done"), voice("done"), video("running", timed(3, null))], { updated_at: at(4) });
   FakeEventSource.emit("run.updated", { payload: running });

@@ -42,6 +42,24 @@ test("lists runs with status and progress, updating and adding them live", async
   await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Second.*queued.*Render then pick/);
 });
 
+test("streams from the position the run list reflects, not from the start of the log", async () => {
+  let answer = (_: Response) => {};
+  const listed = new Promise<Response>((resolve) => (answer = resolve));
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/runs": () => listed,
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  const world = () => FakeEventSource.open.filter((s) => s.url.startsWith("/api/worlds/world_1/events"));
+  // No stream before the snapshot: it would have to start somewhere the snapshot may not cover.
+  await new Promise((r) => setTimeout(r, 50));
+  expect(world()).toEqual([]);
+  answer(Response.json([run("running", [stage(0, "running")])], { headers: { "X-Event-Seq": "42" } }));
+  await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/running/);
+  // From the snapshot's seq: whatever landed after the GET arrives, nothing older replays.
+  expect(world().map((s) => s.url)).toEqual(["/api/worlds/world_1/events?since=42"]);
+});
+
 test("with no runs it says what the page is for and where to start one", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),

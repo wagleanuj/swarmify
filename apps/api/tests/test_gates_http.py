@@ -198,7 +198,7 @@ def test_gate_opened_and_run_ended_reach_the_notifier_and_the_world_stream(
 def test_gate_and_end_events_stream_to_the_world(live_url: str) -> None:
     world = httpx.post(f"{live_url}/api/worlds", json={"name": "Video"}).json()["id"]
     wf = httpx.post(f"{live_url}/api/worlds/{world}/workflows", json={"yaml": QUICK}).json()
-    with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events", timeout=10) as r:
+    with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events?since=0", timeout=10) as r:
         events = sse_events(r)
         run = httpx.post(f"{live_url}/api/workflows/{wf['workflow_id']}/runs", json={}).json()
         seen: list[str] = []

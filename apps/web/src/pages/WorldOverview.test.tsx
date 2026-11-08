@@ -24,8 +24,9 @@ afterEach(() => {
 
 test("shows the world, its figures, runs, gates and workflows, following the live stream", async () => {
   fakeFetch({
-    "GET /api/worlds/world_1": () => Response.json(video),
-    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1": () => Response.json(video, { headers: { "X-Event-Seq": "12" } }),
+    "GET /api/worlds/world_1/workflows": () => Response.json([], { headers: { "X-Event-Seq": "11" } }),
+    "GET /api/worlds/world_1/runs": () => Response.json([], { headers: { "X-Event-Seq": "12" } }),
   });
   const { screen } = await mountAt("/worlds/world_1");
   await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
@@ -39,8 +40,10 @@ test("shows the world, its figures, runs, gates and workflows, following the liv
   // The sidebar carries navigation now; the delete control lives in Settings.
   expect(screen.getByRole("button", { name: "Delete world" }).elements()).toHaveLength(0);
 
-  // Live only, beside the shell's one all-worlds stream.
-  expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events?since=now"]);
+  // Live from the oldest snapshot, beside the shell's one all-worlds stream.
+  await vi.waitFor(() =>
+    expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events?since=11"]),
+  );
   FakeEventSource.emit("run.updated", { seq: 1, type: "run.updated", ts: video.created_at, payload: run("running", []) });
   await expect.element(screen.getByTestId("runs")).toMatchTextContent(/Render then pick.*running/);
 });

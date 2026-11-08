@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import { api } from "./client";
+import { seqOf } from "./events";
 import type { Gate } from "./runs";
 
 /** Every world's open gates: `null` until the first load. */
@@ -8,7 +9,8 @@ type Open = { gates: Gate[] | null; failed: boolean };
 
 // One GET /api/gates and one all-worlds stream, shared by the sidebar's count and the pages
 // that list gates, so a page does not hold a second stream (the browser allows six per host).
-// `since=now` skips history: replaying it refetched once per past run.updated.
+// The stream opens after the first load, from the position its snapshot reflects: no run.updated
+// between the two is missed, and history is not replayed (it refetched once per past update).
 const EMPTY: Open = { gates: null, failed: false };
 let open = EMPTY;
 let generation = 0;
@@ -26,13 +28,27 @@ export function reloadGates() {
   const asked = generation;
   api
     .GET("/api/gates")
-    .then(({ data, error }) => {
+    .then(({ data, error, response }) => {
       if (error || !data) throw new Error("load failed");
-      if (asked === generation) publish({ gates: data, failed: false });
+      if (asked !== generation) return;
+      publish({ gates: data, failed: false });
+      follow(seqOf(response) ?? "now");
     })
     .catch(() => {
-      if (asked === generation) publish({ ...open, failed: true });
+      if (asked !== generation) return;
+      publish({ ...open, failed: true });
+      follow("now"); // its next run.updated retries the load
     });
+}
+
+function follow(since: number | "now") {
+  if (source) return;
+  source = new EventSource(`/api/events?since=${since}`);
+  // One refetch per burst of run updates, not one per event.
+  source.addEventListener("run.updated", () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(reloadGates, 100);
+  });
 }
 
 /** Drop an answered gate at once; the run's next run.updated refetches the list. Refetching
@@ -45,12 +61,6 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   if (listeners.size === 1) {
     reloadGates();
-    source = new EventSource("/api/events?since=now");
-    // One refetch per burst of run updates, not one per event.
-    source.addEventListener("run.updated", () => {
-      clearTimeout(timer);
-      timer = window.setTimeout(reloadGates, 100);
-    });
   }
   return () => {
     listeners.delete(listener);

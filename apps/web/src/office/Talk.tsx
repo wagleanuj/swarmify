@@ -55,6 +55,7 @@ export function Talk() {
   const { cast, look, nameOf } = useCast(worldId, undefined, skin);
   const asked = useRef(new Set<string>());
 
+  const saw = useRunUpdates(worldId, (run) => setRuns((prev) => [run, ...prev.filter((r) => r.id !== run.id)]));
   useEffect(() => {
     // The world's skin says which pack and casting dress the askers.
     api
@@ -63,10 +64,12 @@ export function Talk() {
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setRuns(data))
+      .then(({ data, response }) => {
+        saw(response);
+        if (data) setRuns(data);
+      })
       .catch(() => undefined);
-  }, [worldId]);
-  useRunUpdates(worldId, (run) => setRuns((prev) => [run, ...prev.filter((r) => r.id !== run.id)]));
+  }, [worldId, saw]);
 
   const waiting = line(open.gates, worldId).filter(
     (g) => !answered.some((a) => a.stage_id === g.stage_id && a.opened_at === g.opened_at),

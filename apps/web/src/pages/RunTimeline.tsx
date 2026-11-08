@@ -99,6 +99,35 @@ export function RunTimeline() {
   }, [moving]);
   const waitingAt = run?.status === "waiting_gate" ? `${current(run)?.id}:${run.send_backs}:${run.over_budget}` : null;
 
+  // The stream starts at the oldest of the run's, its agents' and its artifacts' snapshots.
+  const saw = useWorldEvents(worldId, {
+    "run.updated": (update) => {
+      if (update.id !== runId) return;
+      // The stream starts at the oldest snapshot: an older run never replaces a newer one.
+      setRun((prev) => (prev && prev.updated_at > update.updated_at ? prev : update));
+      // A connector stage that just started or ended has a call to (re)load.
+      setCalls((prev) => Object.fromEntries(Object.entries(prev).filter(([, c]) => c !== null)));
+    },
+    "task.updated": (task) => {
+      if (task.stage_id === swarmId) setTasks((prev) => upsert(prev, task));
+    },
+    "agent.updated": (agent) => {
+      if (agent.run_id === runId) setAgents((prev) => ({ ...prev, [agent.id]: agent }));
+    },
+    "agent.logged": (entry) => {
+      if (entry.stage_id === stageId) setLog((prev) => dedupe(prev, [entry], "seq"));
+    },
+    "verdict.created": (verdict) => {
+      if (verdict.stage_id === swarmId) setVerdicts((prev) => dedupe(prev, [verdict], "loop"));
+    },
+    "artifact.created": (created) => {
+      if (created.type !== "note" && run?.stages.some((s) => s.id === created.stage_id)) setArtifactsSeen((n) => n + 1);
+    },
+    "connector_call.updated": (call) => {
+      if (call.run_id === runId) setCalls((prev) => ({ ...prev, [call.idempotency_key]: call }));
+    },
+  });
+
   useEffect(() => {
     api
       .GET("/api/runs/{run_id}", { params: { path: { run_id: runId } } })
@@ -106,9 +135,10 @@ export function RunTimeline() {
         if (response.status === 404) return setRun(null);
         if (!data) throw new Error("load failed");
         setRun(data);
+        saw(response);
       })
       .catch(() => setError("Could not load this run. Is the API running?"));
-  }, [runId]);
+  }, [runId, saw]);
 
   useEffect(() => {
     api
@@ -134,16 +164,22 @@ export function RunTimeline() {
   useEffect(() => {
     api
       .GET("/api/runs/{run_id}/agents", { params: { path: { run_id: runId } } })
-      .then(({ data }) => data && setAgents((prev) => ({ ...Object.fromEntries(data.map((a) => [a.id, a])), ...prev })))
+      .then(({ data, response }) => {
+        saw(response);
+        if (data) setAgents((prev) => ({ ...Object.fromEntries(data.map((a) => [a.id, a])), ...prev }));
+      })
       .catch(() => undefined);
-  }, [runId]);
+  }, [runId, saw]);
 
   useEffect(() => {
     api
       .GET("/api/runs/{run_id}/artifacts", { params: { path: { run_id: runId } } })
-      .then(({ data }) => setArtifacts((prev) => data ?? prev ?? []))
+      .then(({ data, response }) => {
+        saw(response);
+        setArtifacts((prev) => data ?? prev ?? []);
+      })
       .catch(() => setArtifacts((prev) => prev ?? []));
-  }, [runId, artifactsSeen]);
+  }, [runId, artifactsSeen, saw]);
 
   // The open gate, so the status line can say what it asks and answer it here.
   useEffect(() => {
@@ -204,34 +240,6 @@ export function RunTimeline() {
       stale = true;
     };
   }, [runId, swarmId]);
-
-  useWorldEvents(worldId, {
-    "run.updated": (update) => {
-      if (update.id !== runId) return;
-      // The stream replays history first: an older snapshot never replaces a newer one.
-      setRun((prev) => (prev && prev.updated_at > update.updated_at ? prev : update));
-      // A connector stage that just started or ended has a call to (re)load.
-      setCalls((prev) => Object.fromEntries(Object.entries(prev).filter(([, c]) => c !== null)));
-    },
-    "task.updated": (task) => {
-      if (task.stage_id === swarmId) setTasks((prev) => upsert(prev, task));
-    },
-    "agent.updated": (agent) => {
-      if (agent.run_id === runId) setAgents((prev) => ({ ...prev, [agent.id]: agent }));
-    },
-    "agent.logged": (entry) => {
-      if (entry.stage_id === stageId) setLog((prev) => dedupe(prev, [entry], "seq"));
-    },
-    "verdict.created": (verdict) => {
-      if (verdict.stage_id === swarmId) setVerdicts((prev) => dedupe(prev, [verdict], "loop"));
-    },
-    "artifact.created": (created) => {
-      if (created.type !== "note" && run?.stages.some((s) => s.id === created.stage_id)) setArtifactsSeen((n) => n + 1);
-    },
-    "connector_call.updated": (call) => {
-      if (call.run_id === runId) setCalls((prev) => ({ ...prev, [call.idempotency_key]: call }));
-    },
-  });
 
   const select = useCallback(
     (id: string) => void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId }, search: { stage: id }, replace: true }),

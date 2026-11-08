@@ -52,6 +52,13 @@ export function Runs() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflow, setWorkflow] = useState("");
 
+  // The stream starts where the run list's snapshot does, once it has loaded.
+  const saw = useRunUpdates(worldId, (run) =>
+    setRuns((prev) =>
+      prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]),
+    ),
+  );
+
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId }, query: { check: false } } })
@@ -59,19 +66,13 @@ export function Runs() {
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
-      .then(({ data, error }) => {
+      .then(({ data, error, response }) => {
         if (error || !data) throw new Error("load failed");
         setRuns(data);
+        saw(response);
       })
       .catch(() => setError("Could not load runs. Is the API running?"));
-  }, [worldId]);
-
-  useRunUpdates(worldId, (run) =>
-    // Before the GET answers, the skeleton holds; the GET carries this run's state.
-    setRuns((prev) =>
-      prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]),
-    ),
-  );
+  }, [worldId, saw]);
 
   // ponytail: filtered here, not by the API, so live updates land in the same filter. Add query
   // params to GET /runs when a world's run list grows past what one response carries.

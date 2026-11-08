@@ -8,7 +8,7 @@ import pytest
 from swarmify_kernel import MIGRATIONS
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_memory import Memory
+from swarmify_memory import INLINE_MAX, Memory
 
 
 @pytest.fixture
@@ -159,6 +159,21 @@ def test_notes_and_stage_artifacts_read_back_without_frontmatter(memory: Memory)
     )
     assert arts["brief.md"].body == "Brief" and arts["brief.md"].title == "brief.md"
     assert arts["hand.md"].fields == {"odd": "not json"} and arts["hand.md"].type == "file"
+
+
+def test_a_binary_or_oversized_file_is_listed_by_its_size_not_inlined(memory: Memory) -> None:
+    memory.write_artifact("w1", "r1", "s1", "render", "short.mp4", "video bytes")
+    folder = memory.world_folder("w1") / "runs/r1/s1/artifacts"
+    (folder / "remotion-original.mp4.bak").write_bytes(b"\x00\x00\x00\x18ftypmp42" * 100)
+    (folder / "huge.log").write_text("x" * (INLINE_MAX + 1))
+    (folder / "small.json").write_text('{"takes": []}')
+    arts = {a.name: a for a in memory.stage_artifacts("w1", "r1", "s1")}
+    bak, huge, small = arts["remotion-original.mp4.bak"], arts["huge.log"], arts["small.json"]
+    assert (bak.body, bak.size, bak.type, bak.fields) == ("", 1200, "file", {})
+    assert (huge.body, huge.size) == ("", INLINE_MAX + 1)
+    assert (small.body, small.size) == ('{"takes": []}', 13)
+    # A sidecar carries its binary, so the size is the binary's.
+    assert arts["short.mp4"].size == len("video bytes")
 
 
 def _decide(memory: Memory, run: str, created: str) -> None:

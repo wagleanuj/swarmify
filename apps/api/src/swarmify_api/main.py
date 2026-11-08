@@ -1080,6 +1080,7 @@ def create_app(
     app.include_router(auth.router(operator, world_exists=lambda w: world_svc.get(w) is not None))
     if WEB_DIST.is_dir():
         app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")
+    app.add_middleware(worlds.EventCursor, worlds=world_svc)
     if operator.enabled:
         app.add_middleware(auth.SignedIn, operator=operator)
     return app

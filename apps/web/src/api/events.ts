@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { components } from "./schema";
 
@@ -38,6 +38,8 @@ export type WorldEvents = {
   "artifact.created": ArtifactCreated;
   /** Only the settings that changed, with the world's id. */
   "world.updated": Partial<components["schemas"]["World"]>;
+  /** A workflow was saved; reload the list to see it. */
+  "workflow.saved": unknown;
 };
 type Handlers = { [K in keyof WorldEvents]?: (payload: WorldEvents[K]) => void };
 const TYPES: (keyof WorldEvents)[] = [
@@ -49,14 +51,31 @@ const TYPES: (keyof WorldEvents)[] = [
   "verdict.created",
   "artifact.created",
   "world.updated",
+  "workflow.saved",
 ];
 
-/** Follow one world's event stream with a single EventSource (ADR 0002). */
-export function useWorldEvents(worldId: string, handlers: Handlers) {
+/** The event-log position a snapshot response reflects: the API stamps every GET with it. Null
+ * for a response that did not come from the API, such as a proxy's error page. */
+export function seqOf(response: Response): number | null {
+  const seq = response.headers.get("X-Event-Seq");
+  return seq === null ? null : Number(seq);
+}
+
+/** Follow one world's event stream with a single EventSource (ADR 0002), from the snapshot the
+ * page loaded. Pass each snapshot response the handlers patch to the returned `saw`: the stream
+ * opens at the oldest of their positions, so an event landing between a GET and the subscribe
+ * still arrives and the world's history is never replayed. Reconnects resume by Last-Event-ID. */
+export function useWorldEvents(worldId: string, handlers: Handlers): (snapshot: Response) => void {
   const latest = useRef(handlers);
   latest.current = handlers;
+  const [since, setSince] = useState<number | null>(null);
+  const saw = useCallback((snapshot: Response) => {
+    const seq = seqOf(snapshot);
+    if (seq !== null) setSince((prev) => (prev === null ? seq : Math.min(prev, seq)));
+  }, []);
   useEffect(() => {
-    const source = new EventSource(`/api/worlds/${worldId}/events`);
+    if (since === null) return;
+    const source = new EventSource(`/api/worlds/${worldId}/events?since=${since}`);
     for (const type of TYPES) {
       source.addEventListener(type, (e) => {
         const event = JSON.parse((e as MessageEvent<string>).data) as { payload: never };
@@ -64,5 +83,6 @@ export function useWorldEvents(worldId: string, handlers: Handlers) {
       });
     }
     return () => source.close();
-  }, [worldId]);
+  }, [worldId, since]);
+  return saw;
 }

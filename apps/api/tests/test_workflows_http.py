@@ -206,7 +206,7 @@ def test_saving_appears_on_the_world_event_stream(client: TestClient) -> None:
     ]
     client.post(f"/api/workflows/{wf}/versions", json={"yaml": WEEKLY})
     with client.stream(
-        "GET", f"/api/worlds/{world_id}/events", headers={"Last-Event-ID": "1"}
+        "GET", f"/api/worlds/{world_id}/events?since=0", headers={"Last-Event-ID": "1"}
     ) as r:
         lines = []
         for line in r.iter_lines():

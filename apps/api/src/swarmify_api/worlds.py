@@ -9,7 +9,8 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, StringConstraints
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from swarmify_worlds import (
     DEFAULT_PACK,
@@ -184,8 +185,10 @@ def router(
     async def world_events(
         world_id: str, last_event_id: Annotated[int | None, Header()] = None, since: Since = None
     ) -> StreamingResponse:
-        """Server-sent events for one world. `Last-Event-ID` resumes after a reconnect;
-        without it `?since=now` starts at the current head instead of replaying history.
+        """Server-sent events for one world after `?since=<seq>`, the `X-Event-Seq` of the
+        snapshot the page loaded, so nothing between that read and this subscribe is lost.
+        `Last-Event-ID` resumes after a reconnect. With neither it starts at the head;
+        `?since=0` replays the whole log.
 
         A world that never existed is a 404. A deleted one still streams, so `world.deleted`
         reaches its subscribers.
@@ -240,16 +243,44 @@ def packs_router(packs: SpritePacks) -> APIRouter:
     return api
 
 
-# EventSource cannot set headers on its first connect, so live-only views ask with `?since=now`.
-Since = Literal["now"] | None
+# EventSource cannot set headers on its first connect, so a view passes its snapshot's
+# position as `?since=<seq>`. `now`, the head, is what a missing `since` means too.
+Since = Literal["now"] | NonNegativeInt | None
 
 
 def _start(worlds: Worlds, last_event_id: int | None, since: Since) -> int:
     """The seq a new stream starts after. A reconnect's Last-Event-ID always wins, even 0, so a
-    view opened with `?since=now` still resumes where it left off rather than skipping a gap."""
+    view still resumes where it left off rather than skipping a gap. Without a cursor it is the
+    head: replaying a long-lived world's log redrew every page with stale snapshots."""
     if last_event_id is not None:
         return last_event_id
-    return worlds.last_seq() if since == "now" else 0
+    return worlds.last_seq() if since is None or since == "now" else since
+
+
+class EventCursor:
+    """Stamps every `/api` GET with `X-Event-Seq`, the event log's head read before the handler,
+    so its snapshot reflects at least that event. A view streams from it (`?since=`): no event
+    between the read and the subscribe is lost, and none before it is replayed (ADR 0002)."""
+
+    def __init__(self, app: ASGIApp, worlds: Worlds) -> None:
+        self.app = app
+        self.worlds = worlds
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "GET"
+            or not scope["path"].startswith("/api/")
+        ):
+            return await self.app(scope, receive, send)
+        seq = str(self.worlds.last_seq()).encode()
+
+        async def stamped(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message["headers"] = [*message.get("headers", []), (b"x-event-seq", seq)]
+            await send(message)
+
+        await self.app(scope, receive, stamped)
 
 
 async def _stream(worlds: Worlds, world_id: str | None, after: int) -> AsyncIterator[str]:

@@ -2,6 +2,7 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { useWorldEvents } from "../api/events";
 import { useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
@@ -43,6 +44,20 @@ export function WorldOverview() {
   const [runBudget, setRunBudget] = useState("");
   const [agents, setAgents] = useState("");
 
+  // Skins render events, they never poll tables (ADR 0002). The stream starts at the oldest of
+  // the world's, workflows' and runs' snapshots. The gates follow the shared all-worlds stream.
+  const saw = useWorldEvents(worldId, {
+    // Before the GET answers, the skeleton holds; the GET carries this run's state.
+    "run.updated": (run) =>
+      setRuns((prev) => prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev])),
+    // A setting changed elsewhere (Crew in another tab): switching views sends the skin as it is now.
+    "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
+    "workflow.saved": () =>
+      void api
+        .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
+        .then(({ data }) => data && setWorkflows(data)),
+  });
+
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
@@ -50,9 +65,10 @@ export function WorldOverview() {
         if (response.status === 404) return setWorld(null);
         if (!data) throw new Error("load failed");
         setWorld(data);
+        saw(response);
       })
       .catch(() => setError("Could not load this world. Is the API running?"));
-  }, [worldId]);
+  }, [worldId, saw]);
 
   useEffect(() => {
     // The rows show at once; each workflow's check (seconds, it may start connectors) follows.
@@ -60,7 +76,8 @@ export function WorldOverview() {
     let checked = false;
     api
       .GET("/api/worlds/{world_id}/workflows", { params: { path, query: { check: false } } })
-      .then(({ data }) => {
+      .then(({ data, response }) => {
+        saw(response);
         if (!checked) setWorkflows(data ?? []);
       })
       .catch(() => setWorkflows((prev) => prev ?? []));
@@ -72,14 +89,17 @@ export function WorldOverview() {
         setWorkflows(data);
       })
       .catch(() => undefined);
-  }, [worldId]);
+  }, [worldId, saw]);
 
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setRuns(data ?? []))
+      .then(({ data, response }) => {
+        setRuns(data ?? []);
+        saw(response);
+      })
       .catch(() => setRuns([]));
-  }, [worldId]);
+  }, [worldId, saw]);
 
   // ponytail: one scorecard per workflow, read when the list loads, so a run judged while the page
   // is open shows on the next visit. Add a world scorecard endpoint when worlds hold many workflows.
@@ -93,29 +113,6 @@ export function WorldOverview() {
       ),
     ).then((cards) => setScores(cards.flat()));
   }, [workflows]);
-
-  // Skins render events, they never poll tables (ADR 0002). Native EventSource, no library.
-  // Live only: the runs come from the GET above. The gates follow the shared all-worlds stream.
-  useEffect(() => {
-    const source = new EventSource(`/api/worlds/${worldId}/events?since=now`);
-    source.addEventListener("run.updated", (e) => {
-      const run = (JSON.parse((e as MessageEvent<string>).data) as { payload?: Run }).payload;
-      if (!run) return;
-      // Before the GET answers, the skeleton holds; the GET carries this run's state.
-      setRuns((prev) => prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
-    });
-    // A setting changed elsewhere (Crew in another tab): switching views sends the skin as it is now.
-    source.addEventListener("world.updated", (e) => {
-      const changes = (JSON.parse((e as MessageEvent<string>).data) as { payload?: Partial<World> }).payload;
-      if (changes) setWorld((prev) => prev && { ...prev, ...changes });
-    });
-    source.addEventListener("workflow.saved", () => {
-      void api
-        .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId } } })
-        .then(({ data }) => data && setWorkflows(data));
-    });
-    return () => source.close();
-  }, [worldId]);
 
   async function start(workflowId: string, baseline = false) {
     setStarting(workflowId);
