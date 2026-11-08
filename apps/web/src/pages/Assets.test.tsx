@@ -391,3 +391,33 @@ test("an uploaded file gets a name the API takes", () => {
   expect(plainName(".hidden.wav")).toBe("hidden.wav");
   expect(plainName("logo.png")).toBe("logo.png");
 });
+
+test("while the folders load each is a group of skeleton rows, not a Loading line", async () => {
+  routes({ "GET /api/worlds/world_1/assets": () => new Promise<Response>(() => undefined) });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  await expect.element(screen.getByRole("heading", { name: "Files" })).toBeVisible();
+  expect(screen.container.querySelectorAll("[aria-busy='true'].sk-rows").length).toBeGreaterThanOrEqual(2);
+  expect(screen.container.textContent).not.toMatch(/Loading\.\.\.|Loading \w/);
+});
+
+test("at 360 wide a Template row is its whole name, then Download and Delete as equal 44px buttons", async () => {
+  await page.viewport(360, 740);
+  const remotion = { ...voices, path: "assets/remotion_templates/", folder: "remotion_templates", label: "Remotion templates", package: "Remotion build", templates: true };
+  const shorts = { folder: "remotion_templates", name: "blocky-shorts-vertical", path: "assets/remotion_templates/blocky-shorts-vertical/", bytes: 1_200_000, origin: "upload", run_id: "", stage: "", added: "2026-10-30T09:00:00+00:00" };
+  routes({
+    "GET /api/worlds/world_1/owned_folders": () => Response.json([remotion]),
+    "GET /api/worlds/world_1/templates": () => Response.json([shorts]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/assets");
+  const row = screen.getByRole("listitem", { name: "blocky-shorts-vertical" });
+  await expect.element(row).toBeVisible();
+  const name = row.element().querySelector(".file-name .mono")!.getBoundingClientRect();
+  const download = row.getByRole("link", { name: "Download blocky-shorts-vertical" }).element().getBoundingClientRect();
+  const del = row.getByRole("button", { name: "Delete blocky-shorts-vertical" }).element().getBoundingClientRect();
+  expect(name.height).toBeLessThan(30); // one line
+  expect(download.top).toBeGreaterThan(name.bottom - 1);
+  expect(download.top).toBe(del.top);
+  expect(Math.abs(download.width - del.width)).toBeLessThan(1);
+  expect(Math.min(download.height, del.height)).toBeGreaterThanOrEqual(44);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(360);
+});

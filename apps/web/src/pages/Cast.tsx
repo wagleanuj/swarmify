@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { Loading, Skeleton } from "../Skeleton";
 import type { components } from "../api/schema";
 import { who } from "../api/tasks";
 import { castRoute } from "../router";
@@ -183,7 +184,6 @@ export function Cast() {
           {said}
         </p>
       )}
-      {cast === null && !error && <p role="status">Loading...</p>}
       <section className="panel" aria-labelledby="agents">
         <div className="panel-head">
           <h2 id="agents">Agents</h2>
@@ -191,6 +191,13 @@ export function Cast() {
             First try is a stage the judge passed without a send back. A model change saves itself; the workers share one.
           </span>
         </div>
+        {cast === null && !error ? (
+          <Loading className="cast-skeleton">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} h={56} />
+            ))}
+          </Loading>
+        ) : (
         <div className="scroll-x cast-scroll">
           <table className="cast-table" data-testid="cast">
             <thead>
@@ -221,9 +228,9 @@ export function Cast() {
                       </span>
                     </td>
                     <td>{key ? modelSelect(key, `Model for ${who(m.name)}`, m.name) : <span className="faint">-</span>}</td>
-                    <td className="num">{r.tasks_done}</td>
-                    <td className="num">{r.judged}</td>
-                    <td className="num">
+                    <td className="num" data-label="Tasks">{r.tasks_done}</td>
+                    <td className="num" data-label="Judged">{r.judged}</td>
+                    <td className="num" data-label="First try">
                       {r.judged ? (
                         <>
                           {r.first_try} <span className="faint">of {r.judged}</span>
@@ -232,8 +239,8 @@ export function Cast() {
                         <span className="faint">-</span>
                       )}
                     </td>
-                    <td className="num">{r.send_backs}</td>
-                    <td className="num">{usd(r.cost_usd)}</td>
+                    <td className="num" data-label="Send backs">{r.send_backs}</td>
+                    <td className="num" data-label="Cost">{usd(r.cost_usd)}</td>
                     <td className="cast-actions">
                       {editing !== m.name && (
                         <button type="button" onClick={() => startEdit(m)} aria-label={`Edit ${who(m.name)}`}>
@@ -329,6 +336,7 @@ export function Cast() {
             </tfoot>
           </table>
         </div>
+        )}
         <p className="faint">
           A role left on the world's model follows the{" "}
           <Link to="/worlds/$worldId/settings" params={{ worldId }}>
@@ -347,7 +355,13 @@ export function Cast() {
           one; you approve it on the Needs you page, or make one from the library. A world skill
           wins over a shared one of the same name.
         </p>
-        {skills === undefined && <p role="status">Loading skills...</p>}
+        {skills === undefined && (
+          <Loading className="skill-list">
+            {Array.from({ length: 3 }, (_, i) => (
+              <Skeleton key={i} h={56} />
+            ))}
+          </Loading>
+        )}
         {skills === null && <p className="faint">Could not load the skills.</p>}
         {skills?.length === 0 && (
           <p className="faint" data-testid="no-skills">
