@@ -185,9 +185,12 @@ export function Shell() {
     // Slide from the next frame on, so the first placement does not glide in from the left.
     const frame = requestAnimationFrame(() => nav.setAttribute("data-slide", ""));
     addEventListener("resize", place);
+    // A web font weight loads on first use (the bold of a newly current tab) and re-sizes the label.
+    document.fonts?.addEventListener("loadingdone", place);
     return () => {
       cancelAnimationFrame(frame);
       removeEventListener("resize", place);
+      document.fonts?.removeEventListener("loadingdone", place);
     };
   }, [current, moreOn, worldId]);
 

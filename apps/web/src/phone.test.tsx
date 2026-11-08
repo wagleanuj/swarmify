@@ -26,8 +26,8 @@ const Form = () => (
 test("on a desktop with a mouse the controls keep their compact size", async () => {
   await page.viewport(1280, 800);
   const screen = await render(<Form />);
-  await new Promise(requestAnimationFrame); // the stylesheet's media queries catch up with the resize
-  expect(getComputedStyle(screen.getByLabelText("Name").element()).fontSize).toBe("13px");
+  // the stylesheet's media queries catch up with the resize, sometimes after more than a frame
+  await expect.poll(() => getComputedStyle(screen.getByLabelText("Name").element()).fontSize).toBe("13px");
   expect(screen.getByRole("button", { name: "Save" }).element().getBoundingClientRect().height).toBeLessThan(44);
 });
 
