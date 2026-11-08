@@ -120,7 +120,7 @@ def test_notes_from_a_run_are_rebuilt_into_the_graph_and_streamed(
 
 def test_rebuilt_events_reach_the_world_stream(live_url: str, tmp_path: Path) -> None:
     world = httpx.post(f"{live_url}/api/worlds", json={"name": "Video"}).json()["id"]
-    url = f"{live_url}/api/worlds/{world}/events"
+    url = f"{live_url}/api/worlds/{world}/events?since=0"
     with httpx.stream("GET", url, headers={"Last-Event-ID": "1"}, timeout=10) as r:
         # The writer watches files, so a note dropped in by hand counts like an agent's.
         (tmp_path / "worlds" / world / "brief.md").write_text("# Brief\n\nShort hooks.\n")

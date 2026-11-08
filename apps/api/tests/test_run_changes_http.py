@@ -89,7 +89,9 @@ def test_a_stage_edit_is_proposed_applied_listed_and_streamed_and_the_stage_runs
     after = client.get(f"/api/runs/{run['id']}").json()
     assert after["changes"] == listed and after["revision"] > run["revision"]
 
-    with httpx.stream("GET", f"{live_url}/api/worlds/{run['world_id']}/events", timeout=10) as r:
+    with httpx.stream(
+        "GET", f"{live_url}/api/worlds/{run['world_id']}/events?since=0", timeout=10
+    ) as r:
         changed = next(data for kind, _, data in sse_events(r) if kind == "run.changed")
     assert changed["run_id"] == run["id"]
     assert changed["payload"]["id"] == applied.json()["id"]

@@ -54,21 +54,22 @@ export function Library() {
       .catch(() => undefined);
   }, [worldId]);
 
-  useEffect(() => {
-    api
-      .GET("/api/worlds/{world_id}/library", { params: { path: { world_id: worldId } } })
-      .then(({ data, error }) => {
-        if (error || !data) throw new Error("load failed");
-        setItems(data);
-      })
-      .catch(() => setError("Could not load the library. Is the API running?"));
-  }, [worldId, seen]);
-
-  useWorldEvents(worldId, {
+  const saw = useWorldEvents(worldId, {
     "artifact.created": (created) => {
       if (created.type !== "note") setSeen((n) => n + 1);
     },
   });
+
+  useEffect(() => {
+    api
+      .GET("/api/worlds/{world_id}/library", { params: { path: { world_id: worldId } } })
+      .then(({ data, error, response }) => {
+        if (error || !data) throw new Error("load failed");
+        setItems(data);
+        saw(response);
+      })
+      .catch(() => setError("Could not load the library. Is the API running?"));
+  }, [worldId, seen, saw]);
 
   const all = items ?? [];
   const set = (key: keyof Filters) => (value: string) => setFilters((f) => ({ ...f, [key]: value }));

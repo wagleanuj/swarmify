@@ -32,6 +32,7 @@ const idea = (title: string, rank: number, sources: string[] = []): ArtifactFile
   stage: "stage_0",
   created: ts,
   pinned: false,
+  size: 0,
 });
 
 beforeEach(() => FakeEventSource.install());
@@ -97,6 +98,7 @@ test("a publish card shows its Outcome (one written before outcomes were generic
     stage: "stage_0",
     created: ts,
     pinned: false,
+    size: 0,
   };
   const video: ArtifactFile = {
     name: "short.mp4",
@@ -110,6 +112,7 @@ test("a publish card shows its Outcome (one written before outcomes were generic
     stage: "stage_0",
     created: ts,
     pinned: false,
+    size: 0,
   };
   routes([], () => [publish, video]);
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");

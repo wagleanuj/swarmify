@@ -183,7 +183,7 @@ def test_parallel_http_claims_have_one_winner_and_stream_live(live_url: str) -> 
                 f"/api/tasks/{task['id']}/claim", json={"agent": f"a{i}"}
             ).status_code
 
-    with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events", timeout=10) as r:
+    with httpx.stream("GET", f"{live_url}/api/worlds/{world}/events?since=0", timeout=10) as r:
         events = sse_events(r)
         threads = [threading.Thread(target=claim, args=(i,)) for i in range(agents)]
         for t in threads:

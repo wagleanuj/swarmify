@@ -10,9 +10,10 @@ export type Decide = components["schemas"]["Decide"];
 export type RunLink = components["schemas"]["RunLink"];
 
 /** Call `onRun` with every run snapshot the world's event stream carries (ADR 0002), and
- * `onCall` with every connector call snapshot, progress included. */
+ * `onCall` with every connector call snapshot, progress included. Returns `saw`, for the
+ * response of the run list it patches: the stream starts there (see useWorldEvents). */
 export function useRunUpdates(worldId: string, onRun: (run: Run) => void, onCall?: (call: Call) => void) {
-  useWorldEvents(worldId, { "run.updated": onRun, "connector_call.updated": onCall });
+  return useWorldEvents(worldId, { "run.updated": onRun, "connector_call.updated": onCall });
 }
 
 export const STATUS_LABEL: Record<Run["status"], string> = {

@@ -321,7 +321,7 @@ def test_progress_streams_on_the_world_events(live_url: str, transport: FakeTran
     httpx.post(f"{live_url}/api/worlds/{w}/connectors", json=FAL).raise_for_status()
     workflow = httpx.post(f"{live_url}/api/worlds/{w}/workflows", json={"yaml": CLIP}).json()
     seen: list[tuple[str, float | None]] = []
-    with httpx.stream("GET", f"{live_url}/api/worlds/{w}/events", timeout=10) as r:
+    with httpx.stream("GET", f"{live_url}/api/worlds/{w}/events?since=0", timeout=10) as r:
         httpx.post(f"{live_url}/api/workflows/{workflow['workflow_id']}/runs", json={})
         for kind, _, data in sse_events(r):
             if kind == "connector_call.updated":

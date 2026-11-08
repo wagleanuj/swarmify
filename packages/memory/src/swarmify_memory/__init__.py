@@ -85,6 +85,8 @@ __all__ = [
 
 OUTCOME = "## Outcome\n\n"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+INLINE_MAX = 1 << 20
+"""The largest file an artifact listing inlines as text, in bytes."""
 
 
 def _slug(title: str) -> str:
@@ -108,6 +110,17 @@ def _own_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     except yaml.YAMLError:
         return {}, content
     return (fields, body.lstrip("\n")) if isinstance(fields, dict) else ({}, content)
+
+
+def _text(file: Path) -> str | None:
+    """The file's text, or None for one over INLINE_MAX or a binary: one with a NUL byte in its
+    first 8 KB, the test git uses. A stray bad byte in text is replaced, not a reason to skip."""
+    if file.stat().st_size > INLINE_MAX:
+        return None
+    with file.open("rb") as f:
+        if b"\0" in f.read(8192):
+            return None
+    return file.read_text(errors="replace")
 
 
 def _split(text: str) -> tuple[dict[str, Any], str]:
@@ -148,6 +161,9 @@ class ArtifactFile:
     """The stage folder, `stage_<id>`, for what agents wrote and for a gate decision alike."""
     created: str = ""
     pinned: bool = False
+    size: int = 0
+    """Bytes on disk of the file it stands for (a sidecar's binary). `body` is empty for a
+    binary or a file over INLINE_MAX: its bytes are served by the world's files route."""
 
 
 class Memory:
@@ -414,16 +430,21 @@ class Memory:
         return artifact
 
     def _artifacts(self, world_id: str, files: list[Path]) -> list[ArtifactFile]:
-        """The files as artifacts, by path; a binary with a sidecar is read through it."""
+        """The files as artifacts, by path; a binary with a sidecar is read through it, one
+        without is listed by name and size only, as is a file over INLINE_MAX."""
         world = self.world_folder(world_id)
         out = []
         for p in sorted(files):
             if p.suffix != ".md" and p.with_name(f"{p.name}.md").is_file():
                 continue  # its sidecar carries it
-            fields, body = _split(p.read_text(errors="replace"))
-            carried = p.suffix == ".md" and (
-                p.with_name(p.name[:-3]).is_file() or "deleted" in fields
-            )
+            text = _text(p)
+            fields, body = _split(text) if text is not None else ({}, "")
+            binary = p.with_name(p.name[:-3])
+            carried = p.suffix == ".md" and (binary.is_file() or "deleted" in fields)
+            if carried:  # retention may have deleted the binary and kept its sidecar
+                size = binary.stat().st_size if binary.is_file() else 0
+            else:
+                size = p.stat().st_size
             parts = p.relative_to(world).parts  # runs, <run>, <stage>, ...
             out.append(
                 ArtifactFile(
@@ -438,6 +459,7 @@ class Memory:
                     parts[2] if len(parts) > 2 else "",
                     str(fields.get("created") or ""),
                     fields.get("pinned") is True,
+                    size,
                 )
             )
         return out

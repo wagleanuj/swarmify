@@ -52,7 +52,8 @@ export const CONNECTORS: Connector[] = [
   }),
 ];
 
-/** Route fetch calls by `METHOD /path`; unmatched calls return 404. Returns the call log. */
+/** Route fetch calls by `METHOD /path`; unmatched calls return 404. Returns the call log. Like
+ * the API, every answer carries the event-log position `X-Event-Seq`, 0 unless a route sets it. */
 export function fakeFetch(given: Record<string, Handler>) {
   const routes: Record<string, Handler> = { "GET /api/worlds/world_1/connectors": () => Response.json(CONNECTORS), ...given };
   const calls: string[] = [];
@@ -61,7 +62,9 @@ export function fakeFetch(given: Record<string, Handler>) {
     const key = `${req.method} ${new URL(req.url).pathname}`;
     calls.push(key);
     const handler = routes[key];
-    return handler ? handler(req) : new Response("not found", { status: 404 });
+    const response = handler ? await handler(req) : new Response("not found", { status: 404 });
+    if (!response.headers.has("X-Event-Seq")) response.headers.set("X-Event-Seq", "0");
+    return response;
   });
   return calls;
 }
@@ -195,5 +198,6 @@ export const artifact = (over: Partial<ArtifactFile>): ArtifactFile => ({
   stage: "stage_0",
   created: "2026-10-26T10:00:00+00:00",
   pinned: false,
+  size: 0,
   ...over,
 });

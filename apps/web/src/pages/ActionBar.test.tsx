@@ -24,6 +24,7 @@ function idea(rank: number, title: string): ArtifactFile {
     stage: "stage_0",
     created: ts,
     pinned: false,
+    size: 0,
   };
 }
 const ideas = [idea(1, "Why a cast saw can't cut your skin"), idea(2, "The cereal fired out of cannons"), idea(3, "Hot cars")];

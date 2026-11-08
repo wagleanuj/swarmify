@@ -65,57 +65,8 @@ export function Office() {
   const hear = (who: string, what: string | null) =>
     what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
 
-  useEffect(() => {
-    const path = { params: { path: { world_id: worldId } } };
-    api
-      .GET("/api/worlds/{world_id}", path)
-      .then(({ data, response }) => {
-        if (response.status === 404) return setWorld(null);
-        if (!data) throw new Error("load failed");
-        setWorld(data);
-      })
-      .catch(() => setError("Could not load this world. Is the API running?"));
-    // ponytail: spend is read when the office opens; follow it live once the office shows costs.
-    api
-      .GET("/api/worlds/{world_id}/spend", path)
-      .then(({ data }) => data && setSpend(data))
-      .catch(() => undefined);
-    api
-      .GET("/api/worlds/{world_id}/runs", path)
-      .then(({ data }) => {
-        if (!data) return;
-        setRuns(data);
-        // Who is at work, and who just shipped: the agents of the live runs and the shelf. Later
-        // changes come on the stream. ponytail: one read per run; a world agents read if it grows.
-        const { live, shelf } = scene(data);
-        return Promise.all(
-          [...live, ...shelf].map((r) =>
-            api.GET("/api/runs/{run_id}/agents", { params: { path: { run_id: r.id } } }).then(({ data }) => data ?? []),
-          ),
-        ).then((all) => {
-          const prev = latest.current;
-          putAgents([...prev, ...all.flat().filter((a) => !prev.some((p) => p.id === a.id))]);
-        });
-      })
-      .catch(() => undefined);
-    // ponytail: first-try keeps are read when the office opens, one scorecard per workflow, as
-    // the plain Scorecard page sums them; a world scorecard endpoint would make it one read.
-    api
-      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId }, query: { check: false } } })
-      .then(({ data }) =>
-        Promise.all(
-          (data ?? []).map((w) =>
-            api
-              .GET("/api/workflows/{workflow_id}/scorecard", { params: { path: { workflow_id: w.id } } })
-              .then(({ data }) => data?.runs ?? []),
-          ),
-        ),
-      )
-      .then((cards) => setScores(cards.flat()))
-      .catch(() => undefined);
-  }, [worldId]);
-
-  useWorldEvents(worldId, {
+  // The stream starts at the world's or the runs' snapshot, whichever is older.
+  const saw = useWorldEvents(worldId, {
     "run.updated": (run) =>
       setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev])),
     "agent.updated": (agent) => {
@@ -148,6 +99,59 @@ export function Office() {
     // A setting changed elsewhere (Settings in another tab): the name and run cap follow it.
     "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
   });
+
+  useEffect(() => {
+    const path = { params: { path: { world_id: worldId } } };
+    api
+      .GET("/api/worlds/{world_id}", path)
+      .then(({ data, response }) => {
+        if (response.status === 404) return setWorld(null);
+        if (!data) throw new Error("load failed");
+        setWorld(data);
+        saw(response);
+      })
+      .catch(() => setError("Could not load this world. Is the API running?"));
+    // ponytail: spend is read when the office opens; follow it live once the office shows costs.
+    api
+      .GET("/api/worlds/{world_id}/spend", path)
+      .then(({ data }) => data && setSpend(data))
+      .catch(() => undefined);
+    api
+      .GET("/api/worlds/{world_id}/runs", path)
+      .then(({ data, response }) => {
+        if (!data) return;
+        setRuns(data);
+        saw(response);
+        // Who is at work, and who just shipped: the agents of the live runs and the shelf. Later
+        // changes come on the stream. ponytail: one read per run; a world agents read if it grows.
+        const { live, shelf } = scene(data);
+        return Promise.all(
+          [...live, ...shelf].map((r) =>
+            api.GET("/api/runs/{run_id}/agents", { params: { path: { run_id: r.id } } }).then(({ data }) => data ?? []),
+          ),
+        ).then((all) => {
+          const prev = latest.current;
+          putAgents([...prev, ...all.flat().filter((a) => !prev.some((p) => p.id === a.id))]);
+        });
+      })
+      .catch(() => undefined);
+    // ponytail: first-try keeps are read when the office opens, one scorecard per workflow, as
+    // the plain Scorecard page sums them; a world scorecard endpoint would make it one read.
+    api
+      .GET("/api/worlds/{world_id}/workflows", { params: { path: { world_id: worldId }, query: { check: false } } })
+      .then(({ data }) =>
+        Promise.all(
+          (data ?? []).map((w) =>
+            api
+              .GET("/api/workflows/{workflow_id}/scorecard", { params: { path: { workflow_id: w.id } } })
+              .then(({ data }) => data?.runs ?? []),
+          ),
+        ),
+      )
+      .then((cards) => setScores(cards.flat()))
+      .catch(() => undefined);
+  }, [worldId, saw]);
+
 
   // A gate in a child run is asked by that run's agents, as Talk shows: read each gate run's once.
   const asked = useRef(new Set<string>());

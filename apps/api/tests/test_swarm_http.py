@@ -138,7 +138,7 @@ def test_the_live_log_streams_on_the_world_events(
     with httpx.Client(base_url=live_url, timeout=10) as client:
         world, run = _start(client, tmp_path)
         seen: list[str] = []
-        with client.stream("GET", f"/api/worlds/{world}/events") as response:
+        with client.stream("GET", f"/api/worlds/{world}/events?since=0") as response:
             for type_, _, data in sse_events(response):
                 payload = data["payload"]
                 if (
@@ -189,7 +189,7 @@ def test_the_judge_loops_on_gaps_then_projects_idea_cards_with_sources(
         stage = run["stages"][0]["id"]
         cite = {"note": f"runs/{run['id']}/{stage}/notes/trends.md"}
         seen: list[str] = []
-        with client.stream("GET", f"/api/worlds/{world}/events") as response:
+        with client.stream("GET", f"/api/worlds/{world}/events?since=0") as response:
             for type_, _, data in sse_events(response):
                 payload = data["payload"]
                 if type_ == "verdict.created":

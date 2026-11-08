@@ -45,6 +45,10 @@ export function Crew() {
   // On a phone the form that dresses the agent is a sheet pulled up over the stage.
   const [dressing, setDressing] = useState(false);
 
+  const saw = useWorldEvents(worldId, {
+    "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
+  });
+
   useEffect(() => {
     api
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
@@ -52,13 +56,10 @@ export function Crew() {
         if (response.status === 404) return setWorld(null);
         if (!data) throw new Error("load failed");
         setWorld(data);
+        saw(response);
       })
       .catch(() => setError("Could not load this world. Is the API running?"));
-  }, [worldId]);
-
-  useWorldEvents(worldId, {
-    "world.updated": (changes) => setWorld((prev) => prev && { ...prev, ...changes }),
-  });
+  }, [worldId, saw]);
 
   if (world === null) {
     return (

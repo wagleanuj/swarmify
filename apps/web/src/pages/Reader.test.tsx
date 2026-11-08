@@ -86,6 +86,7 @@ test("Open on a run's document goes to the reader; a video still opens raw", asy
     type: "file",
     title: name,
     stage: "stage_0",
+    size: 0,
     ...over,
   });
   const done = run("done", [stage(0, "research", "swarm", "done", { started_at: "2026-10-26T10:00:00Z", ended_at: "2026-10-26T10:02:00Z" })]);

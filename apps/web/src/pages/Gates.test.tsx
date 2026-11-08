@@ -28,7 +28,7 @@ test("the queue opens the next decision after each answer and says what was deci
   };
   const calls = fakeFetch({
     "GET /api/worlds": () => Response.json([video]),
-    "GET /api/gates": () => Response.json(inbox),
+    "GET /api/gates": () => Response.json(inbox, { headers: { "X-Event-Seq": "9" } }),
     "GET /api/worlds/world_1/runs": () =>
       Response.json([run("running", [], { id: "run_7", name: "Nightly short" }), run("done", [], { id: "run_8", name: "Old one" })]),
     "POST /api/runs/run_1/decision": decision("run_1"),
@@ -38,8 +38,9 @@ test("the queue opens the next decision after each answer and says what was deci
   const { router, screen } = await mountAt("/gates");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Needs you");
   await expect.element(screen.getByText(/3 decisions waiting, oldest .* ago\. Answering one opens the next\./)).toBeVisible();
-  // One stream for every world: a stream per world exhausts the browser's six connections.
-  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events?since=now"]);
+  // One stream for every world: a stream per world exhausts the browser's six connections. It
+  // starts where the gates' snapshot stands, so no run.updated in between is missed.
+  expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events?since=9"]);
   const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
   await expect
     .element(queue)
