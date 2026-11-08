@@ -272,8 +272,10 @@ client = "operator"
 
             row.get_by_role("button", name="Set up probe_oauth").click()
             form.get_by_role("button", name="Sign in to Account").click()
-            # to the provider, which consents at once, and back through the callback
-            expect(page.get_by_role("status")).to_have_text(
+            # to the provider, which consents at once, and back through the callback;
+            # the list's own "Loading" status may still be up beside the sign-in one
+            signed_in = page.get_by_role("status").filter(has_text="Signed in.")
+            expect(signed_in).to_have_text(
                 "Signed in. probe_oauth gets a fresh access token each time it starts.",
                 timeout=15_000,
             )
