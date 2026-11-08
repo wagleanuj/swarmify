@@ -63,6 +63,8 @@ if (process.platform === "linux" && plan.gpu) {
   for (const d of [...under("/dev", /^nvidia/), ...under("/dev/dri", /^(renderD|card)\d+$/)]) {
     if (statSync(d).isCharacterDevice()) devices.push(d);
   }
+  // a display's card alone (a VM's, as a GitHub runner's) renders nothing: no GPU here
+  if (devices.every((d) => /\/card\d+$/.test(d))) devices.length = 0;
   if (devices.length) plan.sandbox.network.allowAllUnixSockets = true;
 }
 // What the MCP SDK passes a stdio server by default; HOME and TMPDIR come from the plan.
