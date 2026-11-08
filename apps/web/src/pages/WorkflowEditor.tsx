@@ -1,10 +1,12 @@
-import { Link, useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
+import { Link, useBlocker, useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import YAML from "yaml";
 
 import { api } from "../api/client";
 import { useConnectors } from "../api/connectors";
 import type { components } from "../api/schema";
+import { Sheet } from "../Sheet";
+import { Loading, Skeleton } from "../Skeleton";
 import { role } from "../skin";
 import { usePhone } from "../usePhone";
 import { Scorecard } from "./Scorecard";
@@ -21,7 +23,11 @@ type Doc = Record<string, unknown>;
 type RawStage = Record<string, unknown>;
 
 const CHECK_DELAY_MS = 300;
+/** How long "Removed research. Undo" stays in the save bar. */
+const UNDO_MS = 6000;
+const LEAVE = "Leave without saving? Your changes to this draft are lost.";
 const STAGE_TYPES = ["swarm", "gate", "connector", "workflow"] as const;
+const GATE_KINDS = ["pick", "approve", "confirm"] as const;
 type StageType = (typeof STAGE_TYPES)[number];
 /** What a stage of each type starts as when added from the list; the check names what is missing. */
 const NEW_STAGE: Record<StageType, RawStage> = {
@@ -150,6 +156,17 @@ export function WorkflowEditor() {
   const phone = usePhone();
   const connectors = useConnectors(worldId);
   const [templates, setTemplates] = useState<Template[]>([]);
+  // A phone edits a stage in a sheet over the list; a wider screen in the aside.
+  const [sheet, setSheet] = useState(false);
+  // The last removal, undone in one step from the text before it.
+  const [removed, setRemoved] = useState<string | null>(null);
+  const beforeRemove = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!removed) return;
+    const t = setTimeout(() => setRemoved(null), UNDO_MS);
+    return () => clearTimeout(t);
+  }, [removed]);
 
   useEffect(() => {
     api
@@ -181,8 +198,11 @@ export function WorkflowEditor() {
       });
   }, [workflowId]);
 
+  // A new workflow's first save moves here; what was typed while it saved stays the draft.
+  const firstSave = useRef<string | null>(null);
   useEffect(() => {
     if (!workflowId) return;
+    const keep = firstSave.current === workflowId;
     api
       .GET("/api/workflows/{workflow_id}/versions", {
         params: { path: { workflow_id: workflowId } },
@@ -191,11 +211,11 @@ export function WorkflowEditor() {
         if (response.status === 404) throw new Error("gone");
         if (!data) throw new Error("load failed");
         setVersions(data);
-        const latest = data[data.length - 1];
-        if (latest) {
-          setText(latest.yaml);
-          setSavedText(latest.yaml);
-        }
+        // a workflow with no version yet opens empty rather than loading forever
+        const yaml = data[data.length - 1]?.yaml ?? "";
+        firstSave.current = null;
+        setText((t) => (keep && t !== null ? t : yaml));
+        setSavedText(yaml);
       })
       .catch(() => setError("Could not load this workflow. It may have been deleted."));
   }, [workflowId]);
@@ -234,10 +254,24 @@ export function WorkflowEditor() {
   const clean = violations !== null && violations.length === 0;
   const canSave = text !== null && dirty && clean && !checking && !busy;
   const parsed = useMemo(() => (text === null ? null : parseDoc(text)), [text]);
+  // An untouched starter is nothing to lose.
+  const untouched = !text?.trim() || starters.some((s) => s.yaml === text);
+  // Read when the router asks, so a save that navigates at once is not held by stale state.
+  const unsaved = useRef(false);
+  unsaved.current = text !== null && dirty && !untouched;
+  useBlocker({
+    // switching tabs changes only the search, never the page
+    shouldBlockFn: ({ current, next }) =>
+      unsaved.current && current.pathname !== next.pathname && !window.confirm(LEAVE),
+    enableBeforeUnload: () => unsaved.current,
+  });
 
   function edit(next: string) {
     setNotice(null);
     setText(next);
+    // Undo restores the text before a removal, so any later edit retires it rather than lose itself.
+    setRemoved(null);
+    beforeRemove.current = null;
   }
 
   /** Every stage-list edit rewrites the one text the three views project. */
@@ -261,7 +295,8 @@ export function WorkflowEditor() {
     rewrite((_, stages) => {
       const stage = stages[index];
       if (!stage) return;
-      if (value === "" || (Array.isArray(value) && value.length === 0)) delete stage[key];
+      // an emptied name keeps its key: without it the stage has no type
+      if ((value === "" && key !== stageType(stage)) || (Array.isArray(value) && value.length === 0)) delete stage[key];
       else stage[key] = value;
     });
   }
@@ -288,13 +323,30 @@ export function WorkflowEditor() {
   }
 
   function remove(index: number) {
+    const stage = parsed?.stages[index];
+    const before = text;
     rewrite((_, stages) => void stages.splice(index, 1));
+    beforeRemove.current = before;
     setSelected(Math.max(0, index - 1));
+    setSheet(false);
+    setRemoved(stage ? stageName(stage, index) : `stage ${index + 1}`);
+  }
+
+  function undo() {
+    if (beforeRemove.current !== null) edit(beforeRemove.current);
+    beforeRemove.current = null;
+    setRemoved(null);
   }
 
   function add(type: StageType) {
     rewrite((_, stages) => void stages.push({ ...NEW_STAGE[type] }));
     setSelected(parsed?.stages.length ?? 0);
+    setSheet(true);
+  }
+
+  function open(index: number) {
+    setSelected(index);
+    setSheet(true);
   }
 
   async function save() {
@@ -322,15 +374,16 @@ export function WorkflowEditor() {
 
   /** Swap the draft for a starter; asks first when the draft is more than an untouched starter. */
   function begin(starter: Starter) {
-    const untouched = !text?.trim() || starters.some((s) => s.yaml === text);
     if (untouched || window.confirm(`Start over from ${starter.name}? Your changes to this draft are lost.`)) edit(starter.yaml);
   }
 
   /** A version is saved: by the save button, or by the planner when asked to. */
   function saved(version: WorkflowVersion, yaml: string) {
     setSavedText(yaml);
+    unsaved.current = false;
     setNotice(`Saved as version ${version.number}; runs already started keep their version.`);
     if (!workflowId) {
+      firstSave.current = version.workflow_id;
       void router.navigate({
         to: "/worlds/$worldId/workflows/$workflowId",
         params: { worldId, workflowId: version.workflow_id },
@@ -362,7 +415,11 @@ export function WorkflowEditor() {
     setCopied({ world: target, workflowId: data.workflow_id });
   }
 
-  const title = model?.name?.trim() || (workflowId ? "Workflow" : "New workflow");
+  // Still on its way; a load that failed says so in its alert instead.
+  const loading = text === null && !error;
+  // The parsed YAML names it first, so the title is right before the check returns.
+  const title =
+    asText(parsed?.doc.name).trim() || model?.name?.trim() || (workflowId ? "Workflow" : "New workflow");
   const schedule = typeof parsed?.doc.schedule === "string" ? parsed.doc.schedule : "";
   const steps = parsed?.stages ?? [];
   const current = Math.min(selected, Math.max(steps.length - 1, 0));
@@ -379,59 +436,80 @@ export function WorkflowEditor() {
     ["yaml", "YAML"],
     ...(workflowId ? ([["scorecard", "Scorecard"]] as [EditorTab, string][]) : []),
   ];
-  const heading = (
-    <div>
-      <div className="crumb">
-        <Link to="/worlds/$worldId/workflows" params={{ worldId }}>
-          Workflows
-        </Link>{" "}
-        / {title}
-      </div>
-      <h1>
-        {title} {versions.length > 0 && <span className="faint-title">v{versions[versions.length - 1]?.number}</span>}
-      </h1>
-      <p className="sub">
-        {steps.length > 0
-          ? `${steps.length} ${steps.length === 1 ? "step" : "steps"}: ${steps
-              .map((s, i) => {
-                const type = stageType(s);
-                return type ? asText(s[type]) : `stage ${i + 1}`;
-              })
-              .join(", ")}.`
-          : "No steps yet."}
-      </p>
-    </div>
+  const problems = violations?.length ?? 0;
+  const status = removed
+    ? `Removed ${removed}.`
+    : checking
+      ? "Checking..."
+      : notice ??
+        (loading
+          ? "" // the save button says it
+          : !dirty
+            ? "Everything here is saved."
+            : problems > 0
+              ? `${problems} ${problems === 1 ? "problem" : "problems"} to fix`
+              : clean
+                ? "Unsaved changes. Checks pass."
+                : "Unsaved changes.");
+  const panel = view === "stages" && parsed && stage && (
+    <StagePanel
+      stages={steps}
+      index={current}
+      agents={asText(parsed.doc.agents) || "1"}
+      templates={offered}
+      param={param}
+      phone={phone}
+      onField={setField}
+      onBase={(index, base) => setBase(index, param, base)}
+      onMove={move}
+      onRemove={remove}
+      onDone={() => setSheet(false)}
+    />
   );
-
-  // A phone reads the workflow; editing it stays on a larger screen.
-  if (phone)
-    return (
-      <main className="editor-page">
-        <header className="page">{heading}</header>
-        {error && <p role="alert">{error}</p>}
-        <p className="faint">Edit on a larger screen.</p>
-        {steps.length > 0 && (
-          <ol className="stage-rows" data-testid="stage-rows">
-            {steps.map((_, i) => (
-              <li key={i} className="stage-row">
-                <StageSummary stages={steps} index={i} />
-              </li>
-            ))}
-          </ol>
-        )}
-      </main>
-    );
 
   return (
     <main className="editor-page">
       <header className="page">
-        {heading}
-        <div className="editor-actions">
-          <span className="faint" role="status" data-testid="check-status">
-            {checking ? "Checking..." : notice ?? (dirty ? "Unsaved changes." : "Everything here is saved.")}
+        <div>
+          <div className="crumb">
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }}>
+              Workflows
+            </Link>
+            {!loading && ` / ${title}`}
+          </div>
+          {loading && workflowId ? (
+            <Loading>
+              <h1>
+                <Skeleton w={240} h="1.2em" />
+              </h1>
+            </Loading>
+          ) : (
+            <h1>
+              {title} {versions.length > 0 && <span className="faint-title">v{versions[versions.length - 1]?.number}</span>}
+            </h1>
+          )}
+          {!loading && (
+            <p className="sub">
+              {steps.length > 0
+                ? `${steps.length} ${steps.length === 1 ? "step" : "steps"}: ${steps.map((s, i) => stageName(s, i)).join(", ")}.`
+                : "No steps yet."}
+            </p>
+          )}
+        </div>
+        {/* On a phone this is the save bar pinned above the tab bar. */}
+        <div className="editor-actions" data-testid="save-bar">
+          <span className="save-status">
+            <span className="faint" role="status" data-testid="check-status">
+              {status}
+            </span>
+            {removed && (
+              <button type="button" className="link undo" onClick={undo}>
+                Undo
+              </button>
+            )}
           </span>
           <button type="button" className="primary" disabled={!canSave} onClick={save}>
-            {busy ? "Saving..." : `Save as version ${nextVersion}`}
+            {busy ? "Saving..." : loading ? "Save" : `Save as version ${nextVersion}`}
           </button>
         </div>
       </header>
@@ -469,13 +547,16 @@ export function WorkflowEditor() {
             />
           </div>
           {view === "stages" &&
-            (parsed ? (
+            (loading ? (
+              <StagesLoading />
+            ) : parsed ? (
               <StageList
                 doc={parsed.doc}
                 stages={parsed.stages}
                 selected={current}
                 nextRunAt={nextRunAt}
-                onSelect={setSelected}
+                phone={phone}
+                onSelect={phone ? open : setSelected}
                 onTop={setTop}
                 onAdd={add}
               />
@@ -493,6 +574,9 @@ export function WorkflowEditor() {
                 value={text ?? ""}
                 disabled={text === null}
                 spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                wrap="off"
                 rows={22}
                 onChange={(e) => edit(e.target.value)}
               />
@@ -503,22 +587,14 @@ export function WorkflowEditor() {
           {view !== "scorecard" && <Problems violations={violations} checking={checking} />}
         </section>
         <aside>
-          {view === "stages" && parsed && steps[current] && (
-            <StagePanel
-              stages={steps}
-              index={current}
-              agents={asText(parsed.doc.agents) || "1"}
-              templates={offered}
-              param={param}
-              onField={setField}
-              onBase={(index, base) => setBase(index, param, base)}
-              onMove={move}
-              onRemove={remove}
-            />
-          )}
+          {!phone && panel}
           <section aria-label="Versions">
             <h2>Versions</h2>
-            {workflowId ? (
+            {!workflowId ? (
+              <p className="faint">Version 1 is created when you save.</p>
+            ) : loading ? (
+              <Skeleton lines={2} />
+            ) : (
               <ul className="versions" data-testid="versions">
                 {[...versions].reverse().map((v) => (
                   <li key={v.id}>
@@ -538,8 +614,6 @@ export function WorkflowEditor() {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p className="faint">Version 1 is created when you save.</p>
             )}
           </section>
           <section aria-label="Schedule">
@@ -559,11 +633,34 @@ export function WorkflowEditor() {
             </p>
           </section>
           {workflowId && (
-            <CopyTo worlds={worlds.filter((w) => w.id !== worldId)} copied={copied} onCopy={copyTo} />
+            <CopyTo worlds={worlds.filter((w) => w.id !== worldId)} copied={copied} phone={phone} onCopy={copyTo} />
           )}
         </aside>
       </div>
+      {phone && (
+        <Sheet open={sheet && !!panel} onClose={() => setSheet(false)} label="Stage settings" className="stage-sheet">
+          {panel}
+        </Sheet>
+      )}
     </main>
+  );
+}
+
+/** The Stages view while the workflow loads: the Workflow fields and five stage rows, at size. */
+function StagesLoading() {
+  return (
+    <Loading className="stages-loading">
+      <div className="fields">
+        {Array.from({ length: 4 }, (_, i) => (
+          <Skeleton key={i} h={62} className={i < 2 ? "wide" : ""} />
+        ))}
+      </div>
+      <div className="stage-rows">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Skeleton key={i} h={58} />
+        ))}
+      </div>
+    </Loading>
   );
 }
 
@@ -607,6 +704,7 @@ function StageList({
   stages,
   selected,
   nextRunAt,
+  phone,
   onSelect,
   onTop,
   onAdd,
@@ -615,6 +713,8 @@ function StageList({
   stages: RawStage[];
   selected: number;
   nextRunAt: string | null;
+  /** A phone adds with one chip per type and opens each stage in a sheet. */
+  phone: boolean;
   onSelect: (index: number) => void;
   onTop: (key: string, value: unknown) => void;
   onAdd: (type: StageType) => void;
@@ -622,12 +722,15 @@ function StageList({
   const [adding, setAdding] = useState<StageType>("swarm");
   return (
     <div data-testid="stage-list">
-      <div className="fields">
-        <label>
+      <div className="fields" role="group" aria-labelledby="workflow-fields">
+        <h2 id="workflow-fields" className="fields-title">
+          Workflow
+        </h2>
+        <label className="wide">
           <span>Name</span>
           <input value={asText(doc.name)} onChange={(e) => onTop("name", e.target.value)} />
         </label>
-        <div>
+        <div className="wide">
           <label>
             <span>Schedule (cron, UTC)</span>
             <input
@@ -648,6 +751,7 @@ function StageList({
           <span>Budget (USD)</span>
           <input
             type="number"
+            inputMode="decimal"
             min={0}
             step="0.5"
             value={asText(doc.budget_usd)}
@@ -658,6 +762,7 @@ function StageList({
           <span>Agents per swarm stage</span>
           <input
             type="number"
+            inputMode="numeric"
             min={1}
             step={1}
             placeholder="1"
@@ -671,22 +776,38 @@ function StageList({
           <li key={i}>
             <button type="button" className="stage-row" aria-current={i === selected || undefined} onClick={() => onSelect(i)}>
               <StageSummary stages={stages} index={i} />
+              {phone && (
+                <span className="chev" aria-hidden="true">
+                  ›
+                </span>
+              )}
             </button>
           </li>
         ))}
       </ol>
-      <div className="add-stage">
-        <select aria-label="Stage type to add" value={adding} onChange={(e) => setAdding(e.target.value as StageType)}>
+      {phone ? (
+        <div className="add-stage" role="group" aria-label="Add a stage">
           {STAGE_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
+            <button key={t} type="button" className="add-chip" onClick={() => onAdd(t)}>
+              + {t[0]?.toUpperCase()}
+              {t.slice(1)}
+            </button>
           ))}
-        </select>
-        <button type="button" onClick={() => onAdd(adding)}>
-          Add stage
-        </button>
-      </div>
+        </div>
+      ) : (
+        <div className="add-stage">
+          <select aria-label="Stage type to add" value={adding} onChange={(e) => setAdding(e.target.value as StageType)}>
+            {STAGE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => onAdd(adding)}>
+            Add stage
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -727,10 +848,12 @@ function StagePanel({
   agents,
   templates,
   param,
+  phone,
   onField,
   onBase,
   onMove,
   onRemove,
+  onDone,
 }: {
   stages: RawStage[];
   index: number;
@@ -740,10 +863,13 @@ function StagePanel({
   templates: Template[] | null;
   /** The param the Template is written to: `base` for a build, `project` for a direct render. */
   param: string;
+  /** In a phone's sheet: a Done button, the gate's kind as segments, one field per row. */
+  phone: boolean;
   onField: (index: number, key: string, value: unknown) => void;
   onBase: (index: number, base: string) => void;
   onMove: (index: number, by: -1 | 1) => void;
   onRemove: (index: number) => void;
+  onDone: () => void;
 }) {
   const stage = stages[index] ?? {};
   const type = stageType(stage);
@@ -751,9 +877,14 @@ function StagePanel({
   const { needs, makes } = contract(stages, index);
   return (
     <section aria-label="Stage settings" className="stage-panel" data-testid="stage-panel">
-      <div className="row">
+      <div className="row stage-head">
         <h2>{name}</h2>
         <span className={`pill type-${type ?? "unknown"}`}>{type ?? "unknown type"}</span>
+        {phone && (
+          <button type="button" className="done" onClick={onDone}>
+            Done
+          </button>
+        )}
       </div>
       {type ? (
         <>
@@ -761,7 +892,24 @@ function StagePanel({
             <span>Name</span>
             <input aria-label={`Name of stage ${index + 1}`} value={name} onChange={(e) => onField(index, type, e.target.value)} />
           </label>
-          {FIELDS[type].map((f) => (
+          {FIELDS[type].map((f) =>
+            f.kind === "gate_kind" && phone ? (
+              <fieldset key={f.key} className="segments">
+                <legend>{f.label}</legend>
+                {GATE_KINDS.map((k) => (
+                  <label key={k}>
+                    <input
+                      type="radio"
+                      name={`kind-${index}`}
+                      value={k}
+                      checked={(asText(stage[f.key]) || "approve") === k}
+                      onChange={() => onField(index, f.key, k)}
+                    />
+                    <span>{k}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : (
             <label key={f.key}>
               <span>{f.label}</span>
               {f.kind === "gate_kind" ? (
@@ -770,14 +918,17 @@ function StagePanel({
                   value={asText(stage[f.key]) || "approve"}
                   onChange={(e) => onField(index, f.key, e.target.value)}
                 >
-                  <option value="pick">pick</option>
-                  <option value="approve">approve</option>
-                  <option value="confirm">confirm</option>
+                  {GATE_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
                 </select>
               ) : f.kind === "count" ? (
                 <input
                   aria-label={`${f.label} of ${name}`}
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   step={1}
                   placeholder={agents}
@@ -787,7 +938,7 @@ function StagePanel({
               ) : f.kind === "long" ? (
                 <textarea
                   aria-label={`${f.label} of ${name}`}
-                  rows={3}
+                  rows={phone ? 4 : 3}
                   value={asText(stage[f.key])}
                   onChange={(e) => onField(index, f.key, e.target.value)}
                 />
@@ -800,7 +951,8 @@ function StagePanel({
                 />
               )}
             </label>
-          ))}
+            ),
+          )}
           {templates && (
             <TemplatePicker
               name={name}
@@ -821,9 +973,9 @@ function StagePanel({
         <dt>Makes</dt>
         <dd>{makes || "nothing declared"}</dd>
       </dl>
-      <span className="row-start">
+      <span className="row-start stage-moves">
         <button type="button" aria-label={`Move ${name} up`} disabled={index === 0} onClick={() => onMove(index, -1)}>
-          Up
+          {phone ? "Move up" : "Up"}
         </button>
         <button
           type="button"
@@ -831,7 +983,7 @@ function StagePanel({
           disabled={index === stages.length - 1}
           onClick={() => onMove(index, 1)}
         >
-          Down
+          {phone ? "Move down" : "Down"}
         </button>
         <button type="button" className="danger" aria-label={`Remove ${name}`} onClick={() => onRemove(index)}>
           Remove
@@ -961,13 +1113,20 @@ function PlannerChat({
 function CopyTo({
   worlds,
   copied,
+  phone,
   onCopy,
 }: {
   worlds: World[];
   copied: { world: World; workflowId: string } | null;
+  /** A phone picks the world in a sheet, not a menu under the button. */
+  phone: boolean;
   onCopy: (world: World) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const pick = (w: World) => {
+    setOpen(false);
+    onCopy(w);
+  };
   return (
     <section aria-label="Copy" className="copy">
       {worlds.length === 0 ? (
@@ -977,18 +1136,10 @@ function CopyTo({
           <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
             Copy to another world
           </button>
-          {open && (
+          {open && !phone && (
             <span className="menu" role="menu">
               {worlds.map((w) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setOpen(false);
-                    onCopy(w);
-                  }}
-                >
+                <button key={w.id} type="button" role="menuitem" onClick={() => pick(w)}>
                   {w.name}
                   <small>Creates a copy there; you stay here</small>
                 </button>
@@ -996,6 +1147,17 @@ function CopyTo({
             </span>
           )}
         </span>
+      )}
+      {phone && (
+        <Sheet open={open} onClose={() => setOpen(false)} label="Copy to another world">
+          <h2 className="sheet-title">Copy to another world</h2>
+          <p className="faint">Creates a copy there; you stay here.</p>
+          {worlds.map((w) => (
+            <button key={w.id} type="button" className="sheet-row" onClick={() => pick(w)}>
+              {w.name}
+            </button>
+          ))}
+        </Sheet>
       )}
       {copied && (
         <p className="faint" role="status" data-testid="copied">

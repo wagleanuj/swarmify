@@ -24,10 +24,17 @@ import { type EditorTab, EDITOR_TABS, WorkflowEditor } from "./pages/WorkflowEdi
 import { Workflows } from "./pages/Workflows";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
+import { Progress, ProgressLine } from "./Progress";
 import { Shell } from "./Shell";
 
 // The office draws its own full-screen shell; every other screen sits in the sidebar shell.
-const Root = () => (useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />);
+// The progress line rides on top of both while API calls are slow.
+const Root = () => (
+  <>
+    <Progress />
+    {useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />}
+  </>
+);
 const rootRoute = createRootRoute({ component: Root });
 
 export const worldsRoute = createRoute({
@@ -213,7 +220,11 @@ const routeTree = rootRoute.addChildren([
 
 // `history` is injectable so tests can mount a page at a given URL with a memory history.
 export function createAppRouter(history?: RouterHistory) {
-  return createRouter({ routeTree, history });
+  // Pages crossfade where the browser has view transitions, unless motion is reduced. Only a new
+  // page does: a search-only change (a keystroke in a search box, an editor tab) swaps in place.
+  // A lazy route shows the progress line.
+  const crossfade = !matchMedia("(prefers-reduced-motion: reduce)").matches && { types: ({ pathChanged }: { pathChanged: boolean }) => (pathChanged ? [] : false) };
+  return createRouter({ routeTree, history, defaultViewTransition: crossfade, defaultPendingComponent: ProgressLine });
 }
 
 declare module "@tanstack/react-router" {

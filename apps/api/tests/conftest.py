@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fake_graph import fake_extract
+from swarmify_api import main
 from swarmify_api.main import create_app
 from swarmify_connectors import Connectors, FakeTransport, Packages
 from swarmify_memory import FakeGraphIndex
@@ -55,6 +56,13 @@ def transport() -> FakeTransport:
 def script() -> Script:
     """What the scripted CLI does in each agent session; a test replaces `scripts`."""
     return Script()
+
+
+@pytest.fixture(autouse=True)
+def no_web_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A built apps/web/dist in the checkout would serve every unknown path (a PUT to one is 405,
+    not 404); tests that want the web skin set WEB_DIST themselves."""
+    monkeypatch.setattr(main, "WEB_DIST", tmp_path / "no-web-dist")
 
 
 @pytest.fixture

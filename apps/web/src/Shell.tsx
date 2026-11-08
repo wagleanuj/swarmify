@@ -1,5 +1,5 @@
 import { Link, type LinkProps, Outlet, useLocation } from "@tanstack/react-router";
-import { createContext, type ReactNode, useEffect, useState } from "react";
+import { createContext, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { api } from "./api/client";
 import { useOpenGates } from "./api/gates";
@@ -9,7 +9,9 @@ import { Health } from "./Health";
 import { status } from "./pages/Connectors";
 import { figures } from "./pages/WorldOverview";
 import { Sheet } from "./Sheet";
+import { Skeleton } from "./Skeleton";
 import { worldHome } from "./skin";
+import "./styles/shell.css";
 
 type World = components["schemas"]["World"];
 
@@ -26,8 +28,6 @@ const ICON: Record<string, ReactNode> = {
   settings: <path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />,
   worlds: <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />,
   evals: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
-  close: <path d="M6 6l12 12M18 6L6 18" />,
   chev: <path d="M8 10l4 4 4-4" />,
 };
 
@@ -50,6 +50,12 @@ const TabIcon = ({ name }: { name: string }) => (
     <path d={TAB_ICON[name]} />
   </svg>
 );
+// The world's own tabs, between Needs you and More.
+const WORLD_TABS = [
+  ["runs", "Runs", "/worlds/$worldId/runs"],
+  ["workflows", "Workflows", "/worlds/$worldId/workflows"],
+  ["library", "Library", "/worlds/$worldId/library"],
+] as const;
 // Areas reached through More, so its tab is current on them.
 const MORE = new Set(["overview", "assets", "graph", "cast", "connectors", "settings", "worlds", "evals"]);
 // Switching worlds keeps the area you are in; anywhere else lands where the world opens.
@@ -63,6 +69,15 @@ const SAME_AREA = {
   connectors: "/worlds/$worldId/connectors",
   settings: "/worlds/$worldId/settings",
 } as const;
+// The last world opened, so the next cold load names it and links its tabs before the worlds load.
+const LAST = "swarmify.world";
+const stored = (): Pick<World, "id" | "name"> | undefined => {
+  try {
+    return JSON.parse(localStorage.getItem(LAST) ?? "null") ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 export const Mark = () => (
@@ -78,8 +93,8 @@ export const Mark = () => (
 /** The world the switcher shows, for global screens that mark it. */
 export const CurrentWorld = createContext<string | undefined>(undefined);
 
-/** The app shell: a labelled sidebar around every screen, folded behind a menu on a narrow
- * screen; on a phone, a world chip on top and a bottom tab bar with More instead. */
+/** The app shell: a labelled sidebar around every screen; on a phone, a world chip on top and a
+ * bottom tab bar with More instead. */
 export function Shell() {
   const { pathname, hash } = useLocation();
   // `/worlds/<id>/<area>`, or a global route: `/` (all worlds), `/gates`, `/evals`.
@@ -88,12 +103,14 @@ export function Shell() {
   const inWorld = top === "worlds" ? routeWorld : undefined;
 
   const gates = useOpenGates().gates;
-  const [worlds, setWorlds] = useState<World[]>([]);
-  // Global routes keep the last world the person was in; before any, the first one.
-  const [last, setLast] = useState<string | undefined>(inWorld);
+  const [worlds, setWorlds] = useState<World[] | null>(null);
+  // Global routes keep the last world the person was in, across visits; before any, the first one.
+  const [saved] = useState(stored);
+  const [last, setLast] = useState<string | undefined>(inWorld ?? saved?.id);
   if (inWorld && inWorld !== last) setLast(inWorld);
-  const worldId = inWorld ?? last ?? worlds[0]?.id;
-  const [open, setOpen] = useState(false);
+  // A remembered world that is gone gives way once the worlds load.
+  const lastLive = last && (!worlds || worlds.some((w) => w.id === last)) ? last : undefined;
+  const worldId = inWorld ?? lastLive ?? worlds?.[0]?.id;
   const [sheet, setSheet] = useState<"world" | "more" | null>(null);
   const [summary, setSummary] = useState<Record<string, string>>({});
 
@@ -104,10 +121,7 @@ export function Shell() {
       .then(({ data }) => data && setWorlds(data))
       .catch(() => undefined);
   }, [worldId]);
-  useEffect(() => {
-    setOpen(false);
-    setSheet(null);
-  }, [pathname, hash]);
+  useEffect(() => setSheet(null), [pathname, hash]);
 
   // More's one-line summaries, read each time it opens.
   useEffect(() => {
@@ -146,13 +160,45 @@ export function Shell() {
     </Link>
   );
   const params = { worldId: worldId ?? "" };
-  const world = worlds.find((w) => w.id === worldId);
-  const worldName = world?.name ?? (worldId ? "..." : "Choose a world");
+  const world = worlds?.find((w) => w.id === worldId);
+  useEffect(() => {
+    if (world) localStorage.setItem(LAST, JSON.stringify({ id: world.id, name: world.name }));
+  }, [world]);
+  // Until the worlds load: the remembered name, else a placeholder the size of a name.
+  const known = world?.name ?? (worldId && worldId === saved?.id ? saved.name : undefined);
+  const worldName = known ?? (worlds ? "Choose a world" : undefined);
+
+  // The selection line sits over the current tab's label and slides to the next one.
+  const bar = useRef<HTMLElement>(null);
+  const moreOn = MORE.has(current) || sheet === "more";
+  useLayoutEffect(() => {
+    const nav = bar.current;
+    if (!nav) return;
+    const place = () => {
+      const label = nav.querySelector(".tabbar-item.on .tabbar-label");
+      if (!label) return nav.style.setProperty("--line-w", "0px");
+      const [n, l] = [nav.getBoundingClientRect(), label.getBoundingClientRect()];
+      nav.style.setProperty("--line-x", `${l.left - n.left}px`);
+      nav.style.setProperty("--line-w", `${l.width}px`);
+    };
+    place();
+    // Slide from the next frame on, so the first placement does not glide in from the left.
+    const frame = requestAnimationFrame(() => nav.setAttribute("data-slide", ""));
+    addEventListener("resize", place);
+    // A web font weight loads on first use (the bold of a newly current tab) and re-sizes the label.
+    document.fonts?.addEventListener("loadingdone", place);
+    return () => {
+      cancelAnimationFrame(frame);
+      removeEventListener("resize", place);
+      document.fonts?.removeEventListener("loadingdone", place);
+    };
+  }, [current, moreOn, worldId]);
 
   const tab = (key: string, label: string, link: LinkProps, badge?: number) => (
-    <Link {...link} className={current === key ? "tabbar-item on" : "tabbar-item"} aria-current={current === key ? "page" : undefined}>
+    // While More's sheet is open it is the one tab marked on.
+    <Link {...link} className={current === key && sheet !== "more" ? "tabbar-item on" : "tabbar-item"} aria-current={current === key ? "page" : undefined}>
       <TabIcon name={key} />
-      {label}
+      <span className="tabbar-label">{label}</span>
       {badge ? (
         <span className="tabbar-badge" aria-label={`${badge} waiting`}>
           {badge}
@@ -171,27 +217,21 @@ export function Shell() {
     <div className="app">
       <header className="topbar">
         <Mark />
-        <button type="button" className="world-chip" aria-haspopup="dialog" aria-expanded={sheet === "world"} onClick={() => setSheet("world")}>
-          {worldName}
+        <button type="button" className="world-chip" aria-label={worldName ? undefined : "Choose a world"} aria-haspopup="dialog" aria-expanded={sheet === "world"} onClick={() => setSheet("world")}>
+          {worldName ?? <Skeleton w={96} h={14} />}
           <Icon name="chev" />
         </button>
         {/* A page's own phone top bar (the run page's "‹ Runs" and menu) renders here. */}
         <div id="topbar-slot" className="topbar-slot" />
-        <button type="button" className="icon" aria-label="Menu" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>
-          <Icon name="menu" />
-        </button>
       </header>
-      <nav id="sidebar" className={open ? "sidebar open" : "sidebar"} aria-label="Main">
+      <nav className="sidebar" aria-label="Main">
         <div className="sidebar-head">
           <Mark />
-          <button type="button" className="icon menu-close" aria-label="Close menu" onClick={() => setOpen(false)}>
-            <Icon name="close" />
-          </button>
         </div>
         <Link to="/" className="switcher" activeOptions={{ exact: true, includeHash: true }} data-testid="world-switcher">
           <span>
             <small>World</small>
-            <b>{worldName}</b>
+            <b>{worldName ?? <Skeleton w={96} h={13} />}</b>
           </span>
           <Icon name="chev" />
         </Link>
@@ -226,30 +266,29 @@ export function Shell() {
           <Outlet />
         </CurrentWorld.Provider>
       </div>
-      <nav className="tabbar" aria-label="Tabs">
+      <nav className="tabbar" aria-label="Tabs" ref={bar}>
+        <span className="tabbar-line" aria-hidden="true" />
         {tab("gates", "Needs you", { to: "/gates" }, gates?.length)}
-        {worldId && (
-          <>
-            {tab("runs", "Runs", { to: "/worlds/$worldId/runs", params })}
-            {tab("workflows", "Workflows", { to: "/worlds/$worldId/workflows", params })}
-            {tab("library", "Library", { to: "/worlds/$worldId/library", params })}
-          </>
+        {WORLD_TABS.map(([key, label, to]) =>
+          worldId ? (
+            <Fragment key={key}>{tab(key, label, { to, params })}</Fragment>
+          ) : (
+            // Five slots from the first frame: the world's tabs wait, labelled, until there is a world.
+            <span key={key} className="tabbar-item" aria-disabled="true">
+              <TabIcon name={key} />
+              <span className="tabbar-label">{label}</span>
+            </span>
+          ),
         )}
-        <button
-          type="button"
-          className={MORE.has(current) || sheet === "more" ? "tabbar-item on" : "tabbar-item"}
-          aria-haspopup="dialog"
-          aria-expanded={sheet === "more"}
-          onClick={() => setSheet("more")}
-        >
+        <button type="button" className={moreOn ? "tabbar-item on" : "tabbar-item"} aria-haspopup="dialog" aria-expanded={sheet === "more"} onClick={() => setSheet("more")}>
           <TabIcon name="more" />
-          More
+          <span className="tabbar-label">More</span>
         </button>
       </nav>
       {/* A row tapped on the page you are on closes its sheet too. */}
       <Sheet open={sheet === "world"} onClose={() => setSheet(null)} label="Worlds">
         <nav aria-label="Worlds" onClick={() => setSheet(null)}>
-          {worlds.map((w) => {
+          {(worlds ?? []).map((w) => {
             const waiting = gates?.filter((g) => g.world_id === w.id).length ?? 0;
             return (
               <Link
@@ -264,7 +303,7 @@ export function Shell() {
               </Link>
             );
           })}
-          {row("All worlds", { to: "/" }, count(worlds.length, "world"))}
+          {row("All worlds", { to: "/" }, count(worlds?.length ?? 0, "world"))}
         </nav>
       </Sheet>
       <Sheet open={sheet === "more"} onClose={() => setSheet(null)} label="More">
@@ -280,7 +319,7 @@ export function Shell() {
           )}
           {row("Evals", { to: "/evals" }, "scorecards")}
           {worldId && row("Settings", { to: "/worlds/$worldId/settings", params }, "this world, keys")}
-          {row("All worlds", { to: "/" }, count(worlds.length, "world"))}
+          {row("All worlds", { to: "/" }, count(worlds?.length ?? 0, "world"))}
         </nav>
         <Health />
       </Sheet>

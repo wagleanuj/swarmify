@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+
+import "../index.css";
 
 import type { components } from "../api/schema";
 import { FakeEventSource, fakeFetch } from "../test/fakes";
@@ -38,7 +41,10 @@ const report = (id: string, created: string, verdict: string, kind: string | nul
   trials: [trial("baseline", 0), trial("swarm", 0), trial("baseline", 1, ["script.md is missing"]), trial("swarm", 1)],
 });
 
-beforeEach(() => FakeEventSource.install());
+beforeEach(async () => {
+  FakeEventSource.install();
+  await page.viewport(1280, 800);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -100,4 +106,24 @@ test("with no eval yet the page says how to run one", async () => {
   fakeFetch({ "GET /api/evals": () => Response.json([]) });
   const { screen } = await mountAt("/evals");
   await expect.element(screen.getByTestId("no-evals")).toMatchTextContent(/uv run swarmify-eval --kind research-briefs/);
+});
+
+test("on a phone, while the evals load, the title is real and the reports wait as skeletons", async () => {
+  await page.viewport(390, 844);
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fakeFetch({
+    "GET /api/evals": async () => {
+      await held;
+      return Response.json([report("e1", "2026-10-26T10:00:00+00:00", "The swarm wins.", "research briefs")]);
+    },
+  });
+  const { screen } = await mountAt("/evals");
+  await expect.element(screen.getByRole("heading", { name: "Evals", level: 1 })).toBeVisible();
+  expect(document.querySelector("main [aria-busy='true']")?.querySelectorAll(".sk").length).toBeGreaterThan(0);
+  expect(screen.getByText("Loading...").elements()).toHaveLength(0);
+
+  release();
+  await expect.element(screen.getByTestId("eval")).toBeVisible();
+  expect(document.querySelector("main [aria-busy='true']")).toBeNull();
 });

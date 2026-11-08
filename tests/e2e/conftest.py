@@ -56,14 +56,16 @@ def _serve(data_dir: Path, **env: str) -> Iterator[str]:
     ]
     with subprocess.Popen(cmd, env=env) as server:
         try:
-            for _ in range(100):
+            # 30 s: on a loaded machine the app can take over 10 s to import.
+            deadline = time.monotonic() + 30
+            while True:
                 try:
                     httpx.get(f"{url}/api/health").raise_for_status()
                     break
                 except httpx.HTTPError:
+                    if server.poll() is not None or time.monotonic() > deadline:
+                        pytest.fail("API did not come up")
                     time.sleep(0.1)
-            else:
-                pytest.fail("API did not come up")
             yield url
         finally:
             server.terminate()

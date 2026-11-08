@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import type { Agent, LogEntry } from "../api/events";
 import { type Task, who } from "../api/tasks";
 
@@ -177,6 +179,12 @@ export function AgentCards({ agents, log, tasks }: { agents: Agent[]; log: LogEn
 /** The selected stage's live log, in words. A JSON answer collapses to one line that opens. */
 export function LiveLog({ log, tasks = [], title = "Live log" }: { log: LogEntry[]; tasks?: Task[]; title?: string }) {
   const named = titles(tasks);
+  // The last line of the first paint: lines after it arrived live and fade up; an emptied log
+  // (another step picked) starts over.
+  const painted = useRef<number | null>(null);
+  if (log.length === 0) painted.current = null;
+  else painted.current ??= log.at(-1)!.seq;
+  const firstPaint = painted.current ?? Infinity;
   return (
     <section className="live-log" aria-label={title}>
       <h3>{title}</h3>
@@ -187,7 +195,7 @@ export function LiveLog({ log, tasks = [], title = "Live log" }: { log: LogEntry
           {log.map((e) => {
             const json = e.kind === "result" ? payload(e.detail) : null;
             return (
-              <li key={e.seq} className={`log-${e.kind}`}>
+              <li key={e.seq} className={`log-${e.kind}${e.seq > firstPaint ? " arrived" : ""}`}>
                 <time className="faint" dateTime={e.ts}>
                   {e.ts.slice(11, 19)}
                 </time>{" "}

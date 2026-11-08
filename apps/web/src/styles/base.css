@@ -78,22 +78,13 @@ b { font-weight: 600; }
 .topbar { display: none; position: sticky; top: 0; z-index: 15; height: 48px; align-items: center; justify-content: space-between; padding: 0 12px 0 16px; background: var(--ground); border-bottom: 1px solid var(--border); }
 .topbar .brand { padding: 0; }
 button.icon { min-height: 32px; width: 32px; padding: 0; }
-.menu-close { display: none; }
-/* The phone: the sidebar folds behind the top bar's menu button into a full-screen sheet. */
-@media (max-width: 860px) {
-  .app { grid-template-columns: minmax(0, 1fr); align-content: start; }
-  .topbar { display: flex; }
-  .sidebar { display: none; position: fixed; inset: 0; z-index: 20; width: 100%; height: 100%; border-right: 0; }
-  .sidebar.open { display: flex; }
-  .sidebar.open .menu-close { display: inline-flex; }
-  .switcher b { max-width: none; }
-}
 /* The phone: a world chip on top, five tabs at the bottom; the sidebar and its menu go. */
 .world-chip, .tabbar { display: none; }
 @media (max-width: 48rem) {
-  :root { --tabbar: calc(56px + env(safe-area-inset-bottom)); }
-  .sidebar, .sidebar.open, .topbar .brand, .topbar button.icon { display: none; }
-  .topbar { padding: 0 16px; border-bottom-color: var(--rule); }
+  :root { --tabbar: calc(56px + env(safe-area-inset-bottom)); --fs-body: 14px; }
+  .app { grid-template-columns: minmax(0, 1fr); align-content: start; }
+  .sidebar, .topbar .brand { display: none; }
+  .topbar { display: flex; padding: 0 16px; border-bottom-color: var(--rule); }
   .world-chip { display: inline-flex; min-width: 0; min-height: 32px; padding: 6px 12px; border: 0; background: var(--raised); font-weight: 600; }
   .world-chip svg { flex: none; color: var(--faint); }
   .canvas { padding-bottom: var(--tabbar); }
@@ -259,10 +250,21 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 .menu button:hover { background: var(--ground); }
 .menu small { color: var(--faint); font-size: 11px; font-weight: 400; }
 .phone-only { display: none; }
-@media (max-width: 860px) {
+@media (max-width: 48rem) {
   .phone-only { display: inline-block; }
   .panel { padding: 14px; }
   .kpis { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
   .kpi:nth-child(odd) { border-left: 0; }
   .kpi:nth-child(n + 3) { border-top: 1px solid var(--border); }
+}
+
+/* Phone sizing: below 48rem, and on a touch screen at any width, inputs are 16px so iOS does not
+   zoom into them (important: no page rule may undo it), and every control is a 44px thumb tap.
+   Pills are not controls and stay small; inline text buttons (.link) stay inline. */
+@media (max-width: 48rem), (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+  button:not(.link), a.button, label.button, select { min-height: 44px; }
+  input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color]) { min-height: 44px; }
+  button.icon { min-width: 44px; }
+  .tab { display: inline-flex; align-items: flex-end; min-height: 44px; }
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { money, took } from "../api/runs";
 import type { components } from "../api/schema";
+import { Loading, Skeleton } from "../Skeleton";
 import { baseline, cap } from "../skin";
 
 type Report = components["schemas"]["EvalReport"];
@@ -47,7 +48,13 @@ export function Evals() {
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
-      {reports === null && !error && <p role="status">Loading...</p>}
+      {reports === null && !error && (
+        <Loading className="evals-loading">
+          <Skeleton lines={2} />
+          <Skeleton h={240} />
+          <Skeleton h={320} />
+        </Loading>
+      )}
       {reports && !latest && (
         <div className="empty" data-testid="no-evals">
           <p>
@@ -65,7 +72,7 @@ export function Evals() {
             arm made it. Cost is the runtime's estimate, not billing.
           </p>
           <Kinds reports={reports} />
-          <div className="eval-list">{reports.map((r) => <Eval key={r.id} report={r} />)}</div>
+          <div className="eval-list stagger">{reports.map((r) => <Eval key={r.id} report={r} />)}</div>
         </>
       )}
     </main>

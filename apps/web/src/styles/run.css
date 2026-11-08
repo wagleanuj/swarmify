@@ -15,6 +15,16 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .step-button > span { display: grid; min-width: 0; }
 .step-button b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-button small { color: var(--faint); font-size: 12px; white-space: nowrap; }
+/* The run's menu button: a quiet glyph, its 44px tap kept */
+.run-topbar button.icon, .run-actions button.icon { border-color: transparent; border-radius: 999px; }
+
+/* Before the run loads: its parts at their size (RunSkeleton) */
+.run-loading .sk-title { font-size: var(--fs-title); --sk-h: 1.2em; margin-bottom: 6px; }
+.run-loading .sk-status { font-size: 14px; --sk-h: 1.4em; margin-top: 6px; }
+.run-loading .sk-strip { --sk-h: 40px; margin: 4px 0 6px; }
+.run-loading .sk-step { display: none; --sk-h: 52px; margin-bottom: var(--gap); border-radius: 10px; }
+.run-loading .sk-ask { --sk-h: 34px; border-radius: 999px; }
+.run-loading .sk-panel { border-radius: var(--radius-card); }
 
 /* The time strip: each step as wide as its time; the bare variant is a list row's small strip */
 .strip { display: flex; gap: 2px; height: 40px; margin: 4px 0 6px; min-width: 0; }
@@ -53,7 +63,6 @@ svg.glyph { color: var(--accent); }
 .dot-failed { background: var(--negative); }
 .dot-pending, .dot-skipped { background: transparent; border: 1px solid var(--faint); }
 .step-running .dot, .step-waiting .dot { animation: pulse 1.6s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .step-running .dot, .step-waiting .dot { animation: none; } }
 .spend { display: grid; gap: 8px; }
 .run-page .spend .panel-head { justify-content: space-between; }
@@ -148,9 +157,14 @@ svg.glyph { color: var(--accent); }
   /* "‹ Runs" and the run menu take the top bar from the world chip */
   .topbar:has(.run-topbar) .world-chip, .run-actions .menu-wrap { display: none; }
   .topbar-slot:has(.run-topbar) { display: flex; flex: 1; }
-  .topbar .run-topbar button.icon { display: inline-flex; } /* the shell hides its own menu button */
+  .topbar .run-topbar button.icon { display: inline-flex; }
   .player { max-height: 300px; }
-  .strip-seg { min-width: 10px; }
+  .run-loading .sk-title { font-size: 22px; }
+  .run-loading .sk-step { display: block; }
+  .run-loading .sk-ask { --sk-h: 44px; }
+  /* Each segment a 24px tap at least; a long run's strip scrolls inside itself */
+  .strip:not(.strip-bare) { overflow-x: auto; scrollbar-width: none; }
+  .strip:not(.strip-bare) .strip-seg { min-width: 24px; }
   .strip-seg span { display: none; }
   .run-actions .menu { left: 0; right: auto; }
   .take-list li { grid-template-columns: minmax(0, 1fr) auto; }
@@ -161,6 +175,19 @@ svg.glyph { color: var(--accent); }
 /* A gate just answered on this step: what you decided, then the ways on */
 .answered { display: grid; gap: 12px; }
 .notice.ok { box-shadow: inset 2px 0 0 var(--accent); }
+/* Answering: the button presses in, the action bar slides out, the answered state rises 8px into
+   its place and the identity's green line draws under its first words */
+.run-page .gate-actions button { transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast), background-color var(--dur-fast); }
+.run-page .gate-actions button:active:not(:disabled) { transform: scale(0.98); }
+@keyframes bar-out { to { transform: translateY(100%); opacity: 0; } }
+@keyframes answer-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes draw { from { transform: scaleX(0); } }
+.inline-gate.leaving .gate-form .gate-actions { animation: bar-out var(--dur-base) var(--ease-in-out) both; }
+.answered { animation: answer-in var(--dur-base) var(--ease-out) both; }
+.answered .notice { position: relative; }
+.answered .notice::after { content: ""; position: absolute; left: 16px; bottom: 8px; width: min(8em, 40%); height: 1px; background: var(--accent); transform-origin: left; animation: draw var(--dur-slow) var(--ease-out) var(--dur-base) both; }
+/* A live log line fades up as it arrives; the lines there on first paint do not */
+.log .arrived { animation: fade-up var(--dur-base) var(--ease-out) both; }
 .answer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 16px; border-top: 1px solid var(--rule); }
 .change-card { display: grid; gap: 10px; padding: 12px 16px; border-radius: var(--radius-card); background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
 .change-card h3 { margin: 0; }

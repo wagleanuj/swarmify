@@ -25,6 +25,7 @@ import { type Gate, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { gatesRoute } from "../router";
 import { piedPiper } from "../skin";
+import { Loading, Skeleton } from "../Skeleton";
 import { ArtifactCards, ArtifactView } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { PublishValue } from "./Connectors";
@@ -47,6 +48,9 @@ const onPhoneChange = (on: () => void) => {
 };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => window.matchMedia(PHONE).matches);
 
+/** Whether the operator asked for less motion: then an answered card swaps out at once. */
+const calm = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 const ago = (at: number) => `${took(Math.max(0, (Date.now() - at) / 1000))} ago`;
 
 type Answered = { gate: Gate; said: string; at: string };
@@ -61,6 +65,9 @@ export function Gates() {
   // Answered this visit, newest first: they sort last in the queue, dimmed.
   const [answered, setAnswered] = useState<Answered[]>([]);
   const [moving, setMoving] = useState<Run[] | null>(null);
+  // The answered card slides out as a static copy while the next one slides in (spec 5).
+  const card = useRef<HTMLDivElement>(null);
+  const ghost = useRef<HTMLDivElement>(null);
   const error = refused ?? (open.failed ? "Could not load the gates. Is the API running?" : null);
 
   useEffect(() => {
@@ -98,6 +105,11 @@ export function Gates() {
       reloadGates();
       return;
     }
+    const old = card.current?.querySelector(".gate-list")?.cloneNode(true) as HTMLElement | undefined;
+    if (old && ghost.current && !calm()) {
+      old.className = "gate-list";
+      ghost.current.replaceChildren(old);
+    }
     dropGate(gate.stage_id);
     setAnswered((a) => [{ gate, said, at: new Date().toISOString() }, ...a]);
     const next = waiting.find((g) => g.stage_id !== gate.stage_id);
@@ -134,7 +146,19 @@ export function Gates() {
         </label>
       </header>
       {error && <p role="alert">{error}</p>}
-      {open.gates === null && !error && <p role="status">Loading...</p>}
+      {open.gates === null && !error && (
+        <Loading className="inbox">
+          <div className="queue q-skeleton">
+            <Skeleton h={56} />
+            <Skeleton h={56} />
+          </div>
+          <div className="gate g-skeleton">
+            <Skeleton w="70%" h={24} />
+            <Skeleton lines={2} />
+            <Skeleton h={180} />
+          </div>
+        </Loading>
+      )}
       {open.gates !== null && (
         <div className="inbox">
           {/* On a phone the queue is a row of chips, and only when there is a choice to make. */}
@@ -179,7 +203,7 @@ export function Gates() {
           )}
           <div className="inbox-main">
             {last && (
-              <p className="notice" role="status" data-testid="answered">
+              <p key={last.at} className="notice enter" role="status" data-testid="answered">
                 <span>
                   {last.said} at {new Date(last.at).toLocaleTimeString([], { timeStyle: "short" })}.
                 </span>
@@ -192,12 +216,14 @@ export function Gates() {
                 </Link>
               </p>
             )}
-            {selected ? (
-              <ul className="gate-list">
-                <GateCard key={selected.stage_id} gate={selected} world={worldName(selected.world_id)} onAnswer={answer} />
-              </ul>
-            ) : (
-              <section className="empty" data-testid="no-gates">
+            <div className="swap" ref={card}>
+              <div className="gate-ghost" ref={ghost} aria-hidden="true" inert onAnimationEnd={(e) => e.animationName === "gate-out" && e.currentTarget.replaceChildren()} />
+              {selected ? (
+                <ul className={last ? "gate-list arrive" : "gate-list"} key={selected.stage_id}>
+                  <GateCard gate={selected} world={worldName(selected.world_id)} onAnswer={answer} />
+                </ul>
+              ) : (
+              <section className={last ? "empty arrive" : "empty"} data-testid="no-gates">
                 <h2>Nothing is waiting on you</h2>
                 <p className="faint">
                   When a run reaches a gate it lands here, pausing until you pick, approve or confirm, and so does a
@@ -205,7 +231,10 @@ export function Gates() {
                 </p>
                 <h3>Runs still moving</h3>
                 {moving === null ? (
-                  <p role="status">Loading...</p>
+                  <Loading className="moving">
+                    <Skeleton h={42} />
+                    <Skeleton h={42} />
+                  </Loading>
                 ) : moving.length === 0 ? (
                   <p className="faint">No runs are moving.</p>
                 ) : (
@@ -224,7 +253,8 @@ export function Gates() {
                   </ul>
                 )}
               </section>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -326,6 +356,12 @@ export function GateCard({
       </div>
       )}
       <p className="ask">{gate.ask}</p>
+      {/* Holds the evidence's place while it loads, so the form below does not jump down. */}
+      {shows && artifacts === null && (
+        <Loading>
+          <Skeleton h={240} />
+        </Loading>
+      )}
       {reviewed.length > 0 && <ArtifactView artifacts={reviewed} worldId={gate.world_id} />}
       {gate.kind === "approve" && artifacts && reviewed.length === 0 && (
         <p className="faint">The earlier stages left nothing to show here; their notes are on the run's timeline.</p>
@@ -488,7 +524,15 @@ function SkillGate({
     setBusy(false);
   }
 
-  if (proposal === undefined) return <p role="status">Loading the proposal...</p>;
+  if (proposal === undefined) {
+    return (
+      <Loading className="proposal">
+        <Skeleton w="50%" />
+        <Skeleton lines={2} />
+        <Skeleton h={160} />
+      </Loading>
+    );
+  }
   if (proposal === null) {
     return <p className="faint">The proposal could not be loaded; the run keeps waiting.</p>;
   }

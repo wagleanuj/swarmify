@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { assetsRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { Loading, Skeleton } from "../Skeleton";
 import { AUDIO, FileLink, fileUrl, IMAGE, VIDEO } from "./Artifacts";
 import { Menu } from "./Menu";
 
@@ -132,6 +133,12 @@ export function Assets() {
       {said && <p role="status">{said}</p>}
       <audio ref={player} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} hidden />
 
+      {folders === null && !error && (
+        <section className="panel">
+          <Skeleton w="8em" h={20} />
+          <Rows />
+        </section>
+      )}
       {folders?.map((f) =>
         f.templates ? (
           <TemplatesGroup
@@ -240,7 +247,7 @@ function TemplatesGroup({
         </button>
       </div>
       {templates === null ? (
-        <p className="faint">Loading {f.label.toLowerCase()}...</p>
+        <Rows />
       ) : templates.length === 0 ? (
         <div className="empty">
           <p>
@@ -248,7 +255,7 @@ function TemplatesGroup({
           </p>
         </div>
       ) : (
-        <ul className="file-rows">
+        <ul className="file-rows template-rows">
           {templates.map((t) => (
             <li key={t.path} aria-label={t.name}>
               <span className="file-name">
@@ -259,7 +266,7 @@ function TemplatesGroup({
                 </span>
                 {t.prepare === "failed" && <span className="warn">Prepare failed: {t.prepare_error}</span>}
               </span>
-              <a className="file-open" href={`/api/worlds/${worldId}/templates/${encodeURIComponent(t.folder)}/${encodeURIComponent(t.name)}/download`} download aria-label={`Download ${t.name}`}>
+              <a className="button file-open" href={`/api/worlds/${worldId}/templates/${encodeURIComponent(t.folder)}/${encodeURIComponent(t.name)}/download`} download aria-label={`Download ${t.name}`}>
                 Download
               </a>
               <button type="button" className="danger" onClick={() => void remove(t)} aria-label={`Delete ${t.name}`}>
@@ -270,6 +277,17 @@ function TemplatesGroup({
         </ul>
       )}
     </section>
+  );
+}
+
+/** A folder's rows while it loads, at their height. */
+function Rows() {
+  return (
+    <Loading className="file-rows sk-rows">
+      {Array.from({ length: 3 }, (_, i) => (
+        <Skeleton key={i} h={56} />
+      ))}
+    </Loading>
   );
 }
 
@@ -321,7 +339,7 @@ function OwnedGroup({
         {files && files.length > 0 && <span className="faint">{count(files.length)}</span>}
       </div>
       {files === null ? (
-        <p className="faint">Loading {f.label.toLowerCase()}...</p>
+        <Rows />
       ) : files.length === 0 ? (
         <div className="empty">
           <p>
@@ -683,7 +701,7 @@ function Files({ worldId, files, onChanged, onError }: { worldId: string; files:
         {files && files.length > 0 && button}
       </div>
       {files === null ? (
-        <p className="faint">Loading files...</p>
+        <Rows />
       ) : files.length === 0 ? (
         <div className="empty">
           <p>Put images, music or fonts here for your builds to use.</p>

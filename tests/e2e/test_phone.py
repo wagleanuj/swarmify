@@ -155,6 +155,20 @@ def test_signing_in_opens_the_app_until_signing_out(
     context.close()
 
 
+# Every visible control a thumb aims at (buttons, links styled as buttons, selects, tabs), under
+# 44px tall. Inline text links, `button.link` and pills (.pill, .chip, .status) are not targets.
+SMALL_CONTROLS = """[...document.querySelectorAll(
+    'button:not(.link), a.button, label.button, select, .tab')]
+  .filter(e => !e.closest('dialog:not([open]), .pill, .chip, .status') && e.checkVisibility())
+  .filter(e => e.getBoundingClientRect().height < 43.5)
+  .slice(0, 8)
+  .map(e => {
+    const name = (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 24);
+    const h = Math.round(e.getBoundingClientRect().height);
+    return `${e.tagName.toLowerCase()}.${e.className} "${name}" ${h}px`;
+  })"""
+
+
 def _fits(page: Page) -> None:
     """No sideways scroll, and the layout viewport is still the phone's 390 px."""
     assert page.evaluate("window.innerWidth") == PHONE["width"]  # the viewport meta holds
@@ -167,9 +181,21 @@ def _fits(page: Page) -> None:
     assert wide <= 0, f"{page.url} scrolls sideways by {wide}px: {culprits}"
 
 
+def test_first_frame_is_the_shell(phone: Page) -> None:
+    """Before any script runs the page is the app's ground with the shell's outline, not white."""
+    phone.route("**/*.js", lambda route: route.abort())
+    phone.goto("/gates")
+    assert phone.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(23, 23, 25)"
+    expect(phone.locator(".boot-tabs")).to_be_visible()
+    expect(phone.locator(".boot-top")).to_be_visible()
+
+
 @pytest.mark.parametrize("path", PAGES)
 def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) -> None:
     phone.goto(path.format(**ids))
+    # Five tab slots stand from the first frame, before the worlds load (a fresh context has
+    # no last world).
+    expect(phone.locator(".tabbar .tabbar-item")).to_have_count(5, timeout=300)
     # Event streams keep the network busy, so wait for the page's heading, not for idle.
     expect(phone.locator("h1").first).to_be_visible()
     expect(phone.get_by_text("Loading...")).to_have_count(0)
@@ -181,6 +207,8 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
     expect(tabs.locator(".tabbar-item")).to_have_count(5)
     heights = tabs.locator(".tabbar-item").evaluate_all("as => as.map(a => a.offsetHeight)")
     assert len(heights) == 5 and all(h >= 44 for h in heights), f"{path} has tabs {heights}px tall"
+    small = phone.evaluate(SMALL_CONTROLS)
+    assert not small, f"{path} has controls under 44px: {small}"
     tabs.get_by_role("button", name="More").click()
     rows = phone.locator(".sheet-row").evaluate_all("as => as.map(a => a.offsetHeight)")
     assert rows and all(h >= 44 for h in rows), f"{path} has More rows {rows}px tall"
@@ -200,6 +228,10 @@ def test_the_answer_is_on_screen_above_the_tab_bar(phone: Page, ids: dict, where
     expect(approve).to_be_in_viewport(ratio=1)
     expect(card.get_by_role("button", name="Send back to...")).to_be_in_viewport(ratio=1)
     assert phone.evaluate("window.scrollY") == 0
+    # The pinned bar slides up on first show; measure where it settles.
+    approve.evaluate(
+        "e => Promise.all(e.closest('.gate-actions').getAnimations().map(a => a.finished))"
+    )
     box, bar = approve.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
     if where == "gates":  # several wait, so decision chips lead the page
@@ -208,6 +240,28 @@ def test_the_answer_is_on_screen_above_the_tab_bar(phone: Page, ids: dict, where
         expect(phone.get_by_test_id("strip")).to_be_visible()
         assert phone.get_by_test_id("strip").bounding_box()["width"] <= PHONE["width"]  # type: ignore[index]
     _fits(phone)
+
+
+def test_a_run_waiting_at_a_gate_loads_without_jumping(phone: Page, ids: dict) -> None:
+    """On a slow link the run, its gate and its files arrive one after another: the skeleton holds
+    the page, so they shift the layout by less than 0.1 (Core Web Vitals' good)."""
+    cdp = phone.context.new_cdp_session(phone)
+    slow = {"latency": 500, "downloadThroughput": 400_000, "uploadThroughput": 100_000}
+    cdp.send("Network.emulateNetworkConditions", {"offline": False, **slow})
+    phone.goto(f"/worlds/{ids['world']}/runs/{ids['long']}")
+    card = phone.get_by_test_id(f"gate-{ids['long']}")
+    expect(card.get_by_role("button", name="Approve", exact=True)).to_be_visible(timeout=20_000)
+    phone.wait_for_timeout(3000)  # the gate's artifacts and the run's other calls land
+    shift = phone.evaluate(
+        """() => new Promise(done => {
+            let sum = 0;
+            new PerformanceObserver(list => {
+                for (const e of list.getEntries()) if (!e.hadRecentInput) sum += e.value;
+            }).observe({ type: "layout-shift", buffered: true });
+            setTimeout(() => done(sum), 200);
+        })"""
+    )
+    assert shift < 0.1, f"the run page shifted by {shift}"
 
 
 def test_a_running_run_and_a_done_run_with_its_video(phone: Page, ids: dict) -> None:
@@ -293,3 +347,47 @@ def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
         sheet.get_by_text("This is my voice, or I have the speaker's permission")
     ).to_be_visible()
     _fits(phone)
+
+
+# Sums every layout shift not caused by input; read once the page has settled.
+SHIFTS = """window.__cls = 0;
+new PerformanceObserver((list) => {
+  for (const e of list.getEntries()) if (!e.hadRecentInput) window.__cls += e.value;
+}).observe({ type: "layout-shift", buffered: true });"""
+LISTS = [
+    "/worlds/{world}",
+    "/worlds/{world}/workflows",
+    "/worlds/{world}/runs",
+    "/worlds/{world}/library",
+    "/worlds/{world}/read?path={doc}",
+    "/evals",
+]
+
+
+def settled_shift(page: Page, path: str, latency_ms: int = 300) -> float:
+    """Load `path` with every request `latency_ms` slow, wait until no region is busy, and
+    return the page's cumulative layout shift."""
+    page.add_init_script(SHIFTS)
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("Network.enable")
+    conditions = {
+        "offline": False,
+        "latency": latency_ms,
+        "downloadThroughput": -1,
+        "uploadThroughput": -1,
+    }
+    cdp.send("Network.emulateNetworkConditions", conditions)
+    page.goto(path)
+    expect(page.locator("h1").first).to_be_visible()
+    expect(page.locator("main [aria-busy='true']")).to_have_count(0, timeout=15_000)
+    page.wait_for_timeout(1000)  # the last fetches (checks, scorecards) land and paint
+    return page.evaluate("window.__cls")
+
+
+@pytest.mark.parametrize("path", LISTS)
+def test_lists_load_in_place(phone: Page, ids: dict[str, str], path: str) -> None:
+    """Skeletons hold each list's place while it loads on a slow link, so nothing jumps: CLS under
+    0.1, and never the word "Loading...". Then the rows are there."""
+    shift = settled_shift(phone, path.format(**ids))
+    expect(phone.get_by_text("Loading...")).to_have_count(0)
+    assert shift < 0.1, f"{path} shifts by {shift:.3f} while it loads"

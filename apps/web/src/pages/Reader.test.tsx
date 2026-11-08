@@ -122,3 +122,22 @@ test("on a phone a relative image loads from the files route, fits the width, an
   expect(doc.element().querySelectorAll("img").length).toBe(1);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
+
+test("on a phone, while the document loads, its title, facts and body wait as skeletons", async () => {
+  await page.viewport(390, 844);
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fakeFetch({
+    "GET /api/worlds/world_1/library": async () => {
+      await held;
+      return Response.json([script]);
+    },
+  });
+  const { screen } = await mountAt(at);
+  await expect.poll(() => document.querySelector("main [aria-busy='true']")?.querySelectorAll(".sk").length ?? 0).toBeGreaterThan(8);
+  expect(screen.getByText(/Loading/).elements().every((e) => e.classList.contains("visually-hidden"))).toBe(true);
+
+  release();
+  await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("The chase, script");
+  expect(document.querySelector("main [aria-busy='true']")).toBeNull();
+});

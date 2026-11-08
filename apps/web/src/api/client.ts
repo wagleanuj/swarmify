@@ -17,3 +17,22 @@ api.use({
     }
   },
 });
+
+// Requests in flight through `api`, for the route progress line (Progress.tsx). The event
+// stream is an EventSource, not a fetch, so it is never counted.
+let inFlight = 0;
+const watchers = new Set<() => void>();
+const bump = (by: number) => {
+  inFlight = Math.max(0, inFlight + by);
+  watchers.forEach((w) => w());
+};
+export const requestsInFlight = () => inFlight;
+export const watchRequests = (onChange: () => void) => {
+  watchers.add(onChange);
+  return () => void watchers.delete(onChange);
+};
+api.use({
+  onRequest: () => bump(1),
+  onResponse: () => bump(-1),
+  onError: () => bump(-1),
+});

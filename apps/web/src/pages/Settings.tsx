@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
+import { Loading, Skeleton } from "../Skeleton";
 import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { ModelSelect, useModels } from "./ModelSelect";
 import { Tokens } from "./Tokens";
@@ -180,9 +181,13 @@ export function Settings() {
       <header className="page">
         <div>
           <h1>Settings</h1>
-          <p className="sub">
-            {world ? `${world.name} · created ${new Date(world.created_at).toLocaleDateString()}` : "Loading..."}
-          </p>
+          {world ? (
+            <p className="sub">{`${world.name} · created ${new Date(world.created_at).toLocaleDateString()}`}</p>
+          ) : (
+            <Loading className="sub">
+              <Skeleton w="16em" h="1.5em" />
+            </Loading>
+          )}
         </div>
       </header>
       {loadError && <p role="alert">{loadError}</p>}
@@ -193,12 +198,12 @@ export function Settings() {
               <div className="field">
                 <label>
                   Monthly budget, dollars
-                  <input type="number" min="0.01" step="0.01" value={form.monthly} onChange={field("monthly")} placeholder="No ceiling" />
+                  <input type="number" inputMode="decimal" min="0.01" step="0.01" value={form.monthly} onChange={field("monthly")} placeholder="No ceiling" />
                 </label>
                 <span className="faint" data-testid="spent">
                   {spend
                     ? `Spent this month: ${money(spend.spent_usd)}, an estimate${spend.monthly_budget_usd !== null ? ` of ${money(spend.monthly_budget_usd)}` : ""}.`
-                    : "Loading spend..."}
+                    : <Skeleton w="14em" h="1.5em" />}
                 </span>
                 <span className="faint">
                   Each run's budget is cut to what is left of the month. Once it is spent, no run starts until next month.
@@ -207,7 +212,7 @@ export function Settings() {
               <div className="field">
                 <label>
                   Keep videos and images for, days
-                  <input type="number" min="0" max="3650" step="1" required value={form.retention} onChange={field("retention")} />
+                  <input type="number" inputMode="numeric" min="0" max="3650" step="1" required value={form.retention} onChange={field("retention")} />
                 </label>
                 <span className="faint">0 keeps them forever. Notes and markdown always stay.</span>
               </div>
@@ -243,7 +248,7 @@ export function Settings() {
               <div className="field">
                 <label>
                   Run cap
-                  <input type="number" min="1" max="8" step="1" required value={form.runCap} onChange={field("runCap")} />
+                  <input type="number" inputMode="numeric" min="1" max="8" step="1" required value={form.runCap} onChange={field("runCap")} />
                 </label>
                 <span className="faint" data-testid="run-cap-help">
                   Runs waiting at a gate hold a slot too. Takes effect at once.
@@ -252,7 +257,7 @@ export function Settings() {
               <div className="field">
                 <label>
                   Workers in the cast
-                  <input type="number" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
+                  <input type="number" inputMode="numeric" min="1" max="8" step="1" required value={form.agents} onChange={field("agents")} />
                 </label>
                 <span className="faint">
                   {cap(the("planner"))} and {the("judge")} always come along; this is how many workers the cast has. A swarm stage runs one unless the workflow sets its agents.{" "}
@@ -275,7 +280,7 @@ export function Settings() {
         <form className="panel set-panel" onSubmit={saveSlack} aria-label="Slack">
           <p data-testid="slack-state">
             {current === undefined
-              ? "Loading..."
+              ? <Skeleton w="12em" h="1.5em" />
               : current
                 ? `Posting to ${current}`
                 : "Not connected. Gates wait until you open the app."}

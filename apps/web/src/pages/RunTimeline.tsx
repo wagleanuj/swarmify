@@ -12,6 +12,7 @@ import type { components } from "../api/schema";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { Loading, Skeleton } from "../Skeleton";
 import { the } from "../skin";
 import { usePhone } from "../usePhone";
 import { ChangeCard, type ChangeKind, changeLabel, hhmm, who } from "./ChangeCard";
@@ -75,6 +76,8 @@ export function RunTimeline() {
   // The Run Assistant: a third column on a wide screen, a sheet on a phone; what asking cost.
   const [askOpen, setAskOpen] = useState(false);
   const [askedUsd, setAskedUsd] = useState(0);
+  // An answer just sent: the gate's action bar slides out before the answered state takes its place.
+  const [leaving, setLeaving] = useState(false);
   const phone = usePhone();
   // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
   const [topbar, setTopbar] = useState<Element | null>(null);
@@ -286,15 +289,33 @@ export function RunTimeline() {
     const refused = await send();
     if (refused) return setError(refused);
     if (staysOpen(g)) return;
-    setGate(null);
+    setLeaving(true);
+    await new Promise((done) => setTimeout(done, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : BAR_OUT_MS));
+    setLeaving(false);
+    // The run's next gate may have loaded while the bar slid out; keep it.
+    setGate((cur) => (cur?.stage_id === g.stage_id ? null : cur));
     dropGate(g.stage_id);
     setAnswered({ stageId: g.stage_id, said, at: new Date().toISOString() });
   };
 
+  /** "‹ Runs" and the run menu in a phone's top bar, from the first frame on. */
+  const topbarSlot = (menu?: ReactNode) =>
+    topbar &&
+    createPortal(
+      <div className="run-topbar">
+        <Link to="/worlds/$worldId/runs" params={{ worldId }}>
+          ‹ Runs
+        </Link>
+        {menu}
+      </div>,
+      topbar,
+    );
+
   if (run === undefined) {
     return (
-      <main>
-        {error ? <p role="alert">{error}</p> : <p role="status">Loading...</p>}
+      <main className="run-page">
+        {topbarSlot()}
+        {error ? <p role="alert">{error}</p> : <RunSkeleton />}
       </main>
     );
   }
@@ -408,7 +429,7 @@ export function RunTimeline() {
     </aside>
   );
   return (
-    <main className="run-page">
+    <main className="run-page enter">
       <header className="page">
         <div>
           <h1>
@@ -454,16 +475,7 @@ export function RunTimeline() {
           )}
         </div>
       </header>
-      {topbar &&
-        createPortal(
-          <div className="run-topbar">
-            <Link to="/worlds/$worldId/runs" params={{ worldId }}>
-              ‹ Runs
-            </Link>
-            {items.length > 0 && <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />}
-          </div>,
-          topbar,
-        )}
+      {topbarSlot(items.length > 0 && <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />)}
       {error && <p role="alert">{error}</p>}
       {saved && (
         <p className="saved" role="status" data-testid="saved">
@@ -539,7 +551,7 @@ export function RunTimeline() {
               ) : stepping?.id === stage.id ? (
                 <StepChangeCard key={`${stepping.kind} ${stage.id}`} run={run} stage={stage} kind={stepping.kind} onClose={() => setStepping(null)} />
               ) : open ? (
-                <ul className="gate-list inline-gate" aria-label="Answer the gate">
+                <ul className={`gate-list inline-gate${leaving ? " leaving" : ""}`} aria-label="Answer the gate">
                   <GateCard gate={open} world={world?.name ?? worldId} onAnswer={answer} bare />
                 </ul>
               ) : done && stage ? (
@@ -562,6 +574,33 @@ export function RunTimeline() {
         {askOpen && !phone && <RunAssistant run={run} onSpent={setAskedUsd} />}
       </div>
     </main>
+  );
+}
+
+/** How long the answered gate's action bar takes to slide out: motion.css's `--dur-base`. */
+const BAR_OUT_MS = 200;
+
+/** The run page before its run loads: its parts at the size they will take, so nothing jumps. */
+function RunSkeleton() {
+  return (
+    <Loading className="run-loading">
+      <header className="page">
+        <div>
+          <Skeleton className="sk-title" w="16ch" />
+          <Skeleton className="sk-status" w="70%" />
+        </div>
+        <Skeleton className="sk-ask" w={108} />
+      </header>
+      <Skeleton className="sk-strip" />
+      <div className="strip-axis">
+        <Skeleton w="6ch" />
+      </div>
+      <Skeleton className="sk-step" />
+      <div className="run-grid">
+        <Skeleton className="run-side" h={320} />
+        <Skeleton className="sk-panel" h={240} />
+      </div>
+    </Loading>
   );
 }
 

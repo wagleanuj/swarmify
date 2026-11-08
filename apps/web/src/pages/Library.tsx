@@ -6,6 +6,7 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { Loading, Skeleton } from "../Skeleton";
 import { piedPiper, the } from "../skin";
 import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
 
@@ -133,7 +134,6 @@ export function Library() {
           </Link>
         </p>
       )}
-      {items === null && !error && <p role="status">Loading...</p>}
       {items?.length === 0 && (
         <div className="empty" data-testid="no-artifacts">
           <p>Nothing yet. Artifacts land here as runs finish stages, newest first.</p>
@@ -142,11 +142,17 @@ export function Library() {
           </Link>
         </div>
       )}
-      {items && items.length > 0 && (
+      {(items === null ? !error : items.length > 0) && (
         <>
           <div className="lib-head">
             <nav className="tabs chip-row" aria-label="Types">
-              {[ANY, ...types].map((t) => (
+              {items === null &&
+                [0, 1, 2].map((i) => (
+                  <span key={i} className="tab">
+                    <Skeleton w="3rem" h="1lh" className="sk-inline" />
+                  </span>
+                ))}
+              {items && [ANY, ...types].map((t) => (
                 <Link
                   key={t}
                   to="/worlds/$worldId/library"
@@ -178,9 +184,11 @@ export function Library() {
                 onChange={(e) => void navigate({ search: (s) => ({ ...s, q: e.target.value || undefined }), replace: true })}
               />
               {fieldset}
-              <span className="faint" data-testid="count">
-                {shown.length} of {items.length}
-              </span>
+              {items && (
+                <span className="faint" data-testid="count">
+                  {shown.length} of {items.length}
+                </span>
+              )}
               {active && clear}
             </form>
             <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} label="Filters">
@@ -188,7 +196,7 @@ export function Library() {
                 {fieldset}
                 <div className="row">
                   <span className="faint" data-testid="sheet-count">
-                    {shown.length} of {items.length}
+                    {shown.length} of {all.length}
                   </span>
                   {active && clear}
                 </div>
@@ -200,8 +208,16 @@ export function Library() {
           </div>
           <div className={selected ? "lib-grid has-sel" : "lib-grid"}>
             <section className="panel lib-list" aria-label="Items">
-              {shown.length === 0 && <p className="faint">No artifact matches these filters.</p>}
-              <ul data-testid="library">
+              {items === null ? (
+                <Loading className="lib-loading">
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <Skeleton key={i} />
+                  ))}
+                </Loading>
+              ) : (
+                shown.length === 0 && <p className="faint">No artifact matches these filters.</p>
+              )}
+              <ul data-testid="library" className="stagger">
                 {shown.map((i) => (
                   <li key={i.path}>
                     <Link
@@ -530,7 +546,11 @@ function StartFrom({ item, workflows, onStarted }: { item: Item; workflows: Work
       </button>
       {open && (
         <span className="menu" role="menu" aria-label="Start a run from here">
-          {starts === null && !error && <span className="faint">Loading stages...</span>}
+          {starts === null && !error && (
+            <Loading className="menu-loading">
+              <Skeleton lines={2} />
+            </Loading>
+          )}
           {starts?.length === 0 && <span className="faint">No later stage to start at. Start a run of the workflow instead.</span>}
           {starts?.map((s) => (
             <button key={`${s.workflow.id} ${s.index}`} type="button" role="menuitem" disabled={busy} onClick={() => void start(s)}>

@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { connectorsRoute } from "../router";
+import { Loading, Skeleton } from "../Skeleton";
 
 type Connector = components["schemas"]["ConnectorView"];
 type HealthCheck = components["schemas"]["HealthCheck"];
@@ -84,7 +85,7 @@ const where = (c: Connector) => `${c.about} · package ${c.name} ${c.version}`;
 export function Connectors() {
   const { worldId } = connectorsRoute.useParams();
   const [world, setWorld] = useState<World | null | undefined>(undefined);
-  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [connectors, setConnectors] = useState<Connector[] | null>(null);
   const [packages, setPackages] = useState<Package[]>([]);
   const [enabled, setEnabled] = useState<Record<string, string>>({});
   const [switching, setSwitching] = useState<{ p: Package; diff: PackageSwitch } | null>(null);
@@ -124,7 +125,7 @@ export function Connectors() {
   function load() {
     return api
       .GET("/api/worlds/{world_id}/connectors", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => data && setConnectors(data));
+      .then(({ data }) => setConnectors((c) => data ?? c ?? [])); // a failed load ends the skeleton
   }
 
   function loadPackages() {
@@ -142,7 +143,7 @@ export function Connectors() {
       .GET("/api/worlds/{world_id}", { params: { path: { world_id: worldId } } })
       .then(({ data, response }) => setWorld(response.status === 404 ? null : (data ?? null)))
       .catch(() => setError("Could not load this world. Is the API running?"));
-    void load().catch(() => undefined);
+    void load().catch(() => setConnectors((c) => c ?? []));
     void loadEnabled().catch(() => undefined);
     void loadPackages().catch(() => undefined);
   }, [worldId]);
@@ -247,14 +248,14 @@ export function Connectors() {
     );
   }
 
-  const waiting = connectors.filter((c) => c.missing.length > 0).length;
+  const waiting = (connectors ?? []).filter((c) => c.missing.length > 0).length;
   return (
     <main>
       <header className="page">
         <div>
           <h1>Connectors</h1>
           <p className="sub">
-            {connectors.length} connectors, {waiting} waiting on a key. Any MCP server can be one: Swarmify
+            {connectors ? `${connectors.length} connectors, ${waiting} waiting on a key. ` : ""}Any MCP server can be one: Swarmify
             installs it as a local package with its keys in its Setup. No key ever enters a run or a shared workflow.
             Web search and the world's graph are not connectors: they are Agent Tools Swarmify gives swarm steps,
             with nothing to set up.
@@ -412,9 +413,15 @@ export function Connectors() {
         )}
       </form>
       )}
+      {connectors === null && (
+        <Loading className="con-groups">
+          <Skeleton h={180} />
+          <Skeleton h={120} />
+        </Loading>
+      )}
       <div className="con-groups" data-testid="connector-list">
         {GROUPS.map(([k, title, note]) => {
-          const group = connectors.filter((c) => c.kind === k);
+          const group = (connectors ?? []).filter((c) => c.kind === k);
           if (group.length === 0) return null;
           return (
             <section key={k} className="panel" aria-labelledby={`group-${k}`}>
@@ -857,7 +864,8 @@ function Health({ connector, worldId }: { connector: Connector; worldId: string 
       .catch(() => setChecks("Could not check them."));
   }, [connector.name, worldId]);
 
-  if (checks === null) return <p className="faint health">Checking services...</p>;
+  // A small inline slot per connector, so no status of its own: the page's is enough.
+  if (checks === null) return <Skeleton w="12em" className="health" />;
   if (typeof checks === "string") return <p className="faint health">Services not checked: {checks}</p>;
   return (
     <ul className="health" aria-label={`${connector.label} services`}>

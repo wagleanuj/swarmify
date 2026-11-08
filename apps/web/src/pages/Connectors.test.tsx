@@ -555,3 +555,24 @@ test("an index that cannot be read says why", async () => {
     .element(screen.getByRole("region", { name: "Browse the index" }).getByRole("alert"))
     .toHaveTextContent("Could not read the index at https://example.org/index.toml: it took over 10 s");
 });
+
+test("while the connectors load the page claims no count and shows their groups as skeletons", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => new Promise<Response>(() => undefined),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await expect.element(screen.getByRole("heading", { name: "Connectors", level: 1 })).toBeVisible();
+  expect(screen.container.querySelectorAll(".con-groups[aria-busy='true'] .sk")).toHaveLength(2);
+  expect(screen.container.textContent).not.toMatch(/0 connectors|Loading\.\.\.|Loading \w/);
+});
+
+test("a connector list that does not load ends its skeleton", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/connectors": () => new Response(null, { status: 500 }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/connectors");
+  await expect.element(screen.getByRole("heading", { level: 1 })).toBeVisible();
+  await vi.waitFor(() => expect(screen.container.querySelector("[aria-busy='true']")).toBeNull());
+});
