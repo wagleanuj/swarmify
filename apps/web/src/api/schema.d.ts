@@ -3407,12 +3407,18 @@ export interface components {
         };
         /**
          * Report
-         * @description What the editor shows inline: every violation, plus the model when the shape parsed and,
-         *     when it has a schedule, the next time DBOS would fire it.
+         * @description What the editor shows inline: every violation, the warnings (which save but likely do
+         *     not do what was meant), plus the model when the shape parsed and, when it has a schedule,
+         *     the next time DBOS would fire it.
          */
         Report: {
             /** Violations */
             violations: components["schemas"]["Violation"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: components["schemas"]["Violation"][];
             model?: components["schemas"]["WorkflowModel"] | null;
             /** Next Run At */
             next_run_at?: string | null;

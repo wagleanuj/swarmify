@@ -115,12 +115,16 @@ def server(
         except KeyError as exc:
             raise ValueError(f"workflow not found in this world: {workflow_id}") from exc
 
-    @mcp.tool(description="Check workflow YAML against every rule without saving it.")
+    @mcp.tool(
+        description="Check workflow YAML against every rule without saving it. `warnings` save"
+        " but likely do not do what was meant: fix them unless they are meant."
+    )
     def check_workflow(world_id: str, yaml: str, workflow_id: str | None = None) -> dict[str, Any]:
         reach(world_id)
         draft = workflows.check(world_id, yaml, workflow_id)
         return {
             "violations": [asdict(v) for v in draft.violations],
+            "warnings": [asdict(v) for v in draft.warnings],
             "model": asdict(draft.model) if draft.model else None,
         }
 

@@ -38,10 +38,12 @@ class CopyBody(BaseModel):
 
 
 class Report(BaseModel):
-    """What the editor shows inline: every violation, plus the model when the shape parsed and,
-    when it has a schedule, the next time DBOS would fire it."""
+    """What the editor shows inline: every violation, the warnings (which save but likely do
+    not do what was meant), plus the model when the shape parsed and, when it has a schedule,
+    the next time DBOS would fire it."""
 
     violations: list[Violation]
+    warnings: list[Violation] = []
     model: WorkflowModel | None = None
     next_run_at: str | None = None
 
@@ -126,7 +128,10 @@ def router(workflows: Workflows, worlds: Worlds) -> APIRouter:
             workflow_or_404(body.workflow_id)
         draft = workflows.check(world_id, body.yaml, body.workflow_id)
         return Report(
-            violations=draft.violations, model=draft.model, next_run_at=next_run(draft.model)
+            violations=draft.violations,
+            warnings=draft.warnings,
+            model=draft.model,
+            next_run_at=next_run(draft.model),
         )
 
     @api.get("/workflows/{workflow_id}")

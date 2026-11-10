@@ -9,7 +9,7 @@ from swarmify_workflows.model import (
     WorkflowModel,
     WorkflowStage,
 )
-from swarmify_workflows.validate import validate
+from swarmify_workflows.validate import validate, warnings
 
 GATE = GateStage("review", "Look.")
 
@@ -244,3 +244,18 @@ def test_two_connectors_declaring_one_type_differently_is_a_check_error() -> Non
             "connectors cook and bake declare type recipe with different schemas",
         )
     ]
+
+
+def test_a_pick_gate_after_a_single_output_type_is_warned_not_refused() -> None:
+    pick = GateStage("pick idea", "Which?", kind="pick")
+    one = SwarmStage("research", "g", "d", output_type="idea")
+    many = SwarmStage("research", "g", "d", output_type="list[ idea ]")
+    untyped = SwarmStage("research", "g", "d")
+    found = warnings(WorkflowModel("w", [one, GATE, pick]))  # gates between are passed over
+    assert [(w.rule, w.stage) for w in found] == [("pick_one", "pick idea")]
+    assert "list[idea]" in found[0].message
+    assert rules(WorkflowModel("w", [one, pick])) == []  # saves: a warning, not a violation
+    assert warnings(WorkflowModel("w", [many, pick])) == []
+    assert warnings(WorkflowModel("w", [untyped, pick])) == []
+    assert warnings(WorkflowModel("w", [pick])) == []
+    assert warnings(WorkflowModel("w", [one, GATE])) == []  # not a pick

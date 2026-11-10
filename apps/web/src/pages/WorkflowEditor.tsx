@@ -140,6 +140,7 @@ export function WorkflowEditor() {
   const [text, setText] = useState<string | null>(null);
   const [savedText, setSavedText] = useState<string | null>(null);
   const [violations, setViolations] = useState<Violation[] | null>(null);
+  const [warnings, setWarnings] = useState<Violation[]>([]);
   const [model, setModel] = useState<WorkflowModel | null>(null);
   const [nextRunAt, setNextRunAt] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -243,6 +244,7 @@ export function WorkflowEditor() {
       }
       setError(null);
       setViolations(data.violations);
+      setWarnings(data.warnings ?? []);
       setModel(data.model ?? null);
       setNextRunAt(data.next_run_at ?? null);
     }, CHECK_DELAY_MS);
@@ -585,6 +587,7 @@ export function WorkflowEditor() {
           )}
           {view === "scorecard" && workflowId && <Scorecard worldId={worldId} workflowId={workflowId} />}
           {view !== "scorecard" && <Problems violations={violations} checking={checking} />}
+          {view !== "scorecard" && <Warnings warnings={warnings} />}
         </section>
         <aside>
           {!phone && panel}
@@ -681,6 +684,26 @@ function Problems({ violations, checking }: { violations: Violation[] | null; ch
       </h2>
       <ul className="problems">
         {violations.map((v, i) => (
+          <li key={i}>
+            {v.stage && <b>{v.stage}: </b>}
+            {v.message} <code>{v.rule}</code>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Saves, but likely does not do what was meant, like a pick gate with one card to pick.
+function Warnings({ warnings }: { warnings: Violation[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <section aria-label="Warnings" data-testid="warnings">
+      <h2>
+        {warnings.length} {warnings.length === 1 ? "warning" : "warnings"}: it saves, but check it
+      </h2>
+      <ul className="problems">
+        {warnings.map((v, i) => (
           <li key={i}>
             {v.stage && <b>{v.stage}: </b>}
             {v.message} <code>{v.rule}</code>
