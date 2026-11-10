@@ -8,6 +8,7 @@ spent is priced like an agent's tokens.
 wraps the tools so a stage reads only the graphs it may (ADR 0009)."""
 
 import os
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -92,6 +93,19 @@ class GraphView(BaseModel):
     spent: Spent
 
 
+class StalledMemory(BaseModel):
+    """A world whose memory has stopped updating: its last `failures` rebuilds failed."""
+
+    world_id: str
+    world_name: str
+    failures: int
+    since: str
+    """When the first of those failures was."""
+    at: str
+    error: str
+    """The last failure's."""
+
+
 class Question(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
@@ -168,5 +182,22 @@ def router(worlds: Worlds, index: GraphIndex, writer: GraphWriter) -> APIRouter:
         return Answer(
             answer=index.call(folder(world_id), "query_graph", {"question": body.question})
         )
+
+    return api
+
+
+def stalled_router(worlds: Worlds, writer: GraphWriter) -> APIRouter:
+    """Every world whose memory is stalled, for the Needs-you page: a graph that silently stops
+    updating lets agents repeat what the world already did."""
+    api = APIRouter(prefix="/api/graph", tags=["graph"])
+
+    @api.get("/stalled")
+    def stalled() -> list[StalledMemory]:
+        out = []
+        for s in writer.stalled():
+            world = worlds.get(s.world_id)
+            if world is not None:
+                out.append(StalledMemory(world_name=world.name, **asdict(s)))
+        return out
 
     return api

@@ -1,8 +1,9 @@
 """Scheduled upkeep across contexts: the outcome write-back and file retention.
 
 `record_outcomes` asks every publish connector a world enables that offers the `outcomes`
-Capability for the Outcomes of all of the world's posts, whoever made them, and writes each
-post's into its publish artifact (frontmatter and body, so the graph sees it). `prune` deletes
+Capability for the Outcomes of all of the world's posts, whoever made them, and records each
+post's beside its publish artifact (Memory.record_outcome), never in it, so the graph does not
+re-extract the world on every view count. `prune` deletes
 each world's run binaries older than its `retention_days` and keeps their markdown. Both are safe
 to repeat: an unchanged Outcome is not written again, a deleted file is gone.
 """
@@ -21,7 +22,7 @@ UPKEEP_SECONDS = 6 * 3600.0
 
 
 def record_outcomes(worlds: Worlds, memory: Memory, registry: Connectors, now: datetime) -> int:
-    """Write fresh Outcomes into publish artifacts; returns how many changed. A post's metrics
+    """Record fresh Outcomes of publish artifacts; returns how many changed. A post's metrics
     from several connectors add up; its Primary Metric is its own connector's when that one
     answered, else the first that did. A connector that cannot answer (its Setup not done) is
     logged and skipped."""

@@ -311,3 +311,26 @@ def test_a_revisited_stage_gets_only_the_note_of_the_send_back_that_caused_this_
     title, body = [(t["title"], t["body"]) for t in tasks][-1]
     assert title == "Rework after send-back 2"
     assert body.startswith("This is a revision, not a fresh start. An earlier stage was redone")
+
+
+def test_an_idea_stage_is_told_what_the_world_already_made_and_published(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    """The world's earlier runs are read from its files, not the graph: the published one is
+    listed with its study, the research run that picked nothing is not."""
+    script.scripts = [PLAN, [GRAPH, CLAIM, FINISH, Say("Done.")], PASS]
+    world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
+    old = tmp_path / "worlds" / world / "runs" / "run_old" / "stage_1" / "artifacts"
+    old.mkdir(parents=True)
+    (old / "publish.md").write_text(
+        '---\ntype: "publish"\ntitle: "Why cats work for food"\nrun: "run_old"\n'
+        'study: "Delgado 2021"\ncreated: "2026-11-04T00:00:00+00:00"\n---\n\n# Posted\n'
+    )
+    wf = running.post(f"/api/worlds/{world}/workflows", json={"yaml": RESEARCH}).json()
+    run = running.post(f"/api/workflows/{wf['workflow_id']}/runs", json={}).json()
+    assert _ended(running, run["id"])["status"] == "done"
+
+    planner, _, judge = script.prompts
+    for prompt in (planner, judge):
+        assert "Already made in this world" in prompt
+        assert "- Why cats work for food (published 2026-11-04): study: Delgado 2021" in prompt

@@ -269,6 +269,25 @@ def _wants(config: dict[str, Any]) -> str:
     return out.strip()
 
 
+REPEATS = "\nLeave out any item that repeats one of them."
+"""What the judge of an idea stage is told after the world's made list."""
+
+
+def _made(config: dict[str, Any]) -> str:
+    """What the world already made, when the composition root hands it in as `made` (one line
+    each, Memory's `made`): an idea stage must not pitch any of it again."""
+    lines = [str(line) for line in config.get("made") or []]
+    if not lines:
+        return ""
+    return "\n".join(
+        [
+            "Already made in this world, newest first. Do not pitch any of these again, nor the"
+            " same core fact, study or premise under a new title or angle:",
+            *lines,
+        ]
+    )
+
+
 def _schema(at: "_At", kind: OutputType | None) -> dict[str, Any] | None:
     """The JSON Schema of the stage's output type when a connector declares it (issue 133): the
     run puts it in the stage's config as `output_schema`."""
@@ -486,6 +505,7 @@ class Swarm:
                 _wants(at.config),
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
                 self._pins(at),
+                _made(at.config),
                 "Query the graph for what the world already knows, then answer with the tasks:"
                 " small, concrete, each one worker can finish alone. `after` lists the indexes"
                 " of earlier tasks in your list that must be done first.",
@@ -596,6 +616,7 @@ class Swarm:
                 " Give your reasons. On fail, name each missing piece as a gap task title; the"
                 " workers take them and you judge again.",
                 output,
+                _made(at.config) + (REPEATS if at.config.get("made") else ""),
                 f"Artifacts of the run: {', '.join(prior)}." if prior else "",
                 *(f"A reviewer sent the stage back with this note: {n}" for n in at.notes),
                 "# Whiteboard",
@@ -929,6 +950,7 @@ class Swarm:
                 _wants(at.config),
                 f"Artifacts of earlier stages: {', '.join(prior)}." if prior else "",
                 self._pins(at),
+                _made(at.config),
                 *(f"Sent back to you with this note: {n}" for n in at.notes),
                 "How you work: "
                 + (

@@ -94,6 +94,7 @@ from swarmify_notifications import Notifications
 from swarmify_notifications import SqliteStorage as ChannelStorage
 from swarmify_runs import (
     DEFAULT_CAP,
+    UNSPOILED,
     Connector,
     Gate,
     Notifier,
@@ -827,6 +828,12 @@ def create_app(
         )
         if schema is not None:  # a type a connector declares: the judge projects its schema
             config["output_schema"] = schema
+        if promised.removeprefix("list[").removesuffix("]") == "idea":
+            # What the world made, from its files, so research never repeats it however far
+            # behind the graph is. Failed and aborted runs made nothing.
+            others = runner.list_all(run.world_id)
+            made = {r.id: r.status for r in others if r.id != run.id and r.status in UNSPOILED}
+            config["made"] = memory.made(run.world_id, made)
         try:
             swarm.run_stage(
                 run.world_id,
@@ -1027,6 +1034,7 @@ def create_app(
     app.include_router(tasks.router(whiteboard, runner.get, clock))
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))
+    app.include_router(graph.stalled_router(world_svc, writer))
     app.include_router(
         library.router(
             memory,

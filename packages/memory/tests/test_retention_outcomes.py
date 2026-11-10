@@ -1,5 +1,5 @@
-"""Retention deletes old run binaries and keeps every markdown record; outcomes land in the
-publish artifact's frontmatter and body."""
+"""Retention deletes old run binaries and keeps every markdown record; outcomes land in a
+sidecar beside the publish artifact, which they never rewrite."""
 
 import os
 from contextlib import closing
@@ -73,32 +73,36 @@ def test_prune_deletes_old_binaries_and_keeps_markdown_and_sidecars(memory: Memo
     assert memory.prune("w2", NOW, NOW) == []  # a world without runs
 
 
-def test_an_outcome_lands_in_frontmatter_and_body_replacing_the_last_one(memory: Memory) -> None:
+def test_an_outcome_lives_beside_the_publish_record_which_never_changes_for_it(
+    memory: Memory,
+) -> None:
+    """View counts move every few hours; the publish record is what the graph extracts, so they
+    go in a sidecar that the graph skips, and every reader sees them merged into the fields."""
     body = "# Five hooks\n\nshort.mp4 went to youtube: public, now.\n\n- youtube: https://youtu.be/v1\n"
-    old = {"id": "v1", "views": 9, "views_at": "2026-10-01"}  # written before outcomes were generic
     path = memory.write_artifact(
-        "w1", "r1", "s9", "publish", "publish.md", body, kind="publish", fields=old
+        "w1", "r1", "s9", "publish", "publish.md", body, kind="publish", fields={"id": "v1"}
     )
-    [(found, fields)] = memory.publish_records("w1")
-    assert (found, fields["type"], fields["id"]) == (path, "publish", "v1")
+    record = memory.world_folder("w1") / path
+    written = record.read_text()
 
     memory.record_outcome("w1", path, {"views": 41000}, "views", NOW)
     memory.record_outcome(
         "w1", path, {"views": 41250, "clicks": 3}, "views", NOW + timedelta(days=1)
     )
 
-    text = (memory.world_folder("w1") / path).read_text()
-    [(_, fields)] = memory.publish_records("w1")
-    assert "views" not in fields and "views_at" not in fields
+    assert record.read_text() == written
+    sidecar = record.with_name(".publish.md.outcomes.json")
+    assert sidecar.is_file()
+    [(found, fields)] = memory.publish_records("w1")
+    assert (found, fields["type"], fields["id"]) == (path, "publish", "v1")
     assert fields["outcomes"] == {"views": 41250, "clicks": 3}
     assert (fields["outcomes_at"], fields["primary_metric"]) == (
         "2026-10-27T12:00:00+00:00",
         "views",
     )
-    assert text.count("## Outcome") == 1
-    assert text.endswith(
-        "- youtube: https://youtu.be/v1\n\n## Outcome\n\n41,250 views, 3 clicks as of 2026-10-27.\n"
-    )
+    [card] = memory.stage_artifacts("w1", "r1", "s9")
+    assert card.name == "publish.md" and card.fields["outcomes"] == {"views": 41250, "clicks": 3}
+    assert [a.name for a in memory.library("w1")] == ["publish.md"]  # the sidecar is no artifact
     recorded = [(t, p) for t, p in _events(memory) if t == "outcome.recorded"]
     assert recorded[-1] == (
         "outcome.recorded",
@@ -106,3 +110,31 @@ def test_an_outcome_lands_in_frontmatter_and_body_replacing_the_last_one(memory:
     )
     with pytest.raises(ValueError, match="not a file"):
         memory.record_outcome("w1", "../../escape.md", {}, "views", NOW)
+
+    # Retention keeps it however old: it is the record's, not a run binary.
+    _age(sidecar, 400)
+    assert memory.prune("w1", NOW - timedelta(days=90), NOW) == [] and sidecar.is_file()
+
+
+def test_a_record_with_outcomes_in_its_text_is_read_and_moved_out_on_the_next_outcome(
+    memory: Memory,
+) -> None:
+    """Records from before the sidecar keep their outcome in the frontmatter (and `views` before
+    outcomes were generic) and an Outcome section: read as they are, cleaned once on the next
+    outcome, then left alone."""
+    old = {"id": "v1", "outcomes": {"views": 9}, "outcomes_at": "2026-10-01", "views": 9}
+    body = "# Five hooks\n\n- youtube: https://youtu.be/v1\n\n## Outcome\n\n9 views, 2026-10-01.\n"
+    path = memory.write_artifact(
+        "w1", "r1", "s9", "publish", "publish.md", body, kind="publish", fields=old
+    )
+    [(_, fields)] = memory.publish_records("w1")
+    assert fields["outcomes"] == {"views": 9}
+
+    memory.record_outcome("w1", path, {"views": 12}, "views", NOW)
+    text = (memory.world_folder("w1") / path).read_text()
+    assert "## Outcome" not in text and "outcomes" not in text and "views" not in text
+    assert text.endswith("- youtube: https://youtu.be/v1\n")
+    [(_, fields)] = memory.publish_records("w1")
+    assert fields["outcomes"] == {"views": 12} and "views" not in fields
+    memory.record_outcome("w1", path, {"views": 15}, "views", NOW)
+    assert (memory.world_folder("w1") / path).read_text() == text

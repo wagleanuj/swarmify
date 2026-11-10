@@ -15,6 +15,7 @@ from fake_graph import fake_extract, shrinking_extract
 from sse import sse_events
 from swarmify_api.main import create_app
 from swarmify_memory import EMPTY, FakeGraphIndex
+from swarmify_memory.writer import STALLED
 from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Say, Script
 
@@ -221,6 +222,34 @@ def test_a_shrink_refusal_shows_on_the_graph_and_accepting_it_rebuilds_with_the_
         assert client.post("/api/worlds/world_nope/graph/accept-shrink").status_code == 404
     assert view["failed"] is None and view["accepted"] is False and view["nodes"] == 2
     assert view["spent"]["rebuilds"] == 2  # the refused one counts too
+
+
+def test_a_memory_whose_rebuilds_keep_failing_is_listed_as_stalled(
+    tmp_path: Path, script: Script, graph_index: FakeGraphIndex
+) -> None:
+    def failing(folder: Path, allow_shrink: bool = False) -> dict[str, int]:
+        raise RuntimeError("claude is not logged in")
+
+    app = create_app(
+        tmp_path,
+        runtime=SdkRuntime(transport=script.transport),
+        graph_index=graph_index,
+        extract=failing,
+        graph_debounce=0.1,
+        graph_poll=0.02,
+        retro=False,
+    )
+    with TestClient(app) as client:
+        world = client.post("/api/worlds", json={"name": "Kids"}).json()["id"]
+        url = f"/api/worlds/{world}/graph"
+        for n in range(STALLED):
+            assert client.get("/api/graph/stalled").json() == []
+            (tmp_path / "worlds" / world / f"brief-{n}.md").write_text("# Brief\n\nShort hooks.\n")
+            _until(lambda n=n: client.get(url).json()["spent"]["rebuilds"] == n + 1)
+        (stalled,) = client.get("/api/graph/stalled").json()
+    assert (stalled["world_id"], stalled["world_name"]) == (world, "Kids")
+    assert stalled["failures"] == STALLED and "not logged in" in stalled["error"]
+    assert stalled["since"] <= stalled["at"]
 
 
 def test_the_graph_shows_communities_and_surprises_linked_to_their_runs(
