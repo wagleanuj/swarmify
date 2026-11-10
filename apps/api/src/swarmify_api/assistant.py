@@ -24,10 +24,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
+from swarmify_api.remote import offered
 from swarmify_connectors import Call
 from swarmify_kernel import new_id
 from swarmify_kernel.sqlite import connect
-from swarmify_memory import GraphIndex
+from swarmify_memory import ArtifactFile, GraphIndex
 from swarmify_runs import ChangeProposal, Illegal, PublishPreview, Run, RunChange, Runner
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import (
@@ -117,6 +118,22 @@ To change an editable field of the form (title, description, hashtags, tags), an
 `fields` by key with its whole new value: it fills the gate's form for the operator to confirm,
 so propose no change for it. To change a file the post reads (like metadata.md), propose an
 artifact_edit of it."""
+PICK = """The gate is a pick. It offers these cards, best ranked first, and the operator can pick
+only one of them: {cards}
+
+When the operator wants an item that is not among them (another idea, a rank the cards do not
+have), say plainly that this gate does not offer it; never tell them to pick it here. Say what
+they can do instead: pick the closest card and write what they want in the gate's note, or have
+the stage that made the cards make it, by proposing a rerun of {maker} with a note naming the
+item."""
+ONE = """{maker} has output_type {type}, which keeps only its best item, so this gate offers one
+card. A new version of the workflow with output_type: list[{type}] would offer them all."""
+Cards = Callable[[str, int], list[ArtifactFile]]
+"""A run's artifacts before a stage index, the cards a pick gate there chooses from."""
+
+
+def no_cards(_run_id: str, _index: int) -> list[ArtifactFile]:
+    return []
 
 
 class Ask(BaseModel):
@@ -548,20 +565,37 @@ class Reader:
         return json.dumps({"id": made, **jsonable_encoder(proposal)})
 
 
-def at_gate(runner: Runner, run: Run) -> tuple[str, PublishPreview | None]:
-    """What the session hears of the gate the run waits at: its ask, and what the publish stage
-    after it sends, with the fields the gate's form edits, which a reply fills instead of
-    proposing a change. Nothing when no gate waits."""
+def at_gate(runner: Runner, run: Run, cards: Cards = no_cards) -> tuple[str, PublishPreview | None]:
+    """What the session hears of the gate the run waits at: its ask; at a pick gate, the cards
+    it offers; and what the publish stage after it sends, with the fields the gate's form
+    edits, which a reply fills instead of proposing a change. Nothing when no gate waits."""
     gate = next((s for s in run.stages if s.type == "gate" and s.status == "waiting"), None)
     if gate is None:
         return "", None
     told = f"The run waits at the gate {gate.name} ({gate.id}), which asks: {gate.ask}"
+    if gate.config.get("kind") == "pick":
+        told = "\n\n".join([told, picking(run, gate.index, cards(run.id, gate.index))])
     preview = runner.preview_after(run, gate.index)
     if preview is None:
         return told, None
     fields = [{"key": f.key, "value": f.value, "editable": f.editable} for f in preview.fields]
     shown = json.dumps({"fields": fields, "problems": preview.problems})
     return "\n\n".join([told, GATE.format(preview=shown)]), preview
+
+
+def picking(run: Run, index: int, cards: list[ArtifactFile]) -> str:
+    """What the session hears of a pick gate at `index`: the cards it offers, and what to say
+    when the operator wants one it does not."""
+    shown = [
+        {"title": c.title, "rank": c.fields.get("rank"), "path": c.path} for c in offered(cards)
+    ]
+    made = [s for s in run.stages[:index] if s.type != "gate"]
+    maker = f"{made[-1].name} ({made[-1].id})" if made else "the stage before"
+    told = PICK.format(cards=json.dumps(shown), maker=maker)
+    promised = "".join(str(made[-1].config.get("output_type") or "").split()) if made else ""
+    if len(shown) <= 1 and promised and not promised.startswith("list["):
+        told = "\n\n".join([told, ONE.format(maker=maker, type=promised)])
+    return told
 
 
 def parse_answer(
@@ -593,13 +627,13 @@ class Unanswered(Exception):
 async def answer(
     runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage, index: GraphIndex,
     runtime: AgentRuntime, conversations: Conversations, calls: Callable[[str], Call | None],
-    run: Run, message: str,
+    run: Run, message: str, cards: Cards = no_cards,
 ) -> Message:  # fmt: skip
     """One turn of the run's Run Assistant, for HTTP and MCP alike: `message` in, the reply
     with its sources and proposals out. Raises Unanswered, with nothing kept but what the
     session cost."""
     reader = Reader(run.id, runner, worlds, workflows, board, index, conversations, calls)
-    gate, preview = at_gate(runner, run)
+    gate, preview = at_gate(runner, run, cards)
     named = f"The run is {run.name}, id {run.id}, in the world {run.world_id}."
     system = "\n\n".join(filter(None, [SYSTEM, named, gate]))
     end: SessionEnd | None = None
@@ -630,18 +664,18 @@ class RunAssistant:
     def __init__(
         self, runner: Runner, worlds: Worlds, workflows: Workflows, board: Storage,
         index: GraphIndex, runtime: AgentRuntime, conversations: Conversations,
-        calls: Callable[[str], Call | None],
+        calls: Callable[[str], Call | None], cards: Cards = no_cards,
     ) -> None:  # fmt: skip
         self.runner, self.worlds, self.workflows, self.board = runner, worlds, workflows, board
         self.index, self.runtime, self.conversations = index, runtime, conversations
-        self.calls = calls
+        self.calls, self.cards = calls, cards
 
     async def ask(self, run: Run, message: str) -> Message:
         """One turn: `message` in, the reply with its sources and proposals out. Raises
         Unanswered when the session fails or answers out of shape."""
         return await answer(
             self.runner, self.worlds, self.workflows, self.board, self.index, self.runtime,
-            self.conversations, self.calls, run, message,
+            self.conversations, self.calls, run, message, self.cards,
         )  # fmt: skip
 
     def apply(self, run_id: str, proposal_id: str, by: str) -> Card:
@@ -709,6 +743,7 @@ def router(
     runtime: AgentRuntime,
     conversations: Conversations,
     calls: Callable[[str], Call | None],
+    cards: Cards = no_cards,
 ) -> APIRouter:
     api = APIRouter(prefix="/api", tags=["assistant"])
 
@@ -727,7 +762,7 @@ def router(
         try:
             return await answer(
                 runner, worlds, workflows, board, index, runtime, conversations, calls, run,
-                body.message,
+                body.message, cards,
             )  # fmt: skip
         except Unanswered as exc:
             raise HTTPException(502, f"The assistant did not answer: {exc}") from exc

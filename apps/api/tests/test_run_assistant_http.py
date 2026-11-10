@@ -10,6 +10,7 @@ import pytest
 from api_fakes import sign_in_youtube
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from test_gates_http import GRAPH, waiting_at
 from test_publish_http import SCRIPT, setup, weekly
 from test_publish_http import at_gate as publish_gate
 from test_rerun_skip_http import at_check, step
@@ -19,7 +20,7 @@ from swarmify_connectors import FakeTransport
 from swarmify_memory import FakeGraphIndex
 from swarmify_memory.ports import graph_file
 from swarmify_swarm import SqliteStorage, tool_id
-from swarmify_swarm.fake import Answer, Call, Die, Say, Script
+from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script
 
 READS = ("get_run", "read_run_file", "tail_stage_log", "list_run_events")
 READS += ("list_workflow_runs", "query_graph")
@@ -321,3 +322,45 @@ def test_away_from_a_publish_gate_the_assistant_fills_no_fields(
     assert asked.status_code == 200, asked.text
     assert asked.json()["fields"] == {}
     assert "fields" not in str(script.sessions[0].system_prompt)
+
+
+ONE_IDEA_THEN_PICK = """name: One idea
+stages:
+  - swarm: research
+    goal: Find ideas.
+    done_when: 2 ideas ranked
+    tools: [web_search]
+    output_type: idea
+  - gate: pick
+    ask: Pick one idea.
+    kind: pick
+"""
+
+
+def test_at_a_pick_gate_the_assistant_hears_the_cards_offered_and_what_to_say_of_others(
+    running: TestClient, script: Script
+) -> None:
+    """A singular output_type keeps the best idea only: the assistant is told the one card the
+    gate offers, so it says plainly that another idea is not offered and what to do instead."""
+    ideas = [
+        {"title": "Chase", "body": "A chase.", "rank": 2, "sources": []},
+        {"title": "Hooks", "body": "Open on the hook.", "rank": 1, "sources": []},
+    ]
+    plan = Answer({"tasks": [{"title": "Find ideas."}]})
+    work = [GRAPH, Call(tool_id("claim_task")), Call(tool_id("finish_task"), {"task_id": LAST})]
+    judge = Answer({"passed": True, "reasons": ["Two ideas."], "items": ideas})
+    reply = Answer({"reply": "This gate offers only Hooks."})
+    script.scripts = [[plan], work, [judge], [reply]]
+    world = running.post("/api/worlds", json={"name": "Shorts"}).json()["id"]
+    body = {"yaml": ONE_IDEA_THEN_PICK}
+    wf = running.post(f"/api/worlds/{world}/workflows", json=body).json()["workflow_id"]
+    run = running.post(f"/api/workflows/{wf}/runs", json={}).json()
+    run = waiting_at(running, run["id"], "pick")
+    asked = running.post(f"/api/runs/{run['id']}/assistant", json={"message": "Pick Chase"})
+    assert asked.status_code == 200, asked.text
+    told = str(script.sessions[-1].system_prompt)
+    research = stage(run, "research")["id"]
+    card = f"runs/{run['id']}/{research}/artifacts/idea-hooks.md"
+    assert '"title": "Hooks"' in told and card in told and "Chase" not in told
+    assert "does not offer it" in told and f"rerun of research ({research})" in told
+    assert "output_type: list[idea]" in told  # why there is only one card

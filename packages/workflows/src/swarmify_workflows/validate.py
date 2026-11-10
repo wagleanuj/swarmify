@@ -174,6 +174,31 @@ def validate(
     return out
 
 
+def warnings(model: WorkflowModel) -> list[Violation]:
+    """What saves but likely does not do what was meant. A pick gate after a swarm stage whose
+    output_type is one item (not list[...]) offers one card: the stage keeps only its best."""
+    out: list[Violation] = []
+    for index, stage in enumerate(model.stages):
+        if not (isinstance(stage, GateStage) and stage.kind == "pick"):
+            continue
+        before = [s for s in model.stages[:index] if not isinstance(s, GateStage)]
+        maker = before[-1] if before else None
+        if not isinstance(maker, SwarmStage):
+            continue
+        promised = "".join((maker.output_type or "").split())
+        if promised and not promised.startswith("list["):
+            out.append(
+                Violation(
+                    "pick_one",
+                    f"pick gate '{stage.name}' follows swarm stage '{maker.name}', whose"
+                    f" output_type {promised} keeps only its best item, so there is nothing to"
+                    f" pick; give it output_type: list[{promised}]",
+                    stage.name,
+                )
+            )
+    return out
+
+
 def _reaches(graph: Mapping[str, Sequence[str]], start: str, target: str) -> bool:
     seen: set[str] = set()
     todo = list(graph.get(start, ()))

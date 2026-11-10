@@ -6,7 +6,7 @@ in a function from world id to the connectors that world allows.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -30,7 +30,7 @@ from swarmify_workflows.ports import Storage
 from swarmify_workflows.schedule import cron_problem, next_fire
 from swarmify_workflows.sqlite import MIGRATIONS, SqliteStorage
 from swarmify_workflows.starters import STARTERS, Starter
-from swarmify_workflows.validate import validate
+from swarmify_workflows.validate import validate, warnings
 
 __all__ = [
     "MIGRATIONS",
@@ -60,10 +60,12 @@ __all__ = [
 
 @dataclass(frozen=True)
 class Draft:
-    """A checked but unsaved workflow: its model when the shape parsed, and every violation."""
+    """A checked but unsaved workflow: its model when the shape parsed, every violation, and
+    the warnings, which save but likely do not do what was meant."""
 
     model: WorkflowModel | None
     violations: list[Violation]
+    warnings: list[Violation] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -122,7 +124,7 @@ class Workflows:
                 connectors=self.connectors_for(world_id, pins or {}),
                 references=self._references(),
             )
-        return Draft(model, violations)
+        return Draft(model, violations, warnings(model) if model is not None else [])
 
     def save(self, world_id: str, yaml: str, workflow_id: str | None = None) -> WorkflowVersion:
         """Create a workflow (no id) or append a version to one. Raises Invalid; saves nothing."""

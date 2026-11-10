@@ -117,6 +117,7 @@ def test_an_invalid_workflow_is_a_422_naming_every_violation_and_saves_nothing(
                 "stage": "youtube",
             },
         ],
+        "warnings": [],
         "model": None,
         "next_run_at": None,
     }
@@ -134,6 +135,12 @@ def test_check_reports_inline_without_saving(client: TestClient) -> None:
     url = f"/api/worlds/{world_id}/workflows/check"
     clean = client.post(url, json={"yaml": WEEKLY}).json()
     assert clean["violations"] == [] and clean["model"]["name"] == "Weekly short"
+    assert clean["warnings"] == []
+    one = client.post(
+        url,
+        json={"yaml": WEEKLY.replace("  - gate: pick", "    output_type: idea\n  - gate: pick")},
+    ).json()
+    assert one["violations"] == [] and [w["rule"] for w in one["warnings"]] == ["pick_one"]
 
     broken = client.post(url, json={"yaml": "name: x\nstages:\n  - swarm: ["}).json()
     assert broken["model"] is None and broken["violations"][0]["rule"] == "yaml"

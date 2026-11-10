@@ -74,10 +74,16 @@ def answers(gate: Gate, cards: list[ArtifactFile]) -> list[dict[str, Any]]:
             out.append({"label": f"Send back to {back}", "decide": {"send_back_to": back}})
         return out
     if gate.kind == "pick":
-        shown = [c for c in cards if c.type not in NOT_CHOSEN and not c.fields.get("deleted")]
-        shown.sort(key=lambda c: c.fields.get("rank") or 1e9)
-        return [{"label": c.title, "decide": {"artifact": c.path}} for c in shown[:CHOICES]]
+        shown = offered(cards)[:CHOICES]
+        return [{"label": c.title, "decide": {"artifact": c.path}} for c in shown]
     return []
+
+
+def offered(cards: list[ArtifactFile]) -> list[ArtifactFile]:
+    """The cards a pick gate offers, best ranked first: what is left once the types a pick never
+    chooses and the deleted cards are out."""
+    shown = [c for c in cards if c.type not in NOT_CHOSEN and not c.fields.get("deleted")]
+    return sorted(shown, key=lambda c: c.fields.get("rank") or 1e9)
 
 
 class RemoteApprovals:

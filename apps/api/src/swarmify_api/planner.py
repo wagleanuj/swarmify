@@ -59,7 +59,9 @@ plus its fields:
   graphs, output_type (idea or list[idea], or a type a connector declares, below), produces
   (artifact file names), agents (how many workers, 1 by default; leave it at 1 unless asked).
 - gate: ask; optional kind: pick | approve | confirm (approve by default); an approve gate may set
-  max_send_backs, how often it may send the run back (2 by default).
+  max_send_backs, how often it may send the run back (2 by default). A pick gate offers the
+  items of the swarm stage before it, so give that stage a list output_type (list[idea]): a
+  single one (idea) keeps only its best item, leaving one card to pick.
 - connector: calls (connector name, defaults to the stage name); optional input, output, params;
   inputs (a list of artifact names, each produced by an earlier stage) instead of input when
   the connector takes several files.

@@ -226,6 +226,23 @@ test("a save the API refuses shows its violations inline", async () => {
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/new");
 });
 
+test("a warning shows beside passing checks and does not block saving", async () => {
+  const pickOne = {
+    rule: "pick_one",
+    message: "pick gate 'pick' follows swarm stage 'research', whose output_type idea keeps only its best item",
+    stage: "pick",
+  };
+  fake({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "POST /api/worlds/world_1/workflows/check": () => Response.json({ violations: [], warnings: [pickOne], model }),
+  });
+  const { screen } = await mountAt("/worlds/world_1/workflows/new");
+  await expect.element(screen.getByTestId("problems")).toMatchTextContent(/Checks pass/);
+  await expect.element(screen.getByRole("heading", { name: "1 warning: it saves, but check it" })).toBeVisible();
+  await expect.element(screen.getByTestId("warnings")).toMatchTextContent(/pick: pick gate 'pick' follows.*pick_one/);
+  await expect.element(screen.getByRole("button", { name: "Save as version 1" })).toBeEnabled();
+});
+
 test("a workflow that no longer exists is an alert", async () => {
   fake({ "GET /api/worlds/world_1": () => Response.json(video) });
   const { screen } = await mountAt("/worlds/world_1/workflows/wf_gone");

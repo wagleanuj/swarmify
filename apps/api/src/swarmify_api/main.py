@@ -1050,7 +1050,7 @@ def create_app(
         runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations,
         registry.call_for,
     )  # fmt: skip
-    asker = assistant.RunAssistant(*reads)
+    asker = assistant.RunAssistant(*reads, cards=cards)
     tools = mcp.server(
         world_svc,
         workflow_svc,
@@ -1062,7 +1062,7 @@ def create_app(
         ask=asker.ask,
     )
     app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
-    app.include_router(assistant.router(*reads))
+    app.include_router(assistant.router(*reads, cards=cards))
     app.include_router(save_to_workflow.router(*reads))
     # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.
     # Stateless: each request stands alone, so nothing is lost when the api restarts.
