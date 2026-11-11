@@ -1524,6 +1524,15 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
   To carry data across, stop both services and copy the volume, for example
   `docker run --rm -v swarmify_data:/data -v "$PWD":/out debian tar czf /out/data.tgz -C /data .`
   and the reverse `tar xzf` on the VM.
+- Backups: back up only when a deploy changes stored data (a migration, a new data layout), not
+  on every deploy, with `python3 tools/backup_data.py LABEL [--dest /data] [--keep 3] [--dry-run]`
+  on the host, as a user in the docker group. It writes
+  `DEST/swarmify-data-backup-LABEL-YYYYMMDD-HHMM.tgz` from the `swarmify_data` volume in a
+  throwaway container of the api image: each SQLite file copied with SQLite's backup API, the
+  rest as is, less what can be made again (`node_modules`, `npm-cache`, `sandbox/cache`, a run's
+  `build` and `frames` folders, `assets/motionlib/.store`). It refuses to start if the archive
+  would leave under 10 GB free, reads it back in full, and only then deletes all but the newest
+  3. `--dry-run` prints the sizes and what it would write and delete.
 - A package's Setup lives in the volume's `/data/setup.json`, set from the connectors page as
   natively.
 - The connector sandbox (see The connector sandbox) and a Build Session's Bash sandbox with
