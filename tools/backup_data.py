@@ -8,8 +8,11 @@ Run on the host as a user in the docker group, no sudo: it starts itself again i
 container of the api image with the volume at /data and DEST at /out. There every SQLite file is
 copied with SQLite's backup API, never tarred live, and the rest goes in as is, less what can be
 made again: node_modules, caches, a run's build and frames folders and the motionlib store. The
-archive is read back in full before the oldest beyond --keep are deleted. It refuses to start if
-the archive (counted at its uncompressed size) would leave under 10 GB free in DEST.
+archive is read back in full before the oldest beyond --keep are deleted. The backups that keep-N
+would delete anyway (all but the newest keep-1) go first, but only once the keep-1 that stay read
+back whole. It refuses to start if the archive, estimated at 1:1 for media and archives and 3:1 for
+the rest, would leave under 10 GB free in DEST once those are gone. --dry-run prints the whole
+plan, the refusal included.
 
 It runs on the host's own Python (3.8 on Ubuntu 20.04), stdlib only.
 """
@@ -41,6 +44,9 @@ EXCLUDE = (
 )
 SQLITE_EXT = (".db", ".sqlite", ".sqlite3")
 SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
+# Already compressed, so counted at full size; the rest is counted at a third.
+# ponytail: a fixed 3:1 guess, sample real ratios if it misjudges a volume.
+COMPRESSED_EXT = (".png", ".jpg", ".jpeg", ".mp4", ".wav", ".webm", ".zip", ".tgz", ".gz")
 
 
 def excluded(rel: str) -> bool:
@@ -57,12 +63,12 @@ def is_sqlite(path: Path) -> bool:
         return f.read(16) == b"SQLite format 3\x00"
 
 
-def plan(root: Path) -> tuple[list[str], list[str], int]:
-    """The files to tar and the SQLite files to copy first (paths relative to root), and
-    their total size."""
+def plan(root: Path) -> tuple[list[str], list[str], int, int]:
+    """The files to tar and the SQLite files to copy first (paths relative to root), their
+    total size and the archive's estimated size."""
     files: list[str] = []
     dbs: list[str] = []
-    size = 0
+    size = est = 0
     for top, dirs, names in os.walk(root):
         rel_top = os.path.relpath(top, root)
         rel_top = "" if rel_top == "." else rel_top + "/"
@@ -74,14 +80,20 @@ def plan(root: Path) -> tuple[list[str], list[str], int]:
             if name.endswith(SQLITE_SIDECARS) and name.rsplit("-", 1)[0].endswith(SQLITE_EXT):
                 continue  # the copy below folds in the WAL
             (dbs if is_sqlite(path) else files).append(rel)
-            size += path.stat().st_size
-    return files, dbs, size
+            n = path.stat().st_size
+            size += n
+            est += n if name.lower().endswith(COMPRESSED_EXT) else n // 3
+    return files, dbs, size, est
+
+
+def backups(dest: Path) -> list[Path]:
+    """The backups in dest, newest first."""
+    return sorted(dest.glob(PREFIX + "*.tgz"), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def to_prune(dest: Path, keep: int) -> list[Path]:
     """The backups in dest beyond the newest `keep`."""
-    found = sorted(dest.glob(PREFIX + "*.tgz"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return found[max(keep, 0) :]
+    return backups(dest)[max(keep, 0) :]
 
 
 def verify(archive: Path) -> None:
@@ -92,20 +104,43 @@ def verify(archive: Path) -> None:
         tar.getmembers()
 
 
+def early_prune(dest: Path, keep: int) -> tuple[list[Path], list[Path]]:
+    """The backups keep-N deletes anyway once the new one counts as one of `keep` (all but
+    the newest keep-1), and the ones that stay. None go early unless at least one stays."""
+    found = backups(dest)
+    stay = max(keep - 1, 1)  # never write the new one with no backup left
+    return found[stay:], found[:stay]
+
+
 def inside(label: str, root: Path, dest: Path, keep: int, dry: bool, owner: str) -> None:
-    files, dbs, size = plan(root)
+    files, dbs, size, est = plan(root)
     free = os.statvfs(dest).f_bavail * os.statvfs(dest).f_frsize
     name = f"{PREFIX}{label}-{time.strftime('%Y%m%d-%H%M')}.tgz"
     gb = 2**30
-    print(f"{len(files)} files and {len(dbs)} SQLite files, {size / gb:.1f} GB uncompressed")
-    print(f"free in {dest}: {free / gb:.1f} GB, after at most: {(free - size) / gb:.1f} GB")
-    if free - size < MIN_FREE:
-        sys.exit(f"refusing: under {MIN_FREE // gb} GB would be left free")
+    early, stay = early_prune(dest, keep)
+    freed = sum(p.stat().st_size for p in early)
+    after = free + freed - est
+    print(f"{len(files)} files and {len(dbs)} SQLite files, {size / gb:.1f} GB uncompressed,"
+          f" archive about {est / gb:.1f} GB")  # fmt: skip
+    print(f"free in {dest}: {free / gb:.1f} GB, pruned first: {freed / gb:.1f} GB,"
+          f" after: about {after / gb:.1f} GB")  # fmt: skip
+    for old in stay:
+        print(f"{'would keep' if dry else 'keep'} {old}")
+    for old in early:
+        print(f"{'would delete' if dry else 'delete'} {old} ({old.stat().st_size / gb:.1f} GB)"
+              f" once the {len(stay)} kept read back whole")  # fmt: skip
     if dry:
         print(f"would write {dest / name} with SQLite copies of: {', '.join(dbs) or 'none'}")
-        for old in to_prune(dest, keep - 1):
-            print(f"would delete {old}")
+    if after < MIN_FREE:
+        sys.exit(f"refusing: under {MIN_FREE // gb} GB would be left free")
+    if dry:
         return
+    if early:
+        for old in stay:
+            verify(old)  # raises on a bad archive, so nothing is deleted early
+        for old in early:
+            old.unlink()
+            print(f"deleted {old}")
     part = dest / (name + ".part")
     with tempfile.TemporaryDirectory(dir=dest) as tmp:
         with tarfile.open(part, "w:gz") as tar:
