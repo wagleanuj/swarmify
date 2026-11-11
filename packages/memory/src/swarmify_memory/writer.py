@@ -22,6 +22,7 @@ polls for, so it works from another process too: the world is rebuilt at once wi
 queue, and a rebuild it outlived records nothing and removes the folder graphify recreated.
 """
 
+import fnmatch
 import itertools
 import json
 import logging
@@ -48,9 +49,11 @@ log = logging.getLogger(__name__)
 SKIP_DIRS = frozenset({"node_modules", ".git", ".venv", "__pycache__"})
 """Folders no graph needs and the watcher must not walk: one remotion build's node_modules alone is
 some 20,000 files, and a world keeps one per run."""
-BUILDS = "runs/*/*/build/"
-"""Each build stage's working copy of its Template (code, not knowledge): neither watched nor
-extracted. The stage's artifacts stay in."""
+GENERATED = ("build", "build.*", "frames", "stills", "shots", "shader-cache")
+"""A stage's working folders, neither watched nor extracted: its Template's working copy and an
+earlier copy kept beside it (code, not knowledge), and what a render makes on the way to its
+video (per-frame PNGs, contact-sheet stills, per-shot cuts, the GPU's shader cache), thousands
+of images per run. The stage's artifacts stay in."""
 DEBOUNCE = 30.0
 """Seconds a world must be quiet after its last file change before it is rebuilt."""
 POLL = 2.0
@@ -110,8 +113,7 @@ def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
         f"{GRAPH_OUT}/",
         "--exclude",
         f"{ASSETS}/",
-        "--exclude",
-        BUILDS,
+        *(a for d in GENERATED for a in ("--exclude", f"runs/*/*/{d}/")),
         "--exclude",
         f"*{OUTCOMES}",
         *(["--allow-partial"] if allow_shrink else []),
@@ -141,8 +143,8 @@ def run_graphify(folder: Path, allow_shrink: bool = False) -> Usage:
 
 def snapshot(folder: Path) -> Snapshot:
     """Every file's (mtime, size) but outcome sidecars, pruning the graph output, the assets, run
-    builds and SKIP_DIRS before descending, so the poll stays cheap however many builds a world
-    keeps."""
+    GENERATED folders and SKIP_DIRS before descending, so the poll stays cheap however many builds
+    and renders a world keeps."""
     # ponytail: a stat walk per world per poll; switch to FSEvents/inotify (watchdog) when a
     # world's knowledge itself reaches tens of thousands of files.
     files: Snapshot = {}
@@ -162,7 +164,11 @@ def _skipped(rel: Path) -> bool:
     return (
         rel.name in SKIP_DIRS
         or parts in ((GRAPH_OUT,), (ASSETS,))
-        or (len(parts) == 4 and parts[0] == "runs" and parts[3] == "build")
+        or (
+            len(parts) == 4
+            and parts[0] == "runs"
+            and any(fnmatch.fnmatchcase(parts[3], d) for d in GENERATED)
+        )
     )
 
 

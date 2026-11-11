@@ -317,7 +317,7 @@ def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
 def test_the_assets_are_files_not_knowledge_so_the_graph_skips_them(tmp_path: Path) -> None:
     cmd = extract_command(tmp_path)
     excluded = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--exclude"]
-    assert excluded == [f"{GRAPH_OUT}/", "assets/", "runs/*/*/build/", f"*{OUTCOMES}"]
+    assert excluded[:2] == [f"{GRAPH_OUT}/", "assets/"] and excluded[-1] == f"*{OUTCOMES}"
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets/bed.mp3").write_bytes(b"ID3")
     (tmp_path / "notes.md").write_text("x")
@@ -342,6 +342,32 @@ def test_run_builds_and_dependency_folders_are_neither_watched_nor_extracted(
         "runs/run_1/stage_1/artifacts/video.mp4.md",
     ]
     assert "runs/*/*/build/" in extract_command(tmp_path)
+
+
+def test_render_frames_and_other_generated_media_are_neither_watched_nor_extracted(
+    tmp_path: Path,
+) -> None:
+    """A Blender build stage renders thousands of per-frame PNGs, contact-sheet stills and
+    per-shot cuts beside its artifacts (#443 ingested them as some 9000 nodes): graphify's real
+    file scan must skip them, and so must the poll. Notes and artifacts stay in."""
+    from graphify.detect import detect
+
+    stage = tmp_path / "runs/run_1/stage_1"
+    generated = (
+        "frames/s01/frame_0001.png", "frames/s01.stamp", "stills/s01.png", "stills/s01.log",
+        "shots/s01.mp4", "shots/join.txt", "shader-cache/GLCache/a/b.bin", "build.v1/s/scenes.py",
+    )  # fmt: skip
+    kept = ("artifacts/script.md", "artifacts/cover.png", "notes/research.md")
+    for path in (*generated, *kept):
+        (stage / path).parent.mkdir(parents=True, exist_ok=True)
+        (stage / path).write_bytes(b"\x89PNG\r\n" if path.endswith(".png") else b"x")
+    want = sorted(f"runs/run_1/stage_1/{p}" for p in kept)
+    assert sorted(writer_module.snapshot(tmp_path)) == want
+    cmd = extract_command(tmp_path)
+    excludes = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--exclude"]
+    assert "runs/*/*/frames/" in excludes and "runs/*/*/build/" in excludes
+    found = detect(tmp_path, extra_excludes=excludes)["files"]
+    assert sorted(str(Path(f).relative_to(tmp_path)) for k in found.values() for f in k) == want
 
 
 def test_outcome_sidecars_are_neither_watched_nor_extracted(db: Path, tmp_path: Path) -> None:
