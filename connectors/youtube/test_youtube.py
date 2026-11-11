@@ -236,7 +236,14 @@ def post(google: FakeGoogle, video: Path, key: str = "", **confirmed: Any) -> di
 def test_a_scheduled_upload_is_private_with_publish_at(video: Path) -> None:
     google = FakeGoogle()
     out = post(google, video, description="d", schedule="2099-01-01T09:00:00Z")
-    assert out == {"id": "vid1", "url": "https://youtu.be/vid1", "status": "scheduled"}
+    # public at its time: the generic publish answer says so, and when
+    assert out == {
+        "id": "vid1",
+        "url": "https://youtu.be/vid1",
+        "status": "scheduled",
+        "public": True,
+        "scheduled_for": "2099-01-01T09:00:00Z",
+    }
     start, upload = google.requests
     assert start.url.params["uploadType"] == "resumable"
     assert start.url.params["part"] == "snippet,status"
@@ -256,7 +263,9 @@ def test_a_scheduled_upload_is_private_with_publish_at(video: Path) -> None:
 
 def test_an_unscheduled_upload_takes_its_visibility_now(video: Path) -> None:
     google = FakeGoogle()
-    assert post(google, video, visibility="unlisted")["status"] == "published"
+    out = post(google, video, visibility="unlisted")
+    assert (out["status"], out["public"], "scheduled_for" in out) == ("published", False, False)
+    assert post(google, video, visibility="public")["public"] is True
     status = google.starts()[0]["status"]
     assert status == {"privacyStatus": "unlisted", "selfDeclaredMadeForKids": False}
 
@@ -285,7 +294,12 @@ def test_a_retry_finds_the_video_already_uploaded_under_its_key(video: Path) -> 
     other = {"id": "vidx", "snippet": {"title": "no tags"}}
     google = FakeGoogle(uploads=[other, earlier])
     out = post(google, video, "stage_1")
-    assert out == {"id": "vid0", "url": "https://youtu.be/vid0", "status": "published"}
+    assert out == {
+        "id": "vid0",
+        "url": "https://youtu.be/vid0",
+        "status": "published",
+        "public": True,
+    }
     assert [r.method for r in google.requests] == ["GET", "GET", "GET"]
     channels, items, videos = google.requests
     assert channels.url.params["mine"] == "true"
@@ -446,15 +460,21 @@ def test_outcomes_claim_every_post_that_is_a_youtube_video_whoever_posted_it() -
         assert yt.outcomes_of(http, ENV, POSTS, NOW) == {
             "abc123": {
                 "views": 10,
-                "privacy": "private",
+                "visible": False,
+                "visibility_label": "private",
                 "youtube_avg_viewed_percent": 62.5,
                 "youtube_avg_view_seconds": 12,
                 "youtube_engaged_views": 8,
             },
-            "sched1": {"views": 10, "privacy": "public"},  # no Analytics data yet
+            "sched1": {
+                "views": 10,
+                "visible": True,
+                "visibility_label": "public",
+            },  # no Analytics data yet
             "job_1": {  # its two YouTube videos: counts add up, averages are the mean
                 "views": 20,
-                "privacy": "public",
+                "visible": True,
+                "visibility_label": "public",
                 "youtube_avg_viewed_percent": 60.0,
                 "youtube_avg_view_seconds": 15.0,
                 "youtube_engaged_views": 10,
@@ -476,7 +496,8 @@ def test_a_channel_without_engaged_views_still_gets_retention() -> None:
         assert yt.outcomes_of(http, ENV, POSTS[:1], NOW) == {
             "abc123": {
                 "views": 10,
-                "privacy": "private",
+                "visible": False,
+                "visibility_label": "private",
                 "youtube_avg_viewed_percent": 40,
                 "youtube_avg_view_seconds": 6,
             }
@@ -506,7 +527,7 @@ def test_retention_it_may_not_read_leaves_the_views_and_one_notice(
     with httpx.Client(transport=httpx.MockTransport(google_with_analytics(refused))) as http:
         answer = yt.outcomes_of(http, ENV, POSTS, NOW)
     assert notice in answer.pop(yt.NOTICE)
-    assert answer["abc123"] == {"views": 10, "privacy": "private"}
+    assert answer["abc123"] == {"views": 10, "visible": False, "visibility_label": "private"}
     assert len(asked) == 1  # the first refusal stops the rest of the pass
 
 
@@ -518,7 +539,7 @@ def test_retention_of_a_video_the_channel_does_not_own_is_left_out_quietly() -> 
 
     with httpx.Client(transport=httpx.MockTransport(google_with_analytics(forbidden))) as http:
         assert yt.outcomes_of(http, ENV, POSTS[:1], NOW) == {
-            "abc123": {"views": 10, "privacy": "private"}
+            "abc123": {"views": 10, "visible": False, "visibility_label": "private"}
         }
 
     def refused(request: httpx.Request) -> httpx.Response:
@@ -609,7 +630,7 @@ def v1(tmp_path: Path, provider: FakeProvider) -> Callable[[Any], Connectors]:
 
     def make(transport: Any) -> Connectors:
         connectors = registry(tmp_path, transport)
-        assert connectors.install_defaults()["youtube"] == "1.2.0"
+        assert connectors.install_defaults()["youtube"] == "1.3.0"
         connectors.offer_defaults("w")
         return connectors
 
@@ -620,13 +641,13 @@ def test_a_v1_sign_in_is_carried_over_so_no_new_sign_in_is_needed(
     v1: Callable[[Any], Connectors], provider: FakeProvider, tmp_path: Path
 ) -> None:
     connectors = v1(FakeTransport())
-    folder = tmp_path / "packages" / "youtube" / "1.2.0"
+    folder = tmp_path / "packages" / "youtube" / "1.3.0"
     assert (folder / ".venv" / "bin" / "python").is_file() and (folder / "youtube.py").is_file()
     shared, _ = connectors.setups.values("youtube", "w")
     assert (shared["youtube_client_id"], shared["youtube_client_secret"]) == ("yt-app", "yt-secret")
     assert shared["youtube"]["refresh_token"] == "rt-from-v1"
     youtube = connectors.find("w", "youtube")
-    assert youtube is not None and youtube.version == "1.2.0"
+    assert youtube is not None and youtube.version == "1.3.0"
     assert connectors.missing(youtube) == [] and connectors.sign_in_needed(youtube) == []
 
     env = connectors._env(youtube)  # the first start refreshes the V1 token

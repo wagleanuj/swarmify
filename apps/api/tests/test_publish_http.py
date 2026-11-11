@@ -88,7 +88,7 @@ def test_youtube_is_a_package_whose_account_is_signed_in_from_the_connectors_pag
 ) -> None:
     world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
     listed = {c["name"]: c for c in running.get(f"/api/worlds/{world}/connectors").json()}
-    assert listed["youtube"]["version"] == "1.2.0"
+    assert listed["youtube"]["version"] == "1.3.0"
     assert listed["youtube"]["missing"] == ["youtube"]  # the account, not keys
     assert listed["upload_post"]["missing"] == ["api_key"]
 
@@ -163,7 +163,13 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert transport.calls[0][:2] == ("youtube", "preview")
 
     transport.outputs["publish"] = [
-        {"id": "vid1", "url": "https://youtu.be/vid1", "status": "scheduled"}
+        {
+            "id": "vid1",
+            "url": "https://youtu.be/vid1",
+            "status": "scheduled",
+            "public": True,
+            "scheduled_for": "2099-01-01T09:00:00Z",
+        }
     ]
     assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
@@ -179,7 +185,10 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert text.startswith('---\ntype: "publish"\n')
     assert 'links: {"youtube": "https://youtu.be/vid1"}\n' in text
     assert 'status: "scheduled"\n' in text and 'id: "vid1"\n' in text
-    assert 'visibility: "public"\n' in text  # what the stage said, for upkeep to check
+    # for upkeep to check: the connector's word that it went out for everyone, and when, and
+    # that the stage said so itself (every param its connector's private_when names)
+    assert "public: true\n" in text and 'scheduled_for: "2099-01-01T09:00:00Z"\n' in text
+    assert "visibility_said: true\n" in text and 'visibility: "public"' not in text
     assert "- When: 2099-01-01T09:00:00Z\n" in text and "- Visibility: public\n" in text
     assert "- youtube: https://youtu.be/vid1\n" in text
 

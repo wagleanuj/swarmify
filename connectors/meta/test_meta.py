@@ -337,6 +337,7 @@ def test_a_reel_is_created_uploaded_waited_for_and_published_in_order(video: Pat
         "links": {"instagram": "https://www.instagram.com/reel/AbC/"},
         "id": "m1",
         "failed": {},
+        "public": True,
     }
     assert [(r.method, r.url.host, r.url.path) for r in fake.requests] == [
         ("GET", "graph.facebook.com", "/v26.0/me"),
@@ -476,6 +477,7 @@ def test_publish_to_both_posts_on_each_platform_and_answers_both_links(video: Pa
         },
         "id": "m1",
         "failed": {},
+        "public": True,
     }
     facebook = [r for r in fake.requests if "video" in r.url.path]
     assert [(r.method, r.url.host, r.url.path) for r in facebook] == [
@@ -504,11 +506,13 @@ def test_draft_and_scheduled_states_reach_facebook_as_asked(video: Path) -> None
         {"facebook": "https://www.facebook.com/reel/v1"},
         "v1",
     )
+    assert out["public"] is False and "scheduled_for" not in out  # a draft only admins see
     assert dict(parse_qsl(fake.requests[-1].content.decode()))["video_state"] == "DRAFT"
     fake = FakeMeta([])
     out = post(fake, video, platforms=["facebook"], title="T", schedule="+1d 09:00")
     finish = dict(parse_qsl(fake.requests[-1].content.decode()))
-    assert out["status"] == "scheduled"
+    assert (out["status"], out["public"]) == ("scheduled", True)
+    assert out["scheduled_for"] == "2026-11-04T09:00:00Z"
     assert finish["video_state"] == "SCHEDULED"
     assert finish["scheduled_publish_time"] == str(
         int(datetime(2026, 11, 4, 9, tzinfo=UTC).timestamp())
@@ -822,10 +826,10 @@ def registry(data: Path) -> Connectors:
 
 def test_the_installed_package_answers_over_stdio_in_its_sandbox(tmp_path: Path) -> None:
     connectors = registry(tmp_path)
-    assert connectors.install_defaults()["meta"] == "1.0.1"
+    assert connectors.install_defaults()["meta"] == "1.0.2"
     connectors.offer_defaults("w")
     found = connectors.find("w", "meta")
-    assert found is not None and found.version == "1.0.1"
+    assert found is not None and found.version == "1.0.2"
     assert sorted(t.name for t in connectors.transport.list_tools(found, {})) == [
         "account",
         "outcomes",

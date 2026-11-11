@@ -979,8 +979,10 @@ Every publish connector is a Connector Package (its own, or one a world added wi
   problem the gate shows. It needs no account: its process starts with whatever Setup there is.
 - `publish` gets `fields` (every value as confirmed, by key), `idempotency_key` and
   `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links` (platform
-  to URL), and optionally `id`, `status: scheduled` and `failed` (platform to error: listed in
-  the artifact, and when nothing was posted the stage fails). It may answer a long job
+  to URL), and optionally `id`, `status: scheduled`, `failed` (platform to error: listed in
+  the artifact, and when nothing was posted the stage fails), `public` (true when the post went
+  out for everyone to see, now or at its time; false for a draft or a private or unlisted post)
+  and `scheduled_for` (the ISO 8601 time a scheduled post goes live). It may answer a long job
   (`job_id` and `poll`, as any long job) whose last answer carries the same.
 
 ### Outcomes
@@ -997,7 +999,13 @@ readable until then) and as an `## Outcome` section in the body (replaced each t
 graphify reads bodies only; each write appends `outcome.recorded`. The publish card shows it, and
 the Scorecard ranks each run by each post's Primary Metric: the one the Manifest's
 `primary_metric` names, the post's own connector's when it answered. A connector whose Setup is
-not done is skipped.
+not done is skipped. Beside the numbers a post may carry `visible` (true when everyone can see it
+now) and `visibility_label` (the platform's own word, such as `unlisted`), and the answer a
+`_notice` (what it could not read and how to fix it), which the Needs-you page shows. A post its
+connector still reports not `visible` a day after it went out is listed there too, in the
+connector's label and word, when the connector said it went out `public` or the stage left out a
+param its `private_when` names and its run is done; a post `scheduled_for` later is not late yet.
+Core decides on the booleans alone and never reads a platform's words.
 
 ## Retention
 

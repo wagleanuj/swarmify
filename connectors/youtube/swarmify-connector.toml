@@ -1,7 +1,7 @@
 # The YouTube connector (README.md beside this file). A default package: Swarmify installs it from
 # this folder and enables it for every world that has not decided otherwise.
 name = "youtube"
-version = "1.2.0"
+version = "1.3.0"
 label = "YouTube"
 about = "Uploads to YouTube through the Data API; a schedule keeps it private until then."
 kind = "publish"

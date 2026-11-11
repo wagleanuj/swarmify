@@ -6,7 +6,8 @@ stop it; the core shows them at the gate and sends back what was confirmed. `pub
 confirmed values with `videos.insert` (resumable upload, one request for the metadata and one for
 the bytes) and answers the video's id and link. With a `schedule` the video is uploaded private
 with `publishAt`, and YouTube makes it public at that time: `publishAt` can be set only while the
-privacy status is private. `outcomes` (the Capability) answers the views and privacy of every post
+privacy status is private; it answers `public` and, scheduled, `scheduled_for`. `outcomes` (the
+Capability) answers the views and visibility (`visible`, `visibility_label`) of every post
 the core passes that is a YouTube video, by its own id or by a YouTube link, so a video another
 connector posted counts too; one `videos.list` call per 50 videos (part statistics and status, 1
 quota unit). It adds retention from YouTube Analytics (average percentage viewed, average view
@@ -312,6 +313,8 @@ def upload(
             "id": video_id,
             "url": f"https://youtu.be/{video_id}",
             "status": "scheduled" if schedule else "published",
+            "public": visibility == "public",  # a scheduled video goes public at its time
+            **({"scheduled_for": schedule} if schedule else {}),
         }
 
     snippet: dict[str, Any] = {"title": title, "description": description}
@@ -489,7 +492,8 @@ def outcomes_of(
     posts: list[dict[str, Any]],
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """The views, privacy and retention of every post that is a YouTube video, by post id; a
+    """The views, visibility (`visible` when public, and the privacy status as
+    `visibility_label`) and retention of every post that is a YouTube video, by post id; a
     post whose videos YouTube no longer has is left out. Several videos of one post add their
     counts and average their averages. NOTICE says why retention could not be read."""
     videos = claimed(posts)
@@ -503,7 +507,9 @@ def outcomes_of(
     for post, vs in kept.items():
         answer: dict[str, Any] = {
             "views": sum(found[v]["views"] for v in vs),
-            "privacy": found[vs[0]]["privacy"],
+            # the generic contract: core decides on `visible`, YouTube's word is the label
+            "visible": found[vs[0]]["privacy"] == "public",
+            "visibility_label": found[vs[0]]["privacy"],
         }
         for name in RETENTION.values():
             values = [held[v][name] for v in vs if name in held.get(v, {})]
@@ -517,7 +523,7 @@ def outcomes_of(
 
 
 @mcp.tool(
-    description="The Outcomes Capability: views, privacy and retention of every post that is a"
+    description="The Outcomes Capability: views, visibility and retention of every post that is a"
     " YouTube video, whoever posted it, by post id."
 )
 def outcomes(posts: list[dict[str, Any]]) -> dict[str, Any]:

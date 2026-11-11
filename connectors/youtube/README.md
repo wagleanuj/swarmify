@@ -102,10 +102,12 @@ workflow's job, for example the script stage's frontmatter; Swarmify never makes
 - `publish` posts the confirmed fields: the hashtags as the description's last line, the tags as
   YouTube's tags, `made_for_kids` as `selfDeclaredMadeForKids`. It uploads with `videos.insert`
   (one resumable session, one PUT of the file); with a schedule the video goes up private with
-  `publishAt` and YouTube makes it public then. It answers `id`, `url` (`https://youtu.be/<id>`)
-  and `status` (`published` or `scheduled`).
-- `outcomes` (the Outcomes Capability, ranked by `views`) answers the view counts and privacy
-  (public, unlisted or private) of every post that is a YouTube video: its own posts, and any
+  `publishAt` and YouTube makes it public then. It answers `id`, `url` (`https://youtu.be/<id>`),
+  `status` (`published` or `scheduled`), `public` (true for `visibility: public`, scheduled or
+  not) and, when scheduled, `scheduled_for` (the `publishAt` time).
+- `outcomes` (the Outcomes Capability, ranked by `views`) answers the view counts and
+  visibility (`visible`, true when the privacy status is public, and that status, public,
+  unlisted or private, as `visibility_label`) of every post that is a YouTube video: its own posts, and any
   post with a YouTube link, such as one Upload-Post made. Up to 50 videos per `videos.list`
   call. From YouTube Analytics it adds, for the channel's own videos,
   `youtube_avg_viewed_percent` (averageViewPercentage), `youtube_avg_view_seconds`
@@ -115,9 +117,10 @@ workflow's job, for example the script stage's frontmatter; Swarmify never makes
 
 A stage that leaves out `visibility` uploads private, and the workflow editor warns about it. A
 public or unlisted post needs a gate right before its stage; a private one does not. Upkeep
-records each video's privacy beside its Outcome, and a post still private or unlisted a day after
-it went out, when its stage said public (or said nothing and its run is done), is listed on the
-Needs-you page.
+records each video's visibility beside its Outcome, and a post still private or unlisted a day
+after it went out, when it went out public (or its stage said nothing and its run is done), is
+listed on the Needs-you page. Before 1.3.0 the answer named YouTube's `privacy` itself; records
+from then are still read.
 - `channel` answers the title of the channel the account posts to.
 
 Each upload is tagged `swarmify-<idempotency key>` beside its own tags, and before uploading the

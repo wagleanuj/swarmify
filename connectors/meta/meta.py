@@ -636,8 +636,15 @@ def publish_fields(
             failed[platform] = str(exc)
     if not links:
         raise ToolError("; ".join(f"{p}: {e}" for p, e in failed.items()))
-    status = "scheduled" if fields.get("schedule") else "published"
-    return {"status": status, "links": links, "id": post_id, "failed": failed}
+    when = fields.get("schedule")
+    return {
+        "status": "scheduled" if when else "published",
+        "links": links,
+        "id": post_id,
+        "failed": failed,
+        "public": fields.get("visibility") != "draft",  # a draft only the Page's admins see
+        **({"scheduled_for": str(when)} if when else {}),
+    }
 
 
 @mcp.tool(

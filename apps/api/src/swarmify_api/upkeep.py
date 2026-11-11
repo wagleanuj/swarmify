@@ -18,7 +18,7 @@ from typing import Any, Literal
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from swarmify_connectors import ConnectorError, Connectors, setup
+from swarmify_connectors import VISIBILITY_LABEL, VISIBLE, ConnectorError, Connectors, setup
 from swarmify_memory import Memory
 from swarmify_swarm.network import NOTICE_AFTER, Waiting
 from swarmify_worlds import Worlds
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 UPKEEP_SECONDS = 6 * 3600.0
 """How often upkeep runs. Four reads a day stay far inside the platforms' quotas."""
 HIDDEN_AFTER = timedelta(hours=24)
-"""How long a post may stay private or unlisted before the Needs-you page says so."""
+"""How long a post may stay hidden from everyone before the Needs-you page says so."""
 
 
 class Notice(BaseModel):
@@ -51,7 +51,8 @@ def record_outcomes(
 ) -> int:
     """Record fresh Outcomes of publish artifacts; returns how many changed. A post's metrics
     from several connectors add up; its Primary Metric is its own connector's when that one
-    answered, else the first that did; its privacy is the first a platform reported. A
+    answered, else the first that did; whether everyone can see it (`visible`, with the
+    platform's `visibility_label`) is what the first connector to say reported. A
     connector that cannot answer (its Setup not done) is logged and skipped. What a connector
     says it could not read goes in `notices` by connector name, logged once, gone once it can."""
     changed = 0
@@ -69,7 +70,7 @@ def record_outcomes(
         ]
         made_by = {p["id"]: p["connector"] for p in posts}
         found: dict[str, dict[str, float]] = {}
-        privacy: dict[str, str] = {}
+        seen: dict[str, dict[str, float | bool | str]] = {}
         primary: dict[str, str] = {}
         for connector in reporters:
             try:
@@ -86,20 +87,26 @@ def record_outcomes(
                     continue  # not one of the posts it was asked about
                 mine = found.setdefault(post, {})
                 for metric, n in metrics.items():
-                    if isinstance(n, str):
-                        privacy.setdefault(post, n)
-                    else:
+                    if metric not in (VISIBLE, VISIBILITY_LABEL) and not isinstance(n, bool | str):
                         mine[metric] = mine.get(metric, 0) + n
+                if isinstance(metrics.get(VISIBLE), bool) and post not in seen:
+                    seen[post] = {
+                        k: metrics[k] for k in (VISIBLE, VISIBILITY_LABEL) if k in metrics
+                    }
                 if post not in primary or made_by[post] == connector.name:
                     primary[post] = connector.manifest["primary_metric"]
         for (path, fields), post in zip(records, posts, strict=True):
             metrics = found.get(post["id"])
             if not metrics:
                 continue
-            ranked_by, seen = primary[post["id"]], privacy.get(post["id"])
-            was = (fields.get("outcomes"), fields.get("primary_metric"), fields.get("privacy"))
-            if was != (metrics, ranked_by, seen):
-                memory.record_outcome(world.id, path, metrics, ranked_by, now, seen)
+            ranked_by, shown = primary[post["id"]], seen.get(post["id"], {})
+            was = {k: fields[k] for k in (VISIBLE, VISIBILITY_LABEL) if k in fields}
+            if (fields.get("outcomes"), fields.get("primary_metric"), was) != (
+                metrics,
+                ranked_by,
+                shown,
+            ):
+                memory.record_outcome(world.id, path, metrics, ranked_by, now, shown)
                 changed += 1
     if notices is not None:
         for name, text in noticed.items():
@@ -121,27 +128,41 @@ def hidden_posts(
     records: Iterable[tuple[str, Mapping[str, Any]]],
     run_status: Callable[[str], str | None],
     now: datetime,
+    labels: Mapping[str, str],
 ) -> list[tuple[str, str]]:
-    """(run id, why) of each post its platform still shows as private or unlisted a day after
-    it went out, when its stage said public, or said nothing and its run is done. A post
-    scheduled for later is not late yet."""
+    """(run id, why) of each post its connector still reports hidden from everyone (`visible`
+    false) a day after it went out, when its connector said it went out `public`, or its stage
+    never said who sees it (`visibility_said` false) and its run is done. A post scheduled for
+    later is not late yet. The words are the connector's: its label by name in `labels`, and
+    its `visibility_label` for the post."""
     out = []
     for _, f in records:
-        seen, meant, run = f.get("privacy"), f.get("visibility"), str(f.get("run") or "")
-        posted = _when(f.get("created"))
-        if seen not in ("private", "unlisted") or posted is None or now - posted < HIDDEN_AFTER:
+        visible, label = f.get(VISIBLE), f.get(VISIBILITY_LABEL)
+        public, said, later = f.get("public"), f.get("visibility_said"), f.get("scheduled_for")
+        # Legacy, records from youtube 1.2.0 (#446) and before: the platform's `privacy` (the
+        # next upkeep replaces it), the stage's own `visibility` and the `schedule` it was sent.
+        if visible is None and isinstance(f.get("privacy"), str):
+            visible, label = f["privacy"] == "public", f["privacy"]
+        if said is None:
+            said, public = "visibility" in f, f.get("visibility") == "public"
+            sent = {
+                x.get("key"): x.get("value") for x in f.get("sent") or [] if isinstance(x, dict)
+            }
+            later = sent.get("schedule")
+        run, posted = str(f.get("run") or ""), _when(f.get("created"))
+        if visible is not False or posted is None or now - posted < HIDDEN_AFTER:
             continue
-        sent = {x.get("key"): x.get("value") for x in f.get("sent") or [] if isinstance(x, dict)}
-        if (later := _when(sent.get("schedule"))) is not None and later > now:
+        if (when := _when(later)) is not None and when > now:
             continue
-        if meant == "public":
-            why = "though its stage said public"
-        elif meant is None and run_status(run) == "done":
-            why = f"and its stage never said a visibility, so {f.get('connector')}'s default chose"
+        name = labels.get(str(f.get("connector"))) or f.get("connector")
+        if public is True:
+            why = "though it went out for everyone to see"
+        elif said is False and run_status(run) == "done":
+            why = f"and its stage never said who sees it, so {name}'s default chose"
         else:
             continue
         title = f.get("title") or "A post"
-        out.append((run, f"{title} is still {seen} on {f.get('connector')} a day on, {why}."))
+        out.append((run, f"{title} is still {label or 'not public'} on {name} a day on, {why}."))
     return out
 
 
@@ -166,7 +187,9 @@ def notices_router(
         signed_out: set[tuple[str, str | None]] = set()
         everyone = worlds.list_all()
         for world in everyone:
-            for c in registry.list_all(world.id):
+            connectors = registry.list_all(world.id)
+            labels = {c.name: c.manifest.get("label") or c.name for c in connectors}
+            for c in connectors:
                 keys = registry.sign_in_needed(c)
                 if not keys:
                     continue
@@ -179,14 +202,15 @@ def notices_router(
                 if whose in signed_out:
                     continue
                 signed_out.add(whose)
-                label = c.manifest.get("label") or c.name
+                label = labels[c.name]
                 text = (
                     f"{label} needs sign-in: the provider refused its saved sign-in (expired or"
                     " revoked), so it can neither post nor read outcomes. Sign in again on the"
                     " Connectors page."
                 )
                 out.append(Notice(kind="sign_in", text=text, world_id=world.id))
-            for run, text in hidden_posts(memory.publish_records(world.id), run_status, clock()):
+            records = memory.publish_records(world.id)
+            for run, text in hidden_posts(records, run_status, clock(), labels):
                 out.append(Notice(kind="visibility", text=text, world_id=world.id, run_id=run))
         first = everyone[0].id if everyone else None
         out += [Notice(kind="outcomes", text=t, world_id=first) for t in outcome_notices.values()]

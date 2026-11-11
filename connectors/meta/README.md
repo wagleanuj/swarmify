@@ -55,8 +55,9 @@ permalink under `links.instagram`.
 On the Facebook Page, `publish` starts the Page's Reels upload (`video_reels` with
 `upload_phase=start`), uploads the file itself to `rupload.facebook.com`, then finishes it with
 the caption as `description` and a `video_state` of `PUBLISHED`, `DRAFT` (`visibility: draft`)
-or `SCHEDULED` (with `scheduled_publish_time` from `schedule`, and `status: scheduled`). Its link
-is `https://www.facebook.com/reel/<video id>` under `links.facebook`.
+or `SCHEDULED` (with `scheduled_publish_time` from `schedule`, and `status: scheduled` and
+`scheduled_for`). Its link is `https://www.facebook.com/reel/<video id>` under `links.facebook`.
+Every answer says `public`: false for a draft, which only the Page's admins see, else true.
 
 One publish record holds each Platform's link under `links` and each failure under `failed`; `id`
 is Instagram's media ID, or Facebook's video ID when Instagram did not post. The stage fails only

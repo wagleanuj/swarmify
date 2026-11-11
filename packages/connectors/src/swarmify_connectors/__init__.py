@@ -75,6 +75,8 @@ __all__ = [
     "KINDS",
     "MIGRATIONS",
     "STAGE_TYPES",
+    "VISIBILITY_LABEL",
+    "VISIBLE",
     "Call",
     "Connector",
     "ConnectorError",
@@ -186,6 +188,9 @@ def _preview_args(
 
 NOTICE = "_notice"
 """The key of an outcomes answer that is not a post: what the connector could not read."""
+VISIBLE, VISIBILITY_LABEL = "visible", "visibility_label"
+"""The keys of a post's outcomes that are not metrics: whether everyone can see it, and the
+platform's word for that."""
 
 
 def _number(value: Any) -> float:
@@ -1258,20 +1263,22 @@ class Connectors:
 
     def outcomes(
         self, connector: Connector, posts: list[dict[str, Any]]
-    ) -> tuple[dict[str, dict[str, float | str]], str | None]:
+    ) -> tuple[dict[str, dict[str, float | bool | str]], str | None]:
         """The connector's `outcomes` answer for the world's posts (`{connector, id, links}`
-        each): metrics by post id, for the posts it claims, each a number but `privacy` (the
-        post's visibility on the platform), and the answer's `_notice`, what it could not read
-        and how to fix it. Raises ConnectorError, as when its Setup is not done or it answers
-        anything else."""
+        each): metrics by post id, for the posts it claims, each a number but `visible` (a
+        boolean: everyone can see the post) and `visibility_label` (the platform's word for
+        it), and the answer's `_notice`, what it could not read and how to fix it (publish.py).
+        Raises ConnectorError, as when its Setup is not done or it answers anything else."""
         answer = self._tool(connector, "outcomes", {"posts": posts}, self._env(connector))
 
-        def value(metric: str, n: Any) -> float | str:
-            if metric != "privacy":
-                return _number(n)
-            if not isinstance(n, str):
-                raise ValueError(f"privacy is text, not {n!r}")
-            return n
+        def value(metric: str, n: Any) -> float | bool | str:
+            if metric == VISIBLE and isinstance(n, bool):
+                return n
+            if metric == VISIBILITY_LABEL and isinstance(n, str):
+                return n
+            if metric in (VISIBLE, VISIBILITY_LABEL):
+                raise ValueError(f"{metric} cannot be {n!r}")
+            return _number(n)
 
         try:
             answer = dict(answer)

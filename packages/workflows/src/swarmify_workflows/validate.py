@@ -193,7 +193,7 @@ def warnings(
                     "visibility_unsaid",
                     f"publish stage '{stage.name}' does not say {', '.join(unsaid)}, so"
                     f" {ref.name}'s default decides who sees the post; say"
-                    f" {' and '.join(unsaid)} (for example visibility: public)",
+                    f" {' and '.join(unsaid)}",
                     stage.name,
                 )
             )
