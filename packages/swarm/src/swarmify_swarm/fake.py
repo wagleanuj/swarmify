@@ -50,7 +50,9 @@ class Say:
 
 @dataclass(frozen=True)
 class Die:
-    """The CLI process dies here, before any result."""
+    """The CLI process dies here, before any result, with `error`."""
+
+    error: str = "the claude process died"
 
 
 @dataclass(frozen=True)
@@ -230,7 +232,9 @@ class ScriptedTransport(Transport):
         yield init
         last, answer = "", None
         for step in self.steps:
-            if isinstance(step, Die | Lost):
+            if isinstance(step, Die):
+                raise RuntimeError(step.error)
+            if isinstance(step, Lost):
                 raise RuntimeError("the claude process died")
             if isinstance(step, Answer):
                 answer = step.data(self.options) if callable(step.data) else step.data

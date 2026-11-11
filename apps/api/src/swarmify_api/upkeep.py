@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from swarmify_connectors import ConnectorError, Connectors, setup
 from swarmify_memory import Memory
+from swarmify_swarm.network import NOTICE_AFTER, Waiting
 from swarmify_worlds import Worlds
 
 log = logging.getLogger(__name__)
@@ -33,10 +34,11 @@ HIDDEN_AFTER = timedelta(hours=24)
 class Notice(BaseModel):
     """Something the operator should fix that no gate asks about."""
 
-    kind: Literal["sign_in", "outcomes", "visibility"]
+    kind: Literal["sign_in", "outcomes", "visibility", "network"]
     text: str
     world_id: str | None = None
-    """The world whose Connectors page (sign_in, outcomes) or run (visibility) fixes it."""
+    """The world whose Connectors page (sign_in, outcomes) or run (visibility, network) fixes
+    it."""
     run_id: str | None = None
 
 
@@ -150,10 +152,12 @@ def notices_router(
     run_status: Callable[[str], str | None],
     outcome_notices: Mapping[str, str],
     clock: Callable[[], datetime],
+    waiting: Callable[[], list[Waiting]] = lambda: [],
 ) -> APIRouter:
     """What the Needs-you page lists beside the gates: an account whose sign-in the provider
     refused (an expired refresh token, say), what a connector could not read on the last
-    upkeep, and a post still hidden a day after it went out."""
+    upkeep, a post still hidden a day after it went out, and a run whose agents have waited
+    for the network over NOTICE_AFTER."""
     api = APIRouter(prefix="/api", tags=["notices"])
 
     @api.get("/notices")
@@ -186,9 +190,26 @@ def notices_router(
                 out.append(Notice(kind="visibility", text=text, world_id=world.id, run_id=run))
         first = everyone[0].id if everyone else None
         out += [Notice(kind="outcomes", text=t, world_id=first) for t in outcome_notices.values()]
+        out += network_notices(waiting(), clock())
         return out
 
     return api
+
+
+def network_notices(waiting: Iterable[Waiting], now: datetime) -> list[Notice]:
+    """One notice a run whose agent has waited for the network over NOTICE_AFTER."""
+    out: dict[str, Notice] = {}
+    for w in waiting:  # the longest waiting first
+        minutes = (now - w.since).total_seconds() / 60
+        if w.run_id in out or minutes * 60 < NOTICE_AFTER:
+            continue
+        text = (
+            f"A run is waiting for the network: its {w.agent} cannot reach the model API"
+            f" ({w.error[:120]}), for {minutes:.0f} min now. It resumes by itself once the"
+            " network is back; check the machine's connection."
+        )
+        out[w.run_id] = Notice(kind="network", text=text, world_id=w.world_id, run_id=w.run_id)
+    return list(out.values())
 
 
 def prune(worlds: Worlds, memory: Memory, now: datetime) -> list[str]:

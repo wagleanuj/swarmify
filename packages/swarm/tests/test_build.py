@@ -21,6 +21,7 @@ from swarmify_swarm import (
     build,
 )
 from swarmify_swarm.fake import Call, Die, Lost, Say, Script, Step
+from swarmify_swarm.network import NetworkWait
 from swarmify_swarm.sdk import options as options_for
 
 DOMAINS = ["registry.npmjs.org", "pypi.org"]
@@ -51,6 +52,7 @@ def _build(board: SqliteStorage, data: Path, runtime: Any, **kw: Any) -> None:
         runtime,
         DiskFiles(data / "worlds"),
         budget=kw.pop("budget", None) or (lambda _: None),
+        network=kw.pop("network", None),
     )
     secrets = ["YOUTUBE_CLIENT_SECRET", "UPLOAD_POST_API_KEY"]
     swarm.build(
@@ -402,3 +404,22 @@ def test_a_build_not_resumed_starts_a_new_session_and_a_dead_one_is_continued(
     again = _scripted(board, data, [Die()], [Say("Finished.")])
     assert again.sessions[0].resume is None and "Make it loud." in again.prompts[0]
     assert again.sessions[1].resume and again.prompts[1] == build.CONTINUE
+
+
+def test_a_build_that_loses_the_network_waits_and_continues_its_session(
+    board: SqliteStorage, data: Path
+) -> None:
+    """The blender_build of run run_01M75KPE82TM2FCBCT3DVJBRD6 died twice with EAI_AGAIN while
+    the Wi-Fi was down and the builder gave up: now it waits and continues instead."""
+    offline = Die("API Error: Can't reach the API server (EAI_AGAIN)")
+    probes = iter([False, False, True, True, True])
+    wait = NetworkWait(probe=lambda: next(probes), sleep=lambda _: None)
+    script = _scripted(
+        board, data, [Call("Bash", {"command": "ls"}), offline], [offline], [offline],
+        [Say("Finished.")], network=wait,
+    )  # fmt: skip
+    [agent] = board.list_agents(R)
+    first, *again = script.sessions
+    assert agent.status == "done" and first.resume is None and len(again) == 3
+    assert all(s.resume == agent.session_id for s in again)
+    assert script.prompts[1:] == [build.CONTINUE] * 3

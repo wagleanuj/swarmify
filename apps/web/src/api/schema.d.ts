@@ -3124,7 +3124,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "sign_in" | "outcomes" | "visibility";
+            kind: "sign_in" | "outcomes" | "visibility" | "network";
             /** Text */
             text: string;
             /** World Id */
@@ -3662,6 +3662,8 @@ export interface components {
             config?: {
                 [key: string]: unknown;
             };
+            /** Network */
+            network?: string | null;
         };
         /** SaveAsWorkflow */
         SaveAsWorkflow: {

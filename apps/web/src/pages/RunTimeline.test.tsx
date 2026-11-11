@@ -548,6 +548,16 @@ test("a connector stage keeps its raw call under a closed Technical details, and
   await expect.element(screen.getByTestId("call-request")).toMatchTextContent(/"output": "clip\.mp4"/);
 });
 
+test("a step waiting for the network says so on the rail and in its panel", async () => {
+  const note = "Waiting for the network since 16:24 UTC: worker-1 cannot reach the model API (EAI_AGAIN).";
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("running", [stage(0, "research", "swarm", "running", { ...timed(0, null), network: note })])),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByRole("button", { name: "Step 1, research, waiting for the network" })).toBeVisible();
+  await expect.element(screen.getByTestId("stage-network")).toHaveTextContent(note);
+});
+
 test("an unknown run explains itself and links back to runs", async () => {
   fakeFetch({});
   const { screen } = await mountAt("/worlds/world_1/runs/run_nope");

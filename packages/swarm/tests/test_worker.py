@@ -16,6 +16,10 @@ from swarmify_swarm import (
     WORKER,
     Agent,
     SdkRuntime,
+    SessionEnd,
+    SessionHooks,
+    SessionInit,
+    SessionSpec,
     SqliteStorage,
     StageError,
     Stopped,
@@ -23,6 +27,7 @@ from swarmify_swarm import (
     tool_id,
 )
 from swarmify_swarm.fake import LAST, Answer, Call, Die, Lost, Say, Script, Step
+from swarmify_swarm.network import NetworkWait, Waiting
 from swarmify_swarm.projection import PLAN_SCHEMA
 from swarmify_swarm.sdk import HARNESS
 from swarmify_swarm.worker import STAGE_TOOLS
@@ -873,3 +878,103 @@ def test_a_shared_skills_files_are_readable_and_a_link_elsewhere_is_not(
     swarm.run_stage(W, R, S, "research", dict(STAGE), world)
     assert _tools(board, "denied") == ["Read"]
     assert _tools(board)[0] == "Read"
+
+
+OFFLINE = Die("API Error: Can't reach the API server (EAI_AGAIN)")
+
+
+def _offline_swarm(
+    board: SqliteStorage, tmp_path: Path, script: Script, down: int = 2, limit: float = 6 * 3600
+) -> tuple[Swarm, list[list[Waiting]]]:
+    """A swarm whose network probe fails `down` times then reaches the API; what the swarm
+    reported as waiting at each probe."""
+    seen: list[list[Waiting]] = []
+    probes = iter([False] * down + [True] * 1000)
+    now = [datetime(2026, 11, 11, 16, 24, tzinfo=UTC)]
+
+    def sleep(seconds: float) -> None:
+        now[0] += timedelta(seconds=seconds)
+
+    def probe() -> bool:
+        seen.append(swarm.waiting())
+        board.expire(now[0])  # the API's sweep, minutes into the outage
+        return next(probes)
+
+    wait = NetworkWait(limit=limit, probe=probe, sleep=sleep)
+    swarm = _swarm(board, tmp_path, script, network=wait, clock=lambda: now[0])
+    return swarm, seen
+
+
+def test_a_session_that_loses_the_network_waits_and_resumes_without_counting_a_failure(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    """Run run_01M75KPE82TM2FCBCT3DVJBRD6: Wi-Fi dropped, two sessions died with EAI_AGAIN and
+    the stage failed though only the network was missing."""
+    task_id = _seed(board)
+    script = Script([GRAPH, CLAIM, OFFLINE], [OFFLINE], [OFFLINE], [FINISH, Say("Back.")], PASS)
+    swarm, seen = _offline_swarm(board, tmp_path, script)
+    _run(swarm, tmp_path)
+
+    task = board.get_task(task_id)
+    assert task and task.status == "done", "the waiting agent kept its claim through the sweep"
+    assert not any("Returned to open" in n.body for n in task.notes)
+
+    agent = _worker(board)
+    assert agent.status == "done"
+    first, *again, _judge = script.sessions
+    assert first.resume is None and all(s.resume == agent.session_id for s in again)
+    assert seen and all(w and w[0].agent == WORKER and w[0].run_id == R for w in seen)
+    assert "EAI_AGAIN" in seen[0][0].error
+    assert swarm.waiting() == [], "no longer waiting once the network is back"
+    details = [e.detail for e in board.list_log(S)]
+    assert sum("Waiting for the network" in d for d in details) == 3
+    assert any("The network is back" in d for d in details)
+    assert not any("The session died" in d for d in details)
+
+
+def test_a_session_failed_with_an_unreachable_api_result_waits_too(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    class Unreachable:
+        def __init__(self) -> None:
+            self.specs: list[SessionSpec] = []
+
+        async def run(self, spec: SessionSpec, hooks: SessionHooks) -> SessionEnd:
+            self.specs.append(spec)
+            if len(self.specs) <= 3:
+                hooks.started(SessionInit("s-1", [], [], "m"))
+                return SessionEnd("s-1", 0.0, True, "API Error: Connection error.")
+            return SessionEnd("s-1", 0.0, False, "ok", {"passed": True, "reasons": ["ok"]})
+
+    runtime = Unreachable()
+    wait = NetworkWait(probe=lambda: True, sleep=lambda _: None)
+    swarm = Swarm(board, runtime, DiskFiles(tmp_path), network=wait)  # type: ignore[arg-type]
+    world = _world(tmp_path)
+    schema = {"type": "object"}
+    got = swarm.ask(W, R, "stage_retro", "retro", world, "retro", "s", "p", schema, lambda o: o)
+    assert got == {"passed": True, "reasons": ["ok"]}
+    assert [s.resume for s in runtime.specs[1:]] == ["s-1"] * 3
+
+
+def test_the_stage_fails_once_the_network_stays_down_past_the_limit(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    swarm, _ = _offline_swarm(board, tmp_path, Script([OFFLINE]), down=10_000, limit=3600)
+    with pytest.raises(StageError, match="network was still down after 1 h"):
+        _run(swarm, tmp_path)
+    assert _worker(board).status == "failed" and swarm.waiting() == []
+
+
+def test_a_spent_budget_ends_the_wait_and_stops_the_stage(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    _seed(board)
+    stop: list[str] = []
+    wait = NetworkWait(probe=lambda: False, sleep=lambda _: stop.append("Paused."))
+    swarm = _swarm(
+        board, tmp_path, Script([OFFLINE]), network=wait, budget=lambda _: stop[0] if stop else None
+    )
+    with pytest.raises(Stopped, match="Paused."):
+        _run(swarm, tmp_path)
+    assert swarm.waiting() == []

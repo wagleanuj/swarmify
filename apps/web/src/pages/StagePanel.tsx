@@ -32,7 +32,7 @@ export function stepMeta(s: Stage, queued = false): string {
     case "done":
       return took === null ? "done" : clock(took);
     case "running":
-      return "running";
+      return s.network ? "waiting for the network" : "running";
     case "waiting":
       return "waiting";
     case "failed":
@@ -677,6 +677,11 @@ export function StagePanel(p: PanelProps) {
           Sent back with: {note}
         </p>
       ))}
+      {stage.network && (
+        <p className="notice" role="status" data-testid="stage-network">
+          {stage.network}
+        </p>
+      )}
       {stage.error && (
         <div className="stage-failure" role="alert">
           <p>{stage.error.split("\n")[0]}</p>
