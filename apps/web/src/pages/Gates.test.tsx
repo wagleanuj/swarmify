@@ -180,6 +180,30 @@ test("a world whose memory keeps failing to rebuild needs you too, until it rebu
   expect(screen.getByText(/Music's memory/).elements()).toHaveLength(0); // another world's, filtered out
 });
 
+test("a refused sign-in, unread retention and a post still private a day on need you too", async () => {
+  const music = { ...video, id: "world_2", name: "Music" };
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video, music]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/notices": () =>
+      Response.json([
+        { kind: "sign_in", text: "YouTube needs sign-in: the provider refused its saved sign-in.", world_id: "world_2", run_id: null },
+        { kind: "outcomes", text: "YouTube retention is not read: sign in again.", world_id: "world_2", run_id: null },
+        { kind: "visibility", text: "Five hooks is still private on youtube a day on.", world_id: "world_1", run_id: "run_1" },
+        { kind: "visibility", text: "Music video is still private on youtube a day on.", world_id: "world_2", run_id: "run_2" },
+      ]),
+  });
+  const { screen } = await mountAt("/gates?world=world_1");
+  const notices = screen.getByTestId("notice");
+  await expect.element(notices.nth(0)).toMatchTextContent(/YouTube needs sign-in/);
+  // a shared account shows in every world's view, a post only in its own
+  expect(notices.elements()).toHaveLength(3);
+  await expect.element(notices.nth(0).getByRole("link", { name: "Open Connectors" })).toHaveAttribute("href", "/worlds/world_2/connectors");
+  await expect.element(notices.nth(1)).toMatchTextContent(/retention is not read/);
+  await expect.element(notices.nth(2).getByRole("link", { name: "Open the run" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+  expect(screen.getByText(/Music video/).elements()).toHaveLength(0);
+});
+
 test("a gate before a publish stage shows exactly what goes out, and refuses when it cannot", async () => {
   const field = (key: string, label: string, value: unknown, editable = false, hint = "") => ({ key, label, value, editable, hint });
   const preview = {

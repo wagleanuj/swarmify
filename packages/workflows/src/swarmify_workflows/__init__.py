@@ -117,14 +117,15 @@ class Workflows:
         """Parse and validate without saving. `workflow_id` is the workflow a new version is for;
         `pins`, the package versions a saved version recorded, checks it against those."""
         model, violations = parse_workflow(yaml)
+        connectors = self.connectors_for(world_id, pins or {})
         if model is not None:
             violations += validate(
                 model,
                 workflow_id=workflow_id,
-                connectors=self.connectors_for(world_id, pins or {}),
+                connectors=connectors,
                 references=self._references(),
             )
-        return Draft(model, violations, warnings(model) if model is not None else [])
+        return Draft(model, violations, warnings(model, connectors) if model is not None else [])
 
     def save(self, world_id: str, yaml: str, workflow_id: str | None = None) -> WorkflowVersion:
         """Create a workflow (no id) or append a version to one. Raises Invalid; saves nothing."""

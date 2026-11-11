@@ -123,6 +123,32 @@ test("a publish card shows its Outcome (one written before outcomes were generic
     .toMatchTextContent(/Files: short\.mp4 \(deleted by retention, record kept\)/);
 });
 
+test("a publish card shows retention beside the views", async () => {
+  const publish: ArtifactFile = {
+    name: "publish.md",
+    path: "runs/run_1/stage_0/artifacts/publish.md",
+    type: "publish",
+    author: "publish",
+    title: "Five hooks",
+    fields: {
+      type: "publish",
+      outcomes: { views: 900, youtube_avg_viewed_percent: 62.456, youtube_avg_view_seconds: 12 },
+      outcomes_at: "2026-11-10T12:00:00+00:00",
+    },
+    body: "# Five hooks",
+    run_id: "run_1",
+    stage: "stage_0",
+    created: ts,
+    pinned: false,
+    size: 0,
+  };
+  routes([], () => [publish]);
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect
+    .element(screen.getByTestId("outcome"))
+    .toHaveTextContent("900 views, youtube avg viewed 62.5%, youtube avg view 12.0 s as of 2026-11-10");
+});
+
 const built = (status: string) => run(status === "done" ? "done" : "running", [stage(0, "video", "connector", status, { calls: "remotion_build" })]);
 const finish = (status: Call["status"]): Call => ({
   idempotency_key: "stage_0",

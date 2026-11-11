@@ -12,11 +12,12 @@ otherwise, so workflows call `youtube` exactly as before. Everything Swarmify kn
 
 One field, **YouTube account** (`youtube`), a Google sign-in (Swarmify's README, OAuth sign-in): Swarmify
 keeps the token set and starts the connector with a current access token as
-`YOUTUBE_ACCESS_TOKEN`. It asks for the `youtube.upload` and `youtube.readonly` scopes, offline
-access and the consent screen every time, so Google always issues a refresh token.
+`YOUTUBE_ACCESS_TOKEN`. It asks for the `youtube.upload`, `youtube.readonly` and
+`yt-analytics.readonly` scopes, offline access and the consent screen every time, so Google always
+issues a refresh token.
 
-Once: create a Google Cloud project, enable the YouTube Data API v3, configure the consent screen
-(while it is in Testing, add yourself as a test user) and create an OAuth client of type **Web
+Once: create a Google Cloud project, enable the YouTube Data API v3 and the YouTube Analytics
+API, configure the consent screen (while it is in Testing, add yourself as a test user) and create an OAuth client of type **Web
 application** whose authorized redirect URI is the one the Connectors page shows,
 `<the address you open Swarmify at>/api/setup/oauth/callback`. On the Connectors page save its client ID and secret as **YouTube account client ID** and
 **client secret**, then **Sign in** with the Google account that owns the channel. The account is
@@ -40,8 +41,20 @@ suffix, and `ts.net` itself is on the [list](https://publicsuffix.org/list/publi
 follows it, so Tailscale Serve is enough. The Manifest asks Google for a refresh token with
 `authorize_params = { access_type = "offline", prompt = "consent" }`.
 
-A refresh Google refuses (the access revoked, the app's secret changed) or a call Google answers
-401 marks the account **Needs sign-in**; sign in again from the Connectors page.
+A refresh Google refuses (`invalid_grant`: the access revoked or expired, or `invalid_client`:
+the app's secret changed) or a call Google answers 401 marks the account **Needs sign-in**, and
+the Needs-you page says so; sign in again from the Connectors page.
+
+Google expires the refresh tokens of an app whose consent screen is in **Testing** after 7 days.
+To stop that, publish the app: Google Cloud console, Google Auth Platform (APIs & Services, OAuth
+consent screen), Audience, **Publish app**, then sign in again. A published app that asks for
+these scopes and is not verified shows an "unverified app" warning at sign-in (Advanced, then go
+to the app) and is capped at 100 users, which a self-hosted Swarmify never nears; its refresh
+tokens do not expire on a timer.
+
+Retention (YouTube Analytics) needs the `yt-analytics.readonly` scope, which before 1.2.0 was not
+asked for. An account signed in earlier still posts and reads views; the Needs-you page says once
+to sign in again to get retention, and until then only views are recorded.
 
 ## The stage
 
@@ -58,7 +71,7 @@ A refresh Google refuses (the access revoked, the app's secret changed) or a cal
       metadata: script.md              # optional: take title, description, hashtags and tags from its frontmatter
       hashtags: [owls, nature]         # optional, at most 5, one word each, `#` optional
       tags: [owls, owl facts]          # optional, YouTube's keywords, 450 characters in all
-      visibility: public               # public, unlisted or private (default private)
+      visibility: public               # say it: public, unlisted or private (default private)
       schedule: "+1d 09:00"            # optional, see below; needs public
       made_for_kids: false             # YouTube's COPPA declaration (default false)
 ```
@@ -91,9 +104,20 @@ workflow's job, for example the script stage's frontmatter; Swarmify never makes
   (one resumable session, one PUT of the file); with a schedule the video goes up private with
   `publishAt` and YouTube makes it public then. It answers `id`, `url` (`https://youtu.be/<id>`)
   and `status` (`published` or `scheduled`).
-- `outcomes` (the Outcomes Capability, ranked by `views`) answers the view counts of every post
-  that is a YouTube video: its own posts, and any post with a YouTube link, such as one
-  Upload-Post made. Up to 50 videos per `videos.list` call.
+- `outcomes` (the Outcomes Capability, ranked by `views`) answers the view counts and privacy
+  (public, unlisted or private) of every post that is a YouTube video: its own posts, and any
+  post with a YouTube link, such as one Upload-Post made. Up to 50 videos per `videos.list`
+  call. From YouTube Analytics it adds, for the channel's own videos,
+  `youtube_avg_viewed_percent` (averageViewPercentage), `youtube_avg_view_seconds`
+  (averageViewDuration) and `youtube_engaged_views` (engagedViews, when the API offers it), one
+  report per video. When Analytics refuses the account (an old sign-in without the scope, or the
+  API not enabled) it answers views alone with a `_notice` saying how to fix it.
+
+A stage that leaves out `visibility` uploads private, and the workflow editor warns about it. A
+public or unlisted post needs a gate right before its stage; a private one does not. Upkeep
+records each video's privacy beside its Outcome, and a post still private or unlisted a day after
+it went out, when its stage said public (or said nothing and its run is done), is listed on the
+Needs-you page.
 - `channel` answers the title of the channel the account posts to.
 
 Each upload is tagged `swarmify-<idempotency key>` beside its own tags, and before uploading the

@@ -88,7 +88,7 @@ def test_youtube_is_a_package_whose_account_is_signed_in_from_the_connectors_pag
 ) -> None:
     world = running.post("/api/worlds", json={"name": "Video"}).json()["id"]
     listed = {c["name"]: c for c in running.get(f"/api/worlds/{world}/connectors").json()}
-    assert listed["youtube"]["version"] == "1.1.0"
+    assert listed["youtube"]["version"] == "1.2.0"
     assert listed["youtube"]["missing"] == ["youtube"]  # the account, not keys
     assert listed["upload_post"]["missing"] == ["api_key"]
 
@@ -110,6 +110,7 @@ def test_youtube_is_a_package_whose_account_is_signed_in_from_the_connectors_pag
     assert q["scope"].split() == [
         "https://www.googleapis.com/auth/youtube.upload",
         "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/yt-analytics.readonly",
     ]
     assert (q["access_type"], q["prompt"], q["code_challenge_method"]) == (
         "offline", "consent", "S256"
@@ -178,6 +179,7 @@ def test_the_confirm_gate_shows_what_goes_out_and_confirming_posts_exactly_that(
     assert text.startswith('---\ntype: "publish"\n')
     assert 'links: {"youtube": "https://youtu.be/vid1"}\n' in text
     assert 'status: "scheduled"\n' in text and 'id: "vid1"\n' in text
+    assert 'visibility: "public"\n' in text  # what the stage said, for upkeep to check
     assert "- When: 2099-01-01T09:00:00Z\n" in text and "- Visibility: public\n" in text
     assert "- youtube: https://youtu.be/vid1\n" in text
 

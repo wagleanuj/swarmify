@@ -171,6 +171,7 @@ subfolder = "connectors/youtube"
 ref = "v2"
 permissions = [
   "network: www.googleapis.com",
+  "network: youtubeanalytics.googleapis.com",
   "install_network: pypi.org",
   "install_network: files.pythonhosted.org",
   "credentials: YOUTUBE_ACCESS_TOKEN",

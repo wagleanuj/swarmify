@@ -9,13 +9,22 @@ export type Agent = components["schemas"]["Agent"];
 export type LogEntry = components["schemas"]["LogEntry"];
 export type Verdict = components["schemas"]["Verdict"];
 export type ArtifactFile = components["schemas"]["ArtifactFile"];
+/** One metric in words: a count as "9,000 views", retention as "youtube avg viewed 62.5%" or
+ * "youtube avg view 12.0 s". */
+function metricWords(metric: string, n: number): string {
+  const name = (suffix: string) => metric.slice(0, -suffix.length).replaceAll("_", " ");
+  if (metric.endsWith("_percent")) return `${name("_percent")} ${n.toFixed(1)}%`;
+  if (metric.endsWith("_seconds")) return `${name("_seconds")} ${n.toFixed(1)} s`;
+  return `${n.toLocaleString("en")} ${metric.replaceAll("_", " ")}`;
+}
+
 /** A publish record's Outcome as "9,000 views, 12 clicks", numbers by metric as its connectors
  * reported them; null before any. A record from before outcomes were generic kept `views`. */
 export function outcomeLine(metrics: unknown): string | null {
   const shown = Object.entries((metrics ?? {}) as Record<string, unknown>).filter(
     (e): e is [string, number] => typeof e[1] === "number",
   );
-  return shown.length ? shown.map(([m, n]) => `${n.toLocaleString("en")} ${m.replaceAll("_", " ")}`).join(", ") : null;
+  return shown.length ? shown.map(([m, n]) => metricWords(m, n)).join(", ") : null;
 }
 
 /** The Outcome of a publish record's fields, with the day it was read. */

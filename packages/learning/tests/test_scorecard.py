@@ -80,6 +80,30 @@ def test_each_run_of_the_workflow_scores_first_try_send_backs_cost_duration_and_
             },
             "run_1",
         ),
+        # retention beside the views: averages are averaged across the run's posts, never added
+        ev(
+            "outcome.recorded",
+            {
+                "path": "runs/run_5/v/artifacts/publish.md",
+                "metrics": {
+                    "views": 100,
+                    "youtube_avg_viewed_percent": 60.0,
+                    "youtube_avg_view_seconds": 9,
+                },
+                "primary": "views",
+            },
+            "run_5",
+        ),
+        ev(
+            "outcome.recorded",
+            {
+                "path": "runs/run_5/w/artifacts/publish.md",
+                "metrics": {"views": 50, "youtube_avg_viewed_percent": 40.0, "instagram_reach": 7},
+                "primary": "views",
+            },
+            "run_5",
+        ),
+        run("run_5", "done", [stage("a", "done", T0, T1)], created_at=T2),
         run("run_2", "queued", [stage("a", "pending", None, None)], created_at=T1, baseline=True),
         run("run_3", "done", [stage("a", "done", T0, T1)], created_at=T2, workflow_id="wf_other"),
         run(
@@ -90,8 +114,18 @@ def test_each_run_of_the_workflow_scores_first_try_send_backs_cost_duration_and_
             workflow_version=2,
         ),  # fmt: skip
     ]
-    older, first, second = scorecard(events, "wf_1")
-    assert [s.run_id for s in (older, first, second)] == ["run_4", "run_1", "run_2"]
+    older, first, second, measured = scorecard(events, "wf_1")
+    assert [s.run_id for s in (older, first, second, measured)] == [
+        "run_4",
+        "run_1",
+        "run_2",
+        "run_5",
+    ]
+    assert measured.outcomes == {
+        "views": 150,
+        "youtube_avg_viewed_percent": 50.0,
+        "youtube_avg_view_seconds": 9,
+    }
     assert (first.judged, first.first_try, first.send_backs, first.cost_usd) == (2, 1, 1, 0.42)
     assert (first.status, first.duration_s, first.outcomes) == (
         "done",

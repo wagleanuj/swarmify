@@ -463,10 +463,17 @@ class Memory:
         ]
 
     def record_outcome(
-        self, world_id: str, path: str, metrics: dict[str, float], primary: str, at: datetime
+        self,
+        world_id: str,
+        path: str,
+        metrics: dict[str, float],
+        primary: str,
+        at: datetime,
+        privacy: str | None = None,
     ) -> None:
         """Write a publish artifact's Outcome (`outcomes` by metric, `outcomes_at` and
-        `primary_metric`, the one the scorecard ranks by) into its sidecar, replacing the last.
+        `primary_metric`, the one the scorecard ranks by) into its sidecar, replacing the last,
+        with `privacy`, the post's visibility as its platform reports it, when one does.
         A record from before the sidecar has its outcome fields and Outcome section taken out,
         once; after that the record itself is never written for an outcome."""
         file = self._inside(world_id, path)
@@ -478,6 +485,7 @@ class Memory:
             "outcomes": metrics,
             "outcomes_at": at.astimezone(UTC).isoformat(),
             "primary_metric": primary,
+            **({"privacy": privacy} if privacy else {}),
         }
         _outcomes_of(file).write_text(json.dumps(found))
         self._event(
@@ -624,6 +632,19 @@ def _bare(title: str) -> str:
     return re.sub(r"^\s*(?:idea\s*#?\s*\d+|#\d+)\s*[:.)-]?\s+", "", title, flags=re.I).strip()
 
 
+def retention(outcomes: Any) -> list[str]:
+    """An Outcome's retention metrics in words: a `_percent` one as "youtube avg viewed 62.5%",
+    a `_seconds` one as "youtube avg view 12.0 s"."""
+    out = []
+    for metric, value in (outcomes if isinstance(outcomes, dict) else {}).items():
+        if not isinstance(value, int | float):
+            continue
+        for suffix, unit in (("_percent", "%"), ("_seconds", " s")):
+            if metric.endswith(suffix):
+                out.append(f"{metric.removesuffix(suffix).replace('_', ' ')} {value:.1f}{unit}")
+    return out
+
+
 def made(world: Path, runs: Mapping[str, str]) -> list[str]:
     """What the world at `world` already made, one line per run, newest first: every run with a
     publish record, and every run in `runs` (run id to status: the runs the caller counts, not
@@ -675,6 +696,7 @@ def made(world: Path, runs: Mapping[str, str]) -> list[str]:
             value = (publish.fields.get("outcomes") or {}).get(metric)
             if isinstance(value, int | float):
                 state += f", {value:,} {metric}"
+            state += "".join(f", {r}" for r in retention(publish.fields.get("outcomes")))
             if publish is not subject and publish.title.lower() != _bare(subject.title).lower():
                 state += f", posted as {publish.title}"
         else:

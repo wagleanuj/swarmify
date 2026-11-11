@@ -174,10 +174,29 @@ def validate(
     return out
 
 
-def warnings(model: WorkflowModel) -> list[Violation]:
+def warnings(
+    model: WorkflowModel, connectors: Mapping[str, ConnectorRef] | None = None
+) -> list[Violation]:
     """What saves but likely does not do what was meant. A pick gate after a swarm stage whose
-    output_type is one item (not list[...]) offers one card: the stage keeps only its best."""
+    output_type is one item (not list[...]) offers one card: the stage keeps only its best. A
+    publish stage that leaves out a param its connector's `private_when` names lets the
+    connector's default decide who sees the post, which may keep it private unnoticed."""
     out: list[Violation] = []
+    for stage in model.stages:
+        if not isinstance(stage, ConnectorStage):
+            continue
+        ref = (connectors or {}).get(stage.calls)
+        unsaid = [k for k in ref.private_when if k not in stage.params] if ref else []
+        if ref and ref.kind == "publish" and unsaid:
+            out.append(
+                Violation(
+                    "visibility_unsaid",
+                    f"publish stage '{stage.name}' does not say {', '.join(unsaid)}, so"
+                    f" {ref.name}'s default decides who sees the post; say"
+                    f" {' and '.join(unsaid)} (for example visibility: public)",
+                    stage.name,
+                )
+            )
     for index, stage in enumerate(model.stages):
         if not (isinstance(stage, GateStage) and stage.kind == "pick"):
             continue

@@ -321,22 +321,33 @@ def test_a_refused_or_missing_access_token_is_an_auth_failure(video: Path) -> No
     assert core_oauth.is_auth_failure(str(unsigned.value))
 
 
-def test_view_counts_come_from_videos_list_in_batches_of_50() -> None:
+def test_view_counts_and_privacy_come_from_videos_list_in_batches_of_50() -> None:
     seen: list[httpx.Request] = []
 
     def google(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         ids = request.url.params["id"].split(",")
-        items = [{"id": i, "statistics": {"viewCount": str(len(i))}} for i in ids if i != "gone"]
+        items = [
+            {
+                "id": i,
+                "statistics": {"viewCount": str(len(i))},
+                "status": {"privacyStatus": "private" if i == "v1" else "public"},
+            }
+            for i in ids
+            if i != "gone"
+        ]
         return httpx.Response(200, json={"items": items})
 
     ids = [f"v{n}" for n in range(60)] + ["gone", "v1"]
     with httpx.Client(transport=httpx.MockTransport(google)) as http:
-        counts = yt.video_views(http, ENV, ids)
-        assert yt.video_views(http, ENV, []) == {}
-    assert counts["v1"] == 2 and counts["v59"] == 3 and "gone" not in counts and len(counts) == 60
+        found = yt.videos_of(http, ENV, ids)
+        assert yt.videos_of(http, ENV, []) == {}
+    assert found["v1"] == {"views": 2, "privacy": "private"}
+    assert found["v59"] == {"views": 3, "privacy": "public"}
+    assert "gone" not in found and len(found) == 60
     first, second = seen
-    assert first.url.path == "/youtube/v3/videos" and first.url.params["part"] == "statistics"
+    assert first.url.path == "/youtube/v3/videos"
+    assert first.url.params["part"] == "statistics,status"
     assert len(first.url.params["id"].split(",")) == 50
     assert second.url.params["id"].split(",") == [*(f"v{n}" for n in range(50, 60)), "gone"]
     assert first.headers["authorization"] == "Bearer tok"
@@ -346,49 +357,177 @@ def test_view_counts_come_from_videos_list_in_batches_of_50() -> None:
 
     with httpx.Client(transport=httpx.MockTransport(refused)) as http:
         with pytest.raises(ToolError, match=r"view counts failed \(403\): insufficient"):
-            yt.video_views(http, ENV, ["v1"])
+            yt.videos_of(http, ENV, ["v1"])
+
+
+def google_with_analytics(
+    analytics: Callable[[httpx.Request], httpx.Response],
+) -> Callable[[httpx.Request], httpx.Response]:
+    """A fake Google: the Data API answers every video but gone00 at 10 views (abc123 private),
+    YouTube Analytics answers as `analytics` does."""
+
+    def google(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "youtubeanalytics.googleapis.com":
+            return analytics(request)
+        ids = request.url.params["id"].split(",")
+        items = [
+            {
+                "id": i,
+                "statistics": {"viewCount": "10"},
+                "status": {"privacyStatus": "private" if i == "abc123" else "public"},
+            }
+            for i in ids
+            if i != "gone00"
+        ]
+        return httpx.Response(200, json={"items": items})
+
+    return google
+
+
+def report(
+    *metrics: str, rows: dict[str, list[float]]
+) -> Callable[[httpx.Request], httpx.Response]:
+    """YouTube Analytics' basic report of one video, `rows` by video id (none: no data yet)."""
+
+    def analytics(request: httpx.Request) -> httpx.Response:
+        video = request.url.params["filters"].removeprefix("video==")
+        asked = request.url.params["metrics"].split(",")
+        if "engagedViews" in asked and "engagedViews" not in metrics:
+            return httpx.Response(400, json={"error": {"message": "Unknown identifier"}})
+        headers = [{"name": m} for m in asked]
+        found = rows.get(video)
+        return httpx.Response(
+            200, json={"columnHeaders": headers, "rows": [found[: len(asked)]] if found else []}
+        )
+
+    return analytics
+
+
+POSTS = [
+    {"connector": "youtube", "id": "abc123", "links": {"youtube": "https://youtu.be/abc123"}},
+    {"connector": "youtube", "id": "sched1", "links": {}},  # scheduled: no link yet
+    {
+        "connector": "upload_post",
+        "id": "job_1",
+        "links": {
+            "youtube": "https://www.youtube.com/shorts/short_1",
+            "tiktok": "https://www.tiktok.com/@me/video/1",
+            "other": "https://youtube.com/watch?v=watch-2&t=3",
+        },
+    },
+    {"connector": "upload_post", "id": "job_9", "links": {}},
+    {"connector": "clicks", "id": "p1", "links": "not a map"},
+    {"connector": "upload_post", "id": "job_gone", "links": {"youtube": "https://youtu.be/gone00"}},
+]
 
 
 def test_outcomes_claim_every_post_that_is_a_youtube_video_whoever_posted_it() -> None:
-    posts = [
-        {"connector": "youtube", "id": "abc123", "links": {"youtube": "https://youtu.be/abc123"}},
-        {"connector": "youtube", "id": "sched1", "links": {}},  # scheduled: no link yet
-        {
-            "connector": "upload_post",
-            "id": "job_1",
-            "links": {
-                "youtube": "https://www.youtube.com/shorts/short_1",
-                "tiktok": "https://www.tiktok.com/@me/video/1",
-                "other": "https://youtube.com/watch?v=watch-2&t=3",
-            },
-        },
-        {"connector": "upload_post", "id": "job_9", "links": {}},
-        {"connector": "clicks", "id": "p1", "links": "not a map"},
-        {
-            "connector": "upload_post",
-            "id": "job_gone",
-            "links": {"youtube": "https://youtu.be/gone00"},
-        },
-    ]
-    assert yt.claimed(posts) == {
+    assert yt.claimed(POSTS) == {
         "abc123": ["abc123"],
         "sched1": ["sched1"],
         "job_1": ["short_1", "watch-2"],
         "job_gone": ["gone00"],
     }
+    seen: list[httpx.Request] = []
+    rows = {
+        "abc123": [9, 62.5, 12, 8],
+        "short_1": [10, 50.0, 10, 9],
+        "watch-2": [10, 70.0, 20, 1],
+    }
+    analytics = report(
+        "views", "averageViewPercentage", "averageViewDuration", "engagedViews", rows=rows
+    )
 
-    def google(request: httpx.Request) -> httpx.Response:
-        ids = request.url.params["id"].split(",")
-        items = [{"id": i, "statistics": {"viewCount": "10"}} for i in ids if i != "gone00"]
-        return httpx.Response(200, json={"items": items})
+    def recording(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return analytics(request)
 
-    with httpx.Client(transport=httpx.MockTransport(google)) as http:
-        assert yt.outcomes_of(http, ENV, posts) == {
-            "abc123": {"views": 10},
-            "sched1": {"views": 10},
-            "job_1": {"views": 20},  # its two YouTube videos add up
+    with httpx.Client(transport=httpx.MockTransport(google_with_analytics(recording))) as http:
+        assert yt.outcomes_of(http, ENV, POSTS, NOW) == {
+            "abc123": {
+                "views": 10,
+                "privacy": "private",
+                "youtube_avg_viewed_percent": 62.5,
+                "youtube_avg_view_seconds": 12,
+                "youtube_engaged_views": 8,
+            },
+            "sched1": {"views": 10, "privacy": "public"},  # no Analytics data yet
+            "job_1": {  # its two YouTube videos: counts add up, averages are the mean
+                "views": 20,
+                "privacy": "public",
+                "youtube_avg_viewed_percent": 60.0,
+                "youtube_avg_view_seconds": 15.0,
+                "youtube_engaged_views": 10,
+            },
         }
-        assert yt.outcomes_of(http, ENV, posts[3:5]) == {}  # nothing to ask YouTube
+        assert yt.outcomes_of(http, ENV, POSTS[3:5], NOW) == {}  # nothing to ask YouTube
+    first = seen[0]
+    assert first.url.path == "/v2/reports"
+    assert first.url.params["ids"] == "channel==MINE"
+    assert first.url.params["endDate"] == "2026-10-26"
+    assert first.headers["authorization"] == "Bearer tok"
+
+
+def test_a_channel_without_engaged_views_still_gets_retention() -> None:
+    analytics = report(
+        "views", "averageViewPercentage", "averageViewDuration", rows={"abc123": [9, 40, 6]}
+    )
+    with httpx.Client(transport=httpx.MockTransport(google_with_analytics(analytics))) as http:
+        assert yt.outcomes_of(http, ENV, POSTS[:1], NOW) == {
+            "abc123": {
+                "views": 10,
+                "privacy": "private",
+                "youtube_avg_viewed_percent": 40,
+                "youtube_avg_view_seconds": 6,
+            }
+        }
+
+
+@pytest.mark.parametrize(
+    ("reason", "notice"),
+    [
+        ("ACCESS_TOKEN_SCOPE_INSUFFICIENT", "Sign in to YouTube again"),
+        ("insufficientPermissions", "Sign in to YouTube again"),
+        ("accessNotConfigured", "enable the YouTube Analytics API"),
+    ],
+)
+def test_retention_it_may_not_read_leaves_the_views_and_one_notice(
+    reason: str, notice: str
+) -> None:
+    asked: list[httpx.Request] = []
+
+    def refused(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        error = {"message": "denied", "errors": [{"reason": reason}]}
+        if reason.startswith("ACCESS"):
+            error = {"message": "denied", "details": [{"reason": reason}]}
+        return httpx.Response(403, json={"error": error})
+
+    with httpx.Client(transport=httpx.MockTransport(google_with_analytics(refused))) as http:
+        answer = yt.outcomes_of(http, ENV, POSTS, NOW)
+    assert notice in answer.pop(yt.NOTICE)
+    assert answer["abc123"] == {"views": 10, "privacy": "private"}
+    assert len(asked) == 1  # the first refusal stops the rest of the pass
+
+
+def test_retention_of_a_video_the_channel_does_not_own_is_left_out_quietly() -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, json={"error": {"message": "Forbidden", "errors": [{"reason": "forbidden"}]}}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(google_with_analytics(forbidden))) as http:
+        assert yt.outcomes_of(http, ENV, POSTS[:1], NOW) == {
+            "abc123": {"views": 10, "privacy": "private"}
+        }
+
+    def refused(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "Invalid Credentials"}})
+
+    with httpx.Client(transport=httpx.MockTransport(google_with_analytics(refused))) as http:
+        with pytest.raises(ToolError) as signed_out:
+            yt.outcomes_of(http, ENV, POSTS[:1], NOW)
+    assert core_oauth.is_auth_failure(str(signed_out.value))
 
 
 def test_the_channel_tool_names_the_channel_the_account_posts_to() -> None:
@@ -424,6 +563,7 @@ def test_the_manifest_declares_a_google_sign_in_with_todays_scopes() -> None:
     assert account["oauth"]["scopes"] == [
         "https://www.googleapis.com/auth/youtube.upload",
         "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/yt-analytics.readonly",
     ]
     params = {"access_type": "offline", "prompt": "consent"}  # a refresh token, every sign-in
     assert account["oauth"]["authorize_params"] == params
@@ -469,7 +609,7 @@ def v1(tmp_path: Path, provider: FakeProvider) -> Callable[[Any], Connectors]:
 
     def make(transport: Any) -> Connectors:
         connectors = registry(tmp_path, transport)
-        assert connectors.install_defaults()["youtube"] == "1.1.0"
+        assert connectors.install_defaults()["youtube"] == "1.2.0"
         connectors.offer_defaults("w")
         return connectors
 
@@ -480,13 +620,13 @@ def test_a_v1_sign_in_is_carried_over_so_no_new_sign_in_is_needed(
     v1: Callable[[Any], Connectors], provider: FakeProvider, tmp_path: Path
 ) -> None:
     connectors = v1(FakeTransport())
-    folder = tmp_path / "packages" / "youtube" / "1.1.0"
+    folder = tmp_path / "packages" / "youtube" / "1.2.0"
     assert (folder / ".venv" / "bin" / "python").is_file() and (folder / "youtube.py").is_file()
     shared, _ = connectors.setups.values("youtube", "w")
     assert (shared["youtube_client_id"], shared["youtube_client_secret"]) == ("yt-app", "yt-secret")
     assert shared["youtube"]["refresh_token"] == "rt-from-v1"
     youtube = connectors.find("w", "youtube")
-    assert youtube is not None and youtube.version == "1.1.0"
+    assert youtube is not None and youtube.version == "1.2.0"
     assert connectors.missing(youtube) == [] and connectors.sign_in_needed(youtube) == []
 
     env = connectors._env(youtube)  # the first start refreshes the V1 token

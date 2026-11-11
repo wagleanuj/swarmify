@@ -119,12 +119,18 @@ def test_outcomes_come_from_each_publish_connector_offering_them_with_its_setup(
     connectors.save_setup(W, "clicks", {"token": "t"}, {})
     transport.outputs["outcomes"] = [
         {"p1": {"clicks": 12, "rate": 0.5}},
+        {"p1": {"clicks": 1, "privacy": "private"}, "_notice": "sign in again"},
         {"p1": 3},
         {"p1": {"x": True}},
+        {"p1": {"privacy": 2}},
+        {"p1": {"clicks": 1}, "_notice": 5},
     ]
-    assert connectors.outcomes(clicks, posts) == {"p1": {"clicks": 12, "rate": 0.5}}
+    assert connectors.outcomes(clicks, posts) == ({"p1": {"clicks": 12, "rate": 0.5}}, None)
     assert transport.calls[-1] == ("clicks", "outcomes", {"posts": posts}, {"CLICKS_TOKEN": "t"})
-    for _ in range(2):  # anything but numbers by metric by post
+    # a post's privacy on the platform is text; `_notice` says what the connector could not read
+    found = ({"p1": {"clicks": 1, "privacy": "private"}}, "sign in again")
+    assert connectors.outcomes(clicks, posts) == found
+    for _ in range(4):  # anything but numbers by metric by post
         with pytest.raises(ConnectorError, match="clicks outcomes answered"):
             connectors.outcomes(clicks, posts)
 
