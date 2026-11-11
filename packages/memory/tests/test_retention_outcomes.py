@@ -87,7 +87,12 @@ def test_an_outcome_lives_beside_the_publish_record_which_never_changes_for_it(
 
     memory.record_outcome("w1", path, {"views": 41000}, "views", NOW)
     memory.record_outcome(
-        "w1", path, {"views": 41250, "clicks": 3}, "views", NOW + timedelta(days=1), "unlisted"
+        "w1",
+        path,
+        {"views": 41250, "clicks": 3},
+        "views",
+        NOW + timedelta(days=1),
+        {"visible": False, "visibility_label": "unlisted"},
     )
 
     assert record.read_text() == written
@@ -96,7 +101,8 @@ def test_an_outcome_lives_beside_the_publish_record_which_never_changes_for_it(
     [(found, fields)] = memory.publish_records("w1")
     assert (found, fields["type"], fields["id"]) == (path, "publish", "v1")
     assert fields["outcomes"] == {"views": 41250, "clicks": 3}
-    assert fields["privacy"] == "unlisted"  # how the platform shows it, beside the outcome
+    # whether everyone can see it, as its platform reports, beside the outcome
+    assert (fields["visible"], fields["visibility_label"]) == (False, "unlisted")
     assert (fields["outcomes_at"], fields["primary_metric"]) == (
         "2026-10-27T12:00:00+00:00",
         "views",

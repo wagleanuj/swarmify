@@ -768,6 +768,7 @@ def create_app(
             ]
         call = registry.run_stage(run.world_id, run.id, stage_id, config, run.send_backs, recorded)
         out = registry.publish_result(call)
+        private_when = (called.manifest or {}).get("private_when", {}) if called else {}
         memory.write_artifact(
             run.world_id,
             run.id,
@@ -783,9 +784,11 @@ def create_app(
                 "status": out["status"],
                 "links": out["links"],
                 "id": out["id"],
-                # what the stage itself said, never a connector's default: upkeep checks the
-                # platform shows it so (upkeep.hidden_posts)
-                **({"visibility": said} if (said := config["params"].get("visibility")) else {}),
+                # for upkeep.hidden_posts: the connector's word that the post went out for
+                # everyone and when it goes live, and whether the stage said who sees it itself
+                # (every param its connector's `private_when` names), not a connector default
+                **{k: out[k] for k in ("public", "scheduled_for") if out[k] is not None},
+                "visibility_said": all(k in config["params"] for k in private_when),
             },
         )
 

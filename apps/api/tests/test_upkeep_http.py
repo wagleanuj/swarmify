@@ -209,7 +209,7 @@ def test_a_post_still_private_and_unread_retention_and_a_refused_sign_in_reach_n
 
     def outcomes(args: dict) -> dict:
         found = {
-            p: {"views": 3, "privacy": "private", **retention}
+            p: {"views": 3, "visible": False, "visibility_label": "private", **retention}
             for p in youtube.claimed(args["posts"])
         }
         return {**found, youtube.NOTICE: youtube.SCOPE_NOTICE}
@@ -218,11 +218,12 @@ def test_a_post_still_private_and_unread_retention_and_a_refused_sign_in_reach_n
     assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     (publish,) = (tmp_path / "worlds" / world / "runs" / run["id"]).glob("*/artifacts/publish.md")
-    assert "visibility:" not in publish.read_text()  # the stage never said one
+    assert "visibility_said: false\n" in publish.read_text()  # the stage never said one
     sidecar = publish.with_name(".publish.md.outcomes.json")
     until(lambda: sidecar.is_file())
     found = json.loads(sidecar.read_text())
-    assert found["outcomes"] == {"views": 3, **retention} and found["privacy"] == "private"
+    assert found["outcomes"] == {"views": 3, **retention}
+    assert (found["visible"], found["visibility_label"]) == (False, "private")
 
     seen = len(transport.calls)
     until(lambda: len(transport.calls) > seen + 2)  # several upkeep passes
@@ -230,8 +231,11 @@ def test_a_post_still_private_and_unread_retention_and_a_refused_sign_in_reach_n
     by_kind = {n["kind"]: n for n in notices}
     hidden = by_kind["visibility"]
     assert (hidden["world_id"], hidden["run_id"]) == (world, run["id"])
-    assert "Five hooks that work is still private on youtube" in hidden["text"]
-    assert "never said a visibility" in hidden["text"]
+    # in the connector's own label and word, never core's
+    assert hidden["text"] == (
+        "Five hooks that work is still private on YouTube a day on, and its stage never said"
+        " who sees it, so YouTube's default chose."
+    )
     assert by_kind["outcomes"]["text"] == youtube.SCOPE_NOTICE
     assert "sign_in" not in by_kind
     # said once in the log, not on every pass
@@ -252,24 +256,37 @@ def test_a_post_its_stage_kept_private_or_scheduled_for_later_is_no_notice() -> 
     old = (now - timedelta(days=2)).isoformat()
 
     def record(**fields: object) -> tuple[str, dict]:
-        base = {"privacy": "private", "created": old, "run": "r1", "connector": "youtube"}
-        return ("p.md", {**base, "title": "T", **fields})
+        base = {"visible": False, "created": old, "run": "r1", "connector": "poster"}
+        return ("p.md", {**base, "title": "T", "visibility_said": True, **fields})
 
     def status(run: str) -> str:
         return {"r1": "done", "r2": "running"}[run]
 
     records = [
-        record(visibility="private"),  # meant
-        record(visibility="public", privacy="public"),  # shown as meant
-        record(visibility="public", created=now.isoformat()),  # not a day yet
-        record(visibility="public", sent=[{"key": "schedule", "value": "2026-11-20T09:00:00Z"}]),
-        record(run="r2"),  # unsaid, but its run is still going
-        record(visibility="public", privacy="unlisted"),
-        record(),
+        record(public=False),  # meant
+        record(public=True, visible=True),  # shown as meant
+        record(public=True, visible=None),  # its connector never says
+        record(public=True, created=now.isoformat()),  # not a day yet
+        record(public=True, scheduled_for="2026-11-20T09:00:00Z"),
+        record(visibility_said=False, run="r2"),  # unsaid, but its run is still going
+        record(public=True, visibility_label="draft"),
+        record(visibility_said=False),
+        # Legacy (youtube 1.2.0): the stage's own word and the platform's, read as before
+        record(visibility_said=None, visible=None, visibility="private", privacy="private"),
+        record(
+            visibility_said=None,
+            visibility="public",
+            sent=[{"key": "schedule", "value": "2026-11-20T09:00:00Z"}],
+        ),
+        record(visibility_said=None, visible=None, visibility="public", privacy="unlisted"),
+        record(visibility_said=None, visible=None, privacy="private", title="Old"),
     ]
-    found = upkeep.hidden_posts(records, status, now)
+    found = upkeep.hidden_posts(records, status, now, {"poster": "Poster"})
     assert [why for _, why in found] == [
-        "T is still unlisted on youtube a day on, though its stage said public.",
-        "T is still private on youtube a day on, and its stage never said a visibility,"
-        " so youtube's default chose.",
+        "T is still draft on Poster a day on, though it went out for everyone to see.",
+        "T is still not public on Poster a day on, and its stage never said who sees it,"
+        " so Poster's default chose.",
+        "T is still unlisted on Poster a day on, though it went out for everyone to see.",
+        "Old is still private on Poster a day on, and its stage never said who sees it,"
+        " so Poster's default chose.",
     ]

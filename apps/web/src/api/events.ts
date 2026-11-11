@@ -9,8 +9,8 @@ export type Agent = components["schemas"]["Agent"];
 export type LogEntry = components["schemas"]["LogEntry"];
 export type Verdict = components["schemas"]["Verdict"];
 export type ArtifactFile = components["schemas"]["ArtifactFile"];
-/** One metric in words: a count as "9,000 views", retention as "youtube avg viewed 62.5%" or
- * "youtube avg view 12.0 s". */
+/** One metric in words: a count as "9,000 views", retention (a `_percent` or `_seconds`
+ * metric) as "avg viewed 62.5%" or "avg view 12.0 s". */
 function metricWords(metric: string, n: number): string {
   const name = (suffix: string) => metric.slice(0, -suffix.length).replaceAll("_", " ");
   if (metric.endsWith("_percent")) return `${name("_percent")} ${n.toFixed(1)}%`;

@@ -6,18 +6,23 @@ A publish connector answers two calls. `preview` gets `inputs` (the stage's inpu
 `{fields: [{key, label, value, editable, hint}], problems: [str]}` with the edits applied to its
 editable fields. `publish` gets `fields` (every value as confirmed, by key), `idempotency_key`
 and `input_path`/`input_paths`, posts exactly those values, and answers `url` or `links`
-(platform to URL), and optionally `id`, `status` (published, scheduled) and `failed` (platform to
-error; a post with failures and no links fails the stage). It may answer a long job instead
-(`job_id` and `poll`), whose last answer carries the same. The core shows the
-fields at the gate, lets the person edit the editable ones, refuses to go on while there are
-problems, and records the values confirmed. Every publish connector is a Connector Package
+(platform to URL), and optionally `id`, `status` (published, scheduled), `failed` (platform to
+error; a post with failures and no links fails the stage), `public` (true when it went out for
+everyone to see, now or at its time; false when the platform keeps it from them, as a draft or a
+private or unlisted video) and `scheduled_for` (the ISO 8601 time a scheduled post goes live).
+It may answer a long job instead (`job_id` and `poll`), whose last answer carries the same. The
+core shows the fields at the gate, lets the person edit the editable ones, refuses to go on while
+there are problems, and records the values confirmed. Every publish connector is a Connector Package
 answering both as MCP tools, as the publish packages in `connectors/` do.
 
 A publish connector may also offer the `outcomes` Capability, naming its `primary_metric` in its
 Manifest: `outcomes` gets `posts`, every publish record of a world as `{connector, id, links}`
 (`id` the post's as its connector answered it, else the record's path), and answers
 `{post_id: {metric: number}}` for the posts it can read, whoever posted them: a package may claim
-another's posts by their links.
+another's posts by their links. Beside the numbers a post may carry `visible` (true when everyone
+can see it on the platform now) and `visibility_label` (the platform's own word for that, such as
+"unlisted", shown in notices), and the answer `_notice`: what it could not read and how to fix it.
+Core decides on the booleans alone; the words stay the connector's.
 """
 
 from typing import Any
@@ -46,7 +51,8 @@ def checked_preview(raw: Any) -> dict[str, Any]:
 
 def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
     """What came back, normalized: `status` (published or scheduled), `links` (platform
-    to URL), `id` (the post or scheduler job) and `failed` (platform to error)."""
+    to URL), `id` (the post or scheduler job), `failed` (platform to error), `public` and
+    `scheduled_for` (None when the connector does not say)."""
     links = response.get("links")
     links = {str(k): str(v) for k, v in links.items()} if isinstance(links, dict) else {}
     if response.get("url"):
@@ -54,7 +60,15 @@ def result(connector: str, response: dict[str, Any]) -> dict[str, Any]:
     failed = response.get("failed")
     failed = {str(k): str(v) for k, v in failed.items()} if isinstance(failed, dict) else {}
     status = "scheduled" if response.get("status") == "scheduled" else "published"
-    return {"status": status, "links": links, "id": response.get("id"), "failed": failed}
+    public, when = response.get("public"), response.get("scheduled_for")
+    return {
+        "status": status,
+        "links": links,
+        "id": response.get("id"),
+        "failed": failed,
+        "public": public if isinstance(public, bool) else None,
+        "scheduled_for": when if isinstance(when, str) and when else None,
+    }
 
 
 def _text(value: Any) -> str:

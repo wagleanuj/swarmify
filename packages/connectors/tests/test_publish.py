@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from swarmify_connectors import Call, ConnectorError, Connectors, FakeTransport, Packages
+from swarmify_connectors import Call, ConnectorError, Connectors, FakeTransport, Packages, publish
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -119,18 +119,21 @@ def test_outcomes_come_from_each_publish_connector_offering_them_with_its_setup(
     connectors.save_setup(W, "clicks", {"token": "t"}, {})
     transport.outputs["outcomes"] = [
         {"p1": {"clicks": 12, "rate": 0.5}},
-        {"p1": {"clicks": 1, "privacy": "private"}, "_notice": "sign in again"},
+        {"p1": {"clicks": 1, "visible": False, "visibility_label": "draft"}, "_notice": "again"},
         {"p1": 3},
         {"p1": {"x": True}},
-        {"p1": {"privacy": 2}},
+        {"p1": {"visible": "no"}},
+        {"p1": {"visibility_label": 2}},
+        {"p1": {"privacy": "private"}},  # a platform's own word is no metric
         {"p1": {"clicks": 1}, "_notice": 5},
     ]
     assert connectors.outcomes(clicks, posts) == ({"p1": {"clicks": 12, "rate": 0.5}}, None)
     assert transport.calls[-1] == ("clicks", "outcomes", {"posts": posts}, {"CLICKS_TOKEN": "t"})
-    # a post's privacy on the platform is text; `_notice` says what the connector could not read
-    found = ({"p1": {"clicks": 1, "privacy": "private"}}, "sign in again")
+    # whether everyone can see the post is a boolean, with the platform's word for it as a
+    # label; `_notice` says what the connector could not read
+    found = ({"p1": {"clicks": 1, "visible": False, "visibility_label": "draft"}}, "again")
     assert connectors.outcomes(clicks, posts) == found
-    for _ in range(4):  # anything but numbers by metric by post
+    for _ in range(6):  # anything but numbers by metric by post
         with pytest.raises(ConnectorError, match="clicks outcomes answered"):
             connectors.outcomes(clicks, posts)
 
@@ -185,7 +188,15 @@ def test_a_worlds_publish_connector_previews_and_publishes_through_its_own_tools
     }
     assert connectors.stage_problems(W, config) == []  # its preview found nothing wrong
 
-    transport.outputs["publish"] = [{"url": "https://hooks.example/m/1", "id": "m1"}]
+    transport.outputs["publish"] = [
+        {
+            "url": "https://hooks.example/m/1",
+            "id": "m1",
+            "status": "scheduled",
+            "public": True,
+            "scheduled_for": "2099-01-01T09:00:00Z",
+        }
+    ]
     sent = {"channel": "#news", "text": "Hi"}
     params = {**config["params"], "input_path": "/runs/r/post.md"}
     call = connectors.run_stage(
@@ -195,12 +206,17 @@ def test_a_worlds_publish_connector_previews_and_publishes_through_its_own_tools
         "publish",
         {"fields": sent, "idempotency_key": "stage_1", "input_path": "/runs/r/post.md"},
     )
+    # who sees it and when are the connector's to say, in words core need not know
     assert connectors.publish_result(call) == {
-        "status": "published",
+        "status": "scheduled",
         "links": {"webhook": "https://hooks.example/m/1"},
         "id": "m1",
         "failed": {},
+        "public": True,
+        "scheduled_for": "2099-01-01T09:00:00Z",
     }
+    unsaid = publish.result("webhook", {"url": "u", "public": "yes", "scheduled_for": 5})
+    assert (unsaid["public"], unsaid["scheduled_for"]) == (None, None)
 
 
 def test_a_publish_long_job_is_polled_like_any_and_its_last_answer_is_what_was_posted(

@@ -469,11 +469,12 @@ class Memory:
         metrics: dict[str, float],
         primary: str,
         at: datetime,
-        privacy: str | None = None,
+        visibility: Mapping[str, Any] | None = None,
     ) -> None:
         """Write a publish artifact's Outcome (`outcomes` by metric, `outcomes_at` and
         `primary_metric`, the one the scorecard ranks by) into its sidecar, replacing the last,
-        with `privacy`, the post's visibility as its platform reports it, when one does.
+        with `visibility`, how its platform shows the post (`visible`, `visibility_label`), when
+        one says.
         A record from before the sidecar has its outcome fields and Outcome section taken out,
         once; after that the record itself is never written for an outcome."""
         file = self._inside(world_id, path)
@@ -485,7 +486,7 @@ class Memory:
             "outcomes": metrics,
             "outcomes_at": at.astimezone(UTC).isoformat(),
             "primary_metric": primary,
-            **({"privacy": privacy} if privacy else {}),
+            **(visibility or {}),
         }
         _outcomes_of(file).write_text(json.dumps(found))
         self._event(
@@ -633,8 +634,8 @@ def _bare(title: str) -> str:
 
 
 def retention(outcomes: Any) -> list[str]:
-    """An Outcome's retention metrics in words: a `_percent` one as "youtube avg viewed 62.5%",
-    a `_seconds` one as "youtube avg view 12.0 s"."""
+    """An Outcome's retention metrics in words: a `_percent` one as "avg viewed 62.5%", a
+    `_seconds` one as "avg view 12.0 s"."""
     out = []
     for metric, value in (outcomes if isinstance(outcomes, dict) else {}).items():
         if not isinstance(value, int | float):
