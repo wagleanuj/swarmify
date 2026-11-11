@@ -23,7 +23,7 @@ from swarmify_swarm import SqliteStorage, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script
 
 READS = ("get_run", "read_run_file", "tail_stage_log", "list_run_events")
-READS += ("list_workflow_runs", "query_graph")
+READS += ("list_workflow_runs", "query_graph", "list_made")
 
 
 @pytest.fixture
@@ -93,6 +93,28 @@ def test_a_question_is_answered_from_the_read_tools_with_its_sources(
         ("operator", "Why idea 1?"),
         ("assistant", "Idea 1 won on its hook."),
     ]
+
+
+def test_asked_whether_an_idea_repeats_it_lists_what_the_world_made_from_its_files(
+    running: TestClient, script: Script, tmp_path: Path
+) -> None:
+    """The graph may be behind; the world's files are not."""
+    run = at_gate(running)
+    old = tmp_path / "worlds" / run["world_id"] / "runs" / "run_old" / "stage_9" / "artifacts"
+    old.mkdir(parents=True)
+    (old / "publish.md").write_text(
+        '---\ntype: "publish"\ntitle: "Why cats work for food"\nrun: "run_old"\n'
+        'created: "2026-11-04T00:00:00+00:00"\n---\n\n# Posted\n\nContrafreeloading.\n'
+    )
+    script.scripts = [
+        [Call(tool_id("list_made"), {}), Answer({"reply": "It was made.", "sources": []})]
+    ]
+    asked = running.post(f"/api/runs/{run['id']}/assistant", json={"message": "Is it new?"})
+    assert asked.status_code == 200, asked.text
+    (listed,) = script.outcomes
+    assert not listed.is_error
+    assert "- Why cats work for food (published 2026-11-04): Contrafreeloading." in listed.text
+    assert "list_made" in str(script.sessions[0].system_prompt)
 
 
 def test_a_change_comes_back_as_the_proposal_propose_makes_and_applies_through_the_seam(

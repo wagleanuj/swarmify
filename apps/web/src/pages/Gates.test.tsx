@@ -156,6 +156,30 @@ test("the inbox refetches when a run moves, and says what it is for when empty",
   expect(calls.filter((c) => c === "GET /api/gates").length).toBeGreaterThanOrEqual(2);
 });
 
+test("a world whose memory keeps failing to rebuild needs you too, until it rebuilds", async () => {
+  const music = { ...video, id: "world_2", name: "Music" };
+  const stalled = (world_id: string, world_name: string) => ({
+    world_id,
+    world_name,
+    failures: 95,
+    since: "2026-11-05T05:29:00+00:00",
+    at: ts,
+    error: "graphify extract exited 1: " + "x".repeat(400),
+  });
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video, music]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/graph/stalled": () => Response.json([stalled("world_1", "Video"), stalled("world_2", "Music")]),
+  });
+  const { screen } = await mountAt("/gates?world=world_1");
+  const notice = screen.getByTestId("stalled-memory");
+  await expect.element(notice).toMatchTextContent(/Video's memory has not updated since .* ago: its last 95 rebuilds failed/);
+  await expect.element(notice).toMatchTextContent(/Agents may pitch what it already made\./);
+  await expect.element(notice.getByRole("link", { name: "Open its memory" })).toHaveAttribute("href", "/worlds/world_1/graph");
+  expect(notice.element().textContent!.length).toBeLessThan(500); // a long error is cut short
+  expect(screen.getByText(/Music's memory/).elements()).toHaveLength(0); // another world's, filtered out
+});
+
 test("a gate before a publish stage shows exactly what goes out, and refuses when it cannot", async () => {
   const field = (key: string, label: string, value: unknown, editable = false, hint = "") => ({ key, label, value, editable, hint });
   const preview = {

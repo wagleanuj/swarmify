@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,14 @@ import pytest
 from swarmify_kernel import MIGRATIONS, Event
 from swarmify_kernel.events import append, read_after
 from swarmify_kernel.sqlite import connect, migrate
-from swarmify_memory import GRAPH_OUT, GraphWriter, Memory, ShrinkRefused, extract_command
+from swarmify_memory import (
+    GRAPH_OUT,
+    OUTCOMES,
+    GraphWriter,
+    Memory,
+    ShrinkRefused,
+    extract_command,
+)
 from swarmify_memory import writer as writer_module
 
 GRAPH = Path(__file__).parent / "fixtures/graph/graph.json"
@@ -34,6 +42,7 @@ class Extract:
     def __init__(self, fail: bool = False, seconds: float = 0.0) -> None:
         self.fail = fail
         self.shrink = False
+        self.confined = False
         self.seconds = seconds
         self.folders: list[str] = []
         self.allowed: list[bool] = []
@@ -53,7 +62,9 @@ class Extract:
         if self.fail:
             raise RuntimeError("claude is not logged in")
         if self.shrink and not allow_shrink:
-            raise ShrinkRefused("unverified semantic shrink: 'a.md' (6 -> 5 nodes)")
+            raise ShrinkRefused(
+                "unverified semantic shrink: 'a.md' (6 -> 5 nodes)", confined=self.confined
+            )
         out = folder / GRAPH_OUT
         out.mkdir(exist_ok=True)
         shutil.copy(GRAPH, out / "graph.json")
@@ -276,8 +287,14 @@ def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
         " overwrite anyway."
     )
     done = subprocess.CompletedProcess([], 1, "", refusal)
-    with pytest.raises(ShrinkRefused, match="allow-partial"):
+    with pytest.raises(ShrinkRefused, match="allow-partial") as shrunk:
         writer_module.run_graphify(Path("/w"))
+    assert shrunk.value.confined  # nothing else went wrong: safe to accept
+    failed_chunk = "[graphify] chunk 2/9 failed: timed out\n" + refusal
+    done = subprocess.CompletedProcess([], 1, "", failed_chunk)
+    with pytest.raises(ShrinkRefused) as shrunk:
+        writer_module.run_graphify(Path("/w"))
+    assert not shrunk.value.confined  # accepting would stamp the failed chunk's files as done
     # Failed chunks name the same flag, but a plain retry heals them; accepting would write the
     # graph without those chunks' nodes.
     incomplete = (
@@ -300,7 +317,7 @@ def test_run_graphify_reads_the_tokens_and_tells_a_shrink_refusal_apart(
 def test_the_assets_are_files_not_knowledge_so_the_graph_skips_them(tmp_path: Path) -> None:
     cmd = extract_command(tmp_path)
     excluded = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--exclude"]
-    assert excluded == [f"{GRAPH_OUT}/", "assets/", "runs/*/*/build/"]
+    assert excluded == [f"{GRAPH_OUT}/", "assets/", "runs/*/*/build/", f"*{OUTCOMES}"]
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets/bed.mp3").write_bytes(b"ID3")
     (tmp_path / "notes.md").write_text("x")
@@ -325,3 +342,76 @@ def test_run_builds_and_dependency_folders_are_neither_watched_nor_extracted(
         "runs/run_1/stage_1/artifacts/video.mp4.md",
     ]
     assert "runs/*/*/build/" in extract_command(tmp_path)
+
+
+def test_outcome_sidecars_are_neither_watched_nor_extracted(db: Path, tmp_path: Path) -> None:
+    """A view count lands beside its publish record every few hours: it must not wake the writer,
+    and graphify itself (its real file scan here) must not read it as knowledge."""
+    from graphify.detect import detect
+
+    memory = Memory(db, tmp_path)
+    path = memory.write_artifact("w1", "r1", "s1", "publish", "publish.md", "# Posted\n")
+    memory.record_outcome("w1", path, {"views": 5}, "views", datetime.now(UTC))
+    folder = tmp_path / "worlds/w1"
+    assert list(writer_module.snapshot(folder)) == ["runs/r1/s1/artifacts/publish.md"]
+    cmd = extract_command(folder)
+    excludes = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--exclude"]
+    found = detect(folder, extra_excludes=excludes)["files"]
+    assert [Path(f).name for kind in found.values() for f in kind] == ["publish.md"]
+
+
+def test_a_shrink_confined_to_re_extracted_files_is_accepted_at_once(
+    db: Path, tmp_path: Path
+) -> None:
+    """graphify checks a shrink only on the files it re-extracted, which changed: a smaller
+    reading of a changed file is the new truth, so the writer accepts it without asking."""
+    memory, extract = Memory(db, tmp_path), Extract()
+    extract.shrink = extract.confined = True
+    memory.write_note("w1", "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    writer = GraphWriter(db, tmp_path / "worlds", extract, debounce=0)
+    (rebuilt,) = writer.tick()
+    assert rebuilt.type == "graph.rebuilt" and rebuilt.payload["shrink_accepted"] is True
+    assert extract.allowed == [False, True]
+    assert [t for t, _ in _events(db, "w1")] == ["graph.rebuilt"]
+
+
+def test_a_failed_rebuild_is_retried_later_without_waiting_for_a_change(
+    db: Path, tmp_path: Path
+) -> None:
+    memory, clock, extract = Memory(db, tmp_path), Clock(), Extract(fail=True)
+    memory.write_note("w1", "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    writer = GraphWriter(db, tmp_path / "worlds", extract, debounce=0, clock=clock)
+    assert [e.type for e in writer.tick()] == ["graph.failed"]
+    clock.now += writer_module.RETRY - 1
+    assert writer.tick() == []
+    clock.now += 1
+    assert [e.type for e in writer.tick()] == ["graph.failed"]
+    extract.fail = False
+    clock.now += writer_module.RETRY
+    assert [e.type for e in writer.tick()] == ["graph.rebuilt"]
+    clock.now += writer_module.RETRY
+    assert writer.tick() == []  # a good graph waits for a change again
+
+
+def test_a_world_whose_rebuilds_keep_failing_is_stalled_until_one_succeeds(
+    db: Path, tmp_path: Path
+) -> None:
+    memory, clock, extract = Memory(db, tmp_path), Clock(), Extract()
+    memory.write_note("w1", "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    memory.write_note("w2", "r1", "s1", "worker-1", "Hooks", "Short ones.")
+    writer = GraphWriter(db, tmp_path / "worlds", extract, debounce=0, clock=clock)
+    writer.tick()  # both build once
+    extract.fail = True
+    for n in range(writer_module.STALLED):
+        assert writer.stalled() == []
+        memory.write_note("w1", "r1", "s1", "worker-1", f"Pace {n}", "Fast cuts.")
+        clock.now += 1
+        writer.tick()
+    (stalled,) = writer.stalled()
+    assert (stalled.world_id, stalled.failures) == ("w1", writer_module.STALLED)
+    assert "not logged in" in stalled.error and stalled.since <= stalled.at
+
+    extract.fail = False
+    clock.now += writer_module.RETRY
+    writer.tick()
+    assert writer.stalled() == []

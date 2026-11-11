@@ -14,6 +14,10 @@ GRAPH_OUT = "graphify-out"
 ASSETS = "assets"
 """The world folder's read-only assets: files, not knowledge, so the graph skips them."""
 """The graph output folder inside a world folder. Never input to its own rebuild."""
+OUTCOMES = ".outcomes.json"
+"""`.<name>.outcomes.json` beside an artifact holds its outcomes, which change every few hours:
+Memory.record_outcome writes it, retention keeps it, and the graph neither watches nor extracts
+it, so a view count never re-extracts the world."""
 GRAPH_TOOLS = (
     "query_graph",
     "get_node",

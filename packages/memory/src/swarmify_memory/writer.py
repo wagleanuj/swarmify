@@ -7,13 +7,23 @@ every rebuild in turn, so rebuilds are serialized per world and queued across wo
 world's snapshot is taken as its rebuild starts, so changes made while it waited are absorbed by
 that one rebuild. Each rebuild appends `graph.rebuilt` (sizes, deltas, extraction seconds and
 tokens) or `graph.failed` (error, seconds, and whether graphify's shrink guard refused it) to the
-world's events; a failed rebuild waits for the next change. Accepting a shrink appends
-`graph.shrink_accepted`, which the writer polls for, so it works from another process too: the world
-is rebuilt at once with graphify's `--allow-partial`, that once. A deleted world (its
-`world.deleted` event) is dropped from the queue, and a rebuild it outlived records nothing and
-removes the folder graphify recreated.
+world's events.
+
+graphify's shrink guard refuses a write when a file it re-extracted came out with fewer nodes than
+it had. It re-extracts only changed (or never finished) files, so when nothing else went wrong
+the shrink is confined to files whose new text says less, and the writer accepts it at once with
+`--allow-partial` (`graph.rebuilt` then says `shrink_accepted`). A shrink beside failed chunks is
+not accepted: that flag would mark the failed files done. Any failed rebuild is retried RETRY
+seconds later, change or not: graphify caches each finished chunk, so a retry after a timeout
+resumes where it stopped. A world whose last STALLED rebuilds all failed is `stalled()`, which the
+Needs-you page shows. Accepting a shrink by hand appends `graph.shrink_accepted`, which the writer
+polls for, so it works from another process too: the world is rebuilt at once with
+`--allow-partial`, that once. A deleted world (its `world.deleted` event) is dropped from the
+queue, and a rebuild it outlived records nothing and removes the folder graphify recreated.
 """
 
+import itertools
+import json
 import logging
 import os
 import re
@@ -25,12 +35,13 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import closing
+from dataclasses import dataclass
 from pathlib import Path
 
 from swarmify_kernel import Event
 from swarmify_kernel.events import append
 from swarmify_kernel.sqlite import connect
-from swarmify_memory.ports import ASSETS, GRAPH_OUT, graph_file, graph_size
+from swarmify_memory.ports import ASSETS, GRAPH_OUT, OUTCOMES, graph_file, graph_size
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +55,16 @@ DEBOUNCE = 30.0
 """Seconds a world must be quiet after its last file change before it is rebuilt."""
 POLL = 2.0
 EXTRACT_SECONDS = 3600.0
+RETRY = 3600.0
+"""Seconds after a failed rebuild before the writer tries again, with or without a change."""
+# ponytail: a fixed retry; back off if a world that always fails crowds out the others.
+STALLED = 3
+"""Failed rebuilds in a row after which a world's memory is stalled and the operator is told."""
+_UNSAFE = re.compile(
+    r"chunk \d+/\d+ failed|produced no nodes|semantic extraction failed|all semantic chunks failed"
+)
+"""graphify's words for an incomplete extraction other than a shrink: chunks that failed or came
+back hollow. `--allow-partial` would mark their files done, so their nodes would never come."""
 
 Snapshot = dict[str, tuple[float, int]]
 Usage = dict[str, int]
@@ -54,7 +75,23 @@ _TOKENS = re.compile(r"tokens: ([\d,]+) in / ([\d,]+) out")
 
 
 class ShrinkRefused(RuntimeError):
-    """graphify's shrink guard refused to write a graph smaller than the one it has."""
+    """graphify's shrink guard refused to write a graph smaller than the one it has. `confined`
+    when the shrink was all that went wrong, so it is limited to the files it re-extracted."""
+
+    def __init__(self, message: str, confined: bool = False) -> None:
+        super().__init__(message)
+        self.confined = confined
+
+
+@dataclass(frozen=True)
+class Stalled:
+    """A world whose last `failures` rebuilds failed, from `since` to `at`; `error` is the last."""
+
+    world_id: str
+    failures: int
+    since: str
+    at: str
+    error: str
 
 
 def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
@@ -75,6 +112,8 @@ def extract_command(folder: Path, allow_shrink: bool = False) -> list[str]:
         f"{ASSETS}/",
         "--exclude",
         BUILDS,
+        "--exclude",
+        f"*{OUTCOMES}",
         *(["--allow-partial"] if allow_shrink else []),
     ]
 
@@ -91,16 +130,19 @@ def run_graphify(folder: Path, allow_shrink: bool = False) -> Usage:
         message = f"graphify extract exited {done.returncode}: {' | '.join(tail)}"
         # Only a semantic shrink is worth accepting. Failed chunks print the same --allow-partial
         # hint, but a retry heals them, and accepting would drop their nodes for good.
-        shrunk = "unverified semantic shrink" in done.stderr + done.stdout
-        raise (ShrinkRefused if shrunk else RuntimeError)(message)
+        said = done.stderr + done.stdout
+        if "unverified semantic shrink" in said:
+            raise ShrinkRefused(message, confined=not _UNSAFE.search(said))
+        raise RuntimeError(message)
     found = _TOKENS.search(done.stdout)
     tokens = [int(n.replace(",", "")) for n in found.groups()] if found else [0, 0]
     return {"input_tokens": tokens[0], "output_tokens": tokens[1]}
 
 
 def snapshot(folder: Path) -> Snapshot:
-    """Every file's (mtime, size), pruning the graph output, the assets, run builds and SKIP_DIRS
-    before descending, so the poll stays cheap however many builds a world keeps."""
+    """Every file's (mtime, size) but outcome sidecars, pruning the graph output, the assets, run
+    builds and SKIP_DIRS before descending, so the poll stays cheap however many builds a world
+    keeps."""
     # ponytail: a stat walk per world per poll; switch to FSEvents/inotify (watchdog) when a
     # world's knowledge itself reaches tens of thousands of files.
     files: Snapshot = {}
@@ -108,6 +150,8 @@ def snapshot(folder: Path) -> Snapshot:
         rel = Path(root).relative_to(folder)
         dirs[:] = [d for d in dirs if not _skipped(rel / d)]
         for name in names:
+            if name.endswith(OUTCOMES):
+                continue
             stat = (Path(root) / name).stat()
             files[str(rel / name)] = (stat.st_mtime, stat.st_size)
     return files
@@ -139,6 +183,7 @@ class GraphWriter:
         self._seen: dict[str, Snapshot] = {}
         self._changed: dict[str, float] = {}
         self._allow: set[str] = set()
+        self._retry: dict[str, float] = {}
         self._accepted_seq = 0
 
     def accept_shrink(self, world_id: str) -> Event:
@@ -152,6 +197,10 @@ class GraphWriter:
         self._scan()
         self._accepted()
         now = self.clock()
+        for world_id, at in list(self._retry.items()):
+            if now >= at:
+                del self._retry[world_id]
+                self._changed.setdefault(world_id, now - self.debounce)
         due = sorted(w for w, at in self._changed.items() if now - at >= self.debounce)
         events = []
         for world_id in due:
@@ -171,11 +220,20 @@ class GraphWriter:
             self._seen[world_id] = snapshot(folder)
         allow = world_id in self._allow
         self._allow.discard(world_id)
-        started = time.monotonic()
+        started, accepted = time.monotonic(), False
         try:
-            usage = self.extract(folder, allow) or {}
+            try:
+                usage = self.extract(folder, allow) or {}
+            except ShrinkRefused as exc:
+                if allow or not exc.confined:
+                    raise
+                log.info(
+                    "rebuild of %s shrank only re-extracted files, accepting: %s", world_id, exc
+                )
+                usage, accepted = self.extract(folder, True) or {}, True
         except Exception as exc:
             log.warning("rebuild of %s failed: %s", world_id, exc)
+            self._retry[world_id] = self.clock() + RETRY
             payload = {
                 "error": str(exc),
                 "shrink": isinstance(exc, ShrinkRefused),
@@ -183,6 +241,7 @@ class GraphWriter:
             }
             event = Event.new("graph.failed", world_id=world_id, payload=payload)
         else:
+            self._retry.pop(world_id, None)
             after_nodes, after_edges = graph_size(folder)
             payload = {
                 "nodes": after_nodes,
@@ -193,6 +252,8 @@ class GraphWriter:
                 "input_tokens": usage.get("input_tokens", 0),
                 "output_tokens": usage.get("output_tokens", 0),
             }
+            if accepted:
+                payload["shrink_accepted"] = True
             event = Event.new("graph.rebuilt", world_id=world_id, payload=payload)
         with closing(connect(self.db)) as conn:
             # Under the write lock Worlds.delete takes too: either the delete comes after this
@@ -204,6 +265,24 @@ class GraphWriter:
         if deleted:
             shutil.rmtree(folder, ignore_errors=True)
         return stored
+
+    def stalled(self) -> list[Stalled]:
+        """Every world whose last STALLED or more rebuilds failed, newest failure last read."""
+        out = []
+        with closing(connect(self.db)) as conn:
+            for folder in sorted(p for p in self.worlds_dir.glob("*") if p.is_dir()):
+                rows = conn.execute(
+                    "SELECT type, ts, payload FROM events WHERE world_id = ?"
+                    " AND type IN ('graph.rebuilt', 'graph.failed') ORDER BY seq DESC LIMIT 100",
+                    (folder.name,),
+                ).fetchall()
+                failed = list(itertools.takewhile(lambda r: r[0] == "graph.failed", rows))
+                if len(failed) >= STALLED:
+                    error = str(json.loads(failed[0][2]).get("error", ""))
+                    out.append(
+                        Stalled(folder.name, len(failed), failed[-1][1], failed[0][1], error)
+                    )
+        return out
 
     def run(self, stop: threading.Event, poll: float = POLL) -> None:
         """Poll until `stop` is set. A failing poll is logged and retried next time."""
@@ -235,6 +314,7 @@ class GraphWriter:
         for gone in set(self._seen) - current:
             self._seen.pop(gone)
             self._changed.pop(gone, None)
+            self._retry.pop(gone, None)
         for world_id in sorted(current):
             folder = self.worlds_dir / world_id
             snap = snapshot(folder)

@@ -183,15 +183,16 @@ export function Graph() {
       {view?.failed && !view.failed.shrink && (
         <p role="alert" className="mem-failed" data-testid="failed">
           {cap(the("writer"))}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. The previous
-          graph still answers; the next new note retries.
+          graph still answers; it retries within the hour, and on the next new note.
         </p>
       )}
       {view?.failed?.shrink && (
         <div role="alert" className="mem-failed" data-testid="failed">
           <p>
             {cap(the("writer"))}'s last rebuild failed {ago(view.failed.at)}: {view.failed.error}. graphify
-            refused to write a smaller graph, and keeps refusing until you accept the shrink. The
-            previous graph still answers.
+            refused to write a smaller graph while some of its chunks failed too. It retries within the hour;
+            accepting the shrink writes it now, without what the failed chunks would add. The previous graph
+            still answers.
           </p>
           {view.accepted ? (
             <p role="status">Rebuilding with the shrink accepted...</p>

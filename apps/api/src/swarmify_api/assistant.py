@@ -28,8 +28,16 @@ from swarmify_api.remote import offered
 from swarmify_connectors import Call
 from swarmify_kernel import new_id
 from swarmify_kernel.sqlite import connect
-from swarmify_memory import ArtifactFile, GraphIndex
-from swarmify_runs import ChangeProposal, Illegal, PublishPreview, Run, RunChange, Runner
+from swarmify_memory import ArtifactFile, GraphIndex, made
+from swarmify_runs import (
+    UNSPOILED,
+    ChangeProposal,
+    Illegal,
+    PublishPreview,
+    Run,
+    RunChange,
+    Runner,
+)
 from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import (
     AgentRuntime,
@@ -85,7 +93,9 @@ the run and asks for changes to it. Answer only with the JSON the schema asks fo
 Read the run before you answer: get_run (its stages, their status and config, the Template a
 build stage started from with its fingerprint, spend, revision and files), read_run_file,
 tail_stage_log, list_run_events (its events and Run Changes), list_workflow_runs (its workflow's
-versions and recent runs) and query_graph (the world's memory of earlier runs). Ground every
+versions and recent runs), query_graph (the world's memory of earlier runs) and list_made (what the
+world already made and published, from its files: call it whenever the operator asks whether an
+idea is new or repeats one, as the graph can be behind). Ground every
 answer in what you read and list each place in `sources` with the stage's id and a short label
 such as "from script.md" or "Research, log 14:02". When you cannot see something, say so
 plainly; never guess.
@@ -488,6 +498,13 @@ class Reader:
                 self.query_graph,
             ),
             AgentTool(
+                "list_made",
+                "What the world already made and published, newest first, one line each: title,"
+                " published or not with its outcome, and its core fact, study or hook.",
+                _schema(),
+                self.list_made,
+            ),
+            AgentTool(
                 "propose_change",
                 "Propose a Run Change. Writes nothing: answers its id, the stage's config before"
                 " and after, the violations that would refuse it and the run's revision.",
@@ -553,6 +570,12 @@ class Reader:
         folder = self.worlds.folder(self.run().world_id)
         question = {"question": str(args.get("question", ""))}
         return await to_thread.run_sync(lambda: self.index.call(folder, "query_graph", question))
+
+    async def list_made(self, _args: dict[str, Any]) -> str:
+        run = self.run()
+        runs = {r.id: r.status for r in self.runner.list_all(run.world_id) if r.status in UNSPOILED}
+        lines = made(self.worlds.folder(run.world_id), runs)
+        return "\n".join(lines) or "The world has made nothing yet."
 
     async def propose_change(self, args: dict[str, Any]) -> str:
         change = RunChange(str(args.get("kind")), str(args.get("stage")), args.get("payload") or {})

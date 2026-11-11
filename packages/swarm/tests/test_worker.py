@@ -667,6 +667,23 @@ def test_pinned_artifacts_are_required_reading_for_the_planner_and_the_worker(
     assert "Pinned" not in judge, "the judge judges the stage's own notes"
 
 
+def test_what_the_world_already_made_is_in_every_prompt_of_an_idea_stage(
+    board: SqliteStorage, tmp_path: Path
+) -> None:
+    """The composition root hands an idea stage the world's made list (Memory's `made`): the
+    planner, the workers and the judge all see it, so repeats never depend on the graph."""
+    plan = Answer({"tasks": [{"title": "Pull top shorts"}]})
+    script = Script([GRAPH, plan], [GRAPH, CLAIM, FINISH], PASS)
+    line = "- Contrafreeloading (published 2026-11-04): study: Delgado 2021"
+    stage = {**STAGE, "output_type": "list[idea]", "made": [line]}
+    _run(_swarm(board, tmp_path, script), tmp_path, stage)
+
+    planner, _, judge = script.prompts
+    for prompt in (planner, str(script.sessions[1].system_prompt), judge):
+        assert "Already made in this world" in prompt and line in prompt
+    assert "repeats one of them" in judge
+
+
 DOLLAR = {"input_tokens": 250_000}
 """One model step's usage that the adapter prices at $1.00."""
 

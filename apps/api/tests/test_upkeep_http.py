@@ -1,9 +1,10 @@
-"""Scheduled upkeep through the API: Outcomes from every publish connector offering them written
-back into publish artifacts and onto the scorecard, and old run binaries pruned past the world's
-retention, markdown kept. The fake ConnectorTransport answers for the connectors, YouTube's
-`outcomes` claiming posts as its package does; DBOS runs for real on SQLite; the upkeep interval
-is shortened."""
+"""Scheduled upkeep through the API: Outcomes from every publish connector offering them recorded
+beside publish artifacts (never in them: the graph reads those) and onto the scorecard, and old
+run binaries pruned past the world's retention, markdown kept. The fake ConnectorTransport
+answers for the connectors, YouTube's `outcomes` claiming posts as its package does; DBOS runs
+for real on SQLite; the upkeep interval is shortened."""
 
+import json
 import os
 from collections.abc import Iterator
 from contextlib import closing
@@ -61,10 +62,11 @@ def test_youtube_counts_the_views_of_a_video_upload_post_put_on_youtube(
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     (publish,) = (tmp_path / "worlds" / world / "runs" / run["id"]).glob("*/artifacts/publish.md")
 
-    until(lambda: "## Outcome" in publish.read_text())
     text = publish.read_text()
-    assert '\noutcomes: {"views": 9000}\n' in text and 'primary_metric: "views"' in text
-    assert "## Outcome\n\n9,000 views as of " in text
+    outcomes = publish.with_name(".publish.md.outcomes.json")
+    until(outcomes.is_file)
+    assert json.loads(outcomes.read_text())["outcomes"] == {"views": 9000}
+    assert json.loads(outcomes.read_text())["primary_metric"] == "views"
     posts = [{"connector": "upload_post", "id": "job_1", "links": links}]
     assert ("youtube", "outcomes", {"posts": posts}, YOUTUBE_ENV) in transport.calls
     stage = next(
@@ -73,12 +75,12 @@ def test_youtube_counts_the_views_of_a_video_upload_post_put_on_youtube(
     (card,) = running.get(f"/api/runs/{run['id']}/stages/{stage['id']}/artifacts").json()
     assert card["type"] == "publish" and card["fields"]["outcomes"] == {"views": 9000}
 
-    seen = len(transport.calls)
+    seen, written = len(transport.calls), outcomes.stat().st_mtime_ns
     until(lambda: len(transport.calls) > seen + 2)  # later ticks read the count again
-    assert publish.read_text() == text  # an unchanged count is not written again
+    assert outcomes.stat().st_mtime_ns == written  # an unchanged count is not written again
     transport.outputs["youtube.outcomes"] = [youtube_outcomes(41000)]
-    until(lambda: "41,000 views" in publish.read_text())
-    assert publish.read_text().count("## Outcome") == 1
+    until(lambda: '"views": 41000' in outcomes.read_text())
+    assert publish.read_text() == text  # the record the graph reads never changes for a count
 
 
 CLICKS = "packages/connectors/tests/fixtures/packages/clicks"
@@ -104,10 +106,11 @@ def test_a_connector_reporting_clicks_shows_in_the_record_and_the_scorecard(
     until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
     (publish,) = (tmp_path / "worlds" / world / "runs" / run["id"]).glob("*/artifacts/publish.md")
 
-    until(lambda: "## Outcome" in publish.read_text())
-    text = publish.read_text()
-    assert '\noutcomes: {"clicks": 12, "views": 300}\n' in text
-    assert "12 clicks, 300 views as of " in text and 'primary_metric: "clicks"' in text
+    outcomes = publish.with_name(".publish.md.outcomes.json")
+    until(outcomes.is_file)
+    found = json.loads(outcomes.read_text())
+    assert found["outcomes"] == {"clicks": 12, "views": 300}
+    assert found["primary_metric"] == "clicks"
     posts = [{"connector": "clicks", "id": "p1", "links": {"clicks": "https://sho.rt/p1"}}]
     assert ("clicks", "outcomes", {"posts": posts}, {"CLICKS_TOKEN": "t"}) in transport.calls
     # youtube offers outcomes too, but is not signed in here: skipped, the others still asked

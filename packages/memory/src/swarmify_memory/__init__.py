@@ -11,8 +11,9 @@ The Library is every artifact of a world across its runs, read from the files; a
 as required reading for later swarm stages and lives in its frontmatter, so it survives any
 database. Retention (`prune`) deletes a world's old run binaries but never markdown: each deleted
 file's sidecar stays, saying when it went, so the graph and the library keep the record (ADR
-0001). Outcomes (`record_outcome`) are written into a publish artifact's frontmatter and body, the
-body because graphify reads bodies only.
+0001). Outcomes (`record_outcome`) change every few hours, so they live in a hidden sidecar
+beside their publish artifact (OUTCOMES), never in it: the artifact is what the graph extracts,
+and rewriting it re-extracted it on every view count. Readers get them merged into its fields.
 
 Assets are the operator's reusable files (music beds, sound effects, logos) in
 `<data_dir>/worlds/<world>/assets/`: added over HTTP or by hand, read by connector stages and the
@@ -26,6 +27,7 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -44,6 +46,7 @@ from swarmify_memory.ports import (
     EMPTY,
     GRAPH_OUT,
     GRAPH_TOOLS,
+    OUTCOMES,
     Community,
     GodNode,
     GraphIndex,
@@ -67,6 +70,7 @@ __all__ = [
     "ArtifactFile",
     "GRAPH_OUT",
     "GRAPH_TOOLS",
+    "OUTCOMES",
     "FakeGraphIndex",
     "Community",
     "GodNode",
@@ -80,10 +84,14 @@ __all__ = [
     "extract_command",
     "graph_map",
     "graph_size",
+    "library",
+    "made",
     "run_graphify",
 ]
 
 OUTCOME = "## Outcome\n\n"
+"""The body section records from before the sidecar carry their outcome in."""
+OUTCOME_FIELDS = ("outcomes", "outcomes_at", "primary_metric", "views", "views_at")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 INLINE_MAX = 1 << 20
 """The largest file an artifact listing inlines as text, in bytes."""
@@ -138,6 +146,21 @@ def _split(text: str) -> tuple[dict[str, Any], str]:
             except ValueError:
                 fields[key] = value
     return fields, body.lstrip("\n")
+
+
+def _outcomes_of(file: Path) -> Path:
+    return file.with_name(f".{file.name}{OUTCOMES}")
+
+
+def _with_outcomes(file: Path, fields: dict[str, Any]) -> dict[str, Any]:
+    """The artifact's fields with its sidecar's outcomes, which win over any in the file."""
+    try:
+        found = json.loads(_outcomes_of(file).read_text())
+    except (OSError, ValueError):
+        return fields
+    if not isinstance(found, dict):
+        return fields
+    return {k: v for k, v in fields.items() if k not in ("views", "views_at")} | found
 
 
 TEMPLATE_RECORD = ".template.json"
@@ -389,12 +412,7 @@ class Memory:
     def library(self, world_id: str) -> list[ArtifactFile]:
         """The Library: every artifact of the world across its runs, newest first, gate
         decisions included. A binary's sidecar stands in for it."""
-        # ponytail: a walk over the world's files per call; index them in a table when a world
-        # holds tens of thousands of artifacts.
-        world = self.world_folder(world_id)
-        files = [p for p in world.glob("runs/*/*/artifacts/[!.]*") if p.is_file()]
-        files += [p for p in world.glob("runs/*/*/decision*.md") if p.is_file()]
-        return sorted(self._artifacts(world_id, files), key=lambda a: a.created, reverse=True)
+        return library(self.world_folder(world_id))
 
     def pinned(self, world_id: str) -> list[str]:
         """The pinned artifacts, as paths relative to the world folder, newest first."""
@@ -430,68 +448,38 @@ class Memory:
         return artifact
 
     def _artifacts(self, world_id: str, files: list[Path]) -> list[ArtifactFile]:
-        """The files as artifacts, by path; a binary with a sidecar is read through it, one
-        without is listed by name and size only, as is a file over INLINE_MAX."""
-        world = self.world_folder(world_id)
-        out = []
-        for p in sorted(files):
-            if p.suffix != ".md" and p.with_name(f"{p.name}.md").is_file():
-                continue  # its sidecar carries it
-            text = _text(p)
-            fields, body = _split(text) if text is not None else ({}, "")
-            binary = p.with_name(p.name[:-3])
-            carried = p.suffix == ".md" and (binary.is_file() or "deleted" in fields)
-            if carried:  # retention may have deleted the binary and kept its sidecar
-                size = binary.stat().st_size if binary.is_file() else 0
-            else:
-                size = p.stat().st_size
-            parts = p.relative_to(world).parts  # runs, <run>, <stage>, ...
-            out.append(
-                ArtifactFile(
-                    p.name[:-3] if carried else p.name,
-                    str(p.relative_to(world)),
-                    str(fields.get("type", "file")),
-                    str(fields.get("author", "")),
-                    str(fields.get("title") or (p.name[:-3] if carried else p.name)),
-                    fields,
-                    body,
-                    parts[1] if len(parts) > 2 else "",
-                    parts[2] if len(parts) > 2 else "",
-                    str(fields.get("created") or ""),
-                    fields.get("pinned") is True,
-                    size,
-                )
-            )
-        return out
+        return _read(self.world_folder(world_id), files)
+
+    def made(self, world_id: str, runs: Mapping[str, str]) -> list[str]:
+        """See `made`."""
+        return made(self.world_folder(world_id), runs)
 
     def publish_records(self, world_id: str) -> list[tuple[str, dict[str, Any]]]:
         """Every publish artifact of the world: (path relative to the world folder, fields)."""
         world = self.world_folder(world_id)
         return [
-            (str(p.relative_to(world)), _split(p.read_text())[0])
+            (str(p.relative_to(world)), _with_outcomes(p, _split(p.read_text())[0]))
             for p in sorted(world.glob("runs/*/*/artifacts/publish.md"))
         ]
 
     def record_outcome(
         self, world_id: str, path: str, metrics: dict[str, float], primary: str, at: datetime
     ) -> None:
-        """Write a publish artifact's Outcome into its frontmatter (`outcomes` by metric,
-        `outcomes_at` and `primary_metric`, the one the scorecard ranks by) and into an Outcome
-        section of its body, replacing the last one. A record from before outcomes were generic
-        loses its `views` and `views_at`, which `outcomes` now holds."""
+        """Write a publish artifact's Outcome (`outcomes` by metric, `outcomes_at` and
+        `primary_metric`, the one the scorecard ranks by) into its sidecar, replacing the last.
+        A record from before the sidecar has its outcome fields and Outcome section taken out,
+        once; after that the record itself is never written for an outcome."""
         file = self._inside(world_id, path)
         fields, body = _split(file.read_text())
-        for old in ("views", "views_at"):
-            fields.pop(old, None)
-        fields |= {
+        if any(k in fields for k in OUTCOME_FIELDS) or OUTCOME in body:
+            kept = {k: v for k, v in fields.items() if k not in OUTCOME_FIELDS}
+            file.write_text(_frontmatter(kept) + body.split(OUTCOME)[0].rstrip("\n") + "\n")
+        found = {
             "outcomes": metrics,
             "outcomes_at": at.astimezone(UTC).isoformat(),
             "primary_metric": primary,
         }
-        said = ", ".join(f"{n:,} {metric}" for metric, n in metrics.items())
-        body = body.split(OUTCOME)[0].rstrip("\n")
-        day = at.astimezone(UTC).date().isoformat()
-        file.write_text(f"{_frontmatter(fields)}{body}\n\n{OUTCOME}{said} as of {day}.\n")
+        _outcomes_of(file).write_text(json.dumps(found))
         self._event(
             world_id,
             fields.get("run"),
@@ -509,7 +497,9 @@ class Memory:
         cutoff, gone = before.timestamp(), []
         when = before.astimezone(UTC).isoformat()
         for file in sorted((world / "runs").rglob("*")):
-            if file.suffix == ".md" or not file.is_file() or file.stat().st_mtime >= cutoff:
+            if file.suffix == ".md" or file.name.endswith(OUTCOMES) or not file.is_file():
+                continue
+            if file.stat().st_mtime >= cutoff:
                 continue
             sidecar = file.with_name(f"{file.name}.md")
             fields, body = _split(sidecar.read_text()) if sidecar.exists() else ({}, "")
@@ -572,3 +562,114 @@ class Memory:
         with closing(connect(self.db)) as conn:
             append(conn, event)
         return rel
+
+
+def _read(world: Path, files: list[Path]) -> list[ArtifactFile]:
+    """The files as artifacts, by path; a binary with a sidecar is read through it, one
+    without is listed by name and size only, as is a file over INLINE_MAX."""
+    out = []
+    for p in sorted(files):
+        if p.suffix != ".md" and p.with_name(f"{p.name}.md").is_file():
+            continue  # its sidecar carries it
+        text = _text(p)
+        fields, body = _split(text) if text is not None else ({}, "")
+        fields = _with_outcomes(p, fields)
+        binary = p.with_name(p.name[:-3])
+        carried = p.suffix == ".md" and (binary.is_file() or "deleted" in fields)
+        if carried:  # retention may have deleted the binary and kept its sidecar
+            size = binary.stat().st_size if binary.is_file() else 0
+        else:
+            size = p.stat().st_size
+        parts = p.relative_to(world).parts  # runs, <run>, <stage>, ...
+        out.append(
+            ArtifactFile(
+                p.name[:-3] if carried else p.name,
+                str(p.relative_to(world)),
+                str(fields.get("type", "file")),
+                str(fields.get("author", "")),
+                str(fields.get("title") or (p.name[:-3] if carried else p.name)),
+                fields,
+                body,
+                parts[1] if len(parts) > 2 else "",
+                parts[2] if len(parts) > 2 else "",
+                str(fields.get("created") or ""),
+                fields.get("pinned") is True,
+                size,
+            )
+        )
+    return out
+
+
+def library(world: Path) -> list[ArtifactFile]:
+    """The Library of the world at `world` (Memory.library)."""
+    # ponytail: a walk over the world's files per call; index them in a table when a world
+    # holds tens of thousands of artifacts.
+    files = [p for p in world.glob("runs/*/*/artifacts/[!.]*") if p.is_file()]
+    files += [p for p in world.glob("runs/*/*/decision*.md") if p.is_file()]
+    return sorted(_read(world, files), key=lambda a: a.created, reverse=True)
+
+
+MADE_MAX = 100
+"""The most runs `made` lists, newest first."""
+GIST = 400
+"""The most characters of a made run's gist."""
+_NOT_GIST = {
+    "type", "author", "run", "stage", "task", "created", "title", "rank", "reason", "sources",
+    "pinned", "connector", "status", "id", "links", "sent", *OUTCOME_FIELDS,
+}  # fmt: skip
+
+
+def made(world: Path, runs: Mapping[str, str]) -> list[str]:
+    """What the world at `world` already made, one line per run, newest first: every run with a
+    publish record, and every run in `runs` (run id to status: the runs the caller counts, not
+    failed or aborted ones) that settled on one idea. A run's subject is the idea a gate picked,
+    else its only idea, else its publish record; a run that ranked ideas and picked none is not
+    listed. Each line says the title, whether it was published (with its outcome) or is done or
+    in the making, and its gist: the subject's text fields (a study, a fact, a hook) and the
+    start of its body. Read from the files alone, so it holds when the graph is behind."""
+    by_run: dict[str, list[ArtifactFile]] = {}
+    for a in library(world):
+        by_run.setdefault(a.run_id, []).append(a)
+    lines: list[str] = []
+    seen: set[str] = set()
+    for run_id, found in by_run.items():
+        publish = next((a for a in found if a.name == "publish.md"), None)
+        if publish is None and run_id not in runs:
+            continue
+        paths = {a.path: a for a in found}
+        picks = (
+            paths.get(str(a.fields.get("artifact")))
+            for a in found
+            if a.type == "decision"
+            and a.fields.get("artifact")
+            and not a.fields.get("send_back_to")
+        )
+        ideas = [a for a in found if a.type == "idea"]
+        subject = next((a for a in picks if a), None) or (ideas[0] if len(ideas) == 1 else None)
+        subject = subject or publish
+        if subject is None or subject.title.lower() in seen:
+            continue
+        seen.add(subject.title.lower())
+        if publish is not None:
+            state = f"published {publish.created[:10]}".strip()
+            metric = str(publish.fields.get("primary_metric") or "")
+            value = (publish.fields.get("outcomes") or {}).get(metric)
+            if isinstance(value, int | float):
+                state += f", {value:,} {metric}"
+            if publish is not subject and publish.title.lower() != subject.title.lower():
+                state += f", posted as {publish.title}"
+        else:
+            state = "made" if runs.get(run_id) == "done" else "in the making"
+        text = [
+            f"{k}: {v}"
+            for k, v in subject.fields.items()
+            if k not in _NOT_GIST and isinstance(v, str)
+        ]
+        paragraphs = [p for p in re.split(r"\n\s*\n", subject.body) if p.strip()]
+        text += [" ".join(p.split()) for p in paragraphs if not p.lstrip().startswith("#")][:1]
+        gist = "; ".join(text)
+        gist = gist if len(gist) <= GIST else gist[: GIST - 3] + "..."
+        lines.append(f"- {subject.title} ({state})" + (f": {gist}" if gist else ""))
+        if len(lines) == MADE_MAX:
+            break
+    return lines

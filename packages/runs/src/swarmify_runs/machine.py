@@ -11,6 +11,8 @@ StageStatus = Literal["pending", "running", "waiting", "done", "failed", "skippe
 RUN_STATUSES: tuple[RunStatus, ...] = (
     "queued", "running", "waiting_gate", "paused", "done", "failed", "aborted"
 )  # fmt: skip
+UNSPOILED: tuple[RunStatus, ...] = ("queued", "running", "waiting_gate", "paused", "done")
+"""A run that made, or is still making, what it set out to: not failed, not aborted."""
 STAGE_STATUSES: tuple[StageStatus, ...] = (
     "pending", "running", "waiting", "done", "failed", "skipped"
 )  # fmt: skip

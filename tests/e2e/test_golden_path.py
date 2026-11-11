@@ -133,9 +133,12 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     (publish,) = folder.rglob("publish.md")
     assert "https://youtu.be/e2e-video" in publish.read_text()
 
-    # Upkeep writes the video's views into the publish record and onto the scorecard (84, 85).
-    until(lambda: "1,234 views" in publish.read_text())
-    assert "## Outcome\n\n1,234 views as of " in publish.read_text()  # the body, read by the graph
+    # Upkeep writes the video's views beside the publish record and onto the scorecard (84, 85);
+    # the record itself, which the graph reads, stays as it was.
+    posted = publish.read_text()
+    outcomes = publish.with_name(".publish.md.outcomes.json")
+    until(lambda: outcomes.is_file() and "1234" in outcomes.read_text())
+    assert publish.read_text() == posted
     page.goto(f"{base_url}/worlds/{world}")
     page.get_by_role("link", name="Scorecard of Weekly short").click()
     expect(page.get_by_test_id("score")).to_contain_text("1,234 views")

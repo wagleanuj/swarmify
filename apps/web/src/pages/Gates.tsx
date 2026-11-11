@@ -34,6 +34,7 @@ import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
+type StalledMemory = components["schemas"]["StalledMemory"];
 
 /** What `GateCard` hands back with an answer: `said` is the decision in plain words, for the
  * line that confirms it. */
@@ -61,6 +62,8 @@ export function Gates() {
   const phone = usePhone();
   const open = useOpenGates();
   const [worlds, setWorlds] = useState<World[]>([]);
+  // Worlds whose memory stopped rebuilding: agents may then repeat what was already made.
+  const [stalled, setStalled] = useState<StalledMemory[]>([]);
   const [refused, setRefused] = useState<string | null>(null);
   // Answered this visit, newest first: they sort last in the queue, dimmed.
   const [answered, setAnswered] = useState<Answered[]>([]);
@@ -75,9 +78,13 @@ export function Gates() {
       .GET("/api/worlds")
       .then(({ data }) => setWorlds(data ?? []))
       .catch(() => undefined);
+    api
+      .GET("/api/graph/stalled")
+      .then(({ data }) => setStalled(data ?? []))
+      .catch(() => undefined);
   }, []);
 
-  const inWorld = (g: Gate) => !search.world || g.world_id === search.world;
+  const inWorld = (g: { world_id: string }) => !search.world || g.world_id === search.world;
   // A gate opened again after a send back is a new decision, so match the opening too.
   const isAnswered = (g: Gate) => answered.some((a) => a.gate.stage_id === g.stage_id && a.gate.opened_at === g.opened_at);
   const waiting = (open.gates ?? []).filter((g) => inWorld(g) && !isAnswered(g));
@@ -146,6 +153,18 @@ export function Gates() {
         </label>
       </header>
       {error && <p role="alert">{error}</p>}
+      {stalled.filter(inWorld).map((s) => (
+        <p key={s.world_id} role="alert" className="notice" data-testid="stalled-memory">
+          <span>
+            {s.world_name}'s memory has not updated since {ago(Date.parse(s.since))}: its last {s.failures} rebuilds
+            failed, the last with: {s.error.length > 200 ? `${s.error.slice(0, 200)}...` : s.error}. Agents may pitch
+            what it already made.
+          </span>
+          <Link to="/worlds/$worldId/graph" params={{ worldId: s.world_id }}>
+            Open its memory
+          </Link>
+        </p>
+      ))}
       {open.gates === null && !error && (
         <Loading className="inbox">
           <div className="queue q-skeleton">
