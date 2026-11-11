@@ -64,7 +64,8 @@ def test_youtube_counts_the_views_of_a_video_upload_post_put_on_youtube(
 
     text = publish.read_text()
     outcomes = publish.with_name(".publish.md.outcomes.json")
-    until(outcomes.is_file)
+    # the sidecar is written before the event, so the event means both are in place
+    until(lambda: "outcome.recorded" in _types(tmp_path, world))
     assert json.loads(outcomes.read_text())["outcomes"] == {"views": 9000}
     assert json.loads(outcomes.read_text())["primary_metric"] == "views"
     posts = [{"connector": "upload_post", "id": "job_1", "links": links}]
@@ -107,7 +108,8 @@ def test_a_connector_reporting_clicks_shows_in_the_record_and_the_scorecard(
     (publish,) = (tmp_path / "worlds" / world / "runs" / run["id"]).glob("*/artifacts/publish.md")
 
     outcomes = publish.with_name(".publish.md.outcomes.json")
-    until(outcomes.is_file)
+    # the sidecar is written before the event, so the event means both are in place
+    until(lambda: "outcome.recorded" in _types(tmp_path, world))
     found = json.loads(outcomes.read_text())
     assert found["outcomes"] == {"clicks": 12, "views": 300}
     assert found["primary_metric"] == "clicks"
