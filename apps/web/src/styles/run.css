@@ -70,14 +70,13 @@ svg.glyph { color: var(--accent); }
 .spend .compare summary { margin: 0; font-size: 13px; }
 .compare p { margin-top: 4px; }
 
-/* A short list of actions under a button, each with what happens and where you land */
+/* A short list of actions under a button (Menu.tsx; its box is in base.css), each with what
+   happens and where you land. The run's menu sits at the right edge, so it opens leftwards. */
 .menu-wrap { position: relative; display: inline-flex; }
-.menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 260px; padding: 6px; background: var(--raised); border: 1px solid var(--control); border-radius: 8px; z-index: 10; display: grid; }
-.menu button { display: grid; justify-items: start; gap: 2px; padding: 8px 10px; border: 0; border-radius: 6px; text-align: left; font-weight: 500; }
+.menu button { font-weight: 500; }
 .menu button:hover { background: var(--surface); }
 .menu button.danger { color: var(--pill-negative-ink); }
-.menu small { color: var(--faint); font-size: 11px; font-weight: 400; }
-.gate-actions .menu { left: 0; right: auto; }
+.run-actions .menu, .run-topbar .menu { left: auto; right: 0; }
 
 /* The result and the gate's answer lead the selected step's panel */
 .result { display: grid; gap: 8px; }
@@ -166,7 +165,6 @@ svg.glyph { color: var(--accent); }
   .strip:not(.strip-bare) { overflow-x: auto; scrollbar-width: none; }
   .strip:not(.strip-bare) .strip-seg { min-width: 24px; }
   .strip-seg span { display: none; }
-  .run-actions .menu { left: 0; right: auto; }
   .take-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .take-list audio { grid-column: 1 / -1; }
   .board { grid-template-columns: 1fr; }

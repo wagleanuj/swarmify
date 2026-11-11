@@ -22,8 +22,8 @@ def test_create_open_and_delete_a_world(page: Page, base_url: str, data_dir: Pat
     folder = data_dir / "worlds" / page.url.rstrip("/").split("/")[-1]
     assert folder.is_dir()
     page.get_by_role("navigation", name="Main").get_by_role("link", name="Settings").click()
-    page.once("dialog", lambda dialog: dialog.accept())
     page.get_by_role("button", name="Delete Video").click()
+    page.get_by_role("dialog").get_by_role("button", name="Delete world").click()
     expect(page.get_by_role("heading", name="Your worlds")).to_be_visible()
     expect(page.get_by_test_id("empty")).to_be_visible()
     assert not folder.exists()  # its runs, files and graph went with it (story 7)

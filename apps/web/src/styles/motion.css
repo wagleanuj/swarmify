@@ -54,6 +54,14 @@ dialog.sheet[open]::backdrop { opacity: 1; }
   dialog.sheet[open]::backdrop { opacity: 0; }
 }
 
+/* A confirm rises into place and its backdrop fades in; it goes at once. */
+dialog.dialog[open] { transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out); }
+dialog.dialog::backdrop { transition: opacity var(--dur-base); }
+@starting-style {
+  dialog.dialog[open] { opacity: 0; transform: translateY(8px); }
+  dialog.dialog[open]::backdrop { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, ::backdrop,
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {

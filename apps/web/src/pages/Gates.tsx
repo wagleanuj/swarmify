@@ -10,6 +10,7 @@ import {
   gateArtifacts,
   gateProposal,
   type Choice,
+  REJECT,
   type Proposal,
   sendBackTargets,
   staysOpen,
@@ -21,8 +22,9 @@ import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
 import { dropGate, reloadGates, useOpenGates } from "../api/gates";
 import type { ArtifactFile } from "../api/events";
-import { type Gate, money, type Run, STATUS_LABEL, took } from "../api/runs";
+import { abortAsk, type Gate, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
+import { useConfirm } from "../Dialog";
 import { gatesRoute } from "../router";
 import { piedPiper } from "../skin";
 import { Loading, Skeleton } from "../Skeleton";
@@ -318,6 +320,7 @@ export function GateCard({
   onAnswer: Answer;
 }) {
   const [busy, setBusy] = useState(false);
+  const [confirm, dialog] = useConfirm();
   const phone = usePhone();
   // The pick so far (a card's path, or the typed name), so a phone's primary can name it.
   const [chosen, setChosen] = useState("");
@@ -374,7 +377,7 @@ export function GateCard({
   }
 
   async function abort() {
-    if (!window.confirm(`Abort ${gate.run_name}? Finished stages keep their artifacts.`)) return;
+    if (!(await confirm(abortAsk(gate.run_name, gate.spent_usd, gate.budget_usd)))) return;
     setBusy(true);
     const { send, said } = decision(gate, { kind: "abort" });
     await onAnswer(gate, send, said);
@@ -384,6 +387,7 @@ export function GateCard({
   const since = new Date(gate.opened_at).toLocaleTimeString([], { timeStyle: "short" });
   return (
     <li className="gate" data-kind={gate.kind} data-testid={`gate-${gate.run_id}`}>
+      {dialog}
       {!bare && (
       <div className="gate-head">
         <Link
@@ -546,6 +550,7 @@ function SkillGate({
   const [content, setContent] = useState("");
   const [applyWorkflow, setApplyWorkflow] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [confirm, dialog] = useConfirm();
 
   useEffect(() => {
     gateProposal(gate)
@@ -560,7 +565,7 @@ function SkillGate({
     e.preventDefault();
     if (!proposal) return;
     const note = String(new FormData(e.currentTarget).get("note") ?? "").trim();
-    if (!approve && !note && !window.confirm("Reject without saying why? The retro learns from the reason.")) return;
+    if (!approve && !note && !(await confirm(REJECT))) return;
     const { send, said } = decision(gate, { kind: "skill", proposal, approve, content, applyWorkflow }, { note });
     setBusy(true);
     await onAnswer(gate, send, said);
@@ -581,6 +586,8 @@ function SkillGate({
   }
   const skill = proposal.skill;
   return (
+    <>
+    {dialog}
     <form className="gate-form proposal" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => void answer(e, true)}>
       {skill && (
         <section data-testid="skill-change">
@@ -633,6 +640,7 @@ function SkillGate({
         </span>
       </div>
     </form>
+    </>
   );
 }
 

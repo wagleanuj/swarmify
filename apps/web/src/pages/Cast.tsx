@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
+import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import { Loading, Skeleton } from "../Skeleton";
 import type { components } from "../api/schema";
@@ -29,6 +30,7 @@ type RoleModel = "planner_model" | "worker_model" | "judge_model" | "retro_model
 const NO_RECORD = { tasks_done: 0, judged: 0, first_try: 0, send_backs: 0, cost_usd: 0 };
 
 export function Cast() {
+  const [confirm, dialog] = useConfirm();
   const { worldId } = castRoute.useParams();
   const path = { params: { path: { world_id: worldId } } };
   const [world, setWorld] = useState<World | null>(null);
@@ -74,9 +76,11 @@ export function Cast() {
   async function save(e: FormEvent, m: Member) {
     e.preventDefault();
     const next = m.version + 1;
-    const ok = window.confirm(
-      `Save version ${next} of ${who(m.name)}? Every stage that starts from now on in ${world?.name ?? "this world"} uses it. Runs in flight keep going with what they have.`,
-    );
+    const ok = await confirm({
+      title: `Save version ${next} of ${who(m.name)}?`,
+      lines: [`Every stage that starts from now on in ${world?.name ?? "this world"} uses it.`, "Runs in flight keep going with what they have."],
+      action: `Save v${next}`,
+    });
     if (!ok) return;
     setBusy(true);
     setError(null);
@@ -138,7 +142,7 @@ export function Cast() {
 
   /** A rollback is a new version with the old content, so the history keeps every step. */
   async function restore(v: SkillVersion, next: number) {
-    if (!window.confirm(`Restore v${v.number} of ${v.name} as v${next}? Every stage that starts from now on loads it.`)) return;
+    if (!(await confirm({ title: `Restore v${v.number} of ${v.name} as v${next}?`, lines: ["Every stage that starts from now on loads it."], action: "Restore" }))) return;
     setBusy(true);
     setError(null);
     setSaid(null);
@@ -168,6 +172,7 @@ export function Cast() {
   const total = (cast ?? []).reduce((sum, m) => sum + (m.record ?? NO_RECORD).cost_usd, 0);
   return (
     <main>
+      {dialog}
       <header className="page">
         <div>
           <h1>Cast</h1>

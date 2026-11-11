@@ -6,7 +6,7 @@ import "../index.css";
 import type { ArtifactFile, LogEntry } from "../api/events";
 import type { Call } from "../api/runs";
 import { CONNECTORS, FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const at = (minute: number, second = 0) => `2026-10-26T10:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}+00:00`;
 const timed = (start: number, end: number | null) => ({ started_at: at(start), ended_at: end === null ? null : at(end, 14) });
@@ -378,7 +378,6 @@ test("paused and aborted say where, and an abort names what was kept", async () 
     },
     "POST /api/runs/run_1/abort": () => Response.json({ detail: "run is done" }, { status: 409 }),
   });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Paused at voice.");
   let menu = await runMenu(screen);
@@ -386,7 +385,7 @@ test("paused and aborted say where, and an abort names what was kept", async () 
   await menu.getByRole("menuitem", { name: /^Resume/ }).click();
   await vi.waitFor(() => expect(posted).toEqual(["resume"]));
   await (await runMenu(screen)).getByRole("menuitem", { name: /^Abort run/ }).click();
-  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Abort Render then pick?"));
+  expect(await answerConfirm(screen, "Abort run")).toContain("Abort Render then pick?");
   await expect.element(screen.getByRole("alert")).toHaveTextContent("run is done");
 
   FakeEventSource.emit("run.updated", { payload: run("aborted", [research("done"), voice("failed"), publish("pending")], { updated_at: at(30) }) });

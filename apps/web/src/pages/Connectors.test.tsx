@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 import { browser, parseKeys } from "./Connectors";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
@@ -215,7 +215,6 @@ test("a switch shows the Manifest diff and waits for a new required Setup field;
   const asked: string[] = [];
   const region = { key: "region", label: "Region", type: "string", secret: false, required: true, scope: "world", env: "REGION", help: null, options: null, default: null, min: null, max: null, pattern: null, shared: null, world: null, shared_set: false, world_set: false };
   const pkg = { name: "echo", label: "Echo", kind: "stage", about: "Says it back.", source: "connectors/echo", installed_at: "2026-10-30T10:00:00+00:00", state: "installed", problem: null };
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const calls = fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json(defaults),
@@ -256,6 +255,7 @@ test("a switch shows the Manifest diff and waits for a new required Setup field;
   expect(calls).not.toContain("PUT /api/worlds/world_1/packages/echo");
 
   await screen.getByRole("button", { name: "Uninstall echo 1.0.0" }).click();
+  expect(await answerConfirm(screen, "Uninstall")).toContain("Its folder is removed for every world.");
   await expect.element(screen.getByRole("alert")).toHaveTextContent(
     "echo 1.0.0 is in use: world Video pins it; Say it v1 in world Video was saved with it",
   );
@@ -266,7 +266,6 @@ test("shows which packages this world enables at which version, and enables, swi
   let enabled = [{ name: "echo", version: "1.0.0" }];
   const echo = { ...base, id: "package_echo", world_id: "world_1", name: "echo", kind: "stage", stage_types: ["connector"], about: "Says it back.", command: ["uv", "run", "server.py"], version: "1.0.0", label: "Echo" };
   const bodies: unknown[] = [];
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const calls = fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/connectors": () => Response.json(enabled.length ? [...defaults, echo] : defaults),
@@ -302,6 +301,7 @@ test("shows which packages this world enables at which version, and enables, swi
   expect(bodies).toEqual([{ version: "1.1.0" }]);
 
   await screen.getByRole("button", { name: "Disable echo 1.1.0" }).click();
+  expect(await answerConfirm(screen, "Disable")).toContain("Other worlds keep it.");
   await expect.element(rows.first()).toMatchTextContent(/Installed\s*Enable\s*Uninstall$/);
   await expect.element(rows.last()).toMatchTextContent(/Installed\s*Enable\s*Uninstall$/);
   expect(calls).toContain("DELETE /api/worlds/world_1/packages/echo");

@@ -1,3 +1,4 @@
+import type { Ask } from "../Dialog";
 import { api } from "./client";
 import type { Connectors } from "./connectors";
 import { type Call, type Run, useWorldEvents } from "./events";
@@ -123,6 +124,22 @@ export async function setBudget(runId: string, total: number): Promise<string | 
     body: { budget_usd: total },
   });
   return refusal(error, response, "The budget was refused");
+}
+
+/** The confirm before an abort, true to what it does: agents and child runs stop (ADR 0013),
+ * finished steps and the spend stay, and an aborted run never resumes. */
+export function abortAsk(name: string, spent?: number | null, budget?: number | null): Ask {
+  const of = budget != null ? ` of its ${money(budget)} budget` : "";
+  return {
+    title: `Abort ${name}?`,
+    lines: [
+      "Every agent stops, and so does any child run it started.",
+      `Finished steps keep their files. The ${money(spent ?? 0)}${of} spent so far stays spent.`,
+      "An aborted run cannot be resumed. To go again, start a new run from its workflow.",
+    ],
+    action: "Abort run",
+    danger: true,
+  };
 }
 
 /** Dollars to the cent, for budgets and spend. */

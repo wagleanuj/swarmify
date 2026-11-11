@@ -16,13 +16,15 @@ import {
   topUpSuggestion,
   underReview,
   useGateForm,
+  REJECT,
 } from "../api/answer";
 import { applyCard, type Card, cardTitle, lines, markCard, useGateAsk } from "../api/assistant";
 import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
 import type { Agent, ArtifactFile } from "../api/events";
 import { dropGate, reloadGates, useOpenGates } from "../api/gates";
-import { type Gate, money, type Run, useRunUpdates } from "../api/runs";
+import { abortAsk, type Gate, money, type Run, useRunUpdates } from "../api/runs";
+import { type Ask as AskFor, useConfirm } from "../Dialog";
 import type { components } from "../api/schema";
 import type { Skin } from "../skin";
 import { type Look, stillFrame, useCast } from "./cast";
@@ -34,7 +36,7 @@ type PublishPreview = components["schemas"]["PublishPreview"];
 
 /** One answer at a gate: its button, whether the asker cheers (yes) or slumps (stop, send back),
  * and the choice it makes from the form, or null when it should not go (a pick left empty). */
-type Option = { label: string; cheer: boolean; disabled?: boolean; choose: (form: FormData) => Choice | null };
+type Option = { label: string; cheer: boolean; disabled?: boolean; choose: (form: FormData) => Choice | null | Promise<Choice | null> };
 type Reaction = { said: string; name: string; look: Look | null; cheer: boolean; n: number };
 
 /** Talk: the askers at Your office, oldest first, one at a time. The asker stands large and says
@@ -182,6 +184,7 @@ function Ask({
   onAnswer: (gate: Gate, send: () => Promise<string | null>, said: string, cheer: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [confirm, dialog] = useConfirm();
   // The gate's form, and whether an editable field of the post differs from what the gate shows.
   const { form, changed, edited, fill } = useGateForm(gate);
   // What the earlier stages made (a pick's cards, what an approve reviews), and a skill gate's proposal.
@@ -202,12 +205,12 @@ function Ask({
 
   const cards = gate.kind === "pick" && artifacts ? choosable(artifacts) : [];
   const reviewed = gate.kind === "approve" && artifacts ? underReview(artifacts) : [];
-  const options = choices(gate, artifacts, cards, proposal, changed);
+  const options = choices(gate, artifacts, cards, proposal, changed, confirm);
 
   async function choose(option: Option) {
     if (busy || option.disabled || !form.current) return;
     const fields = new FormData(form.current);
-    const choice = option.choose(fields);
+    const choice = await option.choose(fields);
     if (!choice) return;
     const edits = Object.fromEntries([...fields].flatMap(([k, v]) => (k.startsWith("edit:") ? [[k.slice(5), String(v)]] : [])));
     const { send, said } = decision(gate, choice, { note: String(fields.get("note") ?? "").trim(), edits, reviewed });
@@ -222,6 +225,7 @@ function Ask({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector("dialog[open]")) return; // a confirm is asking
       const option = options[Number(e.key) - 1];
       if (/^[1-9]$/.test(e.key) && option) void latest.current(option);
     };
@@ -234,6 +238,7 @@ function Ask({
   const label = asker.look?.label;
   return (
     <div className="talk-scene" style={{ "--accent": asker.look?.colour ?? undefined } as CSSProperties}>
+      {dialog}
       {asker.look && (
         <div className="talk-hero">
           <img src={stillFrame(asker.look, "talk")} alt={[asker.name, label === asker.name ? "" : label, "asking"].filter(Boolean).join(", ")} />
@@ -416,7 +421,14 @@ function TalkCard({ runId, card, revision }: { runId: string; card: Card; revisi
 }
 
 /** The gate's real choices, as the plain Gates page offers them. */
-function choices(gate: Gate, artifacts: ArtifactFile[] | null, cards: ArtifactFile[], proposal: Proposal | null | undefined, changed: boolean): Option[] {
+function choices(
+  gate: Gate,
+  artifacts: ArtifactFile[] | null,
+  cards: ArtifactFile[],
+  proposal: Proposal | null | undefined,
+  changed: boolean,
+  confirm: (ask: AskFor) => Promise<boolean>,
+): Option[] {
   const stop = blocked(gate, changed);
   switch (gate.kind) {
     case "pick":
@@ -454,7 +466,7 @@ function choices(gate: Gate, artifacts: ArtifactFile[] | null, cards: ArtifactFi
         {
           label: "Abort the run",
           cheer: false,
-          choose: () => (window.confirm(`Abort ${gate.run_name}? Finished stages keep their artifacts.`) ? { kind: "abort" } : null),
+          choose: async () => ((await confirm(abortAsk(gate.run_name, gate.spent_usd, gate.budget_usd))) ? { kind: "abort" } : null),
         },
       ];
     case "skill": {
@@ -469,8 +481,8 @@ function choices(gate: Gate, artifacts: ArtifactFile[] | null, cards: ArtifactFi
         {
           label: "Reject",
           cheer: false,
-          choose: (f) =>
-            String(f.get("note") ?? "").trim() || window.confirm("Reject without saying why? The retro learns from the reason.")
+          choose: async (f) =>
+            String(f.get("note") ?? "").trim() || (await confirm(REJECT))
               ? { kind: "skill", proposal, approve: false, content: content(f), applyWorkflow: false }
               : null,
         },
