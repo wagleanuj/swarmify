@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const STARTER = `name: Weekly short
 budget_usd: 5
@@ -704,17 +704,16 @@ test("leaving with unsaved changes asks first; switching tabs does not", async (
   const { screen, router } = await mountAt("/worlds/world_1/workflows/wf_1?tab=yaml");
   const yaml = screen.getByLabelText("Workflow YAML");
   await expect.element(yaml).toHaveValue(THREE);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   await yaml.fill(`${THREE}# mine\n`);
   await screen.getByRole("tab", { name: "Stages" }).click();
   await expect.element(screen.getByTestId("stage-rows")).toBeVisible();
-  expect(confirm).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog").elements()).toHaveLength(0);
   const leave = () => void router.navigate({ to: "/worlds/$worldId/runs", params: { worldId: "world_1" } });
   leave();
-  await expect.poll(() => confirm.mock.calls).toEqual([["Leave without saving? Your changes to this draft are lost."]]);
+  expect(await answerConfirm(screen, "Cancel")).toContain("Leave without saving?Your changes to this draft are lost.");
   expect(router.state.location.pathname).toBe("/worlds/world_1/workflows/wf_1");
-  confirm.mockReturnValue(true);
   leave();
+  await answerConfirm(screen, "Leave");
   await expect.poll(() => router.state.location.pathname).toBe("/worlds/world_1/runs");
 });
 test("a new workflow offers the starter workflows; picking one replaces an untouched draft, asks before an edited one", async () => {
@@ -735,12 +734,11 @@ test("a new workflow offers the starter workflows; picking one replaces an untou
   await expect.element(screen.getByRole("heading", { name: "Research brief", level: 1 })).toBeVisible();
 
   await screen.getByLabelText("Workflow YAML").fill(`${BRIEF}# mine\n`);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   await weekly.click();
-  expect(confirm).toHaveBeenCalledWith("Start over from Weekly short? Your changes to this draft are lost.");
+  expect(await answerConfirm(screen, "Cancel")).toContain("Start over from Weekly short?Your changes to this draft are lost.");
   await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(`${BRIEF}# mine\n`);
-  confirm.mockReturnValue(true);
   await weekly.click();
+  await answerConfirm(screen, "Start over");
   await expect.element(screen.getByLabelText("Workflow YAML")).toHaveValue(STARTER);
 });
 

@@ -2,12 +2,21 @@
  * answers gates (the plain Gates and run pages, and a skin's own screens), so they behave alike. */
 import { useEffect, useRef, useState } from "react";
 
+import type { Ask } from "../Dialog";
 import { api } from "./client";
 import type { ArtifactFile } from "./events";
 import { actOn, decide, type Decide, type Gate, money, refusal, setBudget } from "./runs";
 import type { components } from "./schema";
 
 export type Proposal = components["schemas"]["Proposal"];
+
+/** The confirm before rejecting a proposal with no note. */
+export const REJECT: Ask = {
+  title: "Reject without a reason?",
+  lines: ["The retro learns from why you rejected it. Cancel to add a note first.", "Rejecting changes no skill and no workflow."],
+  action: "Reject",
+  danger: true,
+};
 type PublishField = components["schemas"]["PublishField"];
 
 /** The kind of decision, as the queue names it. */

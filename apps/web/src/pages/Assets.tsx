@@ -1,5 +1,6 @@
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 
+import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { assetsRoute } from "../router";
@@ -220,6 +221,7 @@ function TemplatesGroup({
   onChanged: (said: string | null) => void;
   onError: (e: string) => void;
 }) {
+  const [confirm, dialog] = useConfirm();
   const head = `owned-${f.folder}`;
 
   async function remove(t: Template) {
@@ -231,7 +233,8 @@ function TemplatesGroup({
       names.length === 0
         ? "No workflow names it."
         : `${names.length === 1 ? "1 workflow names it and will fail its" : `${names.length} workflows name it and will fail their`} check: ${names.join(", ")}.`;
-    if (!window.confirm(`Delete the Template ${t.name}? ${using} Past runs keep their copies. This cannot be undone.`)) return;
+    const ok = await confirm({ title: `Delete the Template ${t.name}?`, lines: [using, "Past runs keep their copies. This cannot be undone."], action: "Delete", danger: true });
+    if (!ok) return;
     const done = await api.DELETE("/api/worlds/{world_id}/templates/{folder}/{name}", { params: { ...at.params, query: { confirm: true } } });
     if (done.error) onError(`Could not delete ${t.name}. Try again.`);
     else onChanged(`Deleted ${t.name}.`);
@@ -239,6 +242,7 @@ function TemplatesGroup({
 
   return (
     <section className="panel" aria-labelledby={head}>
+      {dialog}
       <div className="panel-head">
         <h2 id={head}>{f.label}</h2>
         <span className="faint">{f.package}</span>
@@ -312,11 +316,13 @@ function OwnedGroup({
   onChanged: (said: string | null) => void;
   onError: (e: string) => void;
 }) {
+  const [confirm, dialog] = useConfirm();
   const [renaming, setRenaming] = useState<string | null>(null);
   const head = `owned-${f.folder}`;
 
   async function remove(a: Asset) {
-    if (!window.confirm(`Delete ${a.name}? ${f.package} will no longer find it. This cannot be undone.`)) return;
+    const ok = await confirm({ title: `Delete ${a.name}?`, lines: [`${f.package} will no longer find it.`, "This cannot be undone."], action: "Delete", danger: true });
+    if (!ok) return;
     const { error } = await api.DELETE("/api/worlds/{world_id}/assets/{path}", { params: { path: { world_id: worldId, path: a.path } } });
     if (error) onError(`Could not delete ${a.name}. Try again.`);
     else onChanged(`Deleted ${a.name}.`);
@@ -334,6 +340,7 @@ function OwnedGroup({
 
   return (
     <section className="panel" aria-labelledby={head}>
+      {dialog}
       <div className="panel-head">
         <h2 id={head}>{f.label}</h2>
         {files && files.length > 0 && <span className="faint">{count(files.length)}</span>}
@@ -651,6 +658,7 @@ function AddTemplate({ worldId, folder: f, taken, onAdded, onClose }: { worldId:
 
 /** Everything else in the assets folder: images, music, video, fonts, any file a build reads. */
 function Files({ worldId, files, onChanged, onError }: { worldId: string; files: Asset[] | null; onChanged: (said: string | null) => void; onError: (e: string) => void }) {
+  const [confirm, dialog] = useConfirm();
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
 
@@ -671,7 +679,8 @@ function Files({ worldId, files, onChanged, onError }: { worldId: string; files:
   }
 
   async function remove(a: Asset) {
-    if (!window.confirm(`Delete ${a.name}? Builds that read it will not find it. This cannot be undone.`)) return;
+    const ok = await confirm({ title: `Delete ${a.name}?`, lines: ["Builds that read it will not find it.", "This cannot be undone."], action: "Delete", danger: true });
+    if (!ok) return;
     const { error } = await api.DELETE("/api/worlds/{world_id}/assets/{path}", { params: { path: { world_id: worldId, path: a.path } } });
     if (error) onError(`Could not delete ${a.name}. Try again.`);
     else onChanged(`Deleted ${a.name}.`);
@@ -696,6 +705,7 @@ function Files({ worldId, files, onChanged, onError }: { worldId: string; files:
 
   return (
     <section className="panel" aria-labelledby="files-head">
+      {dialog}
       <div className="panel-head">
         <h2 id="files-head">Files</h2>
         {files && files.length > 0 && button}

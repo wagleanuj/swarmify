@@ -127,8 +127,8 @@ def test_a_world_enables_an_installed_package_and_disables_it(page: Page, base_u
         expect(page.locator("[data-name=echo]")).to_contain_text("package echo 1.0.0")
         assert httpx.post(workflows, json={"yaml": SAY}).status_code == 201
 
-        page.once("dialog", lambda d: d.accept())
         row.get_by_role("button", name="Disable echo 1.0.0").click()
+        page.get_by_role("dialog").get_by_role("button", name="Disable").click()
         expect(row.get_by_role("button", name="Enable echo 1.0.0")).to_be_visible()
         expect(page.locator("[data-name=echo]")).to_have_count(0)
         enabled = httpx.get(f"{base_url}/api/worlds/{other['id']}/packages").json()
@@ -212,8 +212,8 @@ def test_a_pin_switch_shows_the_manifest_diff_and_uninstall_names_the_users(
         expect(shown.get_by_role("button", name="Switch to 2.0.0")).to_be_disabled()
 
         older = page.locator("[data-package=echo]", has_text="echo 1.0.0")
-        page.once("dialog", lambda d: d.accept())
         older.get_by_role("button", name="Uninstall echo 1.0.0").click()
+        page.get_by_role("dialog").get_by_role("button", name="Uninstall").click()
         expect(page.get_by_role("alert")).to_contain_text(
             "echo 1.0.0 is in use: world Upgrades pins it"
         )

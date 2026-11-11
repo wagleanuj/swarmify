@@ -2,6 +2,7 @@ import { Link, useBlocker, useNavigate, useParams, useRouter, useSearch } from "
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import YAML from "yaml";
 
+import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import { useConnectors } from "../api/connectors";
 import type { components } from "../api/schema";
@@ -25,7 +26,7 @@ type RawStage = Record<string, unknown>;
 const CHECK_DELAY_MS = 300;
 /** How long "Removed research. Undo" stays in the save bar. */
 const UNDO_MS = 6000;
-const LEAVE = "Leave without saving? Your changes to this draft are lost.";
+const LEAVE = { title: "Leave without saving?", lines: ["Your changes to this draft are lost."], action: "Leave", danger: true };
 const STAGE_TYPES = ["swarm", "gate", "connector", "workflow"] as const;
 const GATE_KINDS = ["pick", "approve", "confirm"] as const;
 type StageType = (typeof STAGE_TYPES)[number];
@@ -129,6 +130,7 @@ export function toYaml(doc: Doc): string {
 }
 
 export function WorkflowEditor() {
+  const [confirm, dialog] = useConfirm();
   const { worldId, workflowId } = useParams({ strict: false }) as {
     worldId: string;
     workflowId?: string;
@@ -263,8 +265,8 @@ export function WorkflowEditor() {
   unsaved.current = text !== null && dirty && !untouched;
   useBlocker({
     // switching tabs changes only the search, never the page
-    shouldBlockFn: ({ current, next }) =>
-      unsaved.current && current.pathname !== next.pathname && !window.confirm(LEAVE),
+    shouldBlockFn: async ({ current, next }) =>
+      unsaved.current && current.pathname !== next.pathname && !(await confirm(LEAVE)),
     enableBeforeUnload: () => unsaved.current,
   });
 
@@ -375,8 +377,9 @@ export function WorkflowEditor() {
   }
 
   /** Swap the draft for a starter; asks first when the draft is more than an untouched starter. */
-  function begin(starter: Starter) {
-    if (untouched || window.confirm(`Start over from ${starter.name}? Your changes to this draft are lost.`)) edit(starter.yaml);
+  async function begin(starter: Starter) {
+    const ask = { title: `Start over from ${starter.name}?`, lines: ["Your changes to this draft are lost."], action: "Start over", danger: true };
+    if (untouched || (await confirm(ask))) edit(starter.yaml);
   }
 
   /** A version is saved: by the save button, or by the planner when asked to. */
@@ -471,6 +474,7 @@ export function WorkflowEditor() {
 
   return (
     <main className="editor-page">
+      {dialog}
       <header className="page">
         <div>
           <div className="crumb">

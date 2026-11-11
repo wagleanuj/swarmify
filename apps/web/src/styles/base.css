@@ -89,6 +89,9 @@ button.icon { min-height: 32px; width: 32px; padding: 0; }
   .world-chip svg { flex: none; color: var(--faint); }
   .canvas { padding-bottom: var(--tabbar); }
   .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; height: var(--tabbar); padding: 6px 4px env(safe-area-inset-bottom); background: #141416; border-top: 1px solid var(--rule); }
+  /* Every tap a 44px thumb: a disclosure's summary and a checkbox's label too */
+  details summary { min-height: 44px; padding-block: 11px; }
+  .check { min-height: 44px; }
 }
 .tabbar-item { position: relative; display: grid; justify-items: center; align-content: center; gap: 3px; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--faint); font-size: 10.5px; font-weight: 500; line-height: 1.2; text-decoration: none; }
 button.tabbar-item:hover { background: none; }
@@ -106,6 +109,21 @@ dialog.sheet::backdrop { background: #000a; }
 .sheet-row[aria-current] { font-weight: 600; }
 .sheet-row small { color: var(--faint); font-size: 12px; text-align: right; }
 .sheet .nav-health { padding: 10px 2px 0; }
+/* A confirm (Dialog.tsx): a card in the middle of a wide screen, a sheet at the foot of a phone.
+   Never wider than the screen; Cancel and the action are 44px taps side by side. */
+dialog.dialog { width: min(28rem, calc(100vw - 32px)); max-width: none; padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 20px 40px #000c; }
+dialog.dialog::backdrop { background: #000a; }
+.dialog form { display: grid; gap: 12px; padding: 20px; }
+.dialog h2 { margin: 0; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
+.dialog-body { display: grid; gap: 8px; color: var(--muted); overflow-wrap: anywhere; }
+.dialog-body p { margin: 0; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.dialog-actions button { min-height: 44px; }
+@media (max-width: 48rem) {
+  dialog.dialog { width: 100%; margin: auto 0 0; border-width: 1px 0 0; border-radius: 18px 18px 0 0; }
+  .dialog form { padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .dialog-actions button { flex: 1; }
+}
 
 /* Title row */
 header.page { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; align-items: flex-end; margin-bottom: 24px; }
@@ -244,7 +262,7 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 .pill.warning { color: var(--pill-warning-ink); background: var(--pill-warning-bg); }
 .dot.warn { background: var(--warning); }
 .rel { position: relative; display: inline-flex; }
-.menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 10; display: grid; min-width: 260px; padding: 6px; background: var(--raised); border: 1px solid var(--control); border-radius: 8px; }
+.menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 10; display: grid; min-width: min(260px, calc(100vw - 32px)); max-width: calc(100vw - 32px); padding: 6px; background: var(--raised); border: 1px solid var(--control); border-radius: 8px; }
 .menu > .faint { padding: 8px 10px; }
 .menu button { display: grid; justify-items: start; gap: 2px; min-height: 0; padding: 8px 10px; border: 0; border-radius: 6px; text-align: left; }
 .menu button:hover { background: var(--ground); }

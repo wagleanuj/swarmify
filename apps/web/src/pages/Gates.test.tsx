@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../index.css";
 
 import { FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const ts = "2026-10-26T10:00:00+00:00";
 const video = { id: "world_1", name: "Video", purpose: "", created_at: ts };
@@ -400,12 +400,11 @@ test("rejecting a skill proposal asks for the reason and records it", async () =
       return Response.json({ detail: "the proposal was already approved" }, { status: 422 });
     },
   });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_4");
   await expect.element(card.getByTestId("skill-change")).toBeVisible();
   await card.getByRole("button", { name: "Reject" }).click();
-  expect(confirm).toHaveBeenCalledOnce();
+  expect(await answerConfirm(screen, "Cancel")).toContain("Reject without a reason?");
   expect(bodies).toEqual([]);
   await card.getByLabelText(/^Note/).fill("Not the gap.");
   await card.getByRole("button", { name: "Reject" }).click();

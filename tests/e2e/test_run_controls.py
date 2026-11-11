@@ -54,9 +54,9 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
 
         # Aborting the parent aborts the child (story 32).
         page.get_by_test_id("child-of").get_by_role("link").click()
-        page.once("dialog", lambda dialog: dialog.accept())
         page.get_by_role("button", name="Run actions").click()
         page.get_by_role("menuitem", name=re.compile(r"^Abort run")).click()
+        page.get_by_role("dialog").get_by_role("button", name="Abort run").click()
         expect(status).to_have_text(
             re.compile(r"^Aborted at child\. Finished stages keep their artifacts\.$")
         )

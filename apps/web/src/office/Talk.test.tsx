@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Agent } from "../api/events";
 import type { Gate, Run } from "../api/runs";
 import { artifact, FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const world = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00", run_cap: 6, skin: { view: "office" } };
 const ts = "2026-10-31T08:00:00Z";
@@ -214,7 +214,6 @@ test("a budget gate tops up or aborts, as the plain page does", async () => {
     gate("budget", { run_id: runId, stage_id: `${runId}_s2`, stage_index: 2, budget_usd: 5, spent_usd: 5.2, opened_at: at });
   const open = [budget("run_a", "2026-10-31T09:01:00Z"), budget("run_c", "2026-10-31T09:02:00Z")];
   const posted = world1([judged, bare], [], open);
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/office/talk");
   await expect.element(screen.getByRole("list", { name: "The run" })).toMatchTextContent(/Spent \$5\.20 of \$5\.00/);
   await screen.getByLabelText("Add (US dollars)").fill("2");
@@ -230,6 +229,7 @@ test("a budget gate tops up or aborts, as the plain page does", async () => {
   FakeEventSource.emit("run.updated", { payload: { ...judged, status: "running" } });
   await expect.element(screen.getByTestId("talk-place")).toHaveTextContent("1 of 1 waiting at Your office");
   await screen.getByRole("button", { name: "2 Abort the run" }).click();
+  expect(await answerConfirm(screen, "Abort run")).toContain("$5.20 of its $5.00 budget spent so far stays spent");
   await expect.element(screen.getByRole("heading", { name: "All clear" })).toBeVisible();
   expect(posted[1]).toEqual({ key: "POST /api/runs/run_c/abort", body: null });
 });

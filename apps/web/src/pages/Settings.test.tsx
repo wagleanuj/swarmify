@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
 const shown = "https://hooks.slack.com/...abcd";
@@ -138,12 +138,6 @@ test("a refused setting is shown as the API's reason in its own panel", async ()
 });
 
 test("delete sits last, says what goes and asks by the world's name before deleting", async () => {
-  const asked: string[] = [];
-  let answer = false;
-  vi.spyOn(window, "confirm").mockImplementation((q) => {
-    asked.push(String(q));
-    return answer;
-  });
   const calls = fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
@@ -158,11 +152,11 @@ test("delete sits last, says what goes and asks by the world's name before delet
   const remove = danger.getByRole("button", { name: "Delete Video" });
 
   await remove.click();
-  expect(asked[0]).toMatch(/^Delete Video\? .*cannot be undone/);
+  expect(await answerConfirm(screen, "Cancel")).toMatch(/^Delete Video\?.*cannot be undone/);
   expect(calls).not.toContain("DELETE /api/worlds/world_1");
 
-  answer = true;
   await remove.click();
+  await answerConfirm(screen, "Delete world");
   await expect.element(screen.getByRole("heading", { name: "Your worlds" })).toBeVisible();
   expect(calls).toContain("DELETE /api/worlds/world_1");
   expect(router.state.location.pathname).toBe("/");
