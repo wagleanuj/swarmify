@@ -6,11 +6,13 @@ stop it; the core shows them at the gate and sends back what was confirmed. `pub
 confirmed values with `videos.insert` (resumable upload, one request for the metadata and one for
 the bytes) and answers the video's id and link. With a `schedule` the video is uploaded private
 with `publishAt`, and YouTube makes it public at that time: `publishAt` can be set only while the
-privacy status is private. `outcomes` (the Capability) answers the views of every post the core
-passes that is a YouTube video, by its own id or by a YouTube link, so a video another connector
-posted counts too; one `videos.list` call per 50 videos (part statistics, 1 quota unit).
-`channel` answers the title of the channel the account posts to (`channels.list` mine, 1 quota
-unit).
+privacy status is private. `outcomes` (the Capability) answers the views and privacy of every post
+the core passes that is a YouTube video, by its own id or by a YouTube link, so a video another
+connector posted counts too; one `videos.list` call per 50 videos (part statistics and status, 1
+quota unit). It adds retention from YouTube Analytics (average percentage viewed, average view
+duration, engaged views), one report per video; when the account may not read Analytics it answers
+the views alone with a `_notice` saying how to fix it. `channel` answers the title of the channel
+the account posts to (`channels.list` mine, 1 quota unit).
 
 The account is the Manifest's `youtube` oauth field: Swarmify signs in, keeps the token set and
 starts this process with a current access token as YOUTUBE_ACCESS_TOKEN. A token Google refuses
@@ -50,7 +52,26 @@ UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
 VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
 CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
 PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems"
+ANALYTICS_URL = "https://youtubeanalytics.googleapis.com/v2/reports"
+ANALYTICS_START = "2005-04-23"  # before any video: a video's whole life
 TOKEN = "YOUTUBE_ACCESS_TOKEN"
+RETENTION = {
+    "averageViewPercentage": "youtube_avg_viewed_percent",
+    "averageViewDuration": "youtube_avg_view_seconds",
+    "engagedViews": "youtube_engaged_views",
+}
+"""YouTube Analytics' metrics, by the outcome names they are recorded under."""
+COUNTS = {"youtube_engaged_views"}
+NOTICE = "_notice"
+"""The outcomes answer's key for why retention could not be read."""
+SCOPE_NOTICE = (
+    "YouTube retention is not read: the saved sign-in predates the YouTube Analytics"
+    " permission. Sign in to YouTube again on the Connectors page to get retention."
+)
+API_NOTICE = (
+    "YouTube retention is not read: enable the YouTube Analytics API in the Google Cloud"
+    " project of the YouTube sign-in."
+)
 MAX_IDS = 50
 
 VISIBILITIES = ("public", "unlisted", "private")
@@ -356,23 +377,90 @@ def publish(fields: dict[str, Any], input_path: str, idempotency_key: str = "") 
         return publish_fields(http, os.environ, fields, input_path, idempotency_key)
 
 
-def video_views(http: httpx.Client, env: Mapping[str, str], ids: list[str]) -> dict[str, int]:
-    """View counts by video id; a video YouTube no longer has (deleted, private) is left out."""
+def videos_of(
+    http: httpx.Client, env: Mapping[str, str], ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Each video's `views` and `privacy` (public, unlisted or private) by id; a video YouTube
+    no longer has is left out."""
     ids = list(dict.fromkeys(i for i in ids if i))
     if not ids:
         return {}
-    auth, counts = _headers(env), {}
+    auth, found = _headers(env), {}
     for start in range(0, len(ids), MAX_IDS):
         response = http.get(
             VIDEOS_URL,
-            params={"part": "statistics", "id": ",".join(ids[start : start + MAX_IDS])},
+            params={"part": "statistics,status", "id": ",".join(ids[start : start + MAX_IDS])},
             headers=auth,
         )
         if response.status_code != 200:
             raise _error(response, "reading YouTube view counts")
         for item in response.json().get("items", []):
-            counts[item["id"]] = int(item.get("statistics", {}).get("viewCount", 0))
-    return counts
+            found[item["id"]] = {
+                "views": int(item.get("statistics", {}).get("viewCount", 0)),
+                "privacy": str(item.get("status", {}).get("privacyStatus", "")),
+            }
+    return found
+
+
+def _reasons(response: httpx.Response) -> str:
+    """Google's error reasons and message, as one string to search."""
+    try:
+        error = response.json().get("error", {})
+    except ValueError:
+        return response.text[:500]
+    if not isinstance(error, dict):
+        return str(error)
+    parts = [str(error.get("message", ""))]
+    parts += [str(e.get("reason", "")) for e in error.get("errors", []) if isinstance(e, dict)]
+    parts += [str(d.get("reason", "")) for d in error.get("details", []) if isinstance(d, dict)]
+    return " ".join(parts)
+
+
+def retention(
+    http: httpx.Client, env: Mapping[str, str], ids: list[str], now: datetime
+) -> tuple[dict[str, dict[str, float]], str | None]:
+    """Each video's retention from YouTube Analytics by id (RETENTION's names), and a notice
+    when the account may not read it at all: then the rest of the pass is skipped and the views
+    still count. A video with no data yet, or one the channel does not own, is left out."""
+    # ponytail: one basic report per video; batch by the video dimension if posts reach hundreds.
+    auth, found = _headers(env), {}
+    metrics = ["views", *RETENTION]
+    for video in dict.fromkeys(ids):
+        while True:
+            response = http.get(
+                ANALYTICS_URL,
+                params={
+                    "ids": "channel==MINE",
+                    "startDate": ANALYTICS_START,
+                    "endDate": now.astimezone(UTC).date().isoformat(),
+                    "metrics": ",".join(metrics),
+                    "filters": f"video=={video}",
+                },
+                headers=auth,
+            )
+            if response.status_code == 400 and "engagedViews" in metrics:
+                metrics.remove("engagedViews")  # not offered to every channel: ask without it
+                continue
+            break
+        if response.status_code == 401:
+            raise _error(response, "reading YouTube retention")
+        why = _reasons(response) if response.status_code == 403 else ""
+        if (
+            "SCOPE_INSUFFICIENT" in why
+            or "insufficientPermissions" in why
+            or "authentication scopes" in why
+        ):
+            return found, SCOPE_NOTICE
+        if "accessNotConfigured" in why or "SERVICE_DISABLED" in why:
+            return found, API_NOTICE
+        if response.status_code != 200:
+            continue  # not the channel's video, or Google failing: the next pass tries again
+        answer = response.json()
+        names = [h.get("name") for h in answer.get("columnHeaders", [])]
+        for row in answer.get("rows") or []:
+            got = dict(zip(names, row, strict=False))
+            found[video] = {name: got[m] for m, name in RETENTION.items() if got.get(m) is not None}
+    return found, None
 
 
 _LINK = re.compile(
@@ -395,21 +483,42 @@ def claimed(posts: list[dict[str, Any]]) -> dict[str, list[str]]:
     return out
 
 
-def outcomes_of(http: httpx.Client, env: Mapping[str, str], posts: list[dict[str, Any]]) -> dict:
-    """The views of every post that is a YouTube video, by post id; a post whose videos YouTube
-    no longer has is left out."""
+def outcomes_of(
+    http: httpx.Client,
+    env: Mapping[str, str],
+    posts: list[dict[str, Any]],
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """The views, privacy and retention of every post that is a YouTube video, by post id; a
+    post whose videos YouTube no longer has is left out. Several videos of one post add their
+    counts and average their averages. NOTICE says why retention could not be read."""
     videos = claimed(posts)
-    counts = video_views(http, env, [v for vs in videos.values() for v in vs])
-    return {
-        post: {"views": sum(counts[v] for v in vs if v in counts)}
-        for post, vs in videos.items()
-        if any(v in counts for v in vs)
-    }
+    found = videos_of(http, env, [v for vs in videos.values() for v in vs])
+    kept = {post: [v for v in vs if v in found] for post, vs in videos.items()}
+    kept = {post: vs for post, vs in kept.items() if vs}
+    held, notice = retention(
+        http, env, [v for vs in kept.values() for v in vs], now or datetime.now(UTC)
+    )
+    out: dict[str, Any] = {}
+    for post, vs in kept.items():
+        answer: dict[str, Any] = {
+            "views": sum(found[v]["views"] for v in vs),
+            "privacy": found[vs[0]]["privacy"],
+        }
+        for name in RETENTION.values():
+            values = [held[v][name] for v in vs if name in held.get(v, {})]
+            if values:
+                total = sum(values)
+                answer[name] = total if name in COUNTS else round(total / len(values), 2)
+        out[post] = answer
+    if notice:
+        out[NOTICE] = notice
+    return out
 
 
 @mcp.tool(
-    description="The Outcomes Capability: views of every post that is a YouTube video, whoever "
-    "posted it, by post id."
+    description="The Outcomes Capability: views, privacy and retention of every post that is a"
+    " YouTube video, whoever posted it, by post id."
 )
 def outcomes(posts: list[dict[str, Any]]) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as http:

@@ -118,7 +118,7 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
             {"name": "script_writer", "version": "0.0.1"},  # the world's own, moved (#211)
             {"name": "speech", "version": "1.1.0"},
             {"name": "upload_post", "version": "1.0.0"},
-            {"name": "youtube", "version": "1.1.0"},
+            {"name": "youtube", "version": "1.2.0"},
         ]
         version = client.get(f"/api/workflows/{flow}/versions/1").json()
         assert version["packages"] == {"script_writer": "0.0.1", "speech": "1.1.0"}  # stamped
@@ -167,7 +167,7 @@ def test_a_v1_workflow_with_a_speech_stage_runs_unchanged_after_upgrade(
         {"name": "remotion_render", "version": "1.0.6"},
         {"name": "speech", "version": "1.1.0"},
         {"name": "upload_post", "version": "1.0.0"},
-        {"name": "youtube", "version": "1.1.0"},
+        {"name": "youtube", "version": "1.2.0"},
     ]
 
 

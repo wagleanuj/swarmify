@@ -1287,6 +1287,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notices */
+        get: operations["notices_api_notices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/library": {
         parameters: {
             query?: never;
@@ -3097,6 +3114,23 @@ export interface components {
             body: string;
             /** Ts */
             ts: string;
+        };
+        /**
+         * Notice
+         * @description Something the operator should fix that no gate asks about.
+         */
+        Notice: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "sign_in" | "outcomes" | "visibility";
+            /** Text */
+            text: string;
+            /** World Id */
+            world_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
         };
         /**
          * OwnedFolder
@@ -6952,6 +6986,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StalledMemory"][];
+                };
+            };
+        };
+    };
+    notices_api_notices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notice"][];
                 };
             };
         };

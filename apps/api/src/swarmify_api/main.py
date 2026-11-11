@@ -783,6 +783,9 @@ def create_app(
                 "status": out["status"],
                 "links": out["links"],
                 "id": out["id"],
+                # what the stage itself said, never a connector's default: upkeep checks the
+                # platform shows it so (upkeep.hidden_posts)
+                **({"visibility": said} if (said := config["params"].get("visibility")) else {}),
             },
         )
 
@@ -953,8 +956,10 @@ def create_app(
                 log.exception("sweep failed, retrying next tick")
             await asyncio.sleep(sweep_seconds)
 
+    outcome_notices: dict[str, str] = {}  # by connector, from the last upkeep
+
     def upkeep_once() -> None:
-        upkeep.record_outcomes(world_svc, memory, registry, clock())
+        upkeep.record_outcomes(world_svc, memory, registry, clock(), outcome_notices)
         upkeep.prune(world_svc, memory, clock())
 
     async def upkeep_loop() -> None:
@@ -1035,6 +1040,16 @@ def create_app(
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))
     app.include_router(graph.stalled_router(world_svc, writer))
+    app.include_router(
+        upkeep.notices_router(
+            world_svc,
+            memory,
+            registry,
+            lambda run_id: r.status if (r := runner.get(run_id)) else None,
+            outcome_notices,
+            clock,
+        )
+    )
     app.include_router(
         library.router(
             memory,

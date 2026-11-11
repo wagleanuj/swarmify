@@ -51,7 +51,8 @@ def test_published_and_finished_runs_are_listed_with_their_core_fact_and_outcome
         "w1", "r1", "s9", "publish", "publish.md", "# Posted\n\nWent to youtube.\n",
         kind="publish", fields={"title": "Why cats work for food"},
     )  # fmt: skip
-    memory.record_outcome("w1", publish, {"views": 28000}, "views", NOW)
+    retention = {"youtube_avg_viewed_percent": 71.25, "youtube_avg_view_seconds": 15.5}
+    memory.record_outcome("w1", publish, {"views": 28000, **retention}, "views", NOW)
     # r2: one idea, still being made. r3: research only, nothing picked. r4: aborted.
     _idea(memory, "r2", "Slow blink", fact="A slow blink means trust")
     _idea(memory, "r3", "Idea A")
@@ -65,6 +66,8 @@ def test_published_and_finished_runs_are_listed_with_their_core_fact_and_outcome
     assert len(lines) == 2
     published = next(line for line in lines if "Contrafreeloading" in line)
     assert "published" in published and "28,000 views" in published
+    # retention, so research and scoring see what held viewers, not only how many came
+    assert "youtube avg viewed 71.2%" in published and "youtube avg view 15.5 s" in published
     assert "posted as Why cats work for food" in published
     assert "Delgado 2021" in published and "Free food?" in published
     assert "The pitch of Contrafreeloading." in published

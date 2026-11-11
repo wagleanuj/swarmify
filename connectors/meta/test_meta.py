@@ -656,6 +656,10 @@ def test_without_a_run_folder_nothing_is_recorded(video: Path, tmp_path: Path) -
 # outcomes: views per Platform, for every post with an Instagram or Facebook link
 
 
+IG_METRICS = "views,reach,ig_reels_avg_watch_time"
+REEL = {"instagram_reach": 6, "instagram_avg_watch_seconds": 8.25}
+
+
 def insights(gone: tuple[str, ...] = ()) -> Any:
     """The Graph API's reads for Outcomes: `me`, the Instagram account's media in pages of two,
     and views of each media and Reel; `gone` answers Meta's error for that media or Reel."""
@@ -680,6 +684,13 @@ def insights(gone: tuple[str, ...] = ()) -> Any:
         thing = path.split("/")[0]
         if thing in gone:
             return httpx.Response(400, json={"error": {"message": "no such object", "code": 100}})
+        if path.endswith("/insights") and q["metric"] == IG_METRICS:
+            if thing == "m2":  # a photo post: Meta refuses the Reels-only metrics
+                return httpx.Response(400, json={"error": {"message": "bad metric", "code": 100}})
+            views = {"name": "views", "values": [{"value": {"m1": 7, "m3": 1}[thing]}]}
+            reach = {"name": "reach", "values": [{"value": 6}]}
+            watch = {"name": "ig_reels_avg_watch_time", "values": [{"value": 8250}]}
+            return httpx.Response(200, json={"data": [views, reach, watch]})
         if path.endswith("/insights") and q["metric"] == "views":
             views = {"name": "views", "values": [{"value": {"m1": 7, "m2": 5, "m3": 1}[thing]}]}
             return httpx.Response(200, json={"data": [views]})
@@ -707,6 +718,11 @@ def outcomes(posts: list[dict[str, Any]], gone: tuple[str, ...] = ()) -> dict[st
         return meta.outcomes_of(http, {"META_ACCESS_TOKEN": "page-tok"}, posts)
 
 
+def test_a_post_without_reels_retention_still_answers_its_views() -> None:
+    photo = {**BOTH, "id": "m2", "links": {"instagram": "https://www.instagram.com/p/Xy_z/"}}
+    assert outcomes([photo]) == {"m2": {"views": 5, "instagram_views": 5}}
+
+
 def test_outcomes_answer_views_per_platform_and_their_sum() -> None:
     facebook_only = {
         "connector": "meta",
@@ -715,9 +731,10 @@ def test_outcomes_answer_views_per_platform_and_their_sum() -> None:
     }
     instagram_only = {**BOTH, "id": "m3", "links": {"instagram": "https://instagram.com/reel/Old"}}
     assert outcomes([BOTH, facebook_only, instagram_only]) == {
-        "m1": {"views": 11, "instagram_views": 7, "facebook_views": 4},
+        "m1": {"views": 11, "instagram_views": 7, "facebook_views": 4, **REEL},
         "v2": {"views": 4, "facebook_views": 4},
-        "m3": {"views": 1, "instagram_views": 1},  # found on the media list's second page
+        # found on the media list's second page
+        "m3": {"views": 1, "instagram_views": 1, **REEL},
     }
 
 

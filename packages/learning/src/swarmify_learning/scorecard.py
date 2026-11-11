@@ -1,13 +1,17 @@
 """The Scorecard: a read model over the world's event stream, no storage. Per run of a workflow:
 first-try acceptance (`verdict.created`, loop 1), send-backs and cost (`run.updated`), duration
 (the stages' times) and outcome (`outcome.recorded`: each published artifact's latest value of its
-Primary Metric, an event from before outcomes were generic counting as views)."""
+Primary Metric, an event from before outcomes were generic counting as views, then its retention:
+the `_percent` and `_seconds` metrics, averaged across the run's posts)."""
 
 from collections import defaultdict
 from datetime import datetime
 
 from swarmify_kernel import Event
 from swarmify_learning.model import RunScore
+
+RETENTION = ("_percent", "_seconds")
+"""The suffixes of retention metrics: averages, so a run's posts average them, never add."""
 
 
 def _when(text: str | None) -> datetime | None:
@@ -30,8 +34,8 @@ def scorecard(events: list[Event], workflow_id: str) -> list[RunScore]:
     """Every run of the workflow, oldest first."""
     runs: dict[str, dict] = {}
     first: dict[str, dict[str, bool]] = defaultdict(dict)  # run -> stage -> first verdict passed
-    # run -> artifact path -> (its Primary Metric, latest value)
-    measured: dict[str, dict[str, tuple[str, float]]] = defaultdict(dict)
+    # run -> artifact path -> (its Primary Metric, latest value, latest retention)
+    measured: dict[str, dict[str, tuple[str, float, dict[str, float]]]] = defaultdict(dict)
     for e in events:
         p = e.payload
         if e.type == "run.updated" and p.get("workflow_id") == workflow_id:
@@ -39,15 +43,20 @@ def scorecard(events: list[Event], workflow_id: str) -> list[RunScore]:
         elif e.type == "verdict.created" and p.get("loop") == 1:
             first[p["run_id"]][p["stage_id"]] = bool(p.get("passed"))
         elif e.type == "outcome.recorded" and e.run_id:
-            primary = p.get("primary", "views")
-            value = (p.get("metrics") or {}).get(primary, p.get("views") or 0)
-            measured[e.run_id][p["path"]] = (primary, value)
+            primary, metrics = p.get("primary", "views"), p.get("metrics") or {}
+            value = metrics.get(primary, p.get("views") or 0)
+            kept = {m: n for m, n in metrics.items() if m.endswith(RETENTION)}
+            measured[e.run_id][p["path"]] = (primary, value, kept)
     out = []
     for run_id, run in sorted(runs.items(), key=lambda kv: (kv[1]["created_at"], kv[0])):
         judged = first.get(run_id, {})
         outcomes: dict[str, float] = {}
-        for metric, value in measured.get(run_id, {}).values():
+        held: dict[str, list[float]] = defaultdict(list)
+        for metric, value, retention in measured.get(run_id, {}).values():
             outcomes[metric] = outcomes.get(metric, 0) + value
+            for m, n in retention.items():
+                held[m].append(n)
+        outcomes |= {m: round(sum(ns) / len(ns), 2) for m, ns in held.items()}
         out.append(
             RunScore(
                 run_id,

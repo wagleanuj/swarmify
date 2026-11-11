@@ -12,13 +12,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from api_fakes import YOUTUBE_ENV, install, sign_in_youtube, youtube_outcomes
+from api_fakes import YOUTUBE_ENV, install, sign_in_youtube, youtube, youtube_outcomes
 from fastapi.testclient import TestClient
 from test_publish_http import MAKER, at_gate, setup, until, weekly
 
 from fake_graph import fake_extract
+from swarmify_api import upkeep
 from swarmify_api.main import create_app
 from swarmify_connectors import FakeTransport
+from swarmify_connectors.setup import SetupStore
 from swarmify_kernel.events import read_after
 from swarmify_kernel.sqlite import connect
 from swarmify_memory import FakeGraphIndex
@@ -156,3 +158,118 @@ def test_retention_deletes_old_binaries_and_keeps_their_markdown(
     assert sidecar.exists() and script.exists() and fresh.exists()
     assert "short.mp4 was deleted by retention" in sidecar.read_text()
     assert all(f.exists() for f in files[keep["id"]])  # 0 keeps files forever
+
+
+UNSAID = """name: Daily short
+stages:
+  - connector: render
+    calls: maker
+    output: short.mp4
+  - gate: confirm
+    ask: Post it?
+    kind: confirm
+  - connector: publish
+    calls: youtube
+    input: short.mp4
+    params:
+      title: Five hooks that work
+"""
+
+
+@pytest.fixture
+def two_days_on(tmp_path: Path, transport: FakeTransport) -> Iterator[TestClient]:
+    """The app with its clock two days ahead, so a post just made reads as a day old and more."""
+    app = create_app(
+        tmp_path,
+        transport=transport,
+        poll_seconds=0.01,
+        runtime=SdkRuntime(transport=Script().transport),
+        graph_index=FakeGraphIndex(),
+        extract=fake_extract,
+        upkeep_seconds=0.05,
+        retro=False,
+        clock=lambda: datetime.now(UTC) + timedelta(days=2),
+    )
+    with TestClient(app) as client:
+        yield client
+
+
+def test_a_post_still_private_and_unread_retention_and_a_refused_sign_in_reach_needs_you(
+    two_days_on: TestClient,
+    transport: FakeTransport,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    running = two_days_on
+    sign_in_youtube(tmp_path)
+    world, workflow = setup(running, UNSAID)
+    run = at_gate(running, tmp_path, world, workflow)
+    transport.outputs["publish"] = [{"id": "vid1", "url": "https://youtu.be/vid1"}]
+    retention = {"youtube_avg_viewed_percent": 55.5, "youtube_avg_view_seconds": 9.25}
+
+    def outcomes(args: dict) -> dict:
+        found = {
+            p: {"views": 3, "privacy": "private", **retention}
+            for p in youtube.claimed(args["posts"])
+        }
+        return {**found, youtube.NOTICE: youtube.SCOPE_NOTICE}
+
+    transport.outputs["youtube.outcomes"] = [outcomes]
+    assert running.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
+    until(lambda: running.get(f"/api/runs/{run['id']}").json()["status"] == "done")
+    (publish,) = (tmp_path / "worlds" / world / "runs" / run["id"]).glob("*/artifacts/publish.md")
+    assert "visibility:" not in publish.read_text()  # the stage never said one
+    sidecar = publish.with_name(".publish.md.outcomes.json")
+    until(lambda: sidecar.is_file())
+    found = json.loads(sidecar.read_text())
+    assert found["outcomes"] == {"views": 3, **retention} and found["privacy"] == "private"
+
+    seen = len(transport.calls)
+    until(lambda: len(transport.calls) > seen + 2)  # several upkeep passes
+    notices = running.get("/api/notices").json()
+    by_kind = {n["kind"]: n for n in notices}
+    hidden = by_kind["visibility"]
+    assert (hidden["world_id"], hidden["run_id"]) == (world, run["id"])
+    assert "Five hooks that work is still private on youtube" in hidden["text"]
+    assert "never said a visibility" in hidden["text"]
+    assert by_kind["outcomes"]["text"] == youtube.SCOPE_NOTICE
+    assert "sign_in" not in by_kind
+    # said once in the log, not on every pass
+    assert caplog.text.count("Sign in to YouTube again") == 1
+
+    # Google refuses the refresh token (invalid_grant): the account is marked for sign-in
+    store = SetupStore(tmp_path / "setup.json")
+    tokens = {"access_token": "at", "refresh_token": "rt", "expires_at": 0, "needs_sign_in": True}
+    store.put_value("youtube", None, "youtube", tokens)
+    running.post("/api/worlds", json={"name": "Another"})  # a shared account: one notice
+    signed_out = [n for n in running.get("/api/notices").json() if n["kind"] == "sign_in"]
+    assert len(signed_out) == 1
+    assert signed_out[0]["text"].startswith("YouTube needs sign-in")
+
+
+def test_a_post_its_stage_kept_private_or_scheduled_for_later_is_no_notice() -> None:
+    now = datetime(2026, 11, 11, tzinfo=UTC)
+    old = (now - timedelta(days=2)).isoformat()
+
+    def record(**fields: object) -> tuple[str, dict]:
+        base = {"privacy": "private", "created": old, "run": "r1", "connector": "youtube"}
+        return ("p.md", {**base, "title": "T", **fields})
+
+    def status(run: str) -> str:
+        return {"r1": "done", "r2": "running"}[run]
+
+    records = [
+        record(visibility="private"),  # meant
+        record(visibility="public", privacy="public"),  # shown as meant
+        record(visibility="public", created=now.isoformat()),  # not a day yet
+        record(visibility="public", sent=[{"key": "schedule", "value": "2026-11-20T09:00:00Z"}]),
+        record(run="r2"),  # unsaid, but its run is still going
+        record(visibility="public", privacy="unlisted"),
+        record(),
+    ]
+    found = upkeep.hidden_posts(records, status, now)
+    assert [why for _, why in found] == [
+        "T is still unlisted on youtube a day on, though its stage said public.",
+        "T is still private on youtube a day on, and its stage never said a visibility,"
+        " so youtube's default chose.",
+    ]

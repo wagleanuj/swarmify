@@ -184,6 +184,10 @@ def _preview_args(
     }
 
 
+NOTICE = "_notice"
+"""The key of an outcomes answer that is not a post: what the connector could not read."""
+
+
 def _number(value: Any) -> float:
     """An outcome's value: a number (a whole one kept whole), else ValueError."""
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -1254,18 +1258,33 @@ class Connectors:
 
     def outcomes(
         self, connector: Connector, posts: list[dict[str, Any]]
-    ) -> dict[str, dict[str, float]]:
+    ) -> tuple[dict[str, dict[str, float | str]], str | None]:
         """The connector's `outcomes` answer for the world's posts (`{connector, id, links}`
-        each): metrics by post id, for the posts it claims. Raises ConnectorError, as when its
-        Setup is not done or it answers anything but numbers by metric by post."""
+        each): metrics by post id, for the posts it claims, each a number but `privacy` (the
+        post's visibility on the platform), and the answer's `_notice`, what it could not read
+        and how to fix it. Raises ConnectorError, as when its Setup is not done or it answers
+        anything else."""
         answer = self._tool(connector, "outcomes", {"posts": posts}, self._env(connector))
+
+        def value(metric: str, n: Any) -> float | str:
+            if metric != "privacy":
+                return _number(n)
+            if not isinstance(n, str):
+                raise ValueError(f"privacy is text, not {n!r}")
+            return n
+
         try:
-            return {
-                str(post): {str(m): _number(n) for m, n in metrics.items()}
+            answer = dict(answer)
+            notice = answer.pop(NOTICE, None)
+            if notice is not None and not isinstance(notice, str):
+                raise ValueError(f"not a notice: {notice!r}")
+            found = {
+                str(post): {str(m): value(str(m), n) for m, n in metrics.items()}
                 for post, metrics in answer.items()
             }
         except (AttributeError, TypeError, ValueError) as exc:
             raise ConnectorError(f"{connector.name} outcomes answered {answer!r}"[:300]) from exc
+        return found, notice
 
     # Connector stages
 

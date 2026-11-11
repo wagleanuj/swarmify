@@ -38,10 +38,11 @@ again when its upload never completed, then finished. A new key (a stage visited
 new record.
 
 `outcomes` (the Capability) answers each post's `instagram_views` (the media insights metric
-`views`), `facebook_views` (the Reel's `fb_reels_total_plays`) and their sum `views`, for every
-post with an Instagram or Facebook link, whichever connector posted it. An Instagram link names a
-shortcode, not a media ID, so the account's latest media are listed to find it.
-"""
+`views`, which replaced Reels `plays`), for a Reel also `instagram_reach` and
+`instagram_avg_watch_seconds` (`ig_reels_avg_watch_time`), `facebook_views` (the Reel's
+`fb_reels_total_plays`) and their sum `views`, for every post with an Instagram or Facebook link,
+whichever connector posted it. An Instagram link names a shortcode, not a media ID, so the
+account's latest media are listed to find it."""
 
 import json
 import os
@@ -655,6 +656,8 @@ _INSTAGRAM = re.compile(r"^https?://(?:www\.)?instagram\.com/(?:[\w.]+/)?(?:p|re
 _FACEBOOK = re.compile(
     r"^https?://(?:www\.|m\.)?facebook\.com/(?:reel/|[^?#]*/videos/|watch/?\?v=)(\w+)"
 )
+REEL_METRICS = ("views", "reach", "ig_reels_avg_watch_time")
+"""A Reel's retention. Graph v22 folded Reels `plays` into `views`."""
 MEDIA_PAGES = 10  # how far back the Instagram account's media are searched for a post's link
 
 
@@ -681,6 +684,15 @@ def _value(answer: Mapping[str, Any]) -> int:
         total = metric.get("total_value") or (metric.get("values") or [{}])[-1]
         return int(total.get("value") or 0)
     return 0
+
+
+def _values(answer: Mapping[str, Any]) -> dict[str, int]:
+    """Each lifetime metric's value by name."""
+    out = {}
+    for metric in answer.get("data") or []:
+        total = metric.get("total_value") or (metric.get("values") or [{}])[-1]
+        out[str(metric.get("name"))] = int(total.get("value") or 0)
+    return out
 
 
 def _quietly[T](read: Callable[[], T]) -> T | None:
@@ -733,13 +745,34 @@ def outcomes_of(http: httpx.Client, env: Mapping[str, str], posts: list[dict[str
         what = f"reading the {platform.title()} views"
         return _quietly(lambda: _value(_get(http, path, what, token, metric=metric)))
 
+    def reel(code: str) -> dict[str, float] | None:
+        """An Instagram Reel's views, reach and average watch time in one read; None when Meta
+        refuses the Reels-only metrics, as for a photo post."""
+        if code not in media:
+            return None
+        path, metric = f"{media[code]}/insights", ",".join(REEL_METRICS)
+        what = "reading the Instagram Reel's insights"
+        got = _quietly(lambda: _values(_get(http, path, what, token, metric=metric)))
+        if got is None or "views" not in got:
+            return None
+        out: dict[str, float] = {"instagram_views": got["views"]}
+        if "reach" in got:
+            out["instagram_reach"] = got["reach"]
+        if "ig_reels_avg_watch_time" in got:  # milliseconds
+            out["instagram_avg_watch_seconds"] = round(got["ig_reels_avg_watch_time"] / 1000, 2)
+        return out
+
     out = {}
     for post, things in wanted.items():
-        counts = {
-            f"{p}_views": n for p, thing in things.items() if (n := views(p, thing)) is not None
-        }
-        if counts:
-            out[post] = {"views": sum(counts.values()), **counts}
+        found: dict[str, float] = {}
+        for p, thing in things.items():
+            if p == "instagram" and (measured := reel(thing)) is not None:
+                found |= measured
+            elif (n := views(p, thing)) is not None:
+                found[f"{p}_views"] = n
+        if found:
+            total = sum(n for k, n in found.items() if k.endswith("_views"))
+            out[post] = {"views": total, **found}
     return out
 
 

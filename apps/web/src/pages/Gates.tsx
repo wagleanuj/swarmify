@@ -35,6 +35,7 @@ import { Menu } from "./Menu";
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
 type StalledMemory = components["schemas"]["StalledMemory"];
+type Notice = components["schemas"]["Notice"];
 
 /** What `GateCard` hands back with an answer: `said` is the decision in plain words, for the
  * line that confirms it. */
@@ -64,6 +65,8 @@ export function Gates() {
   const [worlds, setWorlds] = useState<World[]>([]);
   // Worlds whose memory stopped rebuilding: agents may then repeat what was already made.
   const [stalled, setStalled] = useState<StalledMemory[]>([]);
+  // A refused sign-in, outcomes a connector could not read, a post still hidden a day on.
+  const [notices, setNotices] = useState<Notice[]>([]);
   const [refused, setRefused] = useState<string | null>(null);
   // Answered this visit, newest first: they sort last in the queue, dimmed.
   const [answered, setAnswered] = useState<Answered[]>([]);
@@ -81,6 +84,10 @@ export function Gates() {
     api
       .GET("/api/graph/stalled")
       .then(({ data }) => setStalled(data ?? []))
+      .catch(() => undefined);
+    api
+      .GET("/api/notices")
+      .then(({ data }) => setNotices(data ?? []))
       .catch(() => undefined);
   }, []);
 
@@ -165,6 +172,23 @@ export function Gates() {
           </Link>
         </p>
       ))}
+      {notices
+        // an account is shared by every world, so only a post's notice belongs to one
+        .filter((n) => n.kind !== "visibility" || !n.world_id || inWorld({ world_id: n.world_id }))
+        .map((n) => (
+          <p key={`${n.kind} ${n.text}`} role="alert" className="notice" data-testid="notice">
+            <span>{n.text}</span>
+            {n.world_id && n.run_id ? (
+              <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: n.world_id, runId: n.run_id }}>
+                Open the run
+              </Link>
+            ) : n.world_id ? (
+              <Link to="/worlds/$worldId/connectors" params={{ worldId: n.world_id }}>
+                Open Connectors
+              </Link>
+            ) : null}
+          </p>
+        ))}
       {open.gates === null && !error && (
         <Loading className="inbox">
           <div className="queue q-skeleton">

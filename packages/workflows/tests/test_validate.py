@@ -259,3 +259,19 @@ def test_a_pick_gate_after_a_single_output_type_is_warned_not_refused() -> None:
     assert warnings(WorkflowModel("w", [untyped, pick])) == []
     assert warnings(WorkflowModel("w", [pick])) == []
     assert warnings(WorkflowModel("w", [one, GATE])) == []  # not a pick
+
+
+def test_a_publish_stage_that_never_says_its_visibility_is_warned() -> None:
+    def warned(**params: object) -> list[tuple[str, str]]:
+        post = ConnectorStage("post", "youtube", input="short.mp4", params=dict(params))
+        found = warnings(WorkflowModel("w", [GATE, post]), CONNECTORS)
+        return [(w.rule, w.message) for w in found]
+
+    ((rule, message),) = warned(title="T")
+    assert rule == "visibility_unsaid"
+    assert "say visibility" in message and "youtube's default" in message
+    assert warned(title="T", visibility="public") == []
+    assert warned(title="T", visibility="private") == []
+    # a connector with nothing that keeps a post private has no visibility to say
+    stage = ConnectorStage("render", "remotion_render", params={})
+    assert warnings(WorkflowModel("w", [stage]), CONNECTORS) == []

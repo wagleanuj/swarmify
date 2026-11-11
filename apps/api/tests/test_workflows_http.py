@@ -33,7 +33,7 @@ stages:
     ask: Approve?
   - connector: youtube
     input: short.mp4
-    params: {title: Five hooks}
+    params: {title: Five hooks, visibility: public}
 """
 
 
@@ -136,6 +136,9 @@ def test_check_reports_inline_without_saving(client: TestClient) -> None:
     clean = client.post(url, json={"yaml": WEEKLY}).json()
     assert clean["violations"] == [] and clean["model"]["name"] == "Weekly short"
     assert clean["warnings"] == []
+    unsaid = WEEKLY.replace(", visibility: public", "")
+    warned = client.post(url, json={"yaml": unsaid}).json()
+    assert [w["rule"] for w in warned["warnings"]] == ["visibility_unsaid"]  # it would stay private
     one = client.post(
         url,
         json={"yaml": WEEKLY.replace("  - gate: pick", "    output_type: idea\n  - gate: pick")},

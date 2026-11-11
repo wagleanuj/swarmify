@@ -117,7 +117,10 @@ and marks the account **Needs sign-in**; sign in again from the Connectors page.
 - `outcomes` (the Outcomes Capability, ranked by `views`) answers, for every post with an
   Instagram or Facebook link (its own, or one Upload-Post made), `instagram_views` (the media
   insights metric `views`), `facebook_views` (the Reel's `video_insights` metric
-  `fb_reels_total_plays`) and their sum `views`. A single-Platform post answers its Platform's
+  `fb_reels_total_plays`) and their sum `views`. For an Instagram Reel it reads `views` (which
+  replaced Reels `plays` in Graph v22), `reach` and `ig_reels_avg_watch_time` in one call and adds
+  `instagram_reach` and `instagram_avg_watch_seconds`; a post Meta refuses those for (a photo)
+  falls back to its views. A single-Platform post answers its Platform's
   metric and `views`. An Instagram link names a shortcode, not a media ID, so the account's latest
   1,000 media are listed to find it; a post that is not among them, or not the world's account's,
   is left out. Meta failing for one post leaves out only that post's Platform; a refused token
