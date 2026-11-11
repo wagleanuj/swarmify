@@ -203,9 +203,14 @@ def test_every_page_fits_a_phone(phone: Page, ids: dict[str, str], path: str) ->
     # The sidebar gives way to a bottom tab bar; every tab and More's rows are a 44px thumb tap.
     expect(phone.get_by_role("navigation", name="Main")).to_be_hidden()
     tabs = phone.get_by_role("navigation", name="Tabs")
-    # On / the world's three tabs appear once the worlds load, after the heading.
-    expect(tabs.locator(".tabbar-item")).to_have_count(5)
-    heights = tabs.locator(".tabbar-item").evaluate_all("as => as.map(a => a.offsetHeight)")
+    # Off a world's routes the world's three tabs are placeholder spans until the worlds load,
+    # which can land after the heading; then each span is replaced by a link. Wait for the links,
+    # and measure in one evaluate: evaluate_all queries, then runs in a second round trip, so a
+    # swap in between measured the detached spans as 0px tall.
+    expect(tabs.locator("a.tabbar-item")).to_have_count(4)
+    heights = phone.evaluate(
+        "[...document.querySelectorAll('.tabbar .tabbar-item')].map(a => a.offsetHeight)"
+    )
     assert len(heights) == 5 and all(h >= 44 for h in heights), f"{path} has tabs {heights}px tall"
     small = phone.evaluate(SMALL_CONTROLS)
     assert not small, f"{path} has controls under 44px: {small}"
