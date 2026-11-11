@@ -3,11 +3,12 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { api } from "../api/client";
+import { useConfirm } from "../Dialog";
 import { labelOf, useConnectors } from "../api/connectors";
 import { staysOpen } from "../api/answer";
 import { dropGate, useOpenGates } from "../api/gates";
 import { type Agent, type ArtifactFile, type LogEntry, type Verdict, useWorldEvents } from "../api/events";
-import { actOn, type Call, current, duration, type Gate, money, type Run, STATUS_LABEL, statusLine, took } from "../api/runs";
+import { abortAsk, actOn, type Call, current, duration, type Gate, money, type Run, STATUS_LABEL, statusLine, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { type Task, upsert } from "../api/tasks";
 import { runRoute } from "../router";
@@ -50,6 +51,7 @@ export function RunTimeline() {
   const search = runRoute.useSearch();
   const router = useRouter();
   const [run, setRun] = useState<Run | null | undefined>(undefined);
+  const [confirm, dialog] = useConfirm();
   const [world, setWorld] = useState<World | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<Record<string, Call | null>>({});
@@ -253,9 +255,7 @@ export function RunTimeline() {
 
   async function act(action: "pause" | "resume" | "abort") {
     if (!run) return;
-    if (action === "abort" && !window.confirm(`Abort ${run.name}? Any child runs it started stop too. Finished stages keep their artifacts.`)) {
-      return;
-    }
+    if (action === "abort" && !(await confirm(abortAsk(run.name, run.spent_usd, run.budget_usd)))) return;
     setError(null);
     const refused = await actOn(run.id, action);
     if (refused) setError(refused);
@@ -484,6 +484,7 @@ export function RunTimeline() {
         </div>
       </header>
       {topbarSlot(items.length > 0 && <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />)}
+      {dialog}
       {error && <p role="alert">{error}</p>}
       {saved && (
         <p className="saved" role="status" data-testid="saved">

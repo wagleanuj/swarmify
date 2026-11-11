@@ -506,7 +506,7 @@
 /* A phone: a bottom tab bar, a pinned banner of who needs you, sheets for the quest board and
    the Crew form. Nothing scrolls the page from 375 x 667 up. */
 @media (max-width: 700px) {
-  .office-app { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+  .office-app { padding-bottom: calc(98px + env(safe-area-inset-bottom)); }
   .office-app .office-wide { display: none; }
   .office-app .office-narrow { display: inline-block; }
   .office-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
@@ -548,7 +548,7 @@
     z-index: 45;
     left: 8px;
     right: 8px;
-    bottom: calc(88px + env(safe-area-inset-bottom));
+    bottom: calc(96px + env(safe-area-inset-bottom)); /* above the tab bar, its 44px tabs included */
     width: auto;
     max-height: 70svh;
     display: flex;
@@ -597,3 +597,32 @@
 .talk-card del { color: var(--muted); }
 .talk-card ins { text-decoration: none; background: #fff8d6; }
 .talk-card-actions { display: flex; gap: 8px; }
+
+/* A phone: every control a 44px thumb tap. A cup keeps its size on the shelf; its button around
+   it is the tap (the pixel view draws its own tiny cups). */
+@media (max-width: 700px) {
+  .office-app .office-btn, .office-app .office-banner { min-height: 44px; }
+  .office-app .office-bar .office-btn, .office-app .office-banner,
+  .office-app .office-poses .office-btn, .office-app .office-dress [role="group"] .office-btn { padding-block: 10px; }
+  .office-app button.office-cup:not(.office-pixel *) { display: grid; place-items: end center; width: 44px; height: 44px; margin: -11px -9px 0; background: none; border: 0; border-radius: 0; }
+  .office-app button.office-cup:not(.office-pixel *)::before { content: ""; width: 18px; height: 22px; box-sizing: border-box; background: var(--sun); border: 3px solid var(--ink); border-radius: 3px 3px 8px 8px; }
+  .office-app button.office-cup.office-failed:not(.office-pixel *)::before, .office-app button.office-cup.office-aborted:not(.office-pixel *)::before { background: #c9c6d6; }
+}
+
+/* A whiteboard too, where the room has the height; a short phone (iPhone SE) keeps three rows
+   of pods on screen with its smaller boards instead. */
+@media (max-width: 700px) and (min-height: 701px) {
+  .office-app button.office-board { min-height: 44px; }
+}
+
+/* A confirm (Dialog.tsx) in the office: a paper card with an ink outline, chunky buttons. */
+.office-app dialog.dialog { color: var(--ink); background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); font: 600 15px/1.35 ui-rounded, "Nunito", system-ui, sans-serif; }
+.office-app .dialog h2 { font-size: 20px; }
+.office-app .dialog-body { color: var(--muted); }
+.office-app .dialog-actions button { color: var(--ink); background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); font-weight: 700; }
+.office-app .dialog-actions button.primary { background: var(--sun); }
+.office-app .dialog-actions button.danger { color: #fff; background: #d6455d; }
+.office-app .dialog-actions button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+@media (max-width: 700px) {
+  .office-app dialog.dialog { width: calc(100vw - 16px); margin: auto auto 8px; }
+}

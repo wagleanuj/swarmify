@@ -8,7 +8,9 @@ def _file(src: Path, path: str, source: str) -> None:
     (src / path).write_text(source)
 
 
-def test_the_office_may_import_packages_itself_the_api_and_the_skin(tmp_path: Path) -> None:
+def test_the_office_may_import_packages_itself_the_api_the_skin_and_the_dialog(
+    tmp_path: Path,
+) -> None:
     _file(
         tmp_path,
         "office/Office.tsx",
@@ -16,6 +18,7 @@ def test_the_office_may_import_packages_itself_the_api_and_the_skin(tmp_path: Pa
         'import { api } from "../api/client";\n'
         'import type { Run } from "../api/runs";\n'
         'import { role } from "../skin";\n'
+        'import { useConfirm } from "../Dialog";\n'
         'import { Room } from "./Room";\n'
         'import "./office.css";\n',
     )

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
 const old = { id: "tok_1", name: "Old script", created_at: "2026-10-20T10:00:00+00:00" };
@@ -26,7 +26,6 @@ test("creates a token shown once, revokes one and signs out", async () => {
     "DELETE /api/tokens/tok_1": () => new Response(null, { status: 204 }),
     "DELETE /api/session": () => new Response(null, { status: 204 }),
   });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/settings");
   const tokens = screen.getByRole("list", { name: "Tokens" });
   await expect.element(tokens).toMatchTextContent(/Old script/);
@@ -37,6 +36,7 @@ test("creates a token shown once, revokes one and signs out", async () => {
   await expect.element(tokens).toMatchTextContent(/Claude Code/);
 
   await screen.getByRole("button", { name: "Revoke Old script" }).click();
+  expect(await answerConfirm(screen, "Revoke")).toContain("Anything using it is refused from now on.");
   await expect.element(screen.getByText("Revoked Old script.")).toBeVisible();
   await expect.element(tokens).not.toMatchTextContent(/Old script/);
   expect(screen.getByTestId("new-token").elements()).toHaveLength(0);

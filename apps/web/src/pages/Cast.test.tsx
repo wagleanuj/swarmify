@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 const video = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
 const empty = { tasks_done: 0, judged: 0, first_try: 0, send_backs: 0, cost_usd: 0 };
@@ -86,7 +86,6 @@ test("an edit asks for confirmation naming the version, then saves it with a sta
         { name: "worker-1", number: 2, prompt: "Write hooks first.", tools: ["graph"], created_at: video.created_at },
       ]),
   });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/cast");
   await screen.getByRole("button", { name: "Edit Worker 1" }).click();
   await screen.getByRole("textbox", { name: "Standing instructions" }).fill("Write hooks first.");
@@ -94,8 +93,8 @@ test("an edit asks for confirmation naming the version, then saves it with a sta
   await expect.element(screen.getByText(/Becomes version 2/)).toBeVisible();
   await screen.getByRole("button", { name: "Save as version 2" }).click();
 
-  expect(confirm.mock.calls[0]?.[0]).toContain("Save version 2 of Worker 1?");
-  expect(bodies).toEqual([{ prompt: "Write hooks first.", tools: ["graph"], confirm: true }]);
+  expect(await answerConfirm(screen, "Save v2")).toContain("Save version 2 of Worker 1?");
+  await vi.waitFor(() => expect(bodies).toEqual([{ prompt: "Write hooks first.", tools: ["graph"], confirm: true }]));
   const row = screen.getByTestId("cast-worker-1");
   await expect.element(row.getByRole("status")).toHaveTextContent("Saved version 2 of Worker 1. It applies from the next stage on.");
   await expect.element(row).toMatchTextContent(/Worker 1.*v2/);
@@ -110,13 +109,13 @@ test("a cancelled confirmation changes nothing and a refusal is shown", async ()
     "GET /api/worlds/world_1/cast": () => Response.json(cast),
     "PUT /api/worlds/world_1/cast/judge": () => Response.json({ detail: "nothing changed" }, { status: 422 }),
   });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const { screen } = await mountAt("/worlds/world_1/cast");
   await screen.getByRole("button", { name: "Edit Judge" }).click();
   await screen.getByRole("button", { name: "Save as version 2" }).click();
+  await answerConfirm(screen, "Cancel");
   expect(calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
-  confirm.mockReturnValue(true);
   await screen.getByRole("button", { name: "Save as version 2" }).click();
+  await answerConfirm(screen, "Save v2");
   await expect.element(screen.getByRole("alert")).toHaveTextContent("Not saved: nothing changed.");
 });
 
@@ -224,7 +223,6 @@ test("a skill's history lists its versions and restores an older one as the next
       return Response.json(hooks(3), { status: 201 });
     },
   });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/cast");
   await screen.getByRole("button", { name: "History of skill hooks" }).click();
   const history = screen.getByTestId("skill-history");
@@ -232,8 +230,8 @@ test("a skill's history lists its versions and restores an older one as the next
   await expect.element(history.getByRole("button", { name: "Restore v2" })).not.toBeInTheDocument();
   await history.getByRole("button", { name: "Restore v1" }).click();
 
-  expect(confirm.mock.calls[0]?.[0]).toContain("Restore v1 of hooks as v3?");
-  expect(bodies).toEqual([{ name: "hooks", content: "v1 body", note: "Restored v1." }]);
+  expect(await answerConfirm(screen, "Restore")).toContain("Restore v1 of hooks as v3?");
+  await vi.waitFor(() => expect(bodies).toEqual([{ name: "hooks", content: "v1 body", note: "Restored v1." }]));
   await expect.element(screen.getByRole("status")).toMatchTextContent(/Restored v1 of hooks as v3/);
   await expect.element(screen.getByTestId("skill-hooks")).toMatchTextContent(/v3/);
   await expect.element(history).toMatchTextContent(/v3.*Restored v1\..*current/);

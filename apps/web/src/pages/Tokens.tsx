@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
+import { useConfirm } from "../Dialog";
 import { api, SIGNED_OUT } from "../api/client";
 import type { components } from "../api/schema";
 import { Loading, Skeleton } from "../Skeleton";
@@ -9,6 +10,7 @@ type Said = { text: string; bad?: boolean };
 
 /** The install's sign-in and API tokens, under every world's settings: they are not per world. */
 export function Tokens({ Row }: { Row: (p: { title: string; about: string; children: ReactNode }) => ReactNode }) {
+  const [confirm, dialog] = useConfirm();
   const [tokens, setTokens] = useState<Token[] | null>(null);
   const [required, setRequired] = useState(false);
   const [name, setName] = useState("");
@@ -44,7 +46,7 @@ export function Tokens({ Row }: { Row: (p: { title: string; about: string; child
   }
 
   async function revoke(token: Token) {
-    if (!window.confirm(`Revoke ${token.name}? Anything using it is refused from now on.`)) return;
+    if (!(await confirm({ title: `Revoke ${token.name}?`, lines: ["Anything using it is refused from now on."], action: "Revoke", danger: true }))) return;
     setBusy(true);
     setSaid(null);
     const { response } = await api.DELETE("/api/tokens/{token_id}", { params: { path: { token_id: token.id } } });
@@ -65,6 +67,7 @@ export function Tokens({ Row }: { Row: (p: { title: string; about: string; child
 
   return (
     <>
+      {dialog}
       <Row
         title="API tokens"
         about="For the whole install, not only this world. The MCP server at /mcp takes a token instead of your password, so tools never hold it."

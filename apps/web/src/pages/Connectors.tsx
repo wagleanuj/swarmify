@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 
+import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { connectorsRoute } from "../router";
@@ -83,6 +84,7 @@ export function status(c: Connector): { text: string; tone: "ok" | "warn" } {
 const where = (c: Connector) => `${c.about} · package ${c.name} ${c.version}`;
 
 export function Connectors() {
+  const [confirm, dialog] = useConfirm();
   const { worldId } = connectorsRoute.useParams();
   const [world, setWorld] = useState<World | null | undefined>(undefined);
   const [connectors, setConnectors] = useState<Connector[] | null>(null);
@@ -199,7 +201,7 @@ export function Connectors() {
   }
 
   async function uninstall(p: Package) {
-    if (!window.confirm(`Uninstall ${p.name} ${p.version}? Its folder is removed for every world.`)) return;
+    if (!(await confirm({ title: `Uninstall ${p.name} ${p.version}?`, lines: ["Its folder is removed for every world."], action: "Uninstall", danger: true }))) return;
     setError(null);
     const { error } = await api.DELETE("/api/packages/{name}/{version}", {
       params: { path: { name: p.name, version: p.version } },
@@ -226,7 +228,13 @@ export function Connectors() {
   }
 
   async function disable(p: Package) {
-    if (!window.confirm(`Disable ${p.label} in this world? Its workflows that call ${p.name} stop passing their checks. Other worlds keep it.`)) return;
+    const ok = await confirm({
+      title: `Disable ${p.label} in this world?`,
+      lines: [`Its workflows that call ${p.name} stop passing their checks.`, "Other worlds keep it."],
+      action: "Disable",
+      danger: true,
+    });
+    if (!ok) return;
     const { error } = await api.DELETE("/api/worlds/{world_id}/packages/{name}", {
       params: { path: { world_id: worldId, name: p.name } },
     });
@@ -251,6 +259,7 @@ export function Connectors() {
   const waiting = (connectors ?? []).filter((c) => c.missing.length > 0).length;
   return (
     <main>
+      {dialog}
       <header className="page">
         <div>
           <h1>Connectors</h1>

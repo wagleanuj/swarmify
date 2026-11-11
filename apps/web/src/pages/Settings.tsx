@@ -1,6 +1,7 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
+import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import { money } from "../api/runs";
 import type { components } from "../api/schema";
@@ -33,6 +34,7 @@ function Row({ title, about, children }: { title: string; about: string; childre
 }
 
 export function Settings() {
+  const [confirm, dialog] = useConfirm();
   const { worldId } = settingsRoute.useParams();
   const router = useRouter();
   const path = { params: { path: { world_id: worldId } } };
@@ -150,9 +152,12 @@ export function Settings() {
 
   async function remove() {
     if (!world) return;
-    const ok = window.confirm(
-      `Delete ${world.name}? Its folder, runs, library and memory go with it. This cannot be undone.`,
-    );
+    const ok = await confirm({
+      title: `Delete ${world.name}?`,
+      lines: ["Its folder, runs, library and memory go with it.", "This cannot be undone."],
+      action: "Delete world",
+      danger: true,
+    });
     if (!ok) return;
     setBusy("danger");
     const { error } = await api.DELETE("/api/worlds/{world_id}", path);
@@ -178,6 +183,7 @@ export function Settings() {
   const name = world?.name ?? "this world";
   return (
     <main>
+      {dialog}
       <header className="page">
         <div>
           <h1>Settings</h1>

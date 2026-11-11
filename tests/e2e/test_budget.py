@@ -74,8 +74,8 @@ def test_a_run_warns_at_80_percent_and_waits_at_100_for_money_or_an_abort(
         page.goto(f"{base_url}/gates")
         card = page.get_by_test_id(f"gate-{second}")
         expect(card).to_contain_text("This run has spent", timeout=20_000)
-        page.once("dialog", lambda dialog: dialog.accept())
         card.get_by_role("button", name="Abort the run").click()
+        page.get_by_role("dialog").get_by_role("button", name="Abort run").click()
         expect(page.get_by_test_id("no-gates")).to_be_visible(timeout=20_000)
         assert api.get(f"/runs/{second}").json()["status"] == "aborted"
 

@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../index.css";
 
 import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 import { plainName, toWav } from "./Assets";
 
 const world = { id: "world_1", name: "Video", purpose: "", created_at: "2026-10-26T10:00:00+00:00" };
@@ -219,18 +219,18 @@ test("a Template downloads as a zip and deletes after a confirm listing the work
       return Response.json({ deleted: confirm, workflows: [{ id: "wf_1", name: "Kids short" }, { id: "wf_2", name: "Cat loop" }] });
     },
   });
-  const asked: string[] = [];
-  vi.spyOn(window, "confirm").mockImplementation((m) => (asked.push(m ?? ""), asked.length > 1));
   const { screen } = await mountAt("/worlds/world_1/assets");
   const row = screen.getByRole("listitem", { name: "kids" });
   await expect.element(row.getByRole("link", { name: "Download kids" })).toHaveAttribute("href", "/api/worlds/world_1/templates/remotion_templates/kids/download");
 
   await row.getByRole("button", { name: "Delete kids" }).click();
-  await expect.poll(() => asked.length).toBe(1);
-  expect(asked[0]).toBe("Delete the Template kids? 2 workflows name it and will fail their check: Kids short, Cat loop. Past runs keep their copies. This cannot be undone.");
+  expect(await answerConfirm(screen, "Cancel")).toContain(
+    "Delete the Template kids?2 workflows name it and will fail their check: Kids short, Cat loop.Past runs keep their copies. This cannot be undone.",
+  );
   expect(deletes).toEqual(["asked"]);
 
   await row.getByRole("button", { name: "Delete kids" }).click();
+  await answerConfirm(screen, "Delete");
   await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted kids.");
   expect(deletes).toEqual(["asked", "asked", "confirmed"]);
 });
@@ -240,8 +240,6 @@ test("a file in an Owned Folder is renamed in place and deleted after a confirm 
     "PATCH /api/worlds/world_1/assets/assets%2Fvoices%2Fnarrator.wav": () => Response.json({ path: "assets/voices/calm.wav", name: "calm.wav", bytes: 300_000 }),
     "DELETE /api/worlds/world_1/assets/assets%2Fvoices%2Faf_heart.wav": () => new Response(null, { status: 204 }),
   });
-  const asked: string[] = [];
-  vi.spyOn(window, "confirm").mockImplementation((m) => (asked.push(m ?? ""), asked.length > 1));
   const { screen } = await mountAt("/worlds/world_1/assets");
   const narrator = screen.getByRole("listitem", { name: "narrator.wav" });
   await narrator.getByRole("button", { name: "narrator.wav actions" }).click();
@@ -251,11 +249,13 @@ test("a file in an Owned Folder is renamed in place and deleted after a confirm 
   await expect.element(screen.getByRole("status")).toHaveTextContent("Renamed narrator.wav to calm.wav.");
 
   const card = screen.getByRole("listitem", { name: "af_heart.wav" });
-  for (let i = 0; i < 2; i++) {
+  const asked: string[] = [];
+  for (const answer of ["Cancel", "Delete"]) {
     await card.getByRole("button", { name: "af_heart.wav actions" }).click();
     await card.getByRole("menuitem", { name: /^Delete/ }).click();
+    asked.push(await answerConfirm(screen, answer));
   }
-  expect(asked[0]).toBe("Delete af_heart.wav? Speech will no longer find it. This cannot be undone.");
+  expect(asked[0]).toContain("Delete af_heart.wav?Speech will no longer find it.This cannot be undone.");
   await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted af_heart.wav.");
   expect(calls.filter((c) => c.startsWith("DELETE"))).toEqual(["DELETE /api/worlds/world_1/assets/assets%2Fvoices%2Faf_heart.wav"]);
 });
@@ -326,7 +326,6 @@ test("files are renamed and deleted with a confirm; an empty folder says what go
     "PATCH /api/worlds/world_1/assets/assets%2Flogo.png": () => Response.json({ path: "assets/brand.png", name: "brand.png", bytes: 12_000 }),
     "DELETE /api/worlds/world_1/assets/assets%2Fbed-calm.mp3": () => new Response(null, { status: 204 }),
   });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/worlds/world_1/assets");
   const logo = screen.getByRole("listitem", { name: "logo.png" });
   await logo.getByRole("button", { name: "logo.png actions" }).click();
@@ -337,7 +336,7 @@ test("files are renamed and deleted with a confirm; an empty folder says what go
   const bed = screen.getByRole("listitem", { name: "bed-calm.mp3" });
   await bed.getByRole("button", { name: "bed-calm.mp3 actions" }).click();
   await bed.getByRole("menuitem", { name: /^Delete/ }).click();
-  expect(window.confirm).toHaveBeenCalledWith("Delete bed-calm.mp3? Builds that read it will not find it. This cannot be undone.");
+  expect(await answerConfirm(screen, "Delete")).toContain("Delete bed-calm.mp3?Builds that read it will not find it.This cannot be undone.");
   await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted bed-calm.mp3.");
   expect(calls).toContain("DELETE /api/worlds/world_1/assets/assets%2Fbed-calm.mp3");
 });

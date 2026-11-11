@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
-import { mountAt } from "../test/mount";
+import { answerConfirm, mountAt } from "../test/mount";
 
 beforeEach(() => FakeEventSource.install());
 afterEach(() => {
@@ -70,7 +70,7 @@ test("with no baseline yet the comparison says how to get one, and a baseline na
 test("a budget gate adds money as a new total or aborts the run", async () => {
   const bodies: unknown[] = [];
   const posted: string[] = [];
-  fakeFetch({
+  const calls = fakeFetch({
     "GET /api/worlds": () => Response.json([]),
     "GET /api/gates": () => Response.json([gate("budget", { stage_name: "research", budget_usd: 5, spent_usd: 5.2 })]),
     "POST /api/runs/run_1/budget": async (req) => {
@@ -82,7 +82,6 @@ test("a budget gate adds money as a new total or aborts the run", async () => {
       return Response.json(run("aborted", []));
     },
   });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
   await expect.element(card).toMatchTextContent(/The budget of \$5\.00 is spent.*This run has spent \$5\.20 of \$5\.00/);
@@ -92,8 +91,10 @@ test("a budget gate adds money as a new total or aborts the run", async () => {
   await vi.waitFor(() => expect(bodies).toEqual([{ budget_usd: 7.5 }]));
 
   await card.getByRole("button", { name: "Abort the run" }).click();
-  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Abort Weekly short?"));
+  expect(await answerConfirm(screen, "Abort run")).toContain("Abort Weekly short?");
   await vi.waitFor(() => expect(posted).toEqual(["abort"]));
+  // A budget gate stays open, so the abort reloads the gates; let that land before the next test.
+  await vi.waitFor(() => expect(calls.filter((c) => c === "GET /api/gates")).toHaveLength(3));
 });
 
 test("a refused budget is shown as an alert", async () => {
