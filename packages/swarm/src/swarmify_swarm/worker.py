@@ -33,6 +33,7 @@ from typing import Any, Protocol, TypeVar
 
 from swarmify_swarm import build as builds
 from swarmify_swarm.model import AgentRole, Refused, Task, Verdict
+from swarmify_swarm.network import NetworkDown, NetworkWait, Waiting, transient
 from swarmify_swarm.ports import (
     AgentRuntime,
     AgentTool,
@@ -405,8 +406,12 @@ class Swarm:
         servers: Servers = no_servers,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         budget: Budget = no_budget,
+        network: NetworkWait | None = None,
     ) -> None:
+        """`network` waits for the model API after a session died for want of it."""
         self.budget = budget
+        self.network = network or NetworkWait()
+        self._waiting: dict[tuple[str, str, str], Waiting] = {}
         self.board = board
         self.runtime = runtime
         self.files = files
@@ -835,7 +840,9 @@ class Swarm:
         one carrying the brief and the agent's progress so far, from the stage log. The first
         session continues the agent's stored session when it has one, unless `fresh`: a planner
         or judge answer starts clean so verdicts do not carry each other. `timeout` (seconds)
-        bounds all its sessions together; running out fails the stage."""
+        bounds all its sessions together, time spent waiting for the network aside; running out
+        fails the stage. A session that died because the model API was out of reach is no failed
+        session: the agent waits for the network (network.py) and resumes it."""
         board = self.board
         before = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
         if reason := self.budget(at.run_id):
@@ -853,7 +860,7 @@ class Swarm:
             clock=self.clock,
         )
         deadline = None if timeout is None else time.monotonic() + timeout
-        failed, lost = 0, False
+        failed, lost, offline = 0, False, 0.0
         while failed < SESSIONS:
             stored = board.agent(at.world_id, at.run_id, at.stage_id, name, role).session_id
             resume = None if lost or (fresh and stored == before) else stored
@@ -883,12 +890,22 @@ class Swarm:
                 board.update_agent(at.stage_id, name, status="failed")
                 raise StageError(f"{name} ran out of time ({timeout / 60:g} minutes)") from None
             except Exception as exc:
+                if transient(exc):
+                    waited = self._wait_for_network(at, name, str(exc), offline, hooks)
+                    offline += waited
+                    deadline = None if deadline is None else deadline + waited
+                    continue
                 board.log(at.stage_id, name, "error", f"The session died: {exc}")
                 failed += 1
                 continue
             if end.stopped:
                 board.log(at.stage_id, name, "session", f"Stopped: {end.stopped}")
                 raise Stopped(end.stopped)
+            if end.is_error and transient(end.result):
+                waited = self._wait_for_network(at, name, end.result, offline, hooks)
+                offline += waited
+                deadline = None if deadline is None else deadline + waited
+                continue
             if end.is_error:
                 board.log(at.stage_id, name, "error", f"The session failed: {end.result}")
                 failed += 1
@@ -909,6 +926,43 @@ class Swarm:
             return answer
         board.update_agent(at.stage_id, name, status="failed")
         raise StageError(f"{name} failed {SESSIONS} sessions in a row; see the stage log")
+
+    def waiting(self) -> list[Waiting]:
+        """The agents waiting for the network right now, the longest waiting first."""
+        return sorted(self._waiting.values(), key=lambda w: w.since)
+
+    def _wait_for_network(
+        self, at: "_At", name: str, error: str, spent: float, hooks: "_Hooks"
+    ) -> float:
+        """The session died because the model API was out of reach: wait for it to come back,
+        so the next session resumes this one and nothing counts as failed. The seconds waited.
+        The agent keeps its claims meanwhile. Raises StageError once the agent has waited the
+        whole limit, Stopped when the run is paused, aborted or out of Budget meanwhile."""
+        hours = self.network.limit / 3600
+        said = (
+            f"Waiting for the network: the session lost the model API ({error.strip()[:300]})."
+            f" It resumes when the API is reachable again, waiting up to {hours:g} h in all;"
+            " this is not a failed session."
+        )
+        self.board.log(at.stage_id, name, "session", said)
+        key = (at.run_id, at.stage_id, name)
+        self._waiting[key] = Waiting(
+            at.world_id, at.run_id, at.stage_id, name, self.clock(), error.strip()[:300]
+        )
+        try:
+            waited = self.network.wait(spent, lambda: hooks.renew() or self.budget(at.run_id))
+        except NetworkDown as exc:
+            self.board.log(at.stage_id, name, "error", f"Gave up: {exc}.")
+            self.board.update_agent(at.stage_id, name, status="failed")
+            raise StageError(f"{name} could not reach the model API: {exc}") from None
+        finally:
+            self._waiting.pop(key, None)
+        if reason := self.budget(at.run_id):
+            self.board.log(at.stage_id, name, "session", f"Stopped while waiting: {reason}")
+            raise Stopped(reason)
+        said = f"The network is back after {waited / 60:.1f} min; resuming the session."
+        self.board.log(at.stage_id, name, "session", said)
+        return waited
 
     def _progress(self, at: "_At", name: str) -> str:
         """What the core knows of the agent's work in the stage: its tool calls and results from
@@ -1145,7 +1199,7 @@ class _Hooks:
             )
 
     def before_tool(self, tool: str, input: dict[str, Any]) -> str | None:
-        self._renew()
+        self.renew()
         reason = self._refusal(tool, input)
         kind = "denied" if reason else "tool"
         self.board.log(self.stage_id, self.agent, kind, reason or "", tool=tool, input=input)
@@ -1154,11 +1208,12 @@ class _Hooks:
     def cost(self, usd: float) -> str | None:
         """Add the estimate to the agent, then ask the Budget whether the session goes on."""
         self.board.update_agent(self.stage_id, self.agent, cost_usd=usd)
-        self._renew()
+        self.renew()
         self.stopped = self.budget()
         return self.stopped
 
-    def _renew(self) -> None:
+    def renew(self) -> None:
+        """Refresh every claim the agent holds."""
         for task in self.board.list_tasks(self.stage_id):
             if task.status == "claimed" and task.owner == self.agent:
                 try:

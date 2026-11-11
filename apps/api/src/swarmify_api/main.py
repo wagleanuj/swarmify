@@ -20,6 +20,7 @@ import shutil
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, closing, suppress
+from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -112,6 +113,7 @@ from swarmify_runs import SqliteStorage as RunStorage
 from swarmify_swarm import MIGRATIONS as SWARM_MIGRATIONS
 from swarmify_swarm import AgentRuntime, CastEntry, SdkRuntime, Stopped, Swarm, build
 from swarmify_swarm import SqliteStorage as TaskStorage
+from swarmify_swarm.network import ASKED, NetworkWait, Patient
 from swarmify_swarm.sdk import PRICES, default_model
 from swarmify_workflows import MIGRATIONS as WORKFLOWS_MIGRATIONS
 from swarmify_workflows import ConnectorRef, Workflows, WorkflowVersion
@@ -504,6 +506,7 @@ def create_app(
     notifier: Notifier | None = None,
     upkeep_seconds: float = upkeep.UPKEEP_SECONDS,
     retro: bool = True,
+    network: NetworkWait | None = None,
 ) -> FastAPI:
     """`transport` swaps the MCP transport (tests pass the fake), `poll_seconds` is the wait
     between long-job polls, and `connector` replaces the connector stage call altogether.
@@ -512,7 +515,8 @@ def create_app(
     `notifier` receives `gate.opened`, `budget.warning` and `run.ended`; each world's Slack
     Channel by default. Every `upkeep_seconds` the view counts are written back and old
     binaries pruned. `retro` ends every run but a baseline with the Retro stage (ADR 0008); tests
-    that script no retro session turn it off."""
+    that script no retro session turn it off. `network` waits for the model API after a session
+    lost it (a probe of the API with backoff, for SWARMIFY_NETWORK_WAIT_HOURS, by default)."""
     root = root or data_dir()
     registry = connector_service(root, transport, poll_seconds)
     # Every world is given this repository's default packages once (ADR 0023): those there now
@@ -808,6 +812,7 @@ def create_app(
         servers=registry.agent_servers,
         clock=clock,
         budget=lambda run_id: runner.check_stop(run_id),  # the Budget, pause and abort live in Runs
+        network=network,
     )
 
     def run_swarm(run: Run, stage_id: str, stage: StageDef) -> None:
@@ -1033,7 +1038,15 @@ def create_app(
     app.include_router(worlds.packs_router(SpritePacks(BUNDLED, root / "sprite-packs")))
     app.include_router(workflows.router(workflow_svc, world_svc))
     app.include_router(
-        runs.router(runner, workflow_svc, world_svc, swarm_tools, retro, whiteboard.list_tasks)
+        runs.router(
+            runner,
+            workflow_svc,
+            world_svc,
+            swarm_tools,
+            retro,
+            whiteboard.list_tasks,
+            swarm.waiting,
+        )  # fmt: skip
     )
     app.include_router(connectors.router(registry, world_svc, workflow_svc))
     app.include_router(tasks.router(whiteboard, runner.get, clock))
@@ -1048,6 +1061,7 @@ def create_app(
             lambda run_id: r.status if (r := runner.get(run_id)) else None,
             outcome_notices,
             clock,
+            swarm.waiting,
         )
     )
     app.include_router(
@@ -1067,10 +1081,12 @@ def create_app(
     app.include_router(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )
-    app.include_router(evals.router(world_svc, memory, swarm.runtime))
+    # Sessions someone waits on wait for the network only briefly, then say it is down.
+    asked = Patient(swarm.runtime, replace(swarm.network, first=5, most=30, limit=ASKED))
+    app.include_router(evals.router(world_svc, memory, asked))
     conversations = assistant.Conversations(migrated_db(root))
     reads = (
-        runner, world_svc, workflow_svc, whiteboard, index, swarm.runtime, conversations,
+        runner, world_svc, workflow_svc, whiteboard, index, asked, conversations,
         registry.call_for,
     )  # fmt: skip
     asker = assistant.RunAssistant(*reads, cards=cards)
@@ -1084,7 +1100,7 @@ def create_app(
         retro=retro,
         ask=asker.ask,
     )
-    app.include_router(planner.router(world_svc, swarm.runtime, tools, registry))
+    app.include_router(planner.router(world_svc, asked, tools, registry))
     app.include_router(assistant.router(*reads, cards=cards))
     app.include_router(save_to_workflow.router(*reads))
     # The same tools over Streamable HTTP for scripts and remote connectors, with an API token.

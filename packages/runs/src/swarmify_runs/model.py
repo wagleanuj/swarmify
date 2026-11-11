@@ -91,6 +91,8 @@ class RunStageView:
     what went in."""
     config: dict[str, Any] = field(default_factory=dict)
     """The stage's definition as this run holds it, Stage Edits included."""
+    network: str | None = None
+    """Why the running stage is waiting for the network, while it is."""
 
 
 @dataclass(frozen=True)

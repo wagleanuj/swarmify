@@ -28,6 +28,7 @@ from swarmify_runs import (
     StageDef,
 )
 from swarmify_swarm import OPERATOR, Task
+from swarmify_swarm.network import Waiting
 from swarmify_workflows import Invalid, Stage, Workflows, WorkflowVersion, dump_workflow
 from swarmify_worlds import MAX_AGENTS, Worlds
 
@@ -299,6 +300,14 @@ def starting(start: Callable[[], Run]) -> Run | JSONResponse:
         return JSONResponse(status_code=409, content={"detail": detail, "violations": violations})
 
 
+def network_note(w: Waiting) -> str:
+    return (
+        f"Waiting for the network since {w.since:%H:%M} UTC: {w.agent} cannot reach the model"
+        f" API ({w.error[:120]}). It resumes the same session by itself once the network is back;"
+        " this is not a failed attempt."
+    )
+
+
 def router(
     runner: Runner,
     workflows: Workflows,
@@ -306,10 +315,12 @@ def router(
     tools_for: ToolsFor = lambda _world_id: [],
     retro: bool = True,
     tasks_of: TasksOf = lambda _stage_id: [],
+    waiting: Callable[[], list[Waiting]] = lambda: [],
 ) -> APIRouter:
     """`tools_for` names the world's connectors an Ad Hoc Run's stage gets as its tools. With
     `retro`, every run but a baseline ends with the Retro stage. `tasks_of` reads a swarm
-    stage's whiteboard, whose hand-added tasks a run saved as a workflow keeps."""
+    stage's whiteboard, whose hand-added tasks a run saved as a workflow keeps. `waiting` names
+    the agents waiting for the network, which a run's stage then says."""
     api = APIRouter(prefix="/api", tags=["runs"])
     pin = pinner(workflows)
 
@@ -464,7 +475,10 @@ def router(
         run = runner.get(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
-        return run
+        notes = {w.stage_id: network_note(w) for w in reversed(waiting()) if w.run_id == run_id}
+        if not notes:
+            return run
+        return replace(run, stages=[replace(s, network=notes.get(s.id)) for s in run.stages])
 
     @api.get("/runs/{run_id}/baseline")
     def get_baseline(run_id: str) -> Run | None:

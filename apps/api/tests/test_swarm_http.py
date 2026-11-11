@@ -1,8 +1,10 @@
 """A swarm stage over HTTP: real DBOS on SQLite, the real Agent SDK client with a scripted CLI
 behind its transport, notes and artifacts on disk, and the live log on the world's stream."""
 
+import threading
 import time
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -11,9 +13,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from fake_graph import fake_extract
 from sse import sse_events
-from swarmify_swarm import tool_id
+from swarmify_api.main import create_app
+from swarmify_connectors import FakeTransport
+from swarmify_memory import FakeGraphIndex
+from swarmify_swarm import SdkRuntime, tool_id
 from swarmify_swarm.fake import LAST, Answer, Call, Die, Say, Script
+from swarmify_swarm.network import NetworkWait
 
 RESEARCH = """name: Research
 stages:
@@ -334,3 +341,47 @@ def test_an_idea_stage_is_told_what_the_world_already_made_and_published(
     for prompt in (planner, judge):
         assert "Already made in this world" in prompt
         assert "- Why cats work for food (published 2026-11-04): study: Delgado 2021" in prompt
+
+
+def test_a_stage_that_loses_the_network_says_so_and_carries_on_once_it_is_back(
+    tmp_path: Path, script: Script, transport: FakeTransport, graph_index: FakeGraphIndex
+) -> None:
+    """A Wi-Fi drop of hours failed run run_01M75KPE82TM2FCBCT3DVJBRD6. Now the stage waits: the
+    run page says why, the Needs-you page says so after ten minutes, and the agent resumes."""
+    base = datetime(2026, 11, 11, 16, 24, tzinfo=UTC)
+    late, back = [timedelta(0)], threading.Event()
+
+    def probe() -> bool:
+        late[0] = timedelta(minutes=11)
+        return back.wait(15)
+
+    app = create_app(
+        tmp_path, transport=transport, poll_seconds=0.01,
+        runtime=SdkRuntime(transport=script.transport), graph_index=graph_index,
+        extract=fake_extract, retro=False, clock=lambda: base + late[0],
+        network=NetworkWait(probe=probe, sleep=lambda _: None),
+    )  # fmt: skip
+    offline = Die("API Error: Can't reach the API server (EAI_AGAIN)")
+    script.scripts = [PLAN, [GRAPH, CLAIM, offline], [FINISH, Say("Back.")], PASS]
+    with TestClient(app) as running:
+        world, run = _start(running, tmp_path)
+        url = f"/api/runs/{run['id']}"
+        _until(lambda: running.get(url).json()["stages"][0]["network"] is not None)
+        note = running.get(url).json()["stages"][0]["network"]
+        assert "Waiting for the network since 16:24 UTC" in note and "EAI_AGAIN" in note
+
+        def notices() -> list[dict]:
+            return [n for n in running.get("/api/notices").json() if n["kind"] == "network"]
+
+        # once the probe has seen eleven minutes pass
+        _until(lambda: bool(notices()))
+        (notice,) = notices()
+        assert (notice["world_id"], notice["run_id"]) == (world, run["id"])
+        assert "11 min" in notice["text"] and "worker-1" in notice["text"]
+
+        back.set()
+        ended = _ended(running, run["id"])
+        assert ended["status"] == "done" and ended["stages"][0]["network"] is None
+        assert not notices()
+    _, first, second, _ = script.sessions
+    assert first.resume is None and second.resume is not None

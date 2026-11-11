@@ -16,6 +16,7 @@ from swarmify_connectors import Connectors, FakeTransport, Packages
 from swarmify_memory import FakeGraphIndex
 from swarmify_swarm import SdkRuntime
 from swarmify_swarm.fake import Script
+from swarmify_swarm.network import NetworkWait
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +76,8 @@ def app(
     tmp_path: Path, transport: FakeTransport, script: Script, graph_index: FakeGraphIndex
 ) -> FastAPI:
     """The API with the fake ConnectorTransport, a scripted agent CLI, the fake GraphIndex and
-    a GraphWriter whose extract writes a fixed graph."""
+    a GraphWriter whose extract writes a fixed graph. The network is back as soon as it is
+    probed."""
     return create_app(
         tmp_path,
         transport=transport,
@@ -84,6 +86,7 @@ def app(
         graph_index=graph_index,
         extract=fake_extract,
         retro=False,
+        network=NetworkWait(probe=lambda: True, sleep=lambda _: None),  # back at once
     )
 
 

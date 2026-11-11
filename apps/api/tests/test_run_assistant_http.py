@@ -314,6 +314,19 @@ def test_the_assistant_runs_on_the_worlds_planner_model_and_a_bad_turn_is_a_502(
     assert running.post(f"/api/runs/{run['id']}/assistant", json={"message": ""}).status_code == 422
 
 
+def test_a_turn_that_loses_the_network_waits_and_resumes_its_session(
+    running: TestClient, script: Script
+) -> None:
+    run = at_gate(running)
+    offline = Die("API Error: Can't reach the API server (EAI_AGAIN)")
+    script.scripts = [[Say("Looking."), offline], [Answer({"reply": "Back."})]]
+    asked = running.post(f"/api/runs/{run['id']}/assistant", json={"message": "Why?"})
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["text"] == "Back."
+    first, second = script.sessions
+    assert first.resume is None and second.resume is not None
+
+
 def test_at_a_publish_gate_the_assistant_reads_the_form_and_fills_its_fields(
     running: TestClient, script: Script, tmp_path: Path
 ) -> None:
