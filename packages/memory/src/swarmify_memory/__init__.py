@@ -619,44 +619,63 @@ _NOT_GIST = {
 }  # fmt: skip
 
 
+def _bare(title: str) -> str:
+    """A title without the list number a pick may carry ("#4 X", "Idea 2: X")."""
+    return re.sub(r"^\s*(?:idea\s*#?\s*\d+|#\d+)\s*[:.)-]?\s+", "", title, flags=re.I).strip()
+
+
 def made(world: Path, runs: Mapping[str, str]) -> list[str]:
     """What the world at `world` already made, one line per run, newest first: every run with a
     publish record, and every run in `runs` (run id to status: the runs the caller counts, not
-    failed or aborted ones) that settled on one idea. A run's subject is the idea a gate picked,
-    else its only idea, else its publish record; a run that ranked ideas and picked none is not
-    listed. Each line says the title, whether it was published (with its outcome) or is done or
-    in the making, and its gist: the subject's text fields (a study, a fact, a hook) and the
-    start of its body. Read from the files alone, so it holds when the graph is behind."""
+    failed or aborted ones) that settled on one idea. A run's subject is what its pick gate
+    picked: the idea card (named by the decision, or titled as its choice), else the choice
+    itself (a pick of a whole list); with no pick, its only idea, else its publish record or
+    metadata.md. A review or approve gate's artifact never names a run. A run that ranked ideas
+    and picked none is not listed. Each line says the title, whether it was published (with its
+    outcome) or is done or in the making, and its gist: the subject's text fields (a study, a
+    fact, a hook) and the start of its body. Read from the files alone, so it holds when the
+    graph is behind."""
+    everything = library(world)
+    by_path = {a.path: a for a in everything}  # a fork's pick names its parent's card
     by_run: dict[str, list[ArtifactFile]] = {}
-    for a in library(world):
+    for a in everything:
         by_run.setdefault(a.run_id, []).append(a)
     lines: list[str] = []
-    seen: set[str] = set()
     for run_id, found in by_run.items():
-        publish = next((a for a in found if a.name == "publish.md"), None)
-        if publish is None and run_id not in runs:
+        publishes = [a for a in found if a.name == "publish.md"]
+        if not publishes and run_id not in runs:
             continue
-        paths = {a.path: a for a in found}
-        picks = (
-            paths.get(str(a.fields.get("artifact")))
-            for a in found
-            if a.type == "decision"
-            and a.fields.get("artifact")
-            and not a.fields.get("send_back_to")
-        )
+        # a connector with no title of its own records "Posted to <connector>"
+        titled = [a for a in publishes if not a.title.startswith("Posted to ")]
+        publish = (titled or publishes or [None])[0]
         ideas = [a for a in found if a.type == "idea"]
-        subject = next((a for a in picks if a), None) or (ideas[0] if len(ideas) == 1 else None)
-        subject = subject or publish
-        if subject is None or subject.title.lower() in seen:
+        pick = next(
+            (a for a in found if a.type == "decision" and a.fields.get("kind") == "pick"), None
+        )
+        subject: ArtifactFile | None = None
+        if pick is not None:
+            card = by_path.get(str(pick.fields.get("artifact")))
+            choice = _bare(str(pick.fields.get("choice") or ""))
+            subject = card if card is not None and card.type == "idea" else None
+            subject = subject or next(
+                (a for a in ideas if _bare(a.title).lower() == choice.lower()), None
+            )
+            if subject is None and choice:
+                subject = ArtifactFile(pick.name, pick.path, "pick", "", choice, {}, "", run_id)
+        elif len(ideas) == 1:
+            subject = ideas[0]
+        if publish is not None:
+            metadata = next((a for a in found if a.name == "metadata.md"), None)
+            subject = subject or (titled[0] if titled else metadata or publish)
+        if subject is None:
             continue
-        seen.add(subject.title.lower())
         if publish is not None:
             state = f"published {publish.created[:10]}".strip()
             metric = str(publish.fields.get("primary_metric") or "")
             value = (publish.fields.get("outcomes") or {}).get(metric)
             if isinstance(value, int | float):
                 state += f", {value:,} {metric}"
-            if publish is not subject and publish.title.lower() != subject.title.lower():
+            if publish is not subject and publish.title.lower() != _bare(subject.title).lower():
                 state += f", posted as {publish.title}"
         else:
             state = "made" if runs.get(run_id) == "done" else "in the making"
@@ -669,7 +688,7 @@ def made(world: Path, runs: Mapping[str, str]) -> list[str]:
         text += [" ".join(p.split()) for p in paragraphs if not p.lstrip().startswith("#")][:1]
         gist = "; ".join(text)
         gist = gist if len(gist) <= GIST else gist[: GIST - 3] + "..."
-        lines.append(f"- {subject.title} ({state})" + (f": {gist}" if gist else ""))
+        lines.append(f"- {_bare(subject.title)} ({state})" + (f": {gist}" if gist else ""))
         if len(lines) == MADE_MAX:
             break
     return lines
