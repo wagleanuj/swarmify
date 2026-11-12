@@ -69,6 +69,9 @@ test("the queue opens the next decision after each answer and says what was deci
   const first = screen.getByText(/Your first decision is in\./);
   await expect.element(first).toBeVisible();
   expect(first.element().parentElement!.querySelector(".i-pop")).not.toBeNull();
+  // Dismissed here, so the check below does not hang on the notice's 4 s timer.
+  await first.element().parentElement!.querySelector<HTMLButtonElement>("[aria-label=Dismiss]")!.click();
+  await expect.element(first).not.toBeInTheDocument();
   expect(router.state.location.search).toEqual({ gate: "s2" });
   await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 2");
   // Answered items sort last, dimmed.
@@ -87,7 +90,8 @@ test("the queue opens the next decision after each answer and says what was deci
     expect(bodies.run_2).toEqual({ note: "Too much text.", send_back_to: "research" }),
   );
   await expect.element(screen.getByText("You sent it back to research. Next: Pick an idea")).toBeVisible();
-  expect(document.body.textContent?.match(/Your first decision is in/g) ?? []).toHaveLength(1);
+  // Told once: the second answer does not tell it again.
+  expect(document.body.textContent).not.toMatch(/Your first decision is in/);
 
   const pick = screen.getByTestId("gate-run_1");
   await expect.element(pick).toMatchTextContent(/Pick one idea\./);
