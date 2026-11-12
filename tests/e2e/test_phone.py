@@ -239,8 +239,9 @@ def test_the_answer_is_on_screen_above_the_tab_bar(phone: Page, ids: dict, where
     )
     box, bar = approve.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
-    if where == "gates":  # several wait, so decision chips lead the page
-        expect(phone.get_by_test_id("queue").locator(".q-item")).to_have_count(3)
+    if where == "gates":  # several wait: the kinds as chips with counts, and where this one sits
+        expect(phone.get_by_test_id("kinds")).to_contain_text("All")
+        expect(phone.get_by_test_id("place")).to_contain_text(re.compile(r"\d of \d"))
     else:  # seven steps not started still fit the strip (issue 175)
         expect(phone.get_by_test_id("strip")).to_be_visible()
         assert phone.get_by_test_id("strip").bounding_box()["width"] <= PHONE["width"]  # type: ignore[index]
@@ -312,7 +313,7 @@ def test_a_gate_is_answered_from_a_phone_as_the_stream_moves(phone: Page, ids: d
     card = phone.get_by_test_id(f"gate-{ids['run']}")
     expect(card).to_contain_text("Which idea do we shoot?")
     card.get_by_role("button", name="Approve").click()
-    expect(phone.get_by_test_id("answered")).to_contain_text("You approved it", timeout=15_000)
+    expect(phone.locator(".toasts")).to_contain_text("You approved it", timeout=15_000)
     expect(card).to_have_count(0)  # the next decision opens in its place
 
 

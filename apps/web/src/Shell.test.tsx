@@ -266,7 +266,8 @@ test("on a phone the inbox glyph nudges and the badge ticks when a decision arri
   FakeEventSource.emit("run.updated", { payload: run("running", []) });
   await expect.element(inbox).toHaveAccessibleName("Needs you 2 waiting");
   expect(inbox.element().querySelector(".i-inbox")?.classList.contains("i-nudge")).toBe(true);
-  expect(inbox.element().querySelector(".tabbar-badge .tick-in")?.textContent).toBe("2");
+  // the new number is the one shown (its slide in is over at once under reduced motion)
+  await expect.element(inbox.element().querySelector<HTMLElement>(".tabbar-badge")!).toHaveTextContent("2");
 });
 
 test("on a phone the page's title fades into the top bar once it scrolls under it", async () => {

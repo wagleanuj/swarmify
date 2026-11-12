@@ -36,6 +36,7 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
         expect(card).to_contain_text("Watch it. Approve or send back.", timeout=15_000)
         expect(card).to_contain_text("2 of 2 revisions left")
 
+        card.get_by_text("Add a note or ask").click()
         card.get_by_label(r"Note").fill("Darker.")
         card.get_by_role("button", name="Send back to...").click()
         card.get_by_role("menuitem").first.click()
@@ -43,7 +44,7 @@ def test_answer_a_gate_from_the_inbox_and_watch_the_run_finish(page: Page, base_
 
         card.get_by_role("button", name="Approve").click()
         empty = page.get_by_test_id("no-gates")
-        expect(empty).to_contain_text("Nothing is waiting on you", timeout=15_000)
+        expect(empty).to_contain_text("All clear", timeout=15_000)
 
         page.goto(f"{base_url}/worlds/{world['id']}/runs/{run.json()['id']}")
         expect(page.get_by_test_id("status-line")).to_have_text(
@@ -80,9 +81,11 @@ def test_answer_in_needs_you_opens_the_next_and_links_to_the_answered_step(
         expect(page.get_by_test_id(f"gate-{second}")).to_contain_text(
             "Watch it. Approve or send back.", timeout=15_000
         )
-        line = page.get_by_test_id("answered")
-        expect(line).to_contain_text(re.compile(r"You approved it at .*\."))
-        line.get_by_role("link", name="Open that run").click()
+        # A notice says what was decided and what is next; Open goes to the answered step.
+        said = "You approved it. Next: Review and approve"
+        toast = page.locator(".toasts .toast").filter(has_text=said)
+        expect(toast).to_be_visible()
+        toast.get_by_role("button", name="Open").click()
 
         expect(page).to_have_url(f"{base_url}/worlds/{world['id']}/runs/{first}?stage={gate}")
         step = page.get_by_test_id("timeline").get_by_role("button", name=re.compile(r"^Step 2,"))

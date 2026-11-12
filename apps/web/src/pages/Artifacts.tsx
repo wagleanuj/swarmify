@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Fragment, type ReactNode } from "react";
 
 import type { ArtifactFile } from "../api/events";
+import { Icon } from "../Icon";
 import { cap, the } from "../skin";
 
 /** A run file, served by the API under its path in the world folder. */
@@ -61,7 +62,7 @@ export function summary(body: string): string {
 export function ArtifactCards({ cards, worldId }: { cards: ArtifactFile[]; worldId: string }) {
   return (
     <fieldset className="pick-cards" data-testid="pick-cards">
-      <legend>Your pick</legend>
+      <legend>Your pick{cards.some((c) => c.fields.rank != null) ? `, ranked by ${the("judge")}` : ""}</legend>
       {cards.map((a) => {
         const sources = (a.fields.sources as string[] | undefined) ?? [];
         const hook = typeof a.fields.hook === "string" ? a.fields.hook : summary(a.body);
@@ -69,13 +70,14 @@ export function ArtifactCards({ cards, worldId }: { cards: ArtifactFile[]; world
         return (
           <label key={a.path} className="pick-card" data-testid="pick-card">
             <input type="radio" name="artifact" value={a.path} required />
-            <span className="rank">
-              {a.fields.rank != null ? `${cap(the("judge"))}'s #${String(a.fields.rank)} of ${cards.length}` : a.type}
+            <span className="rank" title={a.fields.rank != null ? `${cap(the("judge"))}'s #${String(a.fields.rank)} of ${cards.length}` : undefined}>
+              {a.fields.rank != null ? `#${String(a.fields.rank)}` : a.type}
             </span>
             <b>{a.title}</b>
+            <Icon name="check" size={20} className="pick-check" />
             {hook && <span className="hook">{hook}</span>}
             <details>
-              <summary>Why it ranked here</summary>
+              <summary>Why</summary>
               {why && <p>Why: {why}</p>}
               <p>
                 {sources.length ? (

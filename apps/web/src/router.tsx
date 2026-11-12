@@ -15,6 +15,7 @@ import { Connectors } from "./pages/Connectors";
 import { Evals } from "./pages/Evals";
 import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
+import type { Gate } from "./api/runs";
 import { Library } from "./pages/Library";
 import { Reader } from "./pages/Reader";
 import { Runs } from "./pages/Runs";
@@ -49,10 +50,10 @@ export const gatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/gates",
   component: Gates,
-  // The open gate, the one just answered and the world filter live in the address.
-  validateSearch: (search: Record<string, unknown>): { gate?: string; done?: string; world?: string } =>
+  // The open gate, the world filter and the kind filter live in the address.
+  validateSearch: (search: Record<string, unknown>): { gate?: string; world?: string; kind?: Gate["kind"] } =>
     Object.fromEntries(
-      (["gate", "done", "world"] as const).flatMap((k) => (typeof search[k] === "string" ? [[k, search[k]]] : [])),
+      (["gate", "world", "kind"] as const).flatMap((k) => (typeof search[k] === "string" ? [[k, search[k]]] : [])),
     ),
 });
 

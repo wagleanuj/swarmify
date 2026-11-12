@@ -76,3 +76,9 @@ function subscribe(listener: () => void) {
 export function useOpenGates(): Open {
   return useSyncExternalStore(subscribe, () => open);
 }
+
+/** The one Needs-you count every label reads (the tab badge, a world's overview, the Office HUD
+ * and tab, the world filter): the open gates, in one world or all. `null` until the gates load,
+ * so no label says 0 or "nothing waits" before it knows. */
+export const needsYou = (gates: Gate[] | null, worldId?: string): number | null =>
+  gates === null ? null : worldId ? gates.filter((g) => g.world_id === worldId).length : gates.length;

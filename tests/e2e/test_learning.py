@@ -48,6 +48,7 @@ def test_approve_an_edited_skill_proposal_and_see_skills_records_and_scores(
         change = card.get_by_test_id("skill-change")
         expect(change).to_contain_text("New skill hooks")
         expect(change).to_contain_text("the judge passed the hook-first idea as #1")
+        change.get_by_text("Read or edit SKILL.md before approving").click()
         change.get_by_label("SKILL.md (edit before approving)").fill(EDITED)
         card.get_by_role("button", name="Approve").click()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)

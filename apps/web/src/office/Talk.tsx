@@ -185,6 +185,7 @@ function Ask({
 }) {
   const [busy, setBusy] = useState(false);
   const [confirm, dialog] = useConfirm();
+  const formId = useId();
   // The gate's form, and whether an editable field of the post differs from what the gate shows.
   const { form, changed, edited, fill } = useGateForm(gate);
   // What the earlier stages made (a pick's cards, what an approve reviews), and a skill gate's proposal.
@@ -263,6 +264,7 @@ function Ask({
           <li>Spent {money(spent)}{budget == null ? ", no budget" : ` of ${money(budget)}`}</li>
         </ul>
         <form
+          id={formId}
           ref={form}
           className="talk-form"
           aria-label={`Answer ${gate.stage_name}`}
@@ -278,10 +280,13 @@ function Ask({
               </p>
               {(proposal.skill.evidence ?? []).length > 0 && <p>Evidence: {(proposal.skill.evidence ?? []).join("; ")}</p>}
               {proposal.skill.action !== "retired" && (
-                <label>
-                  SKILL.md (edit before approving)
-                  <textarea name="skill" rows={4} defaultValue={proposal.skill.content ?? ""} />
-                </label>
+                <details className="talk-more">
+                  <summary>Read or edit SKILL.md before approving</summary>
+                  <label>
+                    <span className="visually-hidden">SKILL.md (edit before approving)</span>
+                    <textarea name="skill" rows={4} defaultValue={proposal.skill.content ?? ""} />
+                  </label>
+                </details>
               )}
             </section>
           )}
@@ -307,12 +312,7 @@ function Ask({
               Add (US dollars)
               <input name="add" type="number" inputMode="decimal" min="0.01" step="0.01" defaultValue={topUpSuggestion(gate).toFixed(2)} />
             </label>
-          ) : (
-            <label>
-              Note (optional)
-              <textarea name="note" rows={1} />
-            </label>
-          )}
+          ) : null}
           <ol className="talk-choices" aria-label="Choices">
             {options.map((o, i) => (
               <li key={o.label}>
@@ -323,7 +323,17 @@ function Ask({
             ))}
           </ol>
         </form>
-        <AskRun gate={gate} revision={run?.revision} onFill={fill} />
+        {/* The note and Ask this run, folded under the choices as on the Needs you page. */}
+        <details className="talk-more">
+          <summary>{gate.kind === "budget" ? "Ask before you answer" : "Add a note or ask"}</summary>
+          {gate.kind !== "budget" && (
+            <label>
+              Note (optional)
+              <textarea name="note" rows={1} form={formId} />
+            </label>
+          )}
+          <AskRun gate={gate} revision={run?.revision} onFill={fill} />
+        </details>
       </section>
     </div>
   );

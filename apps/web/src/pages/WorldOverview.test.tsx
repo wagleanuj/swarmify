@@ -27,6 +27,7 @@ test("shows the world, its figures, runs, gates and workflows, following the liv
     "GET /api/worlds/world_1": () => Response.json(video, { headers: { "X-Event-Seq": "12" } }),
     "GET /api/worlds/world_1/workflows": () => Response.json([], { headers: { "X-Event-Seq": "11" } }),
     "GET /api/worlds/world_1/runs": () => Response.json([], { headers: { "X-Event-Seq": "12" } }),
+    "GET /api/gates": () => Response.json([], { headers: { "X-Event-Seq": "10" } }),
   });
   const { screen } = await mountAt("/worlds/world_1");
   await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
@@ -42,7 +43,7 @@ test("shows the world, its figures, runs, gates and workflows, following the liv
 
   // Live from the oldest snapshot, beside the shell's one all-worlds stream.
   await vi.waitFor(() =>
-    expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events?since=11"]),
+    expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=10", "/api/worlds/world_1/events?since=11"]),
   );
   FakeEventSource.emit("run.updated", { seq: 1, type: "run.updated", ts: video.created_at, payload: run("running", []) });
   await expect.element(screen.getByTestId("runs")).toMatchTextContent(/Render then pick.*running/);
@@ -324,4 +325,20 @@ test("on a phone the goal composer is the goal full width, then Budget on a numb
   expect(b.width + s.width).toBeGreaterThan(g.width * 0.9); // the two share the row
   for (const r of [g, b, s]) expect(r.height).toBeGreaterThanOrEqual(44);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});
+
+test("Needs you holds its place until the gates load, never saying nothing waits before it knows", async () => {
+  let release: (r: Response) => void = () => undefined;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "GET /api/gates": () => new Promise<Response>((r) => (release = r)),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  const panel = screen.getByTestId("needs-you");
+  await expect.element(panel.getByRole("status")).toHaveTextContent("Loading");
+  await expect.element(panel).not.toMatchTextContent(/Nothing waits/);
+  release(Response.json([gate("pick")]));
+  await expect.element(panel.getByTestId("needs-you-count")).toHaveTextContent("1 waiting");
 });

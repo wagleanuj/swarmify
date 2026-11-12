@@ -3,7 +3,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
-import { useOpenGates } from "../api/gates";
+import { needsYou, useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
@@ -36,7 +36,10 @@ export function WorldOverview() {
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [scores, setScores] = useState<Score[]>([]);
-  const gates = (useOpenGates().gates ?? []).filter((g) => g.world_id === worldId);
+  const open = useOpenGates();
+  const all = open.gates;
+  const gates = (all ?? []).filter((g) => g.world_id === worldId);
+  const waiting = needsYou(all, worldId);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
@@ -312,9 +315,16 @@ export function WorldOverview() {
           <section className="panel" aria-label="Needs you" data-testid="needs-you">
             <div className="panel-head">
               <h2>Needs you</h2>
-              {gates.length > 0 && <span className="pill warning">{gates.length} waiting</span>}
+              {!!waiting && <span className="pill warning" data-testid="needs-you-count">{waiting} waiting</span>}
             </div>
-            {gates.length === 0 ? (
+            {waiting === null && open.failed ? (
+              <p className="faint">Could not load what waits for you. Is the API running?</p>
+            ) : waiting === null ? (
+              <Loading className="rows">
+                <Skeleton h={42} />
+                <Skeleton h={42} />
+              </Loading>
+            ) : waiting === 0 ? (
               <p className="faint">Nothing waits for you in this world.</p>
             ) : (
               <ul className="rows">

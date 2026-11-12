@@ -41,12 +41,13 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
 
   const screen = await render(<ArtifactCards cards={[hooks, chase]} worldId="world_1" />);
   const cards = screen.getByTestId("pick-card");
+  await expect.element(screen.getByTestId("pick-cards")).toMatchTextContent(/^Your pick, ranked by the judge/);
   await expect.element(cards.first()).toMatchTextContent(
-    /The judge's #1 of 2.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
+    /#1.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
   );
   // The reason and sources are folded away until asked for.
   await expect.element(cards.first().getByRole("link")).not.toBeInTheDocument();
-  await cards.first().getByText("Why it ranked here").click();
+  await cards.first().getByText("Why", { exact: true }).click();
   await expect.element(cards.first().getByRole("link")).toHaveAttribute(
     "href",
     "/worlds/world_1/read?path=runs%2Frun_1%2Fstage_0%2Fnotes%2Ftrends.md",
@@ -55,7 +56,7 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
   // The judge's reason for the rank, for any type; an idea's own `why` when it gave none.
   await expect
     .element(cards.nth(1))
-    .toMatchTextContent(/#2 of 2.*The chase.*A chase in 30 seconds.*Why: A slower open than the hook\..*No source paragraph cited\./);
+    .toMatchTextContent(/#2.*The chase.*A chase in 30 seconds.*Why: A slower open than the hook\..*No source paragraph cited\./);
   await cards.nth(1).getByRole("radio").click();
   await expect.element(screen.getByRole("radio", { name: /The chase/ })).toBeChecked();
   await expect.element(screen.getByRole("radio", { name: /Hook first/ })).not.toBeChecked();

@@ -205,6 +205,7 @@ test("answered on the run page: you stay on the step, see what you decided, and 
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_3");
   const panel = screen.getByTestId("stage-panel");
   const scrolled = window.scrollY;
+  await panel.getByText("Add a note", { exact: true }).click();
   await panel.getByLabelText(/^Note/).fill("Good pace.");
   await panel.getByRole("button", { name: "Approve" }).click();
   const answered = panel.getByTestId("answered");

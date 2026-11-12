@@ -63,7 +63,7 @@ def test_a_run_warns_at_80_percent_and_waits_at_100_for_money_or_an_abort(
         card = page.get_by_test_id(f"gate-{run}")
         expect(card).to_have_attribute("data-kind", "budget")
         expect(card).to_contain_text("This run has spent")
-        card.get_by_role("button", name="Add money and go on").click()
+        card.get_by_role("button", name=re.compile(r"^Add \$[\d.]+ and go on$")).click()
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_test_id("budget-line")).to_contain_text(
             "left before the budget pauses the run"

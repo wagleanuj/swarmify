@@ -2,7 +2,7 @@ import { Link, type LinkProps, Outlet, useLocation } from "@tanstack/react-route
 import { createContext, Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { api } from "./api/client";
-import { useOpenGates } from "./api/gates";
+import { needsYou, useOpenGates } from "./api/gates";
 import { money } from "./api/runs";
 import type { components } from "./api/schema";
 import { CountTick } from "./CountTick";
@@ -86,9 +86,9 @@ export function Shell() {
   const current = top === "worlds" ? (area ?? "overview") : top || "worlds";
   const inWorld = top === "worlds" ? routeWorld : undefined;
 
-  const gates = useOpenGates().gates;
   // The inbox glyph nudges once each time the count of open gates rises (keyed, so it replays).
-  const waiting = gates?.length;
+  const gates = useOpenGates().gates;
+  const waiting = needsYou(gates) ?? undefined;
   const [nudge, setNudge] = useState({ was: waiting, n: 0 });
   if (waiting !== nudge.was) setNudge({ was: waiting, n: waiting !== undefined && nudge.was !== undefined && waiting > nudge.was ? nudge.n + 1 : nudge.n });
   const inbox = (size?: 24) => <Icon key={nudge.n} name="inbox" size={size} className={nudge.n ? "i-nudge" : undefined} />;
@@ -245,7 +245,7 @@ export function Shell() {
           <Icon name="chevron" />
         </Link>
         <div className="nav-group">
-          {item("gates", "Needs you", { to: "/gates" }, gates?.length)}
+          {item("gates", "Needs you", { to: "/gates" }, waiting)}
           {worldId && (
             <>
               {item("overview", "Overview", { to: worldHome(world), params })}
@@ -277,7 +277,7 @@ export function Shell() {
       </div>
       <nav className="tabbar" aria-label="Tabs" ref={bar}>
         <span className="tabbar-line" aria-hidden="true" />
-        {tab("gates", "Needs you", { to: "/gates" }, gates?.length)}
+        {tab("gates", "Needs you", { to: "/gates" }, waiting)}
         {WORLD_TABS.map(([key, label, to]) =>
           worldId ? (
             <Fragment key={key}>{tab(key, label, { to, params })}</Fragment>
@@ -298,7 +298,7 @@ export function Shell() {
       <Sheet open={sheet === "world"} onClose={() => setSheet(null)} label="Worlds">
         <nav aria-label="Worlds" onClick={() => setSheet(null)}>
           {(worlds ?? []).map((w) => {
-            const waiting = gates?.filter((g) => g.world_id === w.id).length ?? 0;
+            const waiting = needsYou(gates, w.id);
             return (
               <Link
                 key={w.id}
@@ -308,7 +308,7 @@ export function Shell() {
                 aria-current={w.id === worldId ? "true" : undefined}
               >
                 {w.name}
-                <small>{waiting ? `${waiting} waiting` : "nothing waiting"}</small>
+                <small>{waiting === null ? "" : waiting ? `${waiting} waiting` : "nothing waiting"}</small>
               </Link>
             );
           })}
