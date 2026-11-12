@@ -212,7 +212,7 @@ export function Graph() {
         </Loading>
       )}
       {view && (
-        <dl className="kpis" data-testid="graph-size">
+        <dl className="kpis mem-kpis" data-testid="graph-size">
           <div className="kpi">
             <dt>Nodes</dt>
             <dd className="num">{view.nodes.toLocaleString()}</dd>
@@ -226,7 +226,7 @@ export function Graph() {
             <dd className="num">{view.spent.rebuilds}</dd>
           </div>
           <div className="kpi" data-testid="spent" title={`${took(view.spent.seconds)} of extraction`}>
-            <dt>Spent on memory</dt>
+            <dt>Spent</dt>
             <dd className="num">{usd(view.spent.cost_usd)}</dd>
           </div>
         </dl>
@@ -238,7 +238,7 @@ export function Graph() {
             aria-label="Ask the graph"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="What keeps viewers past three seconds?"
+            placeholder="Ask what this world has learned"
             maxLength={500}
           />
           <button type="submit" disabled={asking || !question.trim()}>

@@ -24,12 +24,14 @@
 .overview .rows .grow > a { font-weight: 500; text-decoration: none; }
 .overview .rows .grow > a:hover { text-decoration: underline; }
 .overview .rows .chip { justify-self: start; }
-.overview .rows a.button, .overview .workflows button { min-height: 30px; padding: 4px 12px; font-size: 12px; }
+.overview .rows a.button { min-height: 30px; padding: 4px 12px; font-size: 12px; }
 .overview .dot.warn { background: var(--warning); }
 .overview .pill.warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
-.overview .workflows .row { flex-wrap: wrap; }
-.overview .workflows .grow { flex: 1 1 14rem; }
-.overview .workflows .actions { display: flex; align-items: center; gap: 8px; }
+.overview .workflows .grow { flex: 1 1 auto; }
+.overview .workflows .actions { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.overview .workflows .row { flex-wrap: nowrap; }
+.overview .workflows .menu { left: auto; right: 0; }
+.overview .workflows .actions button.icon:not(.play) { border-color: transparent; border-radius: 999px; color: var(--muted); }
 .overview .overrides { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); }
 .overview .overrides input { width: 7rem; }
 .overview .goal { display: flex; gap: 8px; }
@@ -55,7 +57,7 @@
   .overview .goal input:first-child { flex-basis: 100%; }
   .overview .goal input, .overview .goal button { min-height: 44px; }
   .overview .goal input[type="number"], .overview .goal button { flex: 1 1 0; min-width: 0; width: auto; }
-  .overview .rows a.button, .overview .workflows button { min-height: 44px; font-size: 14px; }
+  .overview .rows a.button { min-height: 44px; font-size: 14px; }
   /* a 44px tap that takes no more room than its line */
   .overview a.card-link { display: inline-flex; align-items: center; min-height: 44px; margin-block: -12px; }
   .overview .panel-head { align-items: center; }

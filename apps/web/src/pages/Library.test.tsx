@@ -89,7 +89,7 @@ test("lists every artifact under type tabs with counts, the tab and search in th
   await expect.element(screen.getByTestId("count")).toHaveTextContent("4 of 4");
   expect(screen.getByTestId("artifact").elements()).toHaveLength(4);
   const row = screen.getByTestId("artifact").first();
-  await expect.element(row).toMatchTextContent(/decision\s*decision\.md\s*Short · stage 2 pick · v2/);
+  await expect.element(row).toMatchTextContent(/^decision\.md\s*decision · Short · stage 2 pick · v2/);
 
   const tabs = screen.getByRole("navigation", { name: "Types" });
   await expect.element(tabs).toMatchTextContent(/All 4\s*decision 1\s*idea 1\s*file 2/);
@@ -98,19 +98,19 @@ test("lists every artifact under type tabs with counts, the tab and search in th
   await expect.element(tabs.getByRole("link", { name: /^idea/ })).toHaveAttribute("aria-current", "page");
   await expect.element(tabs.getByRole("link", { name: /^All/ })).not.toHaveAttribute("aria-current");
   await expect.element(screen.getByTestId("count")).toHaveTextContent("1 of 4");
-  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^idea\s*Hook first/);
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^Hook first\s*idea · /);
   await tabs.getByRole("link", { name: /^All/ }).click();
   await expect.element(tabs.getByRole("link", { name: /^All/ })).toHaveAttribute("aria-current", "page");
   await expect.element(screen.getByTestId("count")).toHaveTextContent("4 of 4");
 
   await screen.getByRole("searchbox", { name: "Search the library" }).fill("brief");
   await vi.waitFor(() => expect(router.state.location.search).toEqual({ q: "brief" }));
-  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^brief\.md\s*file · /);
   await screen.getByRole("searchbox", { name: "Search the library" }).fill("");
 
   const filters = screen.getByRole("form", { name: "Filters" });
   await filters.getByLabelText(/^Workflow/).selectOptions("Long form");
-  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^brief\.md\s*file · /);
   await filters.getByRole("button", { name: "Clear filters" }).click();
 
   await filters.getByLabelText(/^Stage/).selectOptions("pick");
@@ -317,7 +317,7 @@ test("on a phone the library opens on search and type chips, with the other filt
   await userEvent.keyboard("{Escape}");
   await expect.element(sheet).not.toBeInTheDocument();
   await expect.element(chips.getByRole("button", { name: "Filters, 2 set" })).toHaveTextContent("Filters 2");
-  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^file\s*brief\.md/);
+  await expect.element(screen.getByTestId("library")).toMatchTextContent(/^brief\.md\s*file · /);
 
   await chips.getByRole("button", { name: "Filters, 2 set" }).click();
   await screen.getByRole("dialog", { name: "Filters" }).getByRole("button", { name: "Clear filters" }).click();

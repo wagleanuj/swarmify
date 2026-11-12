@@ -459,6 +459,16 @@ export function WorkflowEditor() {
               : clean
                 ? "Unsaved changes. Checks pass."
                 : "Unsaved changes.");
+  // The status line's glyph: a spinner while checking, a warning on problems, a check when clean.
+  const glyph = removed || loading || notice
+    ? null
+    : checking
+      ? <Icon name="retry" className="i-spinning" />
+      : problems > 0
+        ? <Icon name="warning" className="st-warn" />
+        : !dirty || clean
+          ? <Icon name="check" className="st-ok" />
+          : null;
   const panel = view === "stages" && parsed && stage && (
     <StagePanel
       stages={steps}
@@ -508,6 +518,7 @@ export function WorkflowEditor() {
         {/* On a phone this is the save bar pinned above the tab bar. */}
         <div className="editor-actions action-bar" data-testid="save-bar">
           <span className="save-status">
+            {glyph}
             <span className="faint" role="status" data-testid="check-status">
               {status}
             </span>

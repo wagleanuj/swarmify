@@ -6,9 +6,13 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { Icon, type IconName } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { piedPiper, the } from "../skin";
 import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
+
+/** A library type's grey glyph on a row's second line; anything else is a file. */
+const TYPE_ICON: Record<string, IconName> = { video: "play", image: "assets", verdict: "check", idea: "edit", file: "assets", skill: "library" };
 
 type Workflow = components["schemas"]["Workflow"];
 type Item = components["schemas"]["LibraryItem"];
@@ -229,13 +233,17 @@ export function Library() {
                       data-testid="artifact"
                       data-pinned={i.pinned}
                     >
-                      <span className="pill">{i.type.replace(/_/g, " ")}</span>
                       <span className="lib-title">
                         <b>
                           {i.pinned && "Pinned · "}
                           {i.title}
                         </b>
                         <span className="faint">
+                          <span className="lib-type">
+                            <Icon name={TYPE_ICON[i.type] ?? "assets"} />
+                            {i.type.replace(/_/g, " ")}
+                          </span>
+                          {" · "}
                           {i.run_name}
                           {i.stage_index !== null && ` · stage ${i.stage_index + 1} ${i.stage_name}`}
                           {i.workflow_version !== null && ` · v${i.workflow_version}`}

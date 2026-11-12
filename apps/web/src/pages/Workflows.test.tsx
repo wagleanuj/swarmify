@@ -45,8 +45,11 @@ test("the sidebar's Workflows lists each with its version, runs and average cost
   await expect.element(nav.getByRole("link", { name: "Workflows" })).toHaveAttribute("aria-current", "page");
   await expect.element(screen.getByRole("heading", { name: "Workflows", level: 1 })).toBeVisible();
   const rows = screen.getByTestId("workflow");
-  await expect.element(rows.first()).toMatchTextContent(/Weekly short.*v3.*2.*\$3\.25.*Start run/);
-  await expect.element(rows.nth(1)).toMatchTextContent(/Daily digest.*v1.*0.*-/);
+  await expect.element(rows.first()).toMatchTextContent(/Weekly short.*v3.*done.*2.*\$3\.25/);
+  await expect.element(rows.nth(1)).toMatchTextContent(/Daily digest.*v1.*-.*0.*-/);
+  // One outlined play glyph per row: the only filled control is New workflow.
+  expect(rows.first().getByRole("button", { name: "Start a run of Weekly short" }).element().classList).not.toContain("primary");
+  expect(document.querySelectorAll("main .primary")).toHaveLength(1);
   await expect.element(rows.first().getByRole("link")).toHaveAttribute("href", "/worlds/world_1/workflows/wf_1");
   await expect
     .element(screen.getByRole("link", { name: "New workflow" }))
@@ -57,13 +60,13 @@ test("the sidebar's Workflows lists each with its version, runs and average cost
   expect(started).toEqual({ baseline: false });
 });
 
-test("on a phone each workflow is a card: full name, cost against its budget, the last run, Start run and Edit", async () => {
+test("on a phone each workflow is one row: full name, version, last run and cost, a play glyph, New workflow in the header", async () => {
   await page.viewport(390, 844);
   fakeFetch({
     "GET /api/worlds": () => Response.json([{ id: "world_1", name: "Video", purpose: "", created_at: ts }]),
     "GET /api/gates": () => Response.json([]),
     "GET /api/worlds/world_1/workflows": () =>
-      Response.json([{ ...workflows[0], name: "3D explainer short (Zack D. Films style)" }, workflows[1]]),
+      Response.json([{ ...workflows[0], name: "A very long workflow name that runs on (with a note)" }, workflows[1]]),
     "GET /api/worlds/world_1/runs": () =>
       Response.json([
         run("waiting_gate", [], { id: "run_1", workflow_id: "wf_1", spent_usd: 4, budget_usd: 15, created_at: "2026-10-27T10:00:00+00:00" }),
@@ -71,22 +74,22 @@ test("on a phone each workflow is a card: full name, cost against its budget, th
       ]),
   });
   const { screen } = await mountAt("/worlds/world_1/workflows");
-  const cards = screen.getByTestId("workflow-card");
-  await expect.element(cards.first()).toBeVisible();
+  const rows = screen.getByTestId("workflow-row");
+  await expect.element(rows.first()).toBeVisible();
   expect(screen.getByTestId("workflows").elements()).toHaveLength(0);
-  await expect.element(cards.first()).toMatchTextContent(/^3D explainer short \(Zack D\. Films style\)/);
-  await expect.element(cards.first()).toMatchTextContent(/v3 · 2 runs · about \$3\.25 a run of a \$15 budget/);
-  await expect.element(cards.first()).toMatchTextContent(/Last run Oct 27, .* · waiting for you/);
-  await expect.element(cards.nth(1)).toMatchTextContent(/Daily digest\s*v1 · no runs yet\s*Start run/);
-  const start = cards.first().getByRole("button", { name: "Start a run of 3D explainer short (Zack D. Films style)" });
-  const card = cards.first().element().getBoundingClientRect();
-  expect(start.element().getBoundingClientRect().width).toBeGreaterThan(card.width / 2);
-  expect(start.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  await expect.element(rows.first()).toMatchTextContent(/^A very long workflow name that runs on \(with a note\)/);
+  await expect.element(rows.first()).toMatchTextContent(/v3 · waiting for you · \$3\.25 a run/);
+  await expect.element(rows.nth(1)).toMatchTextContent(/Daily digest\s*v1 · no runs yet/);
+  const start = rows.first().getByRole("button", { name: "Start a run of A very long workflow name that runs on (with a note)" });
+  const box = start.element().getBoundingClientRect();
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.width).toBeLessThan(60);
   await expect
-    .element(cards.first().getByRole("link", { name: "Edit 3D explainer short (Zack D. Films style)" }))
+    .element(rows.first().getByRole("link", { name: "Edit A very long workflow name that runs on (with a note)" }))
     .toHaveAttribute("href", "/worlds/world_1/workflows/wf_1");
   const create = screen.getByRole("link", { name: "New workflow" });
-  expect(create.element().getBoundingClientRect().top).toBeGreaterThan(cards.nth(1).element().getBoundingClientRect().bottom);
+  expect(create.element().getBoundingClientRect().bottom).toBeLessThan(rows.first().element().getBoundingClientRect().top);
+  expect(document.querySelectorAll("main .primary")).toHaveLength(1);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
 
@@ -110,7 +113,7 @@ test("the rows show before the slow check answers, then a failing workflow says 
   await expect.element(rows.first()).toMatchTextContent(/Fails today's check: connector 'gone' is not installed\./);
 });
 
-test("on a phone, while the workflows load, three cards wait as skeletons, then the cards fade up", async () => {
+test("on a phone, while the workflows load, four rows wait as skeletons, then the rows fade up", async () => {
   await page.viewport(390, 844);
   let release = () => {};
   const held = new Promise<void>((r) => (release = r));
@@ -125,11 +128,11 @@ test("on a phone, while the workflows load, three cards wait as skeletons, then 
   });
   const { screen } = await mountAt("/worlds/world_1/workflows");
   await expect.element(screen.getByRole("heading", { name: "Workflows", level: 1 })).toBeVisible();
-  await expect.poll(() => document.querySelector("main [aria-busy='true']")?.querySelectorAll(".sk").length).toBe(3);
+  await expect.poll(() => document.querySelector("main [aria-busy='true']")?.querySelectorAll(".sk").length).toBe(4);
   expect(screen.getByText("Loading...").elements()).toHaveLength(0);
 
   release();
-  await expect.element(screen.getByTestId("workflow-card").first()).toBeVisible();
+  await expect.element(screen.getByTestId("workflow-row").first()).toBeVisible();
   expect(document.querySelector("main [aria-busy='true']")).toBeNull();
-  expect(screen.getByTestId("workflow-card").first().element().parentElement?.classList).toContain("stagger");
+  expect(screen.getByTestId("workflow-row").first().element().parentElement?.classList).toContain("stagger");
 });

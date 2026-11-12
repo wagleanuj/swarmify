@@ -3,7 +3,12 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
+import { Icon } from "../Icon";
+import { Intro } from "../Intro";
+import { Sheet } from "../Sheet";
 import { Loading, Skeleton } from "../Skeleton";
+import { notify } from "../Toast";
+import { usePhone } from "../usePhone";
 import type { components } from "../api/schema";
 import { who } from "../api/tasks";
 import { castRoute } from "../router";
@@ -40,12 +45,12 @@ export function Cast() {
   const [tools, setTools] = useState("");
   const [history, setHistory] = useState<{ name: string; versions: Version[] } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState<{ name: string; text: string } | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[] | null | undefined>(undefined);
   const [skillHistory, setSkillHistory] = useState<{ name: string; versions: SkillVersion[] } | null>(null);
   const models = useModels();
+  const phone = usePhone();
 
   useEffect(() => {
     api
@@ -69,7 +74,6 @@ export function Cast() {
     setEditing(m.name);
     setPrompt(m.prompt);
     setTools((m.tools ?? []).join(", "));
-    setSaved(null);
     setError(null);
   }
 
@@ -97,14 +101,14 @@ export function Cast() {
     }
     setCast((prev) => (prev ?? []).map((c) => (c.name === data.name ? data : c)));
     setEditing(null);
-    setSaved({ name: data.name, text: `Saved version ${data.version} of ${who(data.name)}. It applies from the next stage on.` });
+    setOpen(null);
+    notify(`Saved version ${data.version} of ${who(data.name)}. It applies from the next stage on.`, { tone: "ok" });
     if (history?.name === m.name) void showHistory(m.name);
   }
 
-  /** A model change saves itself, stamped in the row it was made in. */
+  /** A model change saves itself and says so in a toast. */
   async function saveModel(key: RoleModel, value: string, row: string) {
     setError(null);
-    setSaved(null);
     const { data, error } = await api.PATCH("/api/worlds/{world_id}", { ...path, body: { [key]: value || null } });
     if (error || !data) {
       const detail = (error as { detail?: unknown } | undefined)?.detail;
@@ -112,24 +116,19 @@ export function Cast() {
       return;
     }
     setWorld(data);
-    setSaved({ name: row, text: "Saved" });
+    notify(`${row === "retro" ? "The retro" : who(row)} now runs on ${value || `the world's model`}.`, { tone: "ok" });
   }
 
-  const modelSelect = (key: RoleModel, label: string, row: string) => (
+  const modelSelect = (key: RoleModel, label: string, row: string, hide = true) => (
     <span className="model-cell">
       <ModelSelect
         label={label}
-        hideLabel
+        hideLabel={hide}
         value={world?.[key] ?? ""}
         fallback={`World's: ${world?.model ?? models?.default ?? "the default"}`}
         models={models}
         onChange={(m) => void saveModel(key, m, row)}
       />
-      {saved?.name === row && saved.text === "Saved" && (
-        <span role="status" className="faint">
-          Saved
-        </span>
-      )}
     </span>
   );
 
@@ -145,7 +144,6 @@ export function Cast() {
     if (!(await confirm({ title: `Restore v${v.number} of ${v.name} as v${next}?`, lines: ["Every stage that starts from now on loads it."], action: "Restore" }))) return;
     setBusy(true);
     setError(null);
-    setSaid(null);
     const { data, error } = await api.POST("/api/worlds/{world_id}/skills", {
       ...path,
       body: { name: v.name, content: v.content, note: `Restored v${v.number}.` },
@@ -157,7 +155,7 @@ export function Cast() {
       return;
     }
     setSkills((prev) => (prev ?? []).map((sk) => (sk.name === data.name ? data : sk)));
-    setSaid(`Restored v${v.number} of ${v.name} as v${data.version ?? next}.`);
+    notify(`Restored v${v.number} of ${v.name} as v${data.version ?? next}.`, { tone: "ok" });
     void showSkillHistory(v.name);
   }
 
@@ -169,6 +167,60 @@ export function Cast() {
   }
 
   const name = world?.name ?? "this world";
+  const close = () => {
+    setOpen(null);
+    setEditing(null);
+  };
+
+  const editForm = (m: Member, onCancel = () => setEditing(null)) => (
+    <form className="cast-edit" onSubmit={(e) => void save(e, m)} aria-label={`Edit ${who(m.name)}`}>
+      <label>
+        Standing instructions
+        <textarea
+          rows={3}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Cite the note each claim comes from."
+        />
+      </label>
+      {m.role === "worker" && (
+        <label>
+          Tools (comma separated; blank for any the stage allows)
+          <input value={tools} onChange={(e) => setTools(e.target.value)} placeholder="web_search, graph" />
+        </label>
+      )}
+      <div className="actions">
+        <button type="submit" className="primary" disabled={busy}>
+          Save as version {m.version + 1}
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <span className="faint">
+          Becomes version {m.version + 1} for every stage that starts from now on in {name}. Runs
+          already going keep version {m.version}.
+        </span>
+      </div>
+    </form>
+  );
+
+  const historyList = (versions: Version[]) => (
+    <ol className="versions" data-testid="history">
+      {versions.map((v) => (
+        <li key={v.number}>
+          <span>
+            v{v.number}
+            {v.number === 1 ? " default" : `, ${new Date(v.created_at).toLocaleDateString()}`}
+          </span>
+          <span className="faint">
+            {v.prompt || "no instructions"} · tools: {v.tools ? v.tools.join(", ") : "any"}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+
+  const sheetMember = cast?.find((m) => m.name === open) ?? null;
   const total = (cast ?? []).reduce((sum, m) => sum + (m.record ?? NO_RECORD).cost_usd, 0);
   return (
     <main>
@@ -176,25 +228,25 @@ export function Cast() {
       <header className="page">
         <div>
           <h1>Cast</h1>
-          <p className="sub">
-            {cast
-              ? `${cast.length} agents work in ${name}: ${cap(the("planner"))} plans, the workers claim tasks, ${the("judge")} judges. Together they cost an estimated ${usd(total)} so far.`
-              : `Who works in ${name}.`}
-          </p>
+          <Intro lead={cast ? `${cast.length} agents work in ${name}, an estimated ${usd(total)} so far.` : `Who works in ${name}.`} label="About the cast">
+            <p>
+              {cap(the("planner"))} plans, the workers claim tasks, {the("judge")} judges. First try is a stage {the("judge")} passed
+              without a send back.
+            </p>
+            <p>
+              A model change saves itself; the workers share one. A role left on the world's model follows the{" "}
+              <Link to="/worlds/$worldId/settings" params={{ worldId }}>
+                world setting
+              </Link>
+              , and a workflow stage that names a model runs all its agents on it. Cost is the runtime's estimate, not billing.
+            </p>
+          </Intro>
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
-      {said && (
-        <p role="status" className="ok">
-          {said}
-        </p>
-      )}
       <section className="panel" aria-labelledby="agents">
         <div className="panel-head">
           <h2 id="agents">Agents</h2>
-          <span className="faint">
-            First try is a stage the judge passed without a send back. A model change saves itself; the workers share one.
-          </span>
         </div>
         {cast === null && !error ? (
           <Loading className="cast-skeleton">
@@ -202,6 +254,12 @@ export function Cast() {
               <Skeleton key={i} h={56} />
             ))}
           </Loading>
+        ) : phone ? (
+          <CastList cast={cast ?? []} total={total} world={world} onOpen={(m) => {
+            setOpen(m);
+            const member = cast?.find((c) => c.name === m);
+            if (member) startEdit(member);
+          }} />
         ) : (
         <div className="scroll-x cast-scroll">
           <table className="cast-table" data-testid="cast">
@@ -262,66 +320,17 @@ export function Cast() {
                       </button>
                     </td>
                   </tr>
-                  {saved?.name === m.name && saved.text !== "Saved" && (
-                    <tr>
-                      <td colSpan={8} className="cast-more">
-                        <span role="status" className="ok">
-                          {saved.text}
-                        </span>
-                      </td>
-                    </tr>
-                  )}
                   {editing === m.name && (
                     <tr>
                       <td colSpan={8} className="cast-more">
-                        <form className="cast-edit" onSubmit={(e) => void save(e, m)} aria-label={`Edit ${who(m.name)}`}>
-                          <label>
-                            Standing instructions
-                            <textarea
-                              rows={3}
-                              value={prompt}
-                              onChange={(e) => setPrompt(e.target.value)}
-                              placeholder="Write hooks first. Cite the note you took it from."
-                            />
-                          </label>
-                          {m.role === "worker" && (
-                            <label>
-                              Tools (comma separated; blank for any the stage allows)
-                              <input value={tools} onChange={(e) => setTools(e.target.value)} placeholder="web_search, graph" />
-                            </label>
-                          )}
-                          <div className="actions">
-                            <button type="submit" className="primary" disabled={busy}>
-                              Save as version {m.version + 1}
-                            </button>
-                            <button type="button" onClick={() => setEditing(null)} disabled={busy}>
-                              Cancel
-                            </button>
-                            <span className="faint">
-                              Becomes version {m.version + 1} for every stage that starts from now on in {name}. Runs
-                              already going keep version {m.version}.
-                            </span>
-                          </div>
-                        </form>
+                        {editForm(m)}
                       </td>
                     </tr>
                   )}
                   {history?.name === m.name && (
                     <tr>
                       <td colSpan={8} className="cast-more">
-                        <ol className="versions" data-testid="history">
-                          {history.versions.map((v) => (
-                            <li key={v.number}>
-                              <span>
-                                v{v.number}
-                                {v.number === 1 ? " default" : `, ${new Date(v.created_at).toLocaleDateString()}`}
-                              </span>
-                              <span className="faint">
-                                {v.prompt || "no instructions"} · tools: {v.tools ? v.tools.join(", ") : "any"}
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
+                        {historyList(history.versions)}
                       </td>
                     </tr>
                   )}
@@ -342,24 +351,18 @@ export function Cast() {
           </table>
         </div>
         )}
-        <p className="faint">
-          A role left on the world's model follows the{" "}
-          <Link to="/worlds/$worldId/settings" params={{ worldId }}>
-            world setting
-          </Link>
-          . A workflow stage that names a model runs all its agents on it. Cost is the runtime's estimate, not billing.
-        </p>
       </section>
       <section aria-labelledby="skills" className="panel skills">
         <div className="panel-head">
           <h2 id="skills">Skills</h2>
           {skills && <span className="faint">{skills.length} in this world</span>}
         </div>
-        <p className="faint">
-          Procedures the cast loads when they match a stage. The retro after every run may propose
-          one; you approve it on the Needs you page, or make one from the library. A world skill
-          wins over a shared one of the same name.
-        </p>
+        <Intro lead="Procedures the cast loads when they match a stage." label="About skills">
+          <p>
+            The retro after every run may propose one; you approve it on the Needs you page, or make one from the library. A world
+            skill wins over a shared one of the same name.
+          </p>
+        </Intro>
         {skills === undefined && (
           <Loading className="skill-list">
             {Array.from({ length: 3 }, (_, i) => (
@@ -450,6 +453,119 @@ export function Cast() {
         </Link>
         .
       </p>
+      <Sheet open={open !== null} onClose={close} label={sheetMember ? who(sheetMember.name) : "Retro"} className="sheet-form agent-sheet">
+        {sheetMember && (
+          <div className="agent-sheet-body" data-testid="agent-sheet">
+            <div>
+              <h2>{who(sheetMember.name)}</h2>
+              <p className="faint">
+                {ROLE[sheetMember.role] ?? sheetMember.role} · v{sheetMember.version}
+                {sheetMember.version === 1 ? ", default" : ""}
+              </p>
+            </div>
+            {MODEL_OF[sheetMember.role] && modelSelect(MODEL_OF[sheetMember.role]!, "Model", sheetMember.name, false)}
+            <Record r={sheetMember.record ?? NO_RECORD} />
+            {editForm(sheetMember, close)}
+            <button
+              type="button"
+              className="link"
+              onClick={() => (history?.name === sheetMember.name ? setHistory(null) : void showHistory(sheetMember.name))}
+              aria-label={`History of ${who(sheetMember.name)}`}
+            >
+              {history?.name === sheetMember.name ? "Hide history" : "History"}
+            </button>
+            {history?.name === sheetMember.name && historyList(history.versions)}
+          </div>
+        )}
+        {open === "retro" && (
+          <div className="agent-sheet-body">
+            <div>
+              <h2>Retro</h2>
+              <p className="faint">Reviews every run and may propose a skill.</p>
+            </div>
+            {modelSelect("retro_model", "Model", "retro", false)}
+          </div>
+        )}
+      </Sheet>
     </main>
+  );
+}
+
+const rate = (r: Member["record"] & object) => (r.judged ? `${Math.round((100 * r.first_try) / r.judged)}%` : null);
+const initial = (name: string) => who(name).replace(/[^A-Za-z0-9]/g, "").slice(0, 1).toUpperCase() || "?";
+
+/** An agent's record as a divided list: label left, figure right. */
+function Record({ r }: { r: NonNullable<Member["record"]> }) {
+  return (
+    <dl className="agent-record">
+      <div>
+        <dt>Tasks</dt>
+        <dd className="num">{r.tasks_done}</dd>
+      </div>
+      <div>
+        <dt>Judged</dt>
+        <dd className="num">{r.judged}</dd>
+      </div>
+      <div>
+        <dt>First try</dt>
+        <dd className="num">{r.judged ? `${r.first_try} of ${r.judged}` : <span className="faint">not judged yet</span>}</dd>
+      </div>
+      <div>
+        <dt>Send backs</dt>
+        <dd className="num">{r.send_backs}</dd>
+      </div>
+      <div>
+        <dt>Cost</dt>
+        <dd className="num">{usd(r.cost_usd)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+/** The cast on a phone: one row an agent (initial, name, model, first-try rate, cost), each
+ * opening the agent's sheet; the retro last. */
+function CastList({ cast, total, world, onOpen }: { cast: Member[]; total: number; world: World | null; onOpen: (name: string) => void }) {
+  const model = (key?: RoleModel) => (key && world?.[key]) || `${world?.model ?? "world's model"}`;
+  return (
+    <ul className="cast-list" data-testid="cast">
+      {cast.map((m) => {
+        const r = m.record ?? NO_RECORD;
+        const first = rate(r);
+        return (
+          <li key={m.name} data-testid={`cast-${m.name}`}>
+            <button type="button" onClick={() => onOpen(m.name)} aria-label={`${who(m.name)}, open`}>
+              <span className="avatar" aria-hidden="true">
+                {initial(m.name)}
+              </span>
+              <span className="cast-who">
+                <b>{who(m.name)}</b>
+                <small>{model(MODEL_OF[m.role])}</small>
+              </span>
+              <span className="cast-fig">
+                <span className="num">{usd(r.cost_usd)}</span>
+                <small>{first ? `${first} first try` : "not judged yet"}</small>
+              </span>
+              <Icon name="next" />
+            </button>
+          </li>
+        );
+      })}
+      <li>
+        <button type="button" onClick={() => onOpen("retro")} aria-label="Retro, open">
+          <span className="avatar" aria-hidden="true">
+            R
+          </span>
+          <span className="cast-who">
+            <b>Retro</b>
+            <small>{model("retro_model")}</small>
+          </span>
+          <span className="cast-fig">
+            <span className="num">{usd(total)}</span>
+            <small>all agents</small>
+          </span>
+          <Icon name="next" />
+        </button>
+      </li>
+    </ul>
   );
 }

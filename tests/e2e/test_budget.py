@@ -40,10 +40,10 @@ def test_a_run_warns_at_80_percent_and_waits_at_100_for_money_or_an_abort(
         workflow = api.post(f"/worlds/{world}/workflows", json={"yaml": RESEARCH}).json()
 
         page.goto(f"{base_url}/worlds/{world}/settings")
-        panel = page.get_by_role("form", name="World")
+        panel = page.get_by_role("form", name="World settings")
         panel.get_by_label("Monthly budget, dollars").fill("50")
-        panel.get_by_role("button", name="Save").click()
-        expect(panel.get_by_role("status")).to_contain_text("Saved at")
+        panel.get_by_role("button", name="Save", exact=True).click()
+        expect(page.get_by_text("Saved. Applies to the next run that starts.")).to_be_visible()
         page.get_by_label("Incoming webhook URL").fill(slack.url)
         page.get_by_role("button", name="Save webhook").click()
         expect(page.get_by_test_id("slack-state")).to_contain_text("Posting to http://127.0.0.1")

@@ -11,6 +11,9 @@ main.editor-page { max-width: 80rem; }
 .editor aside > section { padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); display: grid; gap: 10px; }
 .editor-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .save-status { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.save-status > .icon { flex: none; color: var(--faint); }
+.save-status > .st-ok { color: var(--accent); }
+.save-status > .st-warn { color: var(--warning); }
 button.link.undo { color: var(--accent); font-weight: 600; text-decoration: none; }
 .fields-title { display: none; }
 .stages-loading { display: grid; gap: 0; }
@@ -141,4 +144,8 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .score-rows td, .scores.score-rows td.num { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; }
   .score-rows td::before { content: attr(data-label); color: var(--faint); font-weight: 400; text-align: left; }
   .score-rows td:first-child { display: block; padding-bottom: 6px; text-align: left; }
+}
+/* The narrowest phones: one field a row, so no label wraps beside its neighbour. */
+@media (max-width: 380px) {
+  .fields { grid-template-columns: minmax(0, 1fr); }
 }

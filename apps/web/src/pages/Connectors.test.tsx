@@ -50,6 +50,9 @@ test("lists connectors by kind with their steps and health, and flags a missing 
   });
   const { screen } = await mountAt("/worlds/world_1/connectors");
   await expect.element(screen.getByText(/2 connectors, 1 waiting on a key\./)).toBeVisible();
+  // the rest of the intro waits behind its info glyph
+  await expect.element(screen.getByText(/they are Agent Tools Swarmify gives swarm steps/)).not.toBeVisible();
+  await screen.getByRole("img", { name: "About connectors" }).click();
   await expect.element(screen.getByText(/they are Agent Tools Swarmify gives swarm steps/)).toBeVisible();
   expect(screen.getByRole("list", { name: "Tools agents use inside a swarm step" }).elements()).toHaveLength(0);
   await expect
@@ -197,8 +200,8 @@ test("lists installed packages with version, kind, about and install state", asy
   const list = screen.getByRole("list", { name: "Installed packages" });
   await expect.element(list.getByRole("listitem").first()).toMatchTextContent(/Echo\s*Says it back\.\s*echo 1\.0\.0\s*stage\s*Installed/);
   await expect.element(list.getByRole("listitem").last()).toMatchTextContent(/kind: 'robot'.*echo 0\.9\.0\s*Invalid Manifest/);
-  // Web search and the graph are Agent Tools now (#210), named in a note rather than listed.
-  await expect.element(screen.getByText(/Web search and the world's graph are not connectors/)).toBeVisible();
+  // Web search and the graph are Agent Tools now (#210), named in the intro's note rather than listed.
+  await expect.element(screen.getByText(/Web search and the world's graph are not connectors/)).toBeInTheDocument();
 });
 
 const unchanged = {

@@ -333,3 +333,29 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 }
 /* A glyph inside a pill: the running play glyph with its live dots, at the pill's text size. */
 .status .icon { width: 12px; height: 12px; margin: 0 4px 0 -2px; flex: none; }
+
+/* A page intro (Intro.tsx): one sentence ending in an info glyph; the rest folds out under it. */
+details.intro > summary { display: block; margin: 0; padding: 0; min-height: 0; color: var(--muted); }
+details.intro > summary::before { display: none; }
+details.intro .sub { display: inline; }
+.intro-i { display: inline-grid; place-items: center; width: 22px; height: 18px; vertical-align: -3px; color: var(--faint); }
+details.intro > summary:hover .intro-i, details.intro[open] .intro-i { color: var(--text); }
+.intro-more { display: grid; gap: 6px; max-width: 62ch; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 1px solid var(--control); color: var(--muted); }
+.intro-more p { margin: 0; }
+@media (max-width: 48rem) {
+  /* The sentence and its glyph are one tap, padded to 44px without pushing the rows down. */
+  details.intro > summary { min-height: 44px; padding-block: 10px; margin-block: -10px; }
+}
+/* A section's own action in its header: an ink text button with its glyph, no fill, no outline. */
+button.text-action, label.button.text-action { gap: 6px; min-height: 32px; padding: 0 10px; margin-right: -10px; border-color: transparent; color: var(--text); font-weight: 600; }
+button.text-action:hover, label.button.text-action:hover { background: var(--raised); }
+button.text-action:disabled:hover { border-color: transparent; }
+@media (max-width: 48rem) {
+  /* A title with one action of its own keeps the action on its row, at the right. */
+  header.page:has(> .menu-wrap, > a.button.primary) { flex-wrap: nowrap; align-items: flex-start; margin-bottom: 16px; }
+  header.page:has(> .menu-wrap, > a.button.primary) > div:first-child { flex: 1; min-width: 0; }
+  header.page > a.button.primary, header.page > .menu-wrap { flex: none; }
+}
+@media (max-width: 48rem), (pointer: coarse) {
+  button.text-action, label.button.text-action { min-height: 44px; margin-block: -6px; }
+}

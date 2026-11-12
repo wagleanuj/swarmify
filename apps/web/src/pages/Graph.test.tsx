@@ -57,7 +57,7 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
   FakeEventSource.emit("graph.rebuilt", { payload: built.rebuilt });
   await expect
     .element(screen.getByTestId("graph-size"))
-    .toMatchTextContent(/Nodes\s*1,284\s*Edges\s*3,901\s*Rebuilds\s*18\s*Spent on memory\s*\$12\.30/);
+    .toMatchTextContent(/Nodes\s*1,284\s*Edges\s*3,901\s*Rebuilds\s*18\s*Spent\s*\$12\.30/);
   await expect
     .element(screen.getByTestId("rebuilt"))
     .toHaveTextContent("The graph writer rebuilt it just now: +31 nodes, +58 edges in 12s, est. $0.42");

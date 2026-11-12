@@ -88,7 +88,8 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
     try:
         api.post(f"/worlds/{world}/workflows", json={"yaml": RESEARCH}).raise_for_status()
         page.goto(f"{base_url}/worlds/{world}")
-        page.get_by_role("button", name="Start a baseline of Research").click()
+        page.get_by_role("button", name="Research actions").click()
+        page.get_by_role("menuitem", name=re.compile("^Start a baseline")).click()
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_test_id("baseline")).to_contain_text("This is a one-agent baseline")

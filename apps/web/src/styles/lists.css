@@ -19,6 +19,10 @@
 .runs-loading .sk { --sk-h: 60px; }
 .wf-loading { display: grid; gap: 1px; padding-top: 35px; }
 .wf-loading .sk { --sk-h: 50px; }
+/* A row's start: a round outlined play glyph, never a filled bar */
+button.icon.play { flex: none; border-radius: 999px; color: var(--text); }
+button.icon.play svg { margin-left: 2px; }
+.workflows td.action { text-align: right; width: 1%; }
 .evals-loading { display: grid; gap: 16px; }
 .sk.sk-inline { display: inline-block; vertical-align: middle; }
 
@@ -88,7 +92,8 @@
 .lib-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 4px; text-decoration: none; }
 .lib-row:hover { background: var(--raised); }
 .lib-row[aria-current="page"] { background: var(--raised); box-shadow: inset 1px 0 0 var(--accent); }
-.lib-row .pill { flex: none; min-width: 64px; justify-content: center; }
+.lib-type { display: inline-flex; align-items: center; gap: 4px; vertical-align: -3px; }
+.lib-type .icon { width: 14px; height: 14px; }
 .lib-title { display: grid; gap: 2px; flex: 1; min-width: 0; }
 .lib-title b { font-weight: 500; }
 .lib-row time { flex: none; margin-left: auto; text-align: right; }
@@ -146,6 +151,13 @@
   .lib-head .filters input[type="search"] { flex: 1 1 100%; min-height: 44px; }
   .filters select { min-height: 44px; }
   .mem-cols, .lib-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Memory's figures: a 2-column divided list, label left and figure right, not four tiles */
+  .mem-kpis .kpi { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 10px 12px; }
+  .mem-kpis .kpi dt { font-size: 13px; }
+  .mem-kpis .kpi dd { margin: 0; font-size: 16px; }
+  /* The question takes the full width, Ask under it */
+  .ask-row { flex-direction: column; }
+  .ask-row button { align-self: stretch; }
   .lib-grid.has-sel .lib-list { display: none; }
   .lib-detail { position: static; }
   /* a phone row is two lines: the name and its status, then when it started · how long · spent */
@@ -165,16 +177,12 @@
   .runs-loading { padding-top: 0; }
   .runs-loading .sk { --sk-h: 85px; }
   .lib-loading .sk { --sk-h: 74px; }
-  /* Workflows on a phone: one card each with Start run and Edit, then New workflow */
-  .wf-cards { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
-  .wf-cards > .sk { --sk-h: 150px; border-radius: 10px; }
-  .wf-card { padding: 12px; gap: 2px; border-radius: 10px; }
-  .wf-card h2 { margin: 0 0 4px; font-size: 15px; }
-  .wf-card p.faint { color: var(--faint); }
-  .wf-card .num { font-weight: 400; }
-  .wf-card .warn { color: var(--pill-warning-ink); }
-  .wf-actions { display: flex; gap: 8px; margin-top: 10px; }
-  .wf-actions > *, a.button.wf-new { min-height: 44px; padding: 0 18px; font-size: 14px; font-weight: 600; }
-  .wf-actions button { flex: 1; }
-  a.button.wf-new { display: flex; }
+  /* Workflows on a phone: one divided row each, the name over its numbers, a play glyph at the end */
+  .wf-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+  .wf-rows > .sk { --sk-h: 64px; margin-bottom: 1px; }
+  .wf-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--rule); }
+  .wf-row > a { flex: 1; min-width: 0; display: grid; gap: 2px; padding: 12px 0; text-decoration: none; }
+  .wf-row > a:active { background: var(--raised); }
+  .wf-row b { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+  .wf-row small { color: var(--faint); font-size: 13px; }
 }

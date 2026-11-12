@@ -327,11 +327,12 @@ def _clip(seconds: float, rate: int = 8000) -> bytes:
     return buf.getvalue()
 
 
-def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
+def test_assets_plays_a_voice_first_with_add_to_voices_in_its_section_header(
     phone: Page, ids: dict, locked_url: str
 ) -> None:
     """Issues 194 and 220: a clip in the speech package's Owned Folder is a playable card; Add to
-    Voices opens its sheet, with the package's confirm."""
+    Voices sits in the section's header (#456, nothing pinned) and opens its sheet, with the
+    package's confirm."""
     api = signed_in(locked_url)
     added = api.put(f"/worlds/{ids['world']}/assets/narrator.wav?folder=voices", content=_clip(6))
     assert added.status_code == 201, added.text
@@ -345,6 +346,7 @@ def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
     expect(add).to_be_in_viewport(ratio=1)
     box, bar = add.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
+    expect(phone.locator("main .action-bar")).to_have_count(0)
     _fits(phone)
     add.click()
     sheet = phone.get_by_role("dialog", name="Add to Voices")

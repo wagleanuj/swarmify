@@ -7,8 +7,10 @@ import { needsYou, useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
+import { Icon } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { baseline, saveSkin } from "../skin";
+import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["ListedWorkflow"];
@@ -386,30 +388,35 @@ export function WorldOverview() {
                         ))}
                       </span>
                       <span className="actions">
-                        <Link
-                          to="/worlds/$worldId/workflows/$workflowId/scorecard"
-                          params={{ worldId, workflowId: w.id }}
-                          className="card-link"
-                          aria-label={`Scorecard of ${w.name}`}
-                        >
-                          Scorecard
-                        </Link>
+                        <Menu
+                          label={`${w.name} actions`}
+                          className="icon"
+                          button={<Icon name="more" size={20} />}
+                          items={[
+                            {
+                              label: "Scorecard",
+                              note: "how its runs scored, version by version",
+                              onSelect: () =>
+                                void router.navigate({ to: "/worlds/$worldId/workflows/$workflowId/scorecard", params: { worldId, workflowId: w.id } }),
+                            },
+                            {
+                              label: `Start a ${baseline()}`,
+                              note: "one agent and no graph, for the swarm to beat",
+                              onSelect: () => void start(w.id, true),
+                              disabled: starting !== null,
+                            },
+                          ]}
+                          sheet
+                        />
                         <button
                           type="button"
-                          onClick={() => start(w.id, true)}
-                          disabled={starting !== null}
-                          aria-label={`Start a ${baseline()} of ${w.name}`}
-                          title="One agent and no graph, so the swarm's runs have something to beat"
-                        >
-                          Baseline
-                        </button>
-                        <button
-                          type="button"
+                          className="icon play"
                           onClick={() => start(w.id)}
                           disabled={starting !== null}
                           aria-label={`Start a run of ${w.name}`}
+                          aria-busy={starting === w.id || undefined}
                         >
-                          {starting === w.id ? "Starting..." : "Start run"}
+                          <Icon name="play" size={20} />
                         </button>
                       </span>
                     </li>

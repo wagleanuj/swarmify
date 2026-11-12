@@ -193,7 +193,9 @@ test("a workflow run starts with the budget and worker count typed over the work
   await screen.getByRole("spinbutton", { name: "Run budget in USD" }).fill("3");
   await screen.getByRole("spinbutton", { name: "Workers per swarm stage" }).fill("2");
   await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
-  await screen.getByRole("button", { name: "Start a baseline of Weekly short" }).click();
+  // Scorecard and Baseline wait in the row's kebab; Start is the one button on the row
+  await screen.getByRole("button", { name: "Weekly short actions" }).click();
+  await screen.getByRole("menuitem", { name: /^Start a baseline/ }).click();
   await expect.poll(() => bodies.length).toBe(3);
   expect(bodies).toEqual([
     { baseline: false },

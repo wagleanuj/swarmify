@@ -33,6 +33,7 @@ const PATHS = {
   office: "M4 20V8l8-4 8 4v12zM9 20v-5h6v5M8 10h2M14 10h2",
   evals: "M4 20V10M10 20V4M16 20v-7M21 20H3",
   warning: "M12 4l9 16H3zM12 10v4M12 17h.01",
+  plus: "M12 5v14M5 12h14",
   info: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 11v5M12 8h.01",
 } as const;
 

@@ -140,7 +140,8 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     until(lambda: outcomes.is_file() and "1234" in outcomes.read_text())
     assert publish.read_text() == posted
     page.goto(f"{base_url}/worlds/{world}")
-    page.get_by_role("link", name="Scorecard of Weekly short").click()
+    page.get_by_role("button", name="Weekly short actions").click()
+    page.get_by_role("menuitem", name=re.compile("^Scorecard")).click()
     expect(page.get_by_test_id("score")).to_contain_text("1,234 views")
 
     # A hundred days on, retention deletes the video and keeps its sidecar (story 68).

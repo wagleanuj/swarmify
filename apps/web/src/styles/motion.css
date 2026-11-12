@@ -104,6 +104,8 @@ button:not(:disabled):active, a.button:active, label.button:active, .tabbar-item
 .i-live .i-dots circle:nth-child(3) { animation-delay: 0.4s; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .i-spin { animation: spin 500ms var(--ease-out) 1; transform-origin: center; }
+/* A check in progress turns until it answers; reduced motion shows the glyph still. */
+.i-spinning { animation: spin 900ms linear infinite; transform-origin: center; }
 .i-turn, .i-chevron { transition: transform var(--dur-base) var(--ease-out); }
 [aria-expanded="true"] > .i-chevron, [aria-expanded="true"] .i-turn, details[open] > summary .i-chevron { transform: rotate(180deg); }
 /* A native disclosure's marker is the same chevron, pointing on, turned down while open. */
@@ -132,6 +134,7 @@ details[open] > summary::before { transform: rotate(90deg); }
   /* The static end states: no press give, the live dots shown, a turned chevron already turned. */
   button:active, a.button:active, label.button:active, .tabbar-item:active, .sheet-row:active, .q-item:active, .chip-row .tab:active, .run-list li a:active { transform: none; }
   .i-live .i-dots circle { animation: none; opacity: 1; }
+  .i-spinning { animation: none; }
   /* The time strip holds still: no sheen on a running step, a waiting one at full colour. */
   .strip-seg.seg-running::before { animation: none; opacity: 0; }
   .strip-seg.seg-waiting { animation: none; }
