@@ -13,8 +13,10 @@ type State = {
   online: boolean;
   /** The Office draws its own bottom chrome, so the phone prompt stays off it. */
   office: boolean;
+  /** A gate was answered in this page load: the moment the push prompt may ask (issue 459). */
+  answeredNow: boolean;
 };
-let state: State = { waiting: null, offer: null, online: true, office: false };
+let state: State = { waiting: null, offer: null, online: true, office: false, answeredNow: false };
 const listeners = new Set<() => void>();
 const set = (next: Partial<State>) => {
   state = { ...state, ...next };
@@ -65,7 +67,10 @@ const days = (): string[] => {
 };
 
 /** Gate answered: the app has given something, so it may offer itself. */
-export const markAnswered = () => write(KEY.answered, "1");
+export const markAnswered = () => {
+  write(KEY.answered, "1");
+  if (!state.answeredNow) set({ answeredNow: true });
+};
 /** The phone prompt, dismissed or used: never shown again (Settings still offers it). */
 export const dismissInstall = () => write(KEY.install, "done");
 

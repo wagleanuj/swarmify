@@ -1,11 +1,12 @@
 import { type ReactNode, useState } from "react";
 
+import { PushPrompt } from "./Notifications";
 import { dismissInstall, earnedInstallHint, install, ios, standalone, update, usePwa } from "./pwa";
 import "./styles/pwa.css";
 import { usePhone } from "./usePhone";
 
-/** The app's own notices, over every view: offline, a new version ready, and once on a phone the
- * offer to install. Mounted beside the app in main.tsx. */
+/** The app's own notices, over every view: offline, a new version ready, once on a phone the
+ * offer to install, and after a gate is answered the offer of notifications. Mounted beside the app in main.tsx. */
 export function PwaNotices() {
   const { waiting, online, offer, office } = usePwa();
   const phone = usePhone();
@@ -56,6 +57,7 @@ export function PwaNotices() {
           </div>
         </aside>
         )}
+        <PushPrompt hidden={hint} />
       </div>
     </>
   );

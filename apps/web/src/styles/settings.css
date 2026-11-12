@@ -71,3 +71,16 @@
   .mem-skeleton .sk-row { grid-template-columns: minmax(0, 1fr); }
 }
 .token-list[aria-busy] { gap: 8px; padding: 4px 0; }
+
+/* Notifications (Notifications.tsx): what one looks like, then the kinds this device gets. */
+.push-preview { display: flex; gap: 10px; align-items: center; margin: 0; padding: 10px 12px; max-width: 24rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.push-preview img { flex: none; border-radius: 7px; }
+.push-preview figcaption { display: grid; gap: 2px; min-width: 0; font-size: 13px; line-height: 1.35; }
+.push-preview span { color: var(--faint); }
+.push-kinds { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.push-panel { display: grid; gap: 14px; }
+.push-panel > p { margin: 0; }
+.push-legend { padding: 0; margin: 0 0 4px; font-weight: 500; }
+p.push-legend { margin-bottom: -10px; }
+.push-kinds .check { align-items: baseline; }
+.push-kinds small { display: block; }

@@ -33,3 +33,42 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(caches.match(url.pathname).then((hit) => hit ?? fetch(request)));
   }
 });
+
+// Push notifications (issue 459): the server sends { title, body, url, tag, renotify }. The tag
+// is one per gate or run, so a later push about it replaces the earlier one.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Not ours to read: still show something, as browsers require for every push.
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Swarmify", {
+      body: data.body || "A run needs you.",
+      tag: data.tag,
+      renotify: Boolean(data.tag && data.renotify),
+      icon: "/icon-192.png",
+      badge: "/badge-96.png",
+      data: { url: data.url || "/gates" },
+    }),
+  );
+});
+
+// A tap focuses an open Swarmify window and takes it to the link, else opens the link. Only
+// paths on this origin are followed.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "/gates", self.location.origin);
+  const url = target.origin === self.location.origin ? target.href : `${self.location.origin}/gates`;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      if (!open) return self.clients.openWindow(url);
+      await open.focus();
+      if (open.navigate) return open.navigate(url).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    })(),
+  );
+});

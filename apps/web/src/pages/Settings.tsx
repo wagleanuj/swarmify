@@ -7,6 +7,7 @@ import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
 import { Loading, Skeleton } from "../Skeleton";
+import { NotificationsRow } from "../Notifications";
 import { InstallRow } from "../PwaNotices";
 import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { ModelSelect, useModels } from "./ModelSelect";
@@ -331,6 +332,7 @@ export function Settings() {
           </div>
         </form>
       </Row>
+      <NotificationsRow Row={Row} />
       <Row title="Names" about="What the page calls the agents. Kept in this browser, for every world.">
         <div className="panel set-panel">
           <label className="check">
