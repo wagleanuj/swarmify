@@ -6,7 +6,9 @@ import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import { useConnectors } from "../api/connectors";
 import type { components } from "../api/schema";
+import { Icon } from "../Icon";
 import { Sheet } from "../Sheet";
+import { notify } from "../Toast";
 import { Loading, Skeleton } from "../Skeleton";
 import { role } from "../skin";
 import { usePhone } from "../usePhone";
@@ -387,6 +389,7 @@ export function WorkflowEditor() {
     setSavedText(yaml);
     unsaved.current = false;
     setNotice(`Saved as version ${version.number}; runs already started keep their version.`);
+    notify(`Saved as version ${version.number}.`, { tone: "ok" });
     if (!workflowId) {
       firstSave.current = version.workflow_id;
       void router.navigate({
@@ -503,7 +506,7 @@ export function WorkflowEditor() {
           )}
         </div>
         {/* On a phone this is the save bar pinned above the tab bar. */}
-        <div className="editor-actions" data-testid="save-bar">
+        <div className="editor-actions action-bar" data-testid="save-bar">
           <span className="save-status">
             <span className="faint" role="status" data-testid="check-status">
               {status}
@@ -804,9 +807,7 @@ function StageList({
             <button type="button" className="stage-row" aria-current={i === selected || undefined} onClick={() => onSelect(i)}>
               <StageSummary stages={stages} index={i} />
               {phone && (
-                <span className="chev" aria-hidden="true">
-                  ›
-                </span>
+                <Icon name="next" className="chev" />
               )}
             </button>
           </li>

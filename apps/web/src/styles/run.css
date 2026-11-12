@@ -10,7 +10,8 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 /* Phone only: the state pill, the spend under the strip, and the button that opens the steps sheet */
 .run-pill, .axis-spend, .step-button, .run-topbar { display: none; }
 .run-topbar { flex: 1; justify-content: space-between; align-items: center; gap: 12px; }
-.run-topbar a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: none; }
+.run-topbar a { display: inline-flex; align-items: center; gap: 2px; min-height: 44px; margin-left: -6px; font-weight: 600; text-decoration: none; }
+.step-button small { display: inline-flex; align-items: center; gap: 4px; }
 .step-button { width: 100%; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px; margin-bottom: var(--gap); padding: 8px 12px; border: 0; border-radius: 10px; background: var(--raised); text-align: left; font-weight: 400; }
 .step-button > span { display: grid; min-width: 0; }
 .step-button b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -153,9 +154,12 @@ svg.glyph { color: var(--accent); }
   .run-pill { display: inline-flex; margin: 6px 8px 0 0; }
   .run-pill + p.status-line { display: inline; }
   .axis-spend, .step-button, .run-topbar { display: flex; }
-  /* "‹ Runs" and the run menu take the top bar from the world chip */
+  /* The back link and the run menu take the top bar from the world chip; the compact title
+     fades in between them. */
   .topbar:has(.run-topbar) .world-chip, .run-actions .menu-wrap { display: none; }
-  .topbar-slot:has(.run-topbar) { display: flex; flex: 1; }
+  .topbar-slot:has(.run-topbar), .topbar .run-topbar { display: contents; }
+  .topbar .run-topbar > a { order: -1; flex: none; }
+  .topbar .run-topbar > :not(a) { flex: none; }
   .topbar .run-topbar button.icon { display: inline-flex; }
   .player { max-height: 300px; }
   .run-loading .sk-title { font-size: 22px; }

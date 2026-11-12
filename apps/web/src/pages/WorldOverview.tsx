@@ -265,7 +265,7 @@ export function WorldOverview() {
                           {r.workflow_version !== null && <span className="faint"> v{r.workflow_version}</span>}
                         </td>
                         <td>
-                          <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
+                          <span key={r.status} className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
                         </td>
                         <td className="num">
                           {new Date(r.created_at).toLocaleTimeString([], { timeStyle: "short" })}

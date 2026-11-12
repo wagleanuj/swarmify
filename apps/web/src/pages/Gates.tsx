@@ -446,7 +446,7 @@ export function GateCard({
               {piedPiper() ? "Russ has" : "This run has"} spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
               stopped agents resume where they stopped.
             </span>
-            <div className="row gate-actions">
+            <div className="row gate-actions action-bar">
               <button type="submit" className="primary" disabled={busy}>
                 Add money and go on
               </button>
@@ -474,7 +474,7 @@ export function GateCard({
           <textarea name="note" rows={2} />
         </label>
         )}
-        <div className="row gate-actions">
+        <div className="row gate-actions action-bar">
           {gate.kind === "pick" && (
             <>
               <button type="submit" className="primary" disabled={busy || artifacts === null || (phone && !chosen)}>
@@ -631,7 +631,7 @@ function SkillGate({
         Note (kept with the decision; on a rejection, say why)
         <textarea name="note" rows={2} />
       </label>
-      <div className="row gate-actions">
+      <div className="row gate-actions action-bar">
         <button type="submit" className="primary" disabled={busy}>
           Approve
         </button>

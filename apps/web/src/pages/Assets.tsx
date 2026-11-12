@@ -4,6 +4,7 @@ import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { assetsRoute } from "../router";
+import { Icon } from "../Icon";
 import { Sheet } from "../Sheet";
 import { Loading, Skeleton } from "../Skeleton";
 import { AUDIO, FileLink, fileUrl, IMAGE, VIDEO } from "./Artifacts";
@@ -360,9 +361,7 @@ function OwnedGroup({
               <div className="voice-top">
                 {AUDIO.test(a.name) ? (
                   <button type="button" className="play" onClick={() => onPlay(a)} aria-label={`${playing === a.path ? "Pause" : "Play"} ${stem(a.name)}`} aria-pressed={playing === a.path}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d={playing === a.path ? "M7 5h3v14H7zM14 5h3v14h-3z" : "M8 5l11 7-11 7z"} />
-                    </svg>
+                    <Icon name={playing === a.path ? "pause" : "play"} size={20} />
                   </button>
                 ) : (
                   <FileLink a={a} worldId={worldId} className="button play-open">
@@ -408,7 +407,7 @@ function OwnedGroup({
           ))}
         </ul>
       )}
-      <div className="assets-bar">
+      <div className="assets-bar action-bar">
         <button type="button" className="primary" onClick={onAdd}>
           Add to {f.label}
         </button>

@@ -1,7 +1,10 @@
-/* The phone shell's motion (Shell.tsx): one 1px green line over the current tab's label, sliding
-   between tabs; tabs and sheet rows darken while pressed. */
-.tabbar-line { position: absolute; top: -1px; left: 0; width: var(--line-w, 0px); height: 1px; background: var(--accent); transform: translateX(var(--line-x, 0px)); pointer-events: none; }
+/* The phone shell's motion (Shell.tsx): one 1px green line under the current tab's label,
+   sliding between tabs; the compact title fades into the top bar once the page's own title has
+   scrolled under it; tabs and sheet rows darken and give while pressed. */
+.tabbar-line { position: absolute; top: 0; left: 0; width: var(--line-w, 0px); height: 1px; background: var(--accent); transform: translate(var(--line-x, 0px), var(--line-y, 0px)); pointer-events: none; }
 .tabbar[data-slide] .tabbar-line { transition: transform var(--dur-base) var(--ease-out), width var(--dur-base) var(--ease-out); }
-.tabbar-item, .sheet-row { -webkit-tap-highlight-color: transparent; transition: background var(--dur-fast); }
+.tabbar-item, .sheet-row { -webkit-tap-highlight-color: transparent; transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast); }
 .tabbar-item:active, button.tabbar-item:active, .sheet-row:active { background: var(--raised); }
 .tabbar-item[aria-disabled] { opacity: 0.5; }
+.topbar-title { opacity: 0; transition: opacity var(--dur-base) var(--ease-out); }
+.topbar[data-titled] .topbar-title { opacity: 1; }

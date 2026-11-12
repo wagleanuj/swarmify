@@ -26,13 +26,15 @@ import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 import { Progress, ProgressLine } from "./Progress";
 import { Shell } from "./Shell";
+import { Toasts } from "./Toast";
 
 // The office draws its own full-screen shell; every other screen sits in the sidebar shell.
-// The progress line rides on top of both while API calls are slow.
+// The progress line rides on top of both while API calls are slow; notices sit at the foot of both.
 const Root = () => (
   <>
     <Progress />
     {useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />}
+    <Toasts />
   </>
 );
 const rootRoute = createRootRoute({ component: Root });

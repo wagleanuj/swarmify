@@ -1,6 +1,6 @@
 /* The Office skin: a cartoon startup office, chunky ink outlines on warm paper. Every rule sits
    under .office-app, so the plain skin's tokens and controls never reach in or out. */
-.office-app {
+.office-app, body:has(.office-app) .toasts {
   --ink: #2b2840;
   --paper: #fffdf6;
   --sun: #ffc93c;
@@ -9,6 +9,8 @@
   --sky2: #dff3ff;
   --wood: #c79d6c;
   --wood-light: #e8c596;
+}
+.office-app {
   position: fixed;
   inset: 0;
   display: flex;
@@ -625,4 +627,19 @@
 .office-app .dialog-actions button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
 @media (max-width: 700px) {
   .office-app dialog.dialog { width: calc(100vw - 16px); margin: auto auto 8px; }
+}
+
+/* A notice (Toast.tsx) in the office: a speech bubble, paper with an ink outline and a tail,
+   above the office's own tab bar on a phone. */
+body:has(.office-app) .toasts { z-index: 50; }
+body:has(.office-app) .toast { position: relative; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 4px 0 var(--ink); font: 700 15px/1.35 ui-rounded, "Nunito", system-ui, sans-serif; }
+body:has(.office-app) .toast::after { content: ""; position: absolute; right: 28px; bottom: -11px; width: 16px; height: 16px; background: var(--paper); border: solid var(--ink); border-width: 0 3px 3px 0; transform: rotate(45deg) skew(8deg, 8deg); }
+body:has(.office-app) .toast > .icon { color: var(--ink); }
+body:has(.office-app) .toast-error { background: #ffe1e6; }
+body:has(.office-app) .toast-error::after { background: #ffe1e6; }
+body:has(.office-app) .toast-action { color: var(--ink); text-decoration: underline; }
+body:has(.office-app) .toast-close { color: var(--muted); }
+body:has(.office-app) .toast button:hover { background: transparent; }
+@media (max-width: 700px) {
+  body:has(.office-app) .toasts { left: 8px; right: 8px; width: auto; bottom: calc(104px + env(safe-area-inset-bottom)); }
 }

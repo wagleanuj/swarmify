@@ -56,8 +56,6 @@ button.play svg { width: 18px; height: 18px; fill: currentColor; }
   .assets-page { gap: 16px; }
   .assets-page .panel { padding: 14px; }
   .voice-cards { grid-template-columns: minmax(0, 1fr); }
-  main.assets-page { padding-bottom: calc(48px + 65px); }
-  .assets-bar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 14; margin: 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--rule); box-shadow: 0 -8px 20px #0b0b0d; }
   .assets-bar button { flex: 1; min-height: 44px; font-size: 14px; font-weight: 650; }
   .file-rows li { grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 4px 10px; }
   .file-preview { width: 44px; height: 44px; }

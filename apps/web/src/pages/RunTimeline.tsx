@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { api } from "../api/client";
+import { Icon } from "../Icon";
 import { useConfirm } from "../Dialog";
 import { labelOf, useConnectors } from "../api/connectors";
 import { staysOpen } from "../api/answer";
@@ -81,7 +82,7 @@ export function RunTimeline() {
   // An answer just sent: the gate's action bar slides out before the answered state takes its place.
   const [leaving, setLeaving] = useState(false);
   const phone = usePhone();
-  // The shell's top bar, where a phone shows "‹ Runs" and the run menu.
+  // The shell's top bar, where a phone shows the back link to Runs and the run menu.
   const [topbar, setTopbar] = useState<Element | null>(null);
   useEffect(() => setTopbar(document.getElementById("topbar-slot")), []);
   const openGates = useOpenGates().gates ?? [];
@@ -306,13 +307,14 @@ export function RunTimeline() {
     setAnswered({ stageId: g.stage_id, said, at: new Date().toISOString() });
   };
 
-  /** "‹ Runs" and the run menu in a phone's top bar, from the first frame on. */
+  /** The back link to Runs and the run menu in a phone's top bar, from the first frame on. */
   const topbarSlot = (menu?: ReactNode) =>
     topbar &&
     createPortal(
       <div className="run-topbar">
         <Link to="/worlds/$worldId/runs" params={{ worldId }}>
-          ‹ Runs
+          <Icon name="back" size={20} />
+          Runs
         </Link>
         {menu}
       </div>,
@@ -445,7 +447,8 @@ export function RunTimeline() {
           </h1>
           {/* On a phone the line leads with the run's state; waiting says it in amber instead. */}
           {run.status !== "waiting_gate" && (
-            <span className={`status status-${run.status} run-pill`} data-testid="run-pill">
+            <span key={run.status} className={`status status-${run.status} run-pill`} data-testid="run-pill">
+              {run.status === "running" && <Icon name="play" size={16} live />}
               {STATUS_LABEL[run.status]}
             </span>
           )}
@@ -479,11 +482,11 @@ export function RunTimeline() {
             Ask this run
           </button>
           {items.length > 0 && (
-            <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />
+            <Menu label="Run actions" className="icon" button={<Icon name="more" size={20} />} items={items} />
           )}
         </div>
       </header>
-      {topbarSlot(items.length > 0 && <Menu label="Run actions" className="icon" button={<MoreIcon />} items={items} />)}
+      {topbarSlot(items.length > 0 && <Menu label="Run actions" className="icon" button={<Icon name="more" size={20} />} items={items} />)}
       {dialog}
       {error && <p role="alert">{error}</p>}
       {saved && (
@@ -523,7 +526,9 @@ export function RunTimeline() {
             </small>
             <b>{stage.name}</b>
           </span>
-          <small>All steps ▾</small>
+          <small>
+            All steps <Icon name="chevron" />
+          </small>
         </button>
       )}
       <Sheet open={stepsOpen} onClose={() => setStepsOpen(false)} label="All steps">
@@ -766,22 +771,10 @@ function Spend({ run, baseline, asked }: { run: Run; baseline: Run | null; asked
 function Glyph({ status }: { status: string }) {
   if (status === "done") {
     return (
-      <svg className="glyph" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 8.5l3.2 3L13 4.5" />
-      </svg>
+      <Icon name="check" className="glyph" />
     );
   }
   return <span className={`glyph dot dot-${status}`} aria-hidden="true" />;
-}
-
-function MoreIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <circle cx="3.5" cy="8" r="1.25" />
-      <circle cx="8" cy="8" r="1.25" />
-      <circle cx="12.5" cy="8" r="1.25" />
-    </svg>
-  );
 }
 
 /** Items of both lists by a numeric key, each once (the later wins), oldest first. */

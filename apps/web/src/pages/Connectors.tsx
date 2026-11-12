@@ -394,7 +394,7 @@ export function Connectors() {
             </label>
           ))}
         </fieldset>
-        <div className="editor-actions">
+        <div className="editor-actions action-bar">
           <button type="submit" disabled={busy !== null || stageTypes.length === 0}>
             {busy === "test" ? "Starting it..." : "Test and list tools"}
           </button>
@@ -630,7 +630,7 @@ function InstallPackage({ from, onInstalled }: { from: PackageFrom; onInstalled:
           spellCheck={false}
         />
       </label>
-      <div className="editor-actions">
+      <div className="editor-actions action-bar">
         <button type="submit" disabled={busy !== null}>
           {busy === "review" ? "Fetching it..." : "Review permissions"}
         </button>

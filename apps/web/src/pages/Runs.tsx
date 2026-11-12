@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { clock, duration, money, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
+import { Icon } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { baseline } from "../skin";
 import { stageSeconds } from "./StagePanel";
@@ -191,7 +192,10 @@ export function Runs() {
                           </span>
                         </td>
                         <td>
-                          <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
+                          <span key={r.status} className={`status status-${r.status}`}>
+                            {r.status === "running" && <Icon name="play" live />}
+                            {STATUS_LABEL[r.status]}
+                          </span>
                         </td>
                         <td className="run-strip">
                           <TimeStrip stages={r.stages} labels={false} />

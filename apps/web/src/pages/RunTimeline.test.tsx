@@ -623,10 +623,10 @@ test("on a phone the run opens on a status line, the strip with its spend, and t
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent("Video is working · step 3 of 3 · 21 min so far");
   await expect.element(screen.getByTestId("strip-spend")).toHaveTextContent("$5.01 of $10.00");
   // The top bar trades the world chip for the way back and the run menu.
-  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+  await expect.element(screen.getByRole("banner").getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
   expect(screen.getByRole("button", { name: "Run actions" }).elements().filter((b) => b.checkVisibility())).toHaveLength(1);
   const button = screen.getByRole("button", { name: /^Step 3 of 3/ });
-  await expect.element(button).toMatchTextContent(/^Step 3 of 3 · build\s*video\s*All steps ▾$/);
+  await expect.element(button).toMatchTextContent(/^Step 3 of 3 · build\s*video\s*All steps$/);
   // The step list and spend wait in the sheet; the selected step comes right under the button.
   expect(screen.getByRole("navigation", { name: "Steps" }).query()).toBeNull();
   expect(screen.getByRole("region", { name: "Spend" }).query()).toBeNull();
@@ -758,7 +758,7 @@ test("on a phone a run still loading shows its skeleton under the way back, neve
   const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
   fakeFetch({ "GET /api/runs/run_1": async () => (await loaded, Response.json(waiting)) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toBeVisible();
+  await expect.element(screen.getByRole("banner").getByRole("link", { name: "Runs" })).toBeVisible();
   const busy = document.querySelector("main [aria-busy='true']")!;
   expect(busy).not.toBeNull();
   // The title, the status line, the strip, the step button and the panel each hold their place.
@@ -793,7 +793,7 @@ test("on a phone the run menu's button is a borderless 44px tap", async () => {
   await page.viewport(390, 844);
   fakeFetch({ "GET /api/runs/run_1": () => Response.json(run("running", [research("done"), voice("running", timed(2, null))])) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toBeVisible();
+  await expect.element(screen.getByRole("banner").getByRole("link", { name: "Runs" })).toBeVisible();
   const menu = screen.getByRole("button", { name: "Run actions" }).elements().find((b) => b.checkVisibility())!;
   const box = menu.getBoundingClientRect();
   expect([box.width, box.height]).toEqual([44, 44]);

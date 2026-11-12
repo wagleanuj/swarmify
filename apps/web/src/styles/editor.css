@@ -67,12 +67,11 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
 /* The editor on a phone: the same views over the same text. Workflow fields in a panel, stage
    rows that open a sheet, add chips, and the save bar pinned above the tab bar. */
 @media (max-width: 48rem) {
-  main.editor-page { padding-bottom: 104px; }
   .editor-page header.page { margin-bottom: 14px; }
   .editor-page header.page .sub { display: none; }
   .editor { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .editor > section { gap: 14px; }
-  .editor-actions { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 14; flex-wrap: nowrap; justify-content: space-between; gap: 12px; margin: 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--rule); box-shadow: 0 -8px 20px #0b0b0d; animation: bar-up var(--dur-base) var(--ease-out) both; }
+  .editor-actions { justify-content: space-between; gap: 12px; }
   .editor-actions .save-status { flex: 1; }
   .editor-actions [role="status"] { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .editor-actions button.primary { flex: none; padding: 0 18px; }

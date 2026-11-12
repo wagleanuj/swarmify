@@ -272,7 +272,7 @@ def test_a_run_waiting_at_a_gate_loads_without_jumping(phone: Page, ids: dict) -
 def test_a_running_run_and_a_done_run_with_its_video(phone: Page, ids: dict) -> None:
     phone.goto(f"/worlds/{ids['world']}/runs/{ids['running']}")
     expect(phone.get_by_test_id("run-pill")).to_have_text(re.compile("^running$", re.I))
-    expect(phone.get_by_role("link", name="‹ Runs")).to_be_visible()
+    expect(phone.locator(".run-topbar").get_by_role("link", name="Runs")).to_be_visible()
     _fits(phone)
     phone.goto(f"/worlds/{ids['world']}/runs/{ids['done']}")
     expect(phone.get_by_test_id("run-pill")).to_have_text(re.compile("^done$", re.I))
