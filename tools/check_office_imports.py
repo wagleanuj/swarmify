@@ -2,10 +2,11 @@
 
 Usage: python tools/check_office_imports.py apps/web/src
 The office (`src/office`) may import packages, itself, the API layer (`src/api`) and the skin
-module (`src/skin.ts`) and the skin-neutral Dialog (`src/Dialog.tsx`, styled by whichever skin
-renders it), never a plain page or its styles. The rest of the app may load the
-office only with a dynamic `import()`, so its code loads when an office route opens. Tests are
-not scanned: they mount the whole app.
+module (`src/skin.ts`) and the skin-neutral leaves: the Dialog (`src/Dialog.tsx`, styled by
+whichever skin renders it), the icon set (`src/Icon.tsx`) and the run clock
+(`src/Elapsed.tsx`), never a plain page or its styles. The rest of the app may load the office
+only with a dynamic `import()`, so its code loads when an office route opens. Tests are not
+scanned: they mount the whole app.
 """
 
 import re
@@ -38,7 +39,8 @@ def violations(src: Path) -> list[str]:
             where = f"{file}:{text.count(chr(10), 0, match.start()) + 1}"
             if inside:
                 ok = target.is_relative_to(office) or target.is_relative_to(src / "api")
-                if not ok and target.with_suffix("") not in (src / "skin", src / "Dialog"):
+                neutral = [src / leaf for leaf in ("skin", "Dialog", "Icon", "Elapsed")]
+                if not ok and target.with_suffix("") not in neutral:
                     found.append(f"{where}: the office imports {spec}")
             elif target.is_relative_to(office):
                 found.append(f"{where}: {spec} is imported statically; load it with import()")

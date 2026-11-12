@@ -8,7 +8,7 @@ def _file(src: Path, path: str, source: str) -> None:
     (src / path).write_text(source)
 
 
-def test_the_office_may_import_packages_itself_the_api_the_skin_and_the_dialog(
+def test_the_office_may_import_packages_itself_the_api_the_skin_and_the_neutral_leaves(
     tmp_path: Path,
 ) -> None:
     _file(
@@ -19,6 +19,8 @@ def test_the_office_may_import_packages_itself_the_api_the_skin_and_the_dialog(
         'import type { Run } from "../api/runs";\n'
         'import { role } from "../skin";\n'
         'import { useConfirm } from "../Dialog";\n'
+        'import { Icon } from "../Icon";\n'
+        'import { Elapsed } from "../Elapsed";\n'
         'import { Room } from "./Room";\n'
         'import "./office.css";\n',
     )
