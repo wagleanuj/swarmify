@@ -1585,6 +1585,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/push/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Key */
+        get: operations["key_api_push_key_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Devices */
+        get: operations["devices_api_push_subscriptions_get"];
+        put?: never;
+        /**
+         * Subscribe
+         * @description Turn notifications on for this browser; again with the same endpoint refreshes it.
+         */
+        post: operations["subscribe_api_push_subscriptions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/subscriptions/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Unsubscribe */
+        delete: operations["unsubscribe_api_push_subscriptions__device_id__delete"];
+        options?: never;
+        head?: never;
+        /** Toggle */
+        patch: operations["toggle_api_push_subscriptions__device_id__patch"];
+        trace?: never;
+    };
+    "/api/push/test/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test
+         * @description Send a test to one device. 404 when it is gone (the push service said so), 502 when
+         *     the push service refused or could not be reached.
+         */
+        post: operations["test_api_push_test__device_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/worlds/{world_id}/skills": {
         parameters: {
             query?: never;
@@ -2582,6 +2659,28 @@ export interface components {
             /** By */
             by?: string | null;
         };
+        /**
+         * Device
+         * @description A subscribed browser. Its endpoint is a credential and is never returned.
+         */
+        Device: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Gates */
+            gates: boolean;
+            /** Failures */
+            failures: boolean;
+            /** Budget */
+            budget: boolean;
+            /** Notices */
+            notices: boolean;
+            /** Created At */
+            created_at: string;
+            /** Last Success At */
+            last_success_at: string | null;
+        };
         /** EnabledPackage */
         EnabledPackage: {
             /** Name */
@@ -3375,6 +3474,18 @@ export interface components {
              */
             private: boolean;
         };
+        /** PushKey */
+        PushKey: {
+            /** Public Key */
+            public_key: string;
+        };
+        /** PushKeys */
+        PushKeys: {
+            /** P256Dh */
+            p256dh: string;
+            /** Auth */
+            auth: string;
+        };
         /** Question */
         Question: {
             /** Question */
@@ -4054,6 +4165,20 @@ export interface components {
             yaml: string;
         };
         /**
+         * Subscribe
+         * @description A browser's PushSubscription as `toJSON()` gives it, and a name for the device.
+         */
+        Subscribe: {
+            /** Endpoint */
+            endpoint: string;
+            keys: components["schemas"]["PushKeys"];
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+        };
+        /**
          * Surprise
          * @description A connection graphify finds non-obvious: across files or across communities.
          */
@@ -4171,6 +4296,17 @@ export interface components {
         Tested: {
             /** Tools */
             tools: components["schemas"]["Tool"][];
+        };
+        /** Toggles */
+        Toggles: {
+            /** Gates */
+            gates?: boolean | null;
+            /** Failures */
+            failures?: boolean | null;
+            /** Budget */
+            budget?: boolean | null;
+            /** Notices */
+            notices?: boolean | null;
         };
         /** Token */
         Token: {
@@ -7557,6 +7693,172 @@ export interface operations {
             header?: never;
             path: {
                 world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    key_api_push_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushKey"];
+                };
+            };
+        };
+    };
+    devices_api_push_subscriptions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"][];
+                };
+            };
+        };
+    };
+    subscribe_api_push_subscriptions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Subscribe"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unsubscribe_api_push_subscriptions__device_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    toggle_api_push_subscriptions__device_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Toggles"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_api_push_test__device_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
             };
             cookie?: never;
         };
