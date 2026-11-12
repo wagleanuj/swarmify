@@ -7,7 +7,9 @@ import { needsYou, useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
+import { Empty } from "../Empty";
 import { Icon } from "../Icon";
+import { moment, MOMENTS } from "../moments";
 import { Loading, Skeleton } from "../Skeleton";
 import { baseline, saveSkin } from "../skin";
 import { Menu } from "./Menu";
@@ -17,6 +19,76 @@ type Workflow = components["schemas"]["ListedWorkflow"];
 type Score = components["schemas"]["RunScore"];
 
 const SHOWN = 5;
+
+/** A new world's setup, in order: each step, whether it is done, and where it is done. The world
+ * itself counts as step one, so the strip never starts at zero. */
+export function setupSteps(worldId: string, workflows: Workflow[], runs: Run[]) {
+  const answered = runs.some((r) => r.stages.some((s) => s.type === "gate" && s.status === "done"));
+  return [
+    { label: "World created", done: true, link: null },
+    { label: "Write a workflow", done: workflows.length > 0, link: { to: "/worlds/$worldId/workflows/new", params: { worldId } } },
+    { label: "Start a run", done: runs.length > 0, link: { to: "/worlds/$worldId/workflows", params: { worldId } } },
+    { label: "Answer a gate", done: answered, link: { to: "/gates", search: { world: worldId } } },
+  ] as const;
+}
+
+const HIDDEN = (worldId: string) => `swarmify.setup-hidden.${worldId}`;
+const wasHidden = (worldId: string) => {
+  try {
+    return localStorage.getItem(HIDDEN(worldId)) === "1";
+  } catch {
+    return false;
+  }
+};
+
+/** The setup strip over a new world's overview: its true percentage, each step a check or a
+ * link to where it is done, and Hide (kept in this browser). Gone once every step is done. */
+export function Setup({ worldId, workflows, runs }: { worldId: string; workflows: Workflow[]; runs: Run[] }) {
+  const [hidden, setHidden] = useState(() => wasHidden(worldId));
+  const steps = setupSteps(worldId, workflows, runs);
+  const done = steps.filter((s) => s.done).length;
+  if (hidden || done === steps.length) return null;
+  const next = steps.find((s) => !s.done);
+  const pct = Math.round((done / steps.length) * 100);
+  function hide() {
+    try {
+      localStorage.setItem(HIDDEN(worldId), "1");
+    } catch {
+      // the strip still goes for this visit
+    }
+    setHidden(true);
+  }
+  return (
+    <section className="setup" aria-labelledby="setup-head" data-testid="setup">
+      <div className="setup-head">
+        <h2 id="setup-head">
+          Set up this world <span className="num">{pct}%</span>
+        </h2>
+        <button type="button" className="text-action" onClick={hide}>
+          Hide
+        </button>
+      </div>
+      <div className="setup-bar" role="progressbar" aria-label="Setup" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <span style={{ transform: `scaleX(${done / steps.length})` }} />
+      </div>
+      <ol className="setup-steps">
+        {steps.map((s, i) => (
+          <li key={s.label} className={s.done ? "done" : s === next ? "next" : undefined}>
+            {s.done ? <Icon name="check" /> : <span className="setup-n num">{i + 1}</span>}
+            {s.done || !s.link ? (
+              <span>{s.label}</span>
+            ) : (
+              <Link {...s.link}>
+                {s.label}
+                {s === next && <Icon name="next" />}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 /** The strip of figures: runs and spend today, slots in use, first-try acceptance. */
 export function figures(runs: Run[], scores: Score[], now = new Date()) {
@@ -137,6 +209,7 @@ export function WorldOverview() {
       setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
       return;
     }
+    if (runs?.length === 0) moment(MOMENTS.firstRun);
     void router.navigate({
       to: "/worlds/$worldId/runs/$runId",
       params: { worldId, runId: data.id },
@@ -157,6 +230,7 @@ export function WorldOverview() {
       setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
       return;
     }
+    if (runs?.length === 0) moment(MOMENTS.firstRun);
     void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
@@ -198,6 +272,7 @@ export function WorldOverview() {
         </button>
       </header>
       {error && <p role="alert">{error}</p>}
+      {world && workflows && runs && <Setup worldId={worldId} workflows={workflows} runs={runs} />}
       <section className="kpis" aria-label="Figures">
         <div className="kpi">
           <div className="kpi-label">Runs today</div>
@@ -246,7 +321,17 @@ export function WorldOverview() {
                 ))}
               </Loading>
             ) : runs.length === 0 ? (
-              <p className="faint">None yet. Start one from a workflow or a goal.</p>
+              <Empty
+                icon="runs"
+                testId="no-runs"
+                action={
+                  <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button">
+                    Start a run
+                  </Link>
+                }
+              >
+                Every run of this world lands here, live as it moves.
+              </Empty>
             ) : (
               <table className="scores" data-testid="runs">
                 <thead>
@@ -295,7 +380,7 @@ export function WorldOverview() {
                 aria-label="Goal"
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="Find five hooks for next week's short."
+                placeholder="Compare three options and recommend one."
               />
               <input
                 type="number"
@@ -327,7 +412,17 @@ export function WorldOverview() {
                 <Skeleton h={42} />
               </Loading>
             ) : waiting === 0 ? (
-              <p className="faint">Nothing waits for you in this world.</p>
+              <Empty
+                icon="inbox"
+                testId="nothing-waits"
+                action={
+                  <Link to="/gates" search={{ world: worldId }} className="button">
+                    Open Needs you
+                  </Link>
+                }
+              >
+                Nothing waits for you here; a run that needs a decision stops here until you answer.
+              </Empty>
             ) : (
               <ul className="rows">
                 {gates.map((g) => (
@@ -356,9 +451,11 @@ export function WorldOverview() {
           <section className="panel workflows" aria-label="Workflows" id="workflows">
             <div className="panel-head">
               <h2>Workflows</h2>
-              <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="card-link">
-                New workflow
-              </Link>
+              {workflows?.length !== 0 && (
+                <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="card-link">
+                  New workflow
+                </Link>
+              )}
             </div>
             {workflows === null ? (
               <Loading className="rows-loading">
@@ -367,10 +464,17 @@ export function WorldOverview() {
                 ))}
               </Loading>
             ) : workflows.length === 0 ? (
-              <p className="faint" data-testid="no-workflows">
-                A workflow is the recipe a run follows: research, pick, script, render, review,
-                publish. Write the first one in YAML and the editor checks every rule as you type.
-              </p>
+              <Empty
+                icon="workflows"
+                testId="no-workflows"
+                action={
+                  <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
+                    Write a workflow
+                  </Link>
+                }
+              >
+                A workflow is the list of steps a run follows; the editor checks each rule as you type.
+              </Empty>
             ) : (
               <>
                 <ul className="rows stagger" data-testid="workflow-list">

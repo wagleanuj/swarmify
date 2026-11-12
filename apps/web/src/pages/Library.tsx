@@ -6,6 +6,7 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { Empty } from "../Empty";
 import { Icon, type IconName } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { piedPiper, the } from "../skin";
@@ -140,12 +141,17 @@ export function Library() {
         </p>
       )}
       {items?.length === 0 && (
-        <div className="empty" data-testid="no-artifacts">
-          <p>Nothing yet. Artifacts land here as runs finish stages, newest first.</p>
-          <Link to="/worlds/$worldId/runs" params={{ worldId }} className="button">
-            See runs
-          </Link>
-        </div>
+        <Empty
+          icon="library"
+          testId="no-artifacts"
+          action={
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button primary">
+              Start a run
+            </Link>
+          }
+        >
+          Everything a run makes lands here as its stages finish, newest first.
+        </Empty>
       )}
       {(items === null ? !error : items.length > 0) && (
         <>

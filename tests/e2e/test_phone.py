@@ -137,7 +137,7 @@ def test_signing_in_opens_the_app_until_signing_out(
     context = browser.new_context(viewport=PHONE, base_url=locked_url, is_mobile=True)
     page = context.new_page()
     page.goto("/gates")
-    password = page.get_by_label("Password")
+    password = page.get_by_label("Password", exact=True)
     password.fill("hooli")
     page.get_by_role("button", name="Sign in").click()
     expect(page.get_by_role("alert")).to_contain_text("That is not the password")
@@ -149,9 +149,9 @@ def test_signing_in_opens_the_app_until_signing_out(
 
     page.goto(f"/worlds/{ids['world']}/settings")
     page.get_by_role("button", name="Sign out").click()
-    expect(page.get_by_label("Password")).to_be_visible()
+    expect(page.get_by_label("Password", exact=True)).to_be_visible()
     page.reload()
-    expect(page.get_by_label("Password")).to_be_visible()
+    expect(page.get_by_label("Password", exact=True)).to_be_visible()
     context.close()
 
 

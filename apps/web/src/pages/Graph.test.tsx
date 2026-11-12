@@ -48,7 +48,7 @@ test("an empty world says how the graph grows, then fills in when a rebuild stre
   });
   const { screen } = await mountAt("/worlds/world_1/graph");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Memory");
-  await expect.element(screen.getByTestId("graph-empty")).toMatchTextContent(/The graph writer folds them in/);
+  await expect.element(screen.getByTestId("graph-empty")).toMatchTextContent(/The graph writer folds every note a run writes into memory/);
   await expect.element(screen.getByTestId("rebuilt")).toHaveTextContent("Not built yet");
 
   // Beside the shell's one all-worlds stream.

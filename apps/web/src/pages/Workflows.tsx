@@ -4,7 +4,9 @@ import { type ReactNode, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
+import { Empty } from "../Empty";
 import { Icon } from "../Icon";
+import { moment, MOMENTS } from "../moments";
 import { Loading, Skeleton } from "../Skeleton";
 import { usePhone } from "../usePhone";
 
@@ -15,7 +17,8 @@ export function Workflows() {
   const { worldId } = useParams({ from: "/worlds/$worldId/workflows" });
   const router = useRouter();
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
-  const [runs, setRuns] = useState<Run[]>([]);
+  // null until read, so a start knows whether it is the world's first run.
+  const [runs, setRuns] = useState<Run[] | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const phone = usePhone();
@@ -41,7 +44,7 @@ export function Workflows() {
       .catch(() => undefined);
     api
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
-      .then(({ data }) => setRuns(data ?? []))
+      .then(({ data }) => data && setRuns(data))
       .catch(() => undefined);
   }, [worldId]);
 
@@ -58,10 +61,11 @@ export function Workflows() {
       setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
       return;
     }
+    if (runs?.length === 0) moment(MOMENTS.firstRun);
     void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
-  const mine = (w: Workflow) => runs.filter((r) => r.workflow_id === w.id);
+  const mine = (w: Workflow) => (runs ?? []).filter((r) => r.workflow_id === w.id);
   // One trailing play glyph per row: green stays for the data and the one primary, New workflow.
   const play = (w: Workflow) => (
     <button
@@ -86,9 +90,11 @@ export function Workflows() {
             {!phone && "Each save is a new version; a run keeps the version it started on."}
           </p>
         </div>
-        <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
-          New workflow
-        </Link>
+        {workflows?.length !== 0 && (
+          <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
+            New workflow
+          </Link>
+        )}
       </header>
       {error && <p role="alert">{error}</p>}
       {workflows === null && !error && (
@@ -99,9 +105,17 @@ export function Workflows() {
         </Loading>
       )}
       {workflows?.length === 0 && (
-        <div className="empty">
-          <p>No workflows yet. A workflow is a list of steps you can run again and again.</p>
-        </div>
+        <Empty
+          icon="workflows"
+          testId="no-workflows"
+          action={
+            <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
+              Write a workflow
+            </Link>
+          }
+        >
+          A workflow is a list of steps you write once and run again and again.
+        </Empty>
       )}
       {phone && workflows && workflows.length > 0 && (
         <ul className="wf-rows stagger">

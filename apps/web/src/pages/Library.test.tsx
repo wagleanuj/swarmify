@@ -214,8 +214,8 @@ test("with nothing made yet it says what lands here and reloads when an artifact
     "GET /api/worlds/world_1/library": () => Response.json(listed),
   });
   const { screen } = await mountAt("/worlds/world_1/library");
-  await expect.element(screen.getByTestId("no-artifacts")).toMatchTextContent(/Nothing yet/);
-  await expect.element(screen.getByRole("link", { name: "See runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+  await expect.element(screen.getByTestId("no-artifacts")).toMatchTextContent(/Everything a run makes lands here/);
+  await expect.element(screen.getByRole("link", { name: "Start a run" })).toHaveAttribute("href", "/worlds/world_1/workflows");
   listed = [hook];
   FakeEventSource.emit("artifact.created", { payload: { type: "idea", path: hook.path, author: "judge", stage_id: "stage_0" } });
   await expect.element(screen.getByTestId("library")).toMatchTextContent(/Hook first/);

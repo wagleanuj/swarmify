@@ -58,6 +58,25 @@ test("the sidebar's Workflows lists each with its version, runs and average cost
   await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
   await expect.poll(() => router.state.location.pathname).toBe("/worlds/world_1/runs/run_9");
   expect(started).toEqual({ baseline: false });
+  // Not the world's first run: no first-run moment.
+  expect(document.querySelector(".toasts")?.textContent ?? "").not.toMatch(/first run/);
+});
+
+test("a world's first run is a success moment: a notice whose check pops", async () => {
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([{ id: "world_1", name: "Video", purpose: "", created_at: ts }]),
+    "GET /api/gates": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json(workflows),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "POST /api/workflows/wf_1/runs": () => Response.json(run("queued", [], { id: "run_9" }), { status: 201 }),
+    "GET /api/runs/run_9": () => Response.json(run("queued", [], { id: "run_9" })),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/workflows");
+  await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
+  await expect.poll(() => router.state.location.pathname).toBe("/worlds/world_1/runs/run_9");
+  const said = screen.getByText(/Your first run is on its way\./);
+  await expect.element(said).toBeVisible();
+  expect(said.element().parentElement!.querySelector(".i-pop")).not.toBeNull();
 });
 
 test("on a phone each workflow is one row: full name, version, last run and cost, a play glyph, New workflow in the header", async () => {

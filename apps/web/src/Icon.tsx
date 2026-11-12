@@ -35,6 +35,8 @@ const PATHS = {
   warning: "M12 4l9 16H3zM12 10v4M12 17h.01",
   plus: "M12 5v14M5 12h14",
   info: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 11v5M12 8h.01",
+  eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
+  "eye-off": "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M4 4l16 16",
 } as const;
 
 export type IconName = keyof typeof PATHS;

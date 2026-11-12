@@ -27,7 +27,7 @@ import { abortAsk, type Gate, money, type Run, useRunUpdates } from "../api/runs
 import { type Ask as AskFor, useConfirm } from "../Dialog";
 import type { components } from "../api/schema";
 import type { Skin } from "../skin";
-import { type Look, stillFrame, useCast } from "./cast";
+import { Actor, type Look, stillFrame, useCast } from "./cast";
 import { appClass, FullScreen, Tabs, useNight } from "./chrome";
 import "./office.css";
 import { asker, line } from "./scene";
@@ -113,6 +113,7 @@ export function Talk() {
   }
 
   const [night] = useNight();
+  const crew = cast.flatMap((m) => look(m.name) ?? []).slice(0, 3);
   const moving = runs.filter((r) => !r.parent_run_id && r.status === "running").length;
   return (
     <div className={appClass(night, "talk-app")}>
@@ -154,11 +155,18 @@ export function Talk() {
         ) : open.gates === null ? (
           !open.failed && <p role="status">Loading...</p>
         ) : (
-          <section className="talk-clear">
+          <section className="talk-clear" data-testid="talk-clear">
+            {/* The crew stands about with nothing to ask; the first waves. Decoration: the words say it. */}
+            <ul className="office-cast talk-crew" aria-hidden="true">
+              {crew.map((l, i) => (
+                <Actor key={l.agent} look={l} pose={i === 0 ? "cheer" : "idle"} />
+              ))}
+            </ul>
             <h2>All clear</h2>
             <p>
-              Nobody needs you. {moving === 1 ? "One run is" : `${moving} runs are`} moving on their own; the next question
-              lands here.
+              Nobody needs you.{" "}
+              {moving === 0 ? "No run is moving" : moving === 1 ? "One run is moving on its own" : `${moving} runs are moving on their own`}; the
+              next question lands here.
             </p>
             <Link className="office-btn" to="/worlds/$worldId/office" params={{ worldId }}>
               Back to the office

@@ -36,11 +36,18 @@ fieldset.set-panel { display: grid; min-width: 0; }
 .eval-list { display: grid; gap: 16px; }
 .eval-list .panel-head { justify-content: space-between; }
 
-/* Sign-in: one narrow panel in the middle of the screen. */
-.sign-in { display: grid; place-content: center; justify-items: center; gap: 16px; min-height: 100svh; max-width: none; padding: 24px var(--pad); box-sizing: border-box; }
+/* Sign-in: the mark over one narrow panel, centred in what the safe area leaves. */
+.sign-in { display: grid; place-content: center; justify-items: center; gap: 24px; min-height: 100svh; max-width: none; box-sizing: border-box;
+  padding: max(24px, env(safe-area-inset-top)) max(var(--pad), env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(var(--pad), env(safe-area-inset-left)); }
+.sign-in .brand { flex-direction: column; gap: 12px; padding: 0; font-size: 20px; letter-spacing: -0.01em; }
+.sign-in .brand svg { width: 48px; height: 48px; }
 .sign-in form { display: grid; gap: 16px; width: min(22rem, calc(100vw - 2 * var(--pad))); box-sizing: border-box; }
+.sign-in form > label { margin-bottom: -10px; }
 .sign-in h1, .sign-in p { margin: 0; }
-.sign-in input { width: 100%; box-sizing: border-box; }
+.sign-in [role="alert"] { color: var(--pill-negative-ink); }
+.sign-in .password { position: relative; }
+.sign-in .password input { width: 100%; box-sizing: border-box; padding-right: 48px; }
+.sign-in .password button { position: absolute; top: 50%; right: 2px; margin-top: -22px; width: 44px; height: 44px; min-height: 0; padding: 0; border: 0; border-radius: var(--radius-field); color: var(--muted); }
 
 /* API tokens: one row a token, the new one shown once above them. */
 .token-list { list-style: none; margin: 0; padding: 0; display: grid; }

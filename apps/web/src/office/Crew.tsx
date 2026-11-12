@@ -189,13 +189,17 @@ function Dresser({ member, cast, pack, packs, skin, saved, save, dressing, setDr
         <p className="office-role">{label}</p>
         {seen.catchphrase && <p className="office-catch">“{seen.catchphrase}”</p>}
         <img className="office-big" src={poseSrc(pack, seen.id, seen.character, pose)} alt={`${seen.name}, ${POSES.find(([p]) => p === pose)?.[1]}`} />
-        <div className="office-poses" role="group" aria-label="Poses">
+        {/* A picker, not toggles: each pose as the character strikes it, one chosen at a time. */}
+        <fieldset className="office-poses">
+          <legend className="visually-hidden">Poses</legend>
           {POSES.map(([p, l]) => (
-            <button key={p} type="button" className="office-btn" aria-pressed={p === pose} onClick={() => setPose(p)}>
-              {l}
-            </button>
+            <label key={p} className="office-pose">
+              <input type="radio" name="pose" value={p} checked={p === pose} onChange={() => setPose(p)} className="visually-hidden" />
+              <img src={poseSrc(pack, seen.id, seen.character, p)} alt="" loading="lazy" />
+              <span>{l}</span>
+            </label>
           ))}
-        </div>
+        </fieldset>
         <button type="button" className="office-btn office-narrow" aria-expanded={dressing} onClick={() => setDressing(true)}>
           Dress {seen.name}
         </button>

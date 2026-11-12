@@ -8,7 +8,7 @@ import { useConnectors } from "../api/connectors";
 import type { components } from "../api/schema";
 import { Icon } from "../Icon";
 import { Sheet } from "../Sheet";
-import { notify } from "../Toast";
+import { moment, MOMENTS } from "../moments";
 import { Loading, Skeleton } from "../Skeleton";
 import { role } from "../skin";
 import { usePhone } from "../usePhone";
@@ -389,7 +389,7 @@ export function WorkflowEditor() {
     setSavedText(yaml);
     unsaved.current = false;
     setNotice(`Saved as version ${version.number}; runs already started keep their version.`);
-    notify(`Saved as version ${version.number}.`, { tone: "ok" });
+    moment(MOMENTS.workflowSaved(version.number));
     if (!workflowId) {
       firstSave.current = version.workflow_id;
       void router.navigate({

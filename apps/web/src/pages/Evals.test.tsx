@@ -102,10 +102,13 @@ test("each task kind shows the verdict of its newest report, and a kind never ru
   await expect.element(screen.getByTestId("eval").first().getByRole("heading", { level: 2 })).toMatchTextContent(/^Typed lists, /);
 });
 
-test("with no eval yet the page says how to run one", async () => {
+test("with no eval yet the page says evals run from the server and links how, with no command to type", async () => {
   fakeFetch({ "GET /api/evals": () => Response.json([]) });
   const { screen } = await mountAt("/evals");
-  await expect.element(screen.getByTestId("no-evals")).toMatchTextContent(/uv run swarmify-eval --kind research-briefs/);
+  const empty = screen.getByTestId("no-evals");
+  await expect.element(empty).toMatchTextContent(/runs from the server/);
+  expect(empty.element().querySelector("code")).toBeNull();
+  await expect.element(empty.getByRole("link", { name: "How to run one" })).toHaveAttribute("href", "https://github.com/wagleanuj/swarmify#eval-baseline-against-swarm");
 });
 
 test("on a phone, while the evals load, the title is real and the reports wait as skeletons", async () => {

@@ -263,7 +263,7 @@ def test_every_route_and_overlay_fits_a_phone(page: Page, every: dict[str, str])
         found += audit(page, route, confirms, seen)
     page.context.clear_cookies()
     page.goto("/gates")
-    expect(page.get_by_label("Password")).to_be_visible()
+    expect(page.get_by_label("Password", exact=True)).to_be_visible()
     found += audit(page, "sign in", confirms, seen)
     key = lambda f: json.dumps({k: v for k, v in f.items() if k != "where"}, sort_keys=True)  # noqa: E731
     unique = {key(f): f for f in found}

@@ -86,10 +86,10 @@ test("with no runs it says what the page is for and where to start one", async (
     "GET /api/worlds/world_1/runs": () => Response.json([]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs");
-  await expect.element(screen.getByTestId("no-runs")).toMatchTextContent(/follows one workflow/);
-  await expect
-    .element(screen.getByRole("link", { name: "Start one from a workflow" }))
-    .toHaveAttribute("href", "/worlds/world_1");
+  const empty = screen.getByTestId("no-runs");
+  await expect.element(empty).toMatchTextContent(/follows a workflow stage by stage/);
+  expect(empty.element().querySelector("svg.i-runs.i-enter")).not.toBeNull();
+  await expect.element(empty.getByRole("link", { name: "Start a run" })).toHaveAttribute("href", "/worlds/world_1/workflows");
 });
 
 test("a load failure is an alert", async () => {

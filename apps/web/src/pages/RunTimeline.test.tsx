@@ -879,8 +879,9 @@ test("live: the clock ticks each second while it runs and holds once it ends; th
   const ended = run("done", [research("done"), voice("done"), video("done", timed(3, 21))], { spent_usd: 1.25, updated_at: at(23) });
   FakeEventSource.emit("run.updated", { payload: ended });
   await expect.element(screen.getByTestId("live-line")).not.toBeInTheDocument();
-  // A done run's pill pops once, as it lands.
+  // A done run's pill pops once, as it lands, and a notice says so.
   await expect.element(screen.getByTestId("run-pill")).toHaveClass("pop");
+  await expect.element(screen.getByText(`${ended.name} is done.`)).toBeVisible();
   const took = screen.getByTestId("strip-spend").element().parentElement!.textContent;
   vi.advanceTimersByTime(3000);
   expect(screen.getByTestId("strip-spend").element().parentElement!.textContent).toBe(took);

@@ -253,7 +253,8 @@ function TemplatesGroup({
       {templates === null ? (
         <Rows />
       ) : templates.length === 0 ? (
-        <div className="empty">
+        <div className="empty empty-state">
+          <Icon name="upload" size={24} className="i-enter" />
           <Intro lead={`No Templates in ${f.label} yet.`} label={`About ${f.label}`}>
             <p>{f.about}</p>
             <p className="faint">From {f.package}.</p>
@@ -352,7 +353,8 @@ function OwnedGroup({
       {files === null ? (
         <Rows />
       ) : files.length === 0 ? (
-        <div className="empty">
+        <div className="empty empty-state">
+          <Icon name="upload" size={24} className="i-enter" />
           <Intro lead={`Nothing in ${f.label} yet.`} label={`About ${f.label}`}>
             <p>{f.about}</p>
           </Intro>
@@ -710,7 +712,8 @@ function Files({ worldId, files, onChanged, onError }: { worldId: string; files:
       {files === null ? (
         <Rows />
       ) : files.length === 0 ? (
-        <div className="empty">
+        <div className="empty empty-state">
+          <Icon name="upload" size={24} className="i-enter" />
           <p>Put images, music or fonts here for your builds to use.</p>
         </div>
       ) : (

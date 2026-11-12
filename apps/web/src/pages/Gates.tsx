@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { type FormEvent, type ReactNode, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   blocked,
@@ -25,8 +25,11 @@ import type { ArtifactFile } from "../api/events";
 import { abortAsk, type Gate, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { useConfirm } from "../Dialog";
+import { Empty } from "../Empty";
 import { Icon } from "../Icon";
+import { firstGate, moment, MOMENTS } from "../moments";
 import { gatesRoute } from "../router";
+import { CurrentWorld } from "../Shell";
 import { piedPiper } from "../skin";
 import { Loading, Skeleton } from "../Skeleton";
 import { notify } from "../Toast";
@@ -78,6 +81,7 @@ export function Gates() {
   const navigate = useNavigate();
   const phone = usePhone();
   const open = useOpenGates();
+  const current = useContext(CurrentWorld);
   const [worlds, setWorlds] = useState<World[]>([]);
   // Worlds whose memory stopped rebuilding: agents may then repeat what was already made.
   const [stalled, setStalled] = useState<StalledMemory[]>([]);
@@ -183,9 +187,13 @@ export function Gates() {
           }),
       },
     });
+    // This browser's first answer is a success moment of its own.
+    if (firstGate()) moment(MOMENTS.firstGate);
     go(next?.stage_id, false, next && rest.includes(next) ? kind : undefined);
   };
 
+  // Where "Start a run" goes from an empty inbox: the world it is filtered to, else the open one.
+  const home = search.world ?? current;
   const worldName = (id: string) => worlds.find((w) => w.id === id)?.name ?? id;
   const sub = waiting.length
     ? `Oldest waiting ${ago(Math.min(...waiting.map((g) => Date.parse(g.opened_at))))}. Answering one opens the next.`
@@ -389,31 +397,41 @@ export function Gates() {
                 ))}
               </ul>
             ) : (
-              <section className="empty all-clear" data-testid="no-gates">
+              <section className="all-clear" data-testid="no-gates">
                 {search.world && elsewhere > 0 ? (
-                  <>
-                    <h2>Nothing waiting in {worldName(search.world)}</h2>
-                    <p>
-                      {elsewhere} {elsewhere === 1 ? "decision waits" : "decisions wait"} in other worlds.{" "}
-                      <Link to="/gates">Show every world</Link>
-                    </p>
-                  </>
+                  <Empty
+                    icon="inbox"
+                    title={`Nothing waiting in ${worldName(search.world)}`}
+                    action={
+                      <Link to="/gates" className="button primary">
+                        Show every world
+                      </Link>
+                    }
+                  >
+                    {elsewhere} {elsewhere === 1 ? "decision waits" : "decisions wait"} in other worlds.
+                  </Empty>
                 ) : (
-                  <>
-                    <h2>
-                      <Icon name="check" size={20} className={done.length ? "i-pop" : undefined} /> All clear
-                    </h2>
-                    {done.length > 0 && (
-                      <p>
-                        You answered {done.length === 1 ? "one decision" : `${done.length} decisions`} this visit.
-                      </p>
-                    )}
-                  </>
+                  <Empty
+                    icon="check"
+                    popped={done.length > 0}
+                    title="All clear"
+                    action={
+                      home ? (
+                        <Link to="/worlds/$worldId/workflows" params={{ worldId: home }} className="button">
+                          Start a run
+                        </Link>
+                      ) : (
+                        <Link to="/" className="button">
+                          Open a world
+                        </Link>
+                      )
+                    }
+                  >
+                    {done.length > 0
+                      ? `You answered ${done.length === 1 ? "one decision" : `${done.length} decisions`} this visit. The next gate a run reaches lands here.`
+                      : "When a run reaches a gate or runs out of budget, it waits here for you."}
+                  </Empty>
                 )}
-                <p className="faint">
-                  When a run reaches a gate it lands here, pausing until you pick, approve or confirm, and so does a
-                  run whose budget ran out.
-                </p>
                 <h3>Runs still moving</h3>
                 {moving === null ? (
                   <Loading className="moving">

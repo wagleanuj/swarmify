@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { clock, duration, money, type Run, type RunLink, STATUS_LABEL, useRunUpdates } from "../api/runs";
 import type { components } from "../api/schema";
 import { runsRoute } from "../router";
+import { Empty } from "../Empty";
 import { Icon } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { baseline } from "../skin";
@@ -112,15 +113,17 @@ export function Runs() {
       </header>
       {error && <p role="alert">{error}</p>}
       {runs?.length === 0 && (
-        <div className="empty" data-testid="no-runs">
-          <p>
-            A run follows one workflow from its first stage to its last, and you watch each stage
-            land here as it happens.
-          </p>
-          <Link to="/worlds/$worldId" params={{ worldId }} className="button">
-            Start one from a workflow
-          </Link>
-        </div>
+        <Empty
+          icon="runs"
+          testId="no-runs"
+          action={
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button primary">
+              Start a run
+            </Link>
+          }
+        >
+          Each run follows a workflow stage by stage, and you watch every stage land here live.
+        </Empty>
       )}
       {(runs === null ? !error : runs.length > 0) && (
         <>

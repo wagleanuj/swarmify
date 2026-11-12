@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { CountTick } from "../CountTick";
 import { Elapsed } from "../Elapsed";
 import { Icon, type IconName } from "../Icon";
+import { moment, MOMENTS } from "../moments";
 import { useConfirm } from "../Dialog";
 import { labelOf, useConnectors } from "../api/connectors";
 import { staysOpen } from "../api/answer";
@@ -111,7 +112,10 @@ export function RunTimeline() {
   const [justDone, setJustDone] = useState(false);
   const lastStatus = useRef(run?.status);
   useEffect(() => {
-    if (run?.status === "done" && lastStatus.current && lastStatus.current !== "done") setJustDone(true);
+    if (run?.status === "done" && lastStatus.current && lastStatus.current !== "done") {
+      setJustDone(true);
+      moment(MOMENTS.runDone(run.name));
+    }
     lastStatus.current = run?.status;
   }, [run?.status]);
   const waitingAt = run?.status === "waiting_gate" ? `${current(run)?.id}:${run.send_backs}:${run.over_budget}` : null;

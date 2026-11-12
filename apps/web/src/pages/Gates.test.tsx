@@ -24,6 +24,7 @@ afterEach(() => {
 const more = (card: ReturnType<ReturnType<typeof page.elementLocator>["getByTestId"]>) => card.getByText(/^(Add a note or ask|Ask before you answer)$/).click();
 
 test("the queue opens the next decision after each answer and says what was decided", async () => {
+  localStorage.removeItem("swarmify.answered-a-gate");
   const bodies: Record<string, unknown> = {};
   const decision = (id: string) => async (req: Request) => {
     bodies[id] = await req.json();
@@ -64,6 +65,10 @@ test("the queue opens the next decision after each answer and says what was deci
   await expect.element(approve).toBeVisible();
   const said = screen.getByText("You confirmed it. Next: Review and approve");
   await expect.element(said).toBeVisible();
+  // This browser's first answer is a success moment, told once, its check popping in.
+  const first = screen.getByText(/Your first decision is in\./);
+  await expect.element(first).toBeVisible();
+  expect(first.element().parentElement!.querySelector(".i-pop")).not.toBeNull();
   expect(router.state.location.search).toEqual({ gate: "s2" });
   await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 2");
   // Answered items sort last, dimmed.
@@ -82,6 +87,7 @@ test("the queue opens the next decision after each answer and says what was deci
     expect(bodies.run_2).toEqual({ note: "Too much text.", send_back_to: "research" }),
   );
   await expect.element(screen.getByText("You sent it back to research. Next: Pick an idea")).toBeVisible();
+  expect(document.body.textContent?.match(/Your first decision is in/g) ?? []).toHaveLength(1);
 
   const pick = screen.getByTestId("gate-run_1");
   await expect.element(pick).toMatchTextContent(/Pick one idea\./);
@@ -94,7 +100,7 @@ test("the queue opens the next decision after each answer and says what was deci
 
   // An empty queue is all clear, counts what was answered, and lists the runs still moving.
   const empty = screen.getByTestId("no-gates");
-  await expect.element(empty).toMatchTextContent(/All clear.*You answered 3 decisions this visit\./);
+  await expect.element(empty).toMatchTextContent(/All clear.*You answered 3 decisions this visit\. The next gate/);
   await expect.element(empty.getByRole("link", { name: "Nightly short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_7");
   await expect.element(empty.getByRole("link", { name: "Old one" })).not.toBeInTheDocument();
   // Each answer hides its card at once, without refetching before the run moves.

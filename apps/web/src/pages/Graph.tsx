@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { Empty } from "../Empty";
 import { graphRoute } from "../router";
 import { Loading, Skeleton } from "../Skeleton";
 import { cap, the } from "../skin";
@@ -255,19 +256,17 @@ export function Graph() {
 
       {!view && !failed && <span className="mem-skeleton mem-cols-skeleton">{columns}</span>}
       {empty && (
-        <div className="empty" data-testid="graph-empty">
-          <p>
-            The graph grows from the notes and artifacts agents write. {cap(the("writer"))} folds them in
-            about 30 seconds after the last one lands.
-          </p>
-          <ul className="faint">
-            <li>Start a run of a workflow; every note it writes becomes memory.</li>
-            <li>Drop a markdown brief into the world folder to seed what it knows.</li>
-          </ul>
-          <Link to="/worlds/$worldId" params={{ worldId }} className="button">
-            Start a run
-          </Link>
-        </div>
+        <Empty
+          icon="memory"
+          testId="graph-empty"
+          action={
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button primary">
+              Start a run
+            </Link>
+          }
+        >
+          {cap(the("writer"))} folds every note a run writes into memory here, about 30 seconds after the last one lands.
+        </Empty>
       )}
       {view && !empty && (
         <div className="mem-cols">

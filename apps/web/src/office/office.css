@@ -360,8 +360,14 @@
 .office-stage h2 { font-size: 30px; }
 .office-big { flex: 1 1 0; min-height: 120px; width: 100%; max-height: 360px; object-fit: contain; object-position: bottom; filter: drop-shadow(0 10px 0 var(--accent)); }
 .office-catch { padding: 6px 12px; background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; }
-.office-poses { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
-.office-app .office-poses .office-btn, .office-dress [role="group"] .office-btn { margin: 0; padding: 4px 10px; font-size: 13px; }
+/* The pose picker: a row of tiles, each the character in that pose over its name; the chosen one
+   sits up in the sun colour. It scrolls sideways in its own row where it does not fit. */
+.office-poses { display: flex; flex-wrap: nowrap; gap: 8px; min-width: 0; max-width: 100%; margin: 8px 0 0; padding: 4px 4px 8px; border: 0; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+.office-pose { flex: none; display: grid; justify-items: center; gap: 2px; width: 86px; padding: 6px 4px 4px; scroll-snap-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); font-size: 12px; font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; transition: transform var(--dur-fast) var(--ease-out); }
+.office-pose img { width: 40px; height: 48px; object-fit: contain; object-position: bottom; }
+.office-pose:has(:checked) { background: var(--sun); transform: translateY(-3px); }
+.office-pose:has(:focus-visible) { outline: 3px solid var(--ink); outline-offset: 2px; }
+.office-dress [role="group"] .office-btn { margin: 0; padding: 4px 10px; font-size: 13px; }
 .office-dress { display: grid; gap: 10px; align-content: start; }
 .office-dress [role="group"] { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .office-looks button { width: 54px; height: 54px; padding: 2px; background: #fff; border: 3px solid var(--ink); border-radius: 12px; }
@@ -423,6 +429,10 @@
 .talk-clear { max-width: 520px; padding: 24px 30px; text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); }
 .talk-clear h2 { margin: 0 0 6px; font-size: 28px; }
 .talk-clear .office-btn { margin: 8px auto 0; }
+/* The crew over All clear: standing in a row on the card, the first one waving. */
+.office-app .talk-crew { justify-content: center; height: auto; overflow: visible; gap: 8px 14px; padding: 18px 0 10px; }
+.office-app .talk-crew .office-actor { width: 66px; height: 88px; }
+.office-app .talk-crew .office-tag { font-size: 11px; }
 @media (max-width: 700px) {
   .talk-scene { flex-direction: column; align-items: stretch; gap: 8px; }
   .talk-hero { width: 120px; }
@@ -613,7 +623,7 @@
 @media (max-width: 700px) {
   .office-app .office-btn, .office-app .office-banner { min-height: 44px; }
   .office-app .office-bar .office-btn, .office-app .office-banner,
-  .office-app .office-poses .office-btn, .office-app .office-dress [role="group"] .office-btn { padding-block: 10px; }
+  .office-app .office-dress [role="group"] .office-btn { padding-block: 10px; }
   .office-app button.office-cup:not(.office-pixel *) { display: grid; place-items: end center; width: 44px; height: 44px; margin: -11px -9px 0; background: none; border: 0; border-radius: 0; }
   .office-app button.office-cup:not(.office-pixel *)::before { content: ""; width: 18px; height: 22px; box-sizing: border-box; background: var(--sun); border: 3px solid var(--ink); border-radius: 3px 3px 8px 8px; }
   .office-app button.office-cup.office-failed:not(.office-pixel *)::before, .office-app button.office-cup.office-aborted:not(.office-pixel *)::before { background: #c9c6d6; }

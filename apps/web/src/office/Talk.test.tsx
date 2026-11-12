@@ -152,7 +152,11 @@ test("an answer posts the gate's decision, the asker reacts and the next steps u
   await expect.element(screen.getByRole("heading", { name: "All clear" })).toBeVisible();
   expect(posted[1]).toEqual({ key: "POST /api/runs/run_b/decision", body: { note: "" } });
   await expect.element(screen.getByRole("img", { name: "Mira cheers" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/cheer.png");
-  await expect.element(screen.getByText(/Nobody needs you\. 0 runs are moving/)).toBeVisible();
+  await expect.element(screen.getByText(/Nobody needs you\. No run is moving; the next question lands here\./)).toBeVisible();
+  // The crew stands over All clear, the first one waving; decoration only, hidden from readers.
+  const crew = screen.getByTestId("talk-clear").element().querySelector(".talk-crew")!;
+  expect(crew.getAttribute("aria-hidden")).toBe("true");
+  await vi.waitFor(() => expect(crew.querySelectorAll(".office-actor").length).toBeGreaterThan(0));
 });
 
 test("a publish gate shows what goes out before any choice and posts it as shown or edited", async () => {

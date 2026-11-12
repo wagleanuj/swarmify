@@ -87,6 +87,16 @@ button:not(:disabled):active, a.button:active, label.button:active, .tabbar-item
 @keyframes pop { 0% { opacity: 0; transform: scale(0.6); } 60% { opacity: 1; transform: scale(1.12); } 100% { transform: none; } }
 .i-pop, .pop { animation: pop var(--dur-slow) var(--ease-out) both; transform-origin: center; }
 
+/* An empty place's glyph rises in once when the place first shows empty. */
+@keyframes glyph-in { from { opacity: 0; transform: translateY(6px) scale(0.8); } }
+.i-enter { animation: glyph-in var(--dur-slow) var(--ease-out) 60ms both; transform-origin: center; }
+
+/* The sign-in mark arrives; a refused password shakes the form once, sideways only. */
+@keyframes mark-in { from { opacity: 0; transform: scale(0.7); } }
+.mark-in svg { animation: mark-in var(--dur-slow) var(--ease-out) both; transform-origin: center; }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+.shake { animation: shake 360ms var(--ease-in-out) 1; }
+
 /* Attention: one element at a time asks to be looked at; a ring around it fades out twice.
    Opacity only on the ring, never an animated box-shadow. */
 @keyframes ring { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.25); } }
@@ -135,6 +145,8 @@ details[open] > summary::before { transform: rotate(90deg); }
   button:active, a.button:active, label.button:active, .tabbar-item:active, .sheet-row:active, .q-item:active, .chip-row .tab:active, .run-list li a:active { transform: none; }
   .i-live .i-dots circle { animation: none; opacity: 1; }
   .i-spinning { animation: none; }
+  /* An empty place's glyph, the sign-in mark and a refused password: already in place, still. */
+  .i-enter, .mark-in svg, .shake { animation: none; }
   /* The time strip holds still: no sheen on a running step, a waiting one at full colour. */
   .strip-seg.seg-running::before { animation: none; opacity: 0; }
   .strip-seg.seg-waiting { animation: none; }
