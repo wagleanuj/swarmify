@@ -488,7 +488,11 @@ class Memory:
             "primary_metric": primary,
             **(visibility or {}),
         }
-        _outcomes_of(file).write_text(json.dumps(found))
+        # whole or not at all, so a scorecard read meanwhile never sees half a sidecar; the temp
+        # name ends like a sidecar, so the graph's watch and prune pass over it too
+        temp = file.with_name(f".{file.name}.writing{OUTCOMES}")
+        temp.write_text(json.dumps(found))
+        temp.replace(_outcomes_of(file))
         self._event(
             world_id,
             fields.get("run"),

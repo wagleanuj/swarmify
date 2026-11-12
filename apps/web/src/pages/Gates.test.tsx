@@ -500,6 +500,30 @@ test("a pick gate offers the earlier stage's cards and an approve gate plays the
   );
 });
 
+test("approve waits for the piece it reviews, so a quick click still names it", async () => {
+  let loaded!: () => void;
+  const ready = new Promise<void>((resolve) => (loaded = resolve));
+  const bodies: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([inbox[1]!]),
+    "GET /api/runs/run_2/artifacts": async () => {
+      await ready;
+      return Response.json([short]);
+    },
+    "POST /api/runs/run_2/decision": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(run("running", [], { id: "run_2" }));
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const approve = screen.getByTestId("gate-run_2").getByRole("button", { name: "Approve" });
+  await expect.element(approve).toBeDisabled();
+  loaded();
+  await approve.click();
+  await vi.waitFor(() => expect(bodies).toEqual([{ note: "", artifact: "runs/run_2/stage_2/artifacts/short.mp4.md" }]));
+});
+
 test("an approve gate shows a typed script's top-level text, as the voice its judge chose", async () => {
   const value = { voice: "narrator", description: "Why hedgehogs sleep.", scenes: [{ id: "s01", lines: [] }] };
   const script = {
