@@ -25,16 +25,21 @@ import { Workflows } from "./pages/Workflows";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 import { Progress, ProgressLine } from "./Progress";
+import { useThemeColour } from "./pwa";
 import { Shell } from "./Shell";
 
 // The office draws its own full-screen shell; every other screen sits in the sidebar shell.
 // The progress line rides on top of both while API calls are slow.
-const Root = () => (
-  <>
-    <Progress />
-    {useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />}
-  </>
-);
+const Root = () => {
+  const office = useLocation().pathname.split("/")[3] === "office";
+  useThemeColour(office);
+  return (
+    <>
+      <Progress />
+      {office ? <Outlet /> : <Shell />}
+    </>
+  );
+};
 const rootRoute = createRootRoute({ component: Root });
 
 export const worldsRoute = createRoute({

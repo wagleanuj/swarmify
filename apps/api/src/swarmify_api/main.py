@@ -465,11 +465,19 @@ class SpaFiles(StaticFiles):
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except HTTPException as exc:
             if exc.status_code != 404 or path == "api" or path.startswith("api/"):
                 raise
             return await super().get_response("index.html", scope)
+        # The installed app (issue 458): its manifest typed, its service worker always revalidated
+        # so a deploy reaches phones, and allowed to control the whole app.
+        if path == "manifest.webmanifest":
+            response.headers["content-type"] = "application/manifest+json"
+        elif path == "sw.js":
+            response.headers["cache-control"] = "no-cache"
+            response.headers["service-worker-allowed"] = "/"
+        return response
 
 
 class McpEndpoint:

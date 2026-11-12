@@ -7,6 +7,7 @@ import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
 import { Loading, Skeleton } from "../Skeleton";
+import { InstallRow } from "../PwaNotices";
 import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { ModelSelect, useModels } from "./ModelSelect";
 import { Tokens } from "./Tokens";
@@ -350,6 +351,7 @@ export function Settings() {
         </div>
       </Row>
       <Tokens Row={Row} />
+      <InstallRow Row={Row} />
       <Row title="Danger" about="Deleting a world cannot be undone.">
         <div className="panel set-panel">
           <p>Deleting {name} removes its folder, runs, library and memory, with every file they made.</p>

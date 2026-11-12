@@ -9,7 +9,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "gen": "openapi-typescript openapi.json -o src/api/schema.d.ts"
+    "gen": "openapi-typescript openapi.json -o src/api/schema.d.ts",
+    "icons": "node icons/build.mjs"
   },
   "dependencies": {
     "@fontsource/pixelify-sans": "^5.3.0",

@@ -1,4 +1,5 @@
 import type { Ask } from "../Dialog";
+import { markAnswered } from "../pwa";
 import { api } from "./client";
 import type { Connectors } from "./connectors";
 import { type Call, type Run, useWorldEvents } from "./events";
@@ -167,6 +168,7 @@ export async function decide(runId: string, body: Decide): Promise<string | null
     params: { path: { run_id: runId } },
     body,
   });
+  if (!error) markAnswered();
   return refusal(error, response, "The decision was refused");
 }
 
