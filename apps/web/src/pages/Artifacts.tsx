@@ -168,11 +168,30 @@ export function TypedText({ body }: { body: string }) {
  * relative to the document loads through the files route. ponytail: no nesting; a markdown
  * library when documents need it. */
 export function Markdown({ text, base }: { text: string; base?: DocBase }) {
-  const blocks = text
-    .split(/\n\s*\n/)
-    .map((b) => b.trim())
-    .filter(Boolean);
-  return <div className="md">{blocks.map((b, i) => block(b, i, base))}</div>;
+  return <div className="md">{mdBlocks(text).map((b, i) => block(b, i, base))}</div>;
+}
+
+/** A document's blocks: split at blank lines, except inside a fenced code block, which stays
+ * whole. */
+export function mdBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  let cur: string[] = [];
+  let fenced = false;
+  const close = () => {
+    const b = cur.join("\n").trim();
+    if (b) blocks.push(b);
+    cur = [];
+  };
+  for (const line of text.split("\n")) {
+    const fence = line.trim().startsWith("```");
+    if (fence && !fenced) close(); // a fence opens its own block
+    if (!fenced && !line.trim()) close();
+    else cur.push(line);
+    if (fence) fenced = !fenced;
+    if (fence && !fenced) close();
+  }
+  close();
+  return blocks;
 }
 
 /** Where a document lives: its world and its path inside the world folder. */

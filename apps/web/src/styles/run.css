@@ -28,7 +28,9 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .run-loading .sk-panel { border-radius: var(--radius-card); }
 
 /* The time strip: each step as wide as its time; the bare variant is a list row's small strip */
+.strip-wrap { margin: 4px 0 6px; min-width: 0; }
 .strip { display: flex; gap: 2px; height: 40px; margin: 4px 0 6px; min-width: 0; }
+.strip-wrap .strip { margin: 0; }
 .strip-seg { position: relative; display: block; flex: 0 1 56px; min-width: 34px; min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--raised); color: var(--muted); font-size: 11px; font-weight: 500; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .strip-seg span { display: block; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; }
 .strip-seg:first-child { border-radius: 4px 0 0 4px; }
@@ -37,13 +39,39 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .seg-done { background: #23322a; color: #cfe9da; }
 .seg-done.seg-gate { background: #1e2a24; }
 .seg-running { background: #1d3a2b; color: #e8fff2; }
-.seg-waiting { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+.seg-waiting { background: color-mix(in srgb, var(--warning) 46%, var(--surface)); color: var(--text); }
+/* Now: the live step's end is marked; a running step carries a sheen, a waiting one breathes. */
+.seg-now { box-shadow: inset -2px 0 0 var(--text); }
+.strip-seg.seg-running::before { content: ""; position: absolute; inset: 0; background: rgb(255 255 255 / 0.1); transform-origin: left; transform: translateX(-35%) scaleX(0.35); animation: sheen 2.4s var(--ease-in-out) infinite; pointer-events: none; }
+.strip-seg.seg-waiting { animation: beckon 2.4s ease-in-out infinite; }
+/* The phone's key under the strip: the step that is now by name, the others as dots. */
+.strip-key { display: none; gap: 2px; height: 18px; margin-top: 6px; font-size: 12px; line-height: 18px; }
+.strip-key > span { position: relative; display: flex; justify-content: center; align-items: center; flex: 0 1 56px; min-width: 24px; }
+.strip-key i { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.strip-key .key-done i { background: var(--accent); }
+.strip-key .key-failed i { background: var(--negative); }
+.strip-key .key-pending i, .strip-key .key-skipped i { background: none; box-shadow: inset 0 0 0 1px var(--faint); }
+.strip-key b { position: absolute; z-index: 1; left: 0; top: 0; max-width: calc(50vw - 16px); padding-right: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; background: var(--ground); } /* the ground masks the dots it passes over */
+.strip-key b.key-end { padding: 0 0 0 6px; }
+.strip-key b.key-end { left: auto; right: 0; }
+.strip-key .key-waiting b { color: var(--warning); }
+.strip-key .key-failed b { color: var(--negative); }
 .seg-failed { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
 .seg-pending, .seg-skipped { background: transparent; border: 1px dashed var(--control); }
 .strip-seg[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--accent); }
 .strip-bare { height: 8px; margin: 0; gap: 1px; }
 .strip-bare .strip-seg { min-width: 3px; flex-basis: 12px; }
-.strip-axis { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; margin-bottom: var(--gap); }
+.strip-axis { display: flex; justify-content: space-between; gap: 12px; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; margin-bottom: var(--gap); }
+.elapsed[data-live] { color: var(--text); }
+/* The live step's latest line, under the strip while you watch it */
+.live-line { display: flex; align-items: center; gap: 8px; margin: calc(-1 * var(--gap) + 8px) 0 var(--gap); color: var(--muted); font-size: 13px; min-width: 0; }
+.live-line .icon { flex: none; color: var(--accent); }
+.live-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A done run's summary: the check, took, spent, made, and the one file to open */
+.done-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; padding: 10px 12px; border-radius: var(--radius-card); background: var(--pill-positive-bg); font-size: 14px; }
+.done-row > .icon { color: var(--accent); flex: none; }
+.done-row p { flex: 1 1 12rem; margin: 0; font-variant-numeric: tabular-nums; }
+.run-id code { font-size: 12px; overflow-wrap: anywhere; }
 
 .run-grid { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: var(--gap); align-items: start; }
 .run-side { display: grid; gap: var(--gap); }
@@ -78,6 +106,11 @@ svg.glyph { color: var(--accent); }
 .menu button:hover { background: var(--surface); }
 .menu button.danger { color: var(--pill-negative-ink); }
 .run-actions .menu, .run-topbar .menu { left: auto; right: 0; }
+/* On a phone the menu is a sheet: each action a full-width row, its note under it */
+.menu-sheet button.sheet-row { width: 100%; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: none; text-align: left; font-weight: 500; }
+.menu-sheet button.sheet-row:last-child { border-bottom: 0; }
+.menu-sheet .sheet-row small { text-align: left; font-weight: 400; }
+.menu-sheet .sheet-row.danger { color: var(--pill-negative-ink); }
 
 /* The result and the gate's answer lead the selected step's panel */
 .result { display: grid; gap: 8px; }
@@ -98,7 +131,13 @@ svg.glyph { color: var(--accent); }
 .run-page .panel .agents, .run-page .panel .whiteboard { margin: 0; padding: 0; background: none; border: 0; }
 .run-page .panel-head { justify-content: flex-start; margin: 0; }
 .run-page .panel p { margin: 0; }
-.stage-failure { display: grid; gap: 8px; color: var(--negative); }
+.stage-failure { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--radius-card); background: var(--pill-negative-bg); color: var(--text); }
+/* The failed step's block says why; the status line above would only say it again. */
+.run-page:has(.stage-failure) p.status-line.state-failed { display: none; }
+.failure-line { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.45; }
+.failure-line .icon { flex: none; color: var(--negative); margin-top: 1px; }
+.stage-failure .stage-log { margin-top: 8px; white-space: pre; word-break: normal; overflow-wrap: normal; }
+.failure-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .stage-log { max-height: 20rem; overflow-y: auto; color: var(--text); }
 .agent-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); align-items: start; }
 .agent-card { display: grid; gap: 2px; padding: 10px 12px; background: var(--well); border-radius: var(--radius-field); }
@@ -150,10 +189,17 @@ svg.glyph { color: var(--accent); }
 
 @media (max-width: 48rem) {
   .run-grid, .result-one, .inline-gate .gate:has(> .artifact-view) { grid-template-columns: minmax(0, 1fr); }
-  .run-grid > .run-side, .axis-time { display: none; } /* the steps, spend and time move to the sheet and the status line */
+  .run-grid > .run-side { display: none; } /* the steps and spend move to the sheet */
+  .run-page header.page > div:first-child { flex: 1 1 100%; } /* the title block takes the row; Ask this run sits under it */
   .run-pill { display: inline-flex; margin: 6px 8px 0 0; }
+  .run-pill .icon { margin-left: -2px; }
+  /* The question is asked once, by the gate's card below; a done run's summary says the rest. */
+  .run-page:has(.inline-gate) p.status-line.state-waiting_gate, .run-page p.status-line.state-done { display: none; }
+  .strip-key { display: flex; }
+  .strip-axis { font-size: 12px; }
   .run-pill + p.status-line { display: inline; }
   .axis-spend, .step-button, .run-topbar { display: flex; }
+  .axis-spend { gap: 0.3em; }
   /* The back link and the run menu take the top bar from the world chip; the compact title
      fades in between them. */
   .topbar:has(.run-topbar) .world-chip, .run-actions .menu-wrap { display: none; }
@@ -166,7 +212,7 @@ svg.glyph { color: var(--accent); }
   .run-loading .sk-step { display: block; }
   .run-loading .sk-ask { --sk-h: 44px; }
   /* Each segment a 24px tap at least; a long run's strip scrolls inside itself */
-  .strip:not(.strip-bare) { overflow-x: auto; scrollbar-width: none; }
+  .strip-wrap { overflow-x: auto; scrollbar-width: none; }
   .strip:not(.strip-bare) .strip-seg { min-width: 24px; }
   .strip-seg span { display: none; }
   .take-list li { grid-template-columns: minmax(0, 1fr) auto; }

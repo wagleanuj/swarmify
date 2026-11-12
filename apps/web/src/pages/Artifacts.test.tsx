@@ -1,9 +1,11 @@
 import { expect, test } from "vitest";
 import { render } from "vitest-browser-react";
 
+import "../index.css";
+
 import { choosable, underReview } from "../api/answer";
 import { artifact } from "../test/fakes";
-import { ArtifactCards, ArtifactView, imageSrc, Markdown } from "./Artifacts";
+import { ArtifactCards, ArtifactView, imageSrc, Markdown, mdBlocks } from "./Artifacts";
 
 const chase = artifact({
   name: "idea-chase.md",
@@ -114,4 +116,22 @@ test("an image resolves against its document's folder and never leaves the world
     expect(imageSrc(refused, base), refused).toBeNull();
   }
   expect(imageSrc("frame.png"), "no base, no relative image").toBeNull();
+});
+
+test("a fenced block stays whole across blank lines, and a table is a table in a frame that scrolls with its first column fixed", async () => {
+  const text = "Ideas\n\n```\nffmpeg -i take.mp4\n\n-crf 18 short.mp4\n```\n\n| Hook | Seconds | Views | Retention | Likes | Shares | Comments | Saves |\n|---|---|---|---|---|---|---|---|\n| Wait for it | 1.0 | 120000 | 64 percent | 5400 | 820 | 311 | 990 |";
+  expect(mdBlocks(text)).toHaveLength(3);
+  const screen = await render(
+    <div style={{ width: 300 }}>
+      <Markdown text={text} />
+    </div>,
+  );
+  const pre = screen.container.querySelector("pre")!;
+  expect(pre.textContent).toBe("ffmpeg -i take.mp4\n\n-crf 18 short.mp4");
+  // Code never wraps mid-token; it scrolls.
+  expect(getComputedStyle(pre).whiteSpace).toBe("pre");
+  expect(screen.container.textContent).not.toContain("|");
+  const frame = screen.container.querySelector(".scroll-x")!;
+  expect(frame.scrollWidth).toBeGreaterThan(frame.clientWidth);
+  expect(getComputedStyle(screen.container.querySelector("td")!).position).toBe("sticky");
 });

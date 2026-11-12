@@ -13,6 +13,8 @@
 @keyframes pulse { 50% { opacity: 0.35; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(4px); } }
+@keyframes beckon { 50% { opacity: 0.62; } } /* a waiting step asks to be looked at */
+@keyframes sheen { to { transform: translateX(100%) scaleX(0.35); } } /* a running step's light passes */
 @keyframes bar-up { from { transform: translateY(100%); } } /* a pinned bar rises on first show */
 
 /* Data that replaces a skeleton fades in where it stands, nothing moves. */
@@ -79,7 +81,7 @@ button:not(:disabled):active, a.button:active, label.button:active, .tabbar-item
 .tick-out { opacity: 0; animation: tick-out var(--dur-base) var(--ease-out) both; }
 
 /* A status changed: the pill is keyed by its status, so the new state fades in where it stands. */
-.status { animation: fade-in var(--dur-base) var(--ease-out) both; }
+.status, .status-fade { animation: fade-in var(--dur-base) var(--ease-out) both; }
 
 /* Success: a check that just landed pops in (scale and opacity, never a stroke draw). */
 @keyframes pop { 0% { opacity: 0; transform: scale(0.6); } 60% { opacity: 1; transform: scale(1.12); } 100% { transform: none; } }
@@ -130,4 +132,7 @@ details[open] > summary::before { transform: rotate(90deg); }
   /* The static end states: no press give, the live dots shown, a turned chevron already turned. */
   button:active, a.button:active, label.button:active, .tabbar-item:active, .sheet-row:active, .q-item:active, .chip-row .tab:active, .run-list li a:active { transform: none; }
   .i-live .i-dots circle { animation: none; opacity: 1; }
+  /* The time strip holds still: no sheen on a running step, a waiting one at full colour. */
+  .strip-seg.seg-running::before { animation: none; opacity: 0; }
+  .strip-seg.seg-waiting { animation: none; }
 }

@@ -21,3 +21,13 @@ test("the first value just shows; a change slides the old out and the new in, th
   await screen.rerender(<CountTick value={1} />);
   expect(tick().getAttribute("data-dir")).toBe("down");
 });
+
+test("a format writes the number out, and the direction still comes from the number", async () => {
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const screen = await render(<CountTick value={0.5} format={money} />);
+  const tick = () => screen.container.querySelector(".tick")!;
+  expect(tick().textContent).toBe("$0.50");
+  await screen.rerender(<CountTick value={1.25} format={money} />);
+  expect(tick().getAttribute("data-dir")).toBe("up");
+  expect(tick().querySelector(".tick-in")?.textContent).toBe("$1.25");
+});

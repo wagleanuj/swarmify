@@ -5,8 +5,10 @@ import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
 import { type Agent, useWorldEvents } from "../api/events";
 import { needsYou, useOpenGates } from "../api/gates";
-import { type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
+import { duration, type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
+import { Elapsed } from "../Elapsed";
+import { Icon } from "../Icon";
 import { cap, saveSkin } from "../skin";
 import { Actor, Bench, type Look, type Pack, still, stillFrame, useCast } from "./cast";
 import { appClass, FullScreen, Tabs, useNight } from "./chrome";
@@ -332,7 +334,10 @@ function QuestBoard({ runs, connectors, open }: Floor) {
     <li key={run.id}>
       <button type="button" className={`office-note-card office-${kind}`} aria-label={label} onClick={() => open(run.id)}>
         <b>{run.name}</b>
-        <small>{meta}</small>
+        {/* Keyed by status, so a change fades in where it stands, as the plain view's pills do. */}
+        <small key={run.status} className="status-fade">
+          {meta}
+        </small>
       </button>
     </li>
   );
@@ -529,7 +534,16 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
     <>
       <button type="button" className="office-board" aria-label={podName(run, runs, connectors)} onClick={() => open(run.id)}>
         <b>{run.name}</b>
-        <small>{cap(stageLine(run))}</small>
+        <small>
+          {run.status === "running" && <Icon name="play" live />}
+          {cap(stageLine(run))}
+          {(run.status === "running" || run.status === "waiting_gate") && duration(run) !== null && (
+            <>
+              {" · "}
+              <Elapsed run={run} />
+            </>
+          )}
+        </small>
         <span className="office-progress" aria-hidden="true">
           <i style={{ width: `${(done / Math.max(1, run.stages.length)) * 100}%` }} />
         </span>

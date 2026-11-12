@@ -245,9 +245,16 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 .md h3, .md h4, .md h5, .md h6 { margin: 4px 0 0; font-size: 14px; }
 .md img { max-width: 100%; height: auto; border-radius: var(--radius-field); }
 .scroll-x { overflow-x: auto; }
-.md table { border-collapse: collapse; font-size: 13px; }
-.md th, .md td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 8ch; }
-.md th { color: var(--muted); font-weight: 600; background: var(--well); }
+.md table { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+/* A table or a code block scrolls in its own frame, never the page; a table's first column stays put. */
+.md .scroll-x { max-width: 100%; border-radius: var(--radius-field); }
+.md th:first-child, .md td:first-child { position: sticky; left: 0; z-index: 1; background: var(--well); }
+.md pre { white-space: pre; word-break: normal; overflow-wrap: normal; }
+.md th, .md td { padding: 6px 10px; border: 0 solid var(--border); border-width: 0 1px 1px 0; text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 8ch; }
+.md th { color: var(--muted); font-weight: 600; }
+.md th, .md td { background: var(--well); }
+.md thead th { border-top-width: 1px; }
+.md th:first-child, .md td:first-child { border-left-width: 1px; }
 .reader { display: grid; gap: 16px; max-width: 48rem; }
 .reader header.page { margin-bottom: 0; }
 .reader .panel { display: grid; gap: 16px; }

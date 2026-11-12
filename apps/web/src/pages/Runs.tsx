@@ -41,7 +41,6 @@ function timeWent(runs: Run[]): [string, { secs: number; gate: boolean }][] {
 }
 
 const spentOf = (runs: Run[]) => runs.reduce((sum, r) => sum + r.spent_usd, 0);
-const shortId = (id: string) => (id.length > 10 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id);
 export const when = (iso: string) =>
   new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -52,12 +51,17 @@ export function Runs() {
   const [error, setError] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflow, setWorkflow] = useState("");
+  // Runs that started while the list was open: they slide in at the top.
+  const [arrived, setArrived] = useState<Set<string>>(() => new Set());
 
   // The stream starts where the run list's snapshot does, once it has loaded.
   const saw = useRunUpdates(worldId, (run) =>
-    setRuns((prev) =>
-      prev && (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]),
-    ),
+    setRuns((prev) => {
+      if (!prev) return prev;
+      if (prev.some((r) => r.id === run.id)) return prev.map((r) => (r.id === run.id ? run : r));
+      setArrived((a) => new Set(a).add(run.id));
+      return [run, ...prev];
+    }),
   );
 
   useEffect(() => {
@@ -176,7 +180,7 @@ export function Runs() {
                   {shown.map((r) => {
                     const secs = duration(r);
                     return (
-                      <tr key={r.id}>
+                      <tr key={r.id} className={arrived.has(r.id) ? "arrived" : undefined}>
                         <td>
                           <span>
                             <Link to="/worlds/$worldId/runs/$runId" params={{ worldId, runId: r.id }}>
@@ -184,12 +188,13 @@ export function Runs() {
                             </Link>{" "}
                             <span className="faint">{version(r)}</span>
                           </span>
-                          <span className="faint">
-                            <span className="mono" title={r.id}>{shortId(r.id)}</span>
-                            {r.parent && <RunRef label=" · child of" run={r.parent} testId="child-of" />}
-                            {r.forked_from && <RunRef label=" · fork of" run={r.forked_from} testId="fork-of" />}
-                            {r.baseline && ` · ${baseline()}`}
-                          </span>
+                          {(r.parent || r.forked_from || r.baseline) && (
+                            <span className="faint relation">
+                              {r.parent && <RunRef label="child of" run={r.parent} testId="child-of" />}
+                              {r.forked_from && <RunRef label={r.parent ? " · fork of" : "fork of"} run={r.forked_from} testId="fork-of" />}
+                              {r.baseline && `${r.parent || r.forked_from ? " · " : ""}${baseline()}`}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <span key={r.status} className={`status status-${r.status}`}>
