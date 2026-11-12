@@ -275,10 +275,15 @@ def test_a_skipped_stage_no_longer_counts_for_the_check(runner: Runner) -> None:
         runner.apply(run.id, public, proposal.revision, "operator")
 
 
-def test_a_gate_answer_and_a_rerun_at_once_do_not_both_land(runner: Runner, calls: Calls) -> None:
+def test_a_gate_answer_and_a_rerun_at_once_do_not_both_land(
+    runner: Runner, calls: Calls, notifier: FakeNotifier
+) -> None:
     """The Rerun lands while the gate is being answered: the answer is refused, not dropped."""
     run = runner.start("world_1", "wf_1", 1, "Short", [WRITE, CONFIRM, RENDER])
     run = at(runner, run.id, "waiting_gate")
+    # The run reads waiting_gate before its save step asks for the gate's preview: swap the
+    # previews only once the gate opened, or the run's own call lands the Rerun first.
+    wait_for(lambda: any(e.type == "gate.opened" for e in notifier.events))
     rerun = change(run, "rerun", "write", "Again.")
 
     def meanwhile(*_: object) -> None:
@@ -377,6 +382,9 @@ def test_a_rerun_of_a_failed_stage_while_its_retro_waits_runs_it_again_in_place(
     run = at(runner, run.id, "waiting_gate")
     skip = change(run, "skip", "extra")
     runner.apply(run.id, skip, runner.propose(run.id, skip).revision, "operator")
+    # The run takes the Skip on its own thread, which moves its revision: answer after that,
+    # or the answer reads the gate before and is refused as stale.
+    wait_for(lambda: fetch(runner, run.id).stages[3].status == "skipped")
     runner.decide(run.id, choice="idea 1")
     wait_for(lambda: fetch(runner, run.id).stages[4].status == "waiting")
     run = fetch(runner, run.id)

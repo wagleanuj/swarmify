@@ -499,7 +499,8 @@ export function GateCard({
           )}
           {gate.kind === "approve" && (
             <>
-              <button type="submit" className="primary" disabled={busy || blocked(gate, changed)}>
+              {/* Waits for what it reviews, so an approval of one piece names it in the record. */}
+              <button type="submit" className="primary" disabled={busy || artifacts === null || blocked(gate, changed)}>
                 Approve
               </button>
               {sendBackTargets(gate).length > 0 ? (

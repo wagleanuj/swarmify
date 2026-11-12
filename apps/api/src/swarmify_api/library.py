@@ -187,7 +187,11 @@ def prepare_later(prepare: Prepare, package: Connector, folder: Path, added: str
                 said = {"prepare": "failed", "prepare_error": str(exc)}
         meta = _record(folder)
         if meta and meta.get("added") == added:
-            (folder / build_session.RECORD).write_text(json.dumps(meta | said))
+            # whole or not at all: a listing reading it mid-write would see no record. The temp
+            # file sits beside the Template, not in it, where its fingerprint would count it.
+            temp = folder.with_name(f".{folder.name}{build_session.RECORD}.tmp")
+            temp.write_text(json.dumps(meta | said))
+            temp.replace(folder / build_session.RECORD)
 
     threading.Thread(target=job, daemon=True).start()
 
@@ -221,8 +225,15 @@ def templates(world: Path, folders: list[OwnedFolder]) -> list[Template]:
 
 
 def _size(folder: Path, record: Path) -> int:
-    files = (p for p in folder.rglob("*") if p.is_file() and not p.is_symlink())
-    return sum(p.stat().st_size for p in files if p != record)
+    total = 0
+    for p in folder.rglob("*"):
+        try:
+            found = p.lstat()
+        except FileNotFoundError:
+            continue  # a running prepare made and removed it while we walked
+        if stat.S_ISREG(found.st_mode) and p != record:
+            total += found.st_size
+    return total
 
 
 def _gb(n: int) -> str:

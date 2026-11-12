@@ -448,7 +448,8 @@ function choices(
       return cards.map((c) => ({ label: `Pick ${c.title}`, cheer: true, choose: () => ({ kind: "pick", choice: c.title, artifact: c.path }) }));
     case "approve":
       return [
-        { label: "Approve", cheer: true, disabled: stop, choose: () => ({ kind: "approve" }) },
+        // Waits for what it reviews, so an approval of one piece names it in the record.
+        { label: "Approve", cheer: true, disabled: stop || !artifacts, choose: () => ({ kind: "approve" }) },
         ...sendBackTargets(gate).map((to) => ({ label: `Send back to ${to}`, cheer: false, choose: (): Choice => ({ kind: "send_back", to }) })),
       ];
     case "confirm":
