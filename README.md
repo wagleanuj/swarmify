@@ -1246,6 +1246,31 @@ message carries a deep link: gates to `/gates`, everything else to the run timel
 - To get a webhook: create a Slack app at api.slack.com/apps, turn on Incoming Webhooks, add one
   to your channel and paste its URL into the settings page.
 
+### Push notifications
+
+Web Push is the second adapter of the same Notifier port: every browser the operator turns it on
+in (Settings, Notifications) gets a system notification when a gate opens (title: the run's
+name, body: the gate's ask, a tap opens the gate), when a run fails, when a budget warns or is
+spent, and for each new Needs-you notice (sign-in, outcomes, visibility, network; checked every
+minute). One notification per gate; a later one for the same gate or run replaces it. Each device
+switches the four kinds (gates, failures, budget, notices) on or off.
+
+- Needs https (the Tailscale address below) or `localhost`. On an iPhone or iPad it works only in
+  the installed app (Share, Add to Home Screen, iOS 16.4 or later); Settings says so there.
+- The server signs pushes with a VAPID key pair. Without env it makes one on first start and keeps
+  it in `<data_dir>/vapid.json` (mode 600); the private key never leaves the server. To pin a pair
+  instead, `uv run python tools/vapid_keys.py` prints `SWARMIFY_VAPID_PUBLIC_KEY`,
+  `SWARMIFY_VAPID_PRIVATE_KEY` and `SWARMIFY_VAPID_SUBJECT` lines for `.env`. Changing the pair
+  ends every subscription; each device turns it on again.
+- `SWARMIFY_VAPID_SUBJECT` is the contact push services may write to, `mailto:you@example.com`
+  or an https URL. Unset, it is the https origin of `SWARMIFY_BASE_URL`, else a localhost
+  placeholder Apple may refuse: set it for iPhones.
+- `GET /api/push/key` is the public key; `GET`, `POST /api/push/subscriptions` and
+  `PATCH`, `DELETE /api/push/subscriptions/<id>` list, add (the browser's `PushSubscription` and a
+  label), switch kinds and remove devices; `POST /api/push/test/<id>` sends a test (404 when the
+  browser has dropped it, 502 when the push service refuses). A 404 or 410 from the push service
+  deletes the subscription. Endpoints, keys and payloads are never returned or logged.
+
 ## Library, pins, forks and promotes
 
 The Library is every artifact of a world across its runs, read from the files (ADR 0001): the
@@ -1458,7 +1483,8 @@ without opening a port on the router.
    host reaches it then.
 
 Do not use `tailscale funnel`, which publishes the install to the whole internet. Set
-`SWARMIFY_BASE_URL` to the address you open, so Slack links point there.
+`SWARMIFY_BASE_URL` to the address you open, so Slack links point there. Push notifications need
+this https address (README, Push notifications).
 
 ## Deployment
 
@@ -1491,6 +1517,10 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
    SWARMIFY_BIND=0.0.0.0                      # optional: 127.0.0.1 keeps it off the LAN
    SWARMIFY_PORT=8000                         # optional: the host port
    SWARMIFY_PACKAGE_SOURCES=/data/sources     # optional: where local-path package installs may come from
+   SWARMIFY_VAPID_SUBJECT=mailto:you@example.com  # optional: push contact, set it for iPhones
+   # optional, else made once in /data/vapid.json: uv run python tools/vapid_keys.py
+   SWARMIFY_VAPID_PUBLIC_KEY=
+   SWARMIFY_VAPID_PRIVATE_KEY=
    BUILDX_NO_DEFAULT_ATTESTATIONS=1           # keeps an unchanged api image the same image
    ```
 

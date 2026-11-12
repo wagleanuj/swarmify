@@ -73,7 +73,7 @@ from swarmify_connectors import (
     publish,
 )
 from swarmify_connectors import SqliteStorage as ConnectorStorage
-from swarmify_kernel import AGENT_TOOLS
+from swarmify_kernel import AGENT_TOOLS, Event
 from swarmify_kernel import MIGRATIONS as KERNEL_MIGRATIONS
 from swarmify_kernel.sqlite import connect, migrate
 from swarmify_learning import MIGRATIONS as LEARNING_MIGRATIONS
@@ -91,7 +91,7 @@ from swarmify_memory import (
 )
 from swarmify_memory.writer import Extract
 from swarmify_notifications import MIGRATIONS as NOTIFICATIONS_MIGRATIONS
-from swarmify_notifications import Notifications
+from swarmify_notifications import Notifications, PushStorage, push
 from swarmify_notifications import SqliteStorage as ChannelStorage
 from swarmify_runs import (
     DEFAULT_CAP,
@@ -273,6 +273,17 @@ def notification_service(root: Path) -> Notifications:
     return Notifications(ChannelStorage(migrated_db(root)), base_url())
 
 
+class Fanout:
+    """One Notifier that tells each of `notifiers` in turn."""
+
+    def __init__(self, *notifiers: Notifier) -> None:
+        self.notifiers = notifiers
+
+    def notify(self, event: Event) -> None:
+        for notifier in self.notifiers:
+            notifier.notify(event)
+
+
 def run_storage(root: Path) -> RunStorage:
     """The runs' storage, whose monthly spend counts the Run Assistant's too."""
     return assistant.RunsWithAssistant(migrated_db(root))
@@ -287,6 +298,8 @@ def utc_now() -> datetime:
 
 
 SWEEP_SECONDS = 15.0
+PUSH_NOTICE_SECONDS = 60.0
+"""How often the Needs-you notices are checked for new ones to push."""
 """How often silent claims are returned to open. Well under the two-minute heartbeat timeout."""
 
 
@@ -465,11 +478,19 @@ class SpaFiles(StaticFiles):
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except HTTPException as exc:
             if exc.status_code != 404 or path == "api" or path.startswith("api/"):
                 raise
             return await super().get_response("index.html", scope)
+        # The installed app (issue 458): its manifest typed, its service worker always revalidated
+        # so a deploy reaches phones, and allowed to control the whole app.
+        if path == "manifest.webmanifest":
+            response.headers["content-type"] = "application/manifest+json"
+        elif path == "sw.js":
+            response.headers["cache-control"] = "no-cache"
+            response.headers["service-worker-allowed"] = "/"
+        return response
 
 
 class McpEndpoint:
@@ -545,6 +566,15 @@ def create_app(
         registry.offer_defaults(world.id)
     memory = Memory(migrated_db(root), root)
     channels = notification_service(root)
+    # Web Push to the operator's browsers (issue 459). Its notify only queues, so it goes first.
+    push_keys = push.load_keys(root, dict(os.environ), base_url())
+    web_push = push.WebPush(
+        PushStorage(migrated_db(root)),
+        push.sender(push_keys),
+        lambda run_id, index: (
+            g.stage_id if (g := open_gate(run_id)) and g.stage_index == index else None
+        ),
+    )
     learning_svc = learning_service(root)
 
     def builder_session(run_id: str, stage_id: str) -> str | None:
@@ -926,7 +956,7 @@ def create_app(
         root / "dbos.sqlite",
         connector or connector_stage,
         root,
-        notifier or approvers,
+        notifier or Fanout(web_push, approvers),
         swarm=run_swarm,
         take=take,
         previews=previews(registry, world_svc, pins),
@@ -965,10 +995,30 @@ def create_app(
             await asyncio.sleep(sweep_seconds)
 
     outcome_notices: dict[str, str] = {}  # by connector, from the last upkeep
+    notices = upkeep.notice_source(
+        world_svc,
+        memory,
+        registry,
+        lambda run_id: r.status if (r := runner.get(run_id)) else None,
+        outcome_notices,
+        clock,
+        swarm.waiting,
+    )
 
     def upkeep_once() -> None:
         upkeep.record_outcomes(world_svc, memory, registry, clock(), outcome_notices)
         upkeep.prune(world_svc, memory, clock())
+
+    async def push_notices() -> None:
+        """New Needs-you notices go to the browsers that asked for them."""
+        while True:
+            try:
+                if await to_thread.run_sync(lambda: web_push.storage.targets("notices")):
+                    found = await to_thread.run_sync(notices)
+                    web_push.notices(push.Notice(**n.model_dump()) for n in found)
+            except Exception:
+                log.exception("checking notices to push failed, retrying next tick")
+            await asyncio.sleep(PUSH_NOTICE_SECONDS)
 
     async def upkeep_loop() -> None:
         # ponytail: an in-process interval, restarted with the app; both jobs are idempotent, so
@@ -996,6 +1046,7 @@ def create_app(
             )
         )
         upkeeper = asyncio.create_task(upkeep_loop())
+        pusher = asyncio.create_task(push_notices())
         stop = threading.Event()
         # The GraphWriter's one thread: every world's rebuilds in turn (ADR 0003).
         rebuilds = threading.Thread(
@@ -1009,7 +1060,7 @@ def create_app(
         async with tools.session_manager.run(), approvals.session_manager.run():
             yield
         stop.set()
-        for task in (sweeper, upkeeper):
+        for task in (sweeper, upkeeper, pusher):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
@@ -1056,17 +1107,7 @@ def create_app(
     app.include_router(agents.router(whiteboard, memory, runner.get, runner.family))
     app.include_router(graph.router(world_svc, index, writer))
     app.include_router(graph.stalled_router(world_svc, writer))
-    app.include_router(
-        upkeep.notices_router(
-            world_svc,
-            memory,
-            registry,
-            lambda run_id: r.status if (r := runner.get(run_id)) else None,
-            outcome_notices,
-            clock,
-            swarm.waiting,
-        )
-    )
+    app.include_router(upkeep.notices_router(notices))
     app.include_router(
         library.router(
             memory,
@@ -1081,6 +1122,7 @@ def create_app(
         )
     )
     app.include_router(notifications.router(channels, world_svc))
+    app.include_router(notifications.push_router(web_push, push_keys.public))
     app.include_router(
         learning.router(learning_svc, world_svc, workflow_svc, runner, world_svc.events_after)
     )

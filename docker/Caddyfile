@@ -23,6 +23,10 @@
 	}
 	handle {
 		root * /srv
+		# The installed app (issue 458): the manifest typed, the service worker always revalidated.
+		header /manifest.webmanifest Content-Type application/manifest+json
+		header /sw.js Cache-Control no-cache
+		header /sw.js Service-Worker-Allowed /
 		# Client routes like /gates get index.html, as the api's SpaFiles does natively.
 		try_files {path} /index.html
 		file_server

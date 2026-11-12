@@ -166,7 +166,7 @@ def hidden_posts(
     return out
 
 
-def notices_router(
+def notice_source(
     worlds: Worlds,
     memory: Memory,
     registry: Connectors,
@@ -174,14 +174,12 @@ def notices_router(
     outcome_notices: Mapping[str, str],
     clock: Callable[[], datetime],
     waiting: Callable[[], list[Waiting]] = lambda: [],
-) -> APIRouter:
+) -> Callable[[], list[Notice]]:
     """What the Needs-you page lists beside the gates: an account whose sign-in the provider
     refused (an expired refresh token, say), what a connector could not read on the last
     upkeep, a post still hidden a day after it went out, and a run whose agents have waited
-    for the network over NOTICE_AFTER."""
-    api = APIRouter(prefix="/api", tags=["notices"])
+    for the network over NOTICE_AFTER. Web Push sends the same list as it changes."""
 
-    @api.get("/notices")
     def notices() -> list[Notice]:
         out: list[Notice] = []
         signed_out: set[tuple[str, str | None]] = set()
@@ -217,6 +215,12 @@ def notices_router(
         out += network_notices(waiting(), clock())
         return out
 
+    return notices
+
+
+def notices_router(notices: Callable[[], list[Notice]]) -> APIRouter:
+    api = APIRouter(prefix="/api", tags=["notices"])
+    api.get("/notices")(notices)
     return api
 
 

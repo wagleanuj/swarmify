@@ -1,0 +1,19 @@
+/* The app's own notices (PwaNotices.tsx), stacked above the tab bar of either theme so they never
+   cover a top bar. Opaque surfaces from the plain tokens. */
+.pwa-notes { position: fixed; bottom: calc(var(--tabbar) + 12px); left: 0; right: 0; z-index: 45; display: grid; justify-items: center; gap: 8px; padding: 0 16px; pointer-events: none; }
+.pwa-note { pointer-events: auto; display: flex; align-items: center; gap: 12px; margin: 0; max-width: 28rem; padding: 8px 8px 8px 14px; background: var(--raised); color: var(--text); border: 1px solid var(--control); border-radius: 10px; box-shadow: 0 8px 24px #0008; font: 500 13px/1.4 var(--font); animation: fade-up var(--dur-base) var(--ease-out) both; }
+p.pwa-note { padding: 8px 14px; }
+.pwa-note span { flex: 1; }
+.pwa-hint { pointer-events: auto; width: 100%; max-width: 28rem; box-sizing: border-box; display: grid; gap: 12px; padding: 14px 16px; background: var(--raised); color: var(--text); border: 1px solid var(--control); border-radius: 12px; box-shadow: 0 8px 24px #0008; font: 14px/1.4 var(--font); animation: fade-up var(--dur-base) var(--ease-out) both; }
+.pwa-hint p { display: grid; gap: 2px; margin: 0; }
+.pwa-hint-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* On the Office, the notes wear its paper note (office.css .office-note). */
+.on-office .pwa-note { background: #fffdf6; color: #2b2840; border: 3px solid #2b2840; border-radius: 12px; box-shadow: none; font-weight: 600; }
+@media (max-width: 48rem) {
+  .pwa-notes.on-office { bottom: calc(108px + env(safe-area-inset-bottom)); }
+  .pwa-note button, .pwa-hint button { min-height: 44px; }
+  .pwa-note button.link { display: inline-flex; align-items: center; padding: 0 8px; }
+}
+/* The push prompt on the Office is its speech bubble, as the other notes are. */
+.on-office .pwa-hint { background: #fffdf6; color: #2b2840; border: 3px solid #2b2840; box-shadow: none; }
+.on-office .pwa-hint .sub { color: #2b2840; opacity: .75; }

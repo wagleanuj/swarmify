@@ -7,6 +7,8 @@ import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
 import { Loading, Skeleton } from "../Skeleton";
+import { NotificationsRow } from "../Notifications";
+import { InstallRow } from "../PwaNotices";
 import { cap, piedPiper, setPiedPiper, the } from "../skin";
 import { notify } from "../Toast";
 import { ModelSelect, useModels } from "./ModelSelect";
@@ -303,6 +305,7 @@ export function Settings() {
           </div>
         </form>
       </Row>
+      <NotificationsRow Row={Row} />
       <Row title="Names" about="What the page calls the agents. Kept in this browser, for every world.">
         <div className="panel set-panel">
           <label className="check">
@@ -323,6 +326,7 @@ export function Settings() {
         </div>
       </Row>
       <Tokens Row={Row} />
+      <InstallRow Row={Row} />
       <Row title="Danger zone" about="Deleting a world cannot be undone." className="set-danger">
         <div className="panel set-panel">
           <p>Deleting {name} removes its folder, runs, library and memory, with every file they made.</p>
