@@ -217,13 +217,15 @@ class WebPush:
 
     def subscribe(self, endpoint: str, p256dh: str, auth: str, label: str) -> dict:
         """Store this browser's subscription (again, if it changed keys). ValueError for an
-        endpoint that is not https or keys that are not base64url."""
+        endpoint that is not https, or keys that are not base64url or not a P-256 point."""
         url = urlparse(endpoint)
         if url.scheme != "https" or not url.netloc:
             raise ValueError("the push endpoint must be an https URL")
         try:
-            if len(_unb64(p256dh)) != 65 or len(_unb64(auth)) != 16:
+            if len(_unb64(auth)) != 16:
                 raise ValueError
+            # Only a point on the curve can be encrypted for; anything else fails every send.
+            ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), _unb64(p256dh))
         except (ValueError, TypeError) as exc:
             raise ValueError("the subscription keys are not valid") from exc
         id = hashlib.sha256(endpoint.encode()).hexdigest()[:16]

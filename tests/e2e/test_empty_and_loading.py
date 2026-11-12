@@ -39,13 +39,18 @@ SHAPE = """() => [...document.querySelectorAll('main .empty')].map(e => {
 
 
 @pytest.fixture(scope="module")
-def worlds(base_url: str) -> dict[str, str]:
+def worlds(base_url: str) -> Iterator[dict[str, str]]:
     api = httpx.Client(base_url=f"{base_url}/api", timeout=30)
     empty = api.post("/worlds", json={"name": "Nothing yet"}).json()["id"]
     world = api.post("/worlds", json={"name": "Busy"}).json()["id"]
-    wf = api.post(f"/worlds/{world}/workflows", json={"yaml": FLOW}).json()["workflow_id"]
-    run = api.post(f"/workflows/{wf}/runs", json={}).json()["id"]
-    return {"empty": empty, "world": world, "run": run}
+    try:
+        wf = api.post(f"/worlds/{world}/workflows", json={"yaml": FLOW}).json()["workflow_id"]
+        run = api.post(f"/workflows/{wf}/runs", json={}).json()["id"]
+        yield {"empty": empty, "world": world, "run": run}
+    finally:
+        # The server is shared with the modules after this one: leave no world and no open gate.
+        for id in (empty, world):
+            api.delete(f"/worlds/{id}")
 
 
 @pytest.fixture
@@ -55,7 +60,9 @@ def phone(browser: Browser, base_url: str) -> Iterator[Page]:
     context.close()
 
 
-def test_no_route_says_it_is_empty_before_its_first_answer(phone: Page, worlds: dict[str, str]) -> None:
+def test_no_route_says_it_is_empty_before_its_first_answer(
+    phone: Page, worlds: dict[str, str]
+) -> None:
     held: list[Route] = []
     holding = True
 
@@ -96,7 +103,9 @@ def test_the_office_needs_you_when_clear_is_the_crew_a_sentence_and_a_way_back(
 ) -> None:
     api = httpx.Client(base_url=f"{base_url}/api", timeout=30)
     w = api.get(f"/worlds/{worlds['empty']}").json()
-    api.patch(f"/worlds/{worlds['empty']}", json={"skin": {**(w.get("skin") or {}), "view": "office"}}).raise_for_status()
+    api.patch(
+        f"/worlds/{worlds['empty']}", json={"skin": {**(w.get("skin") or {}), "view": "office"}}
+    ).raise_for_status()
     try:
         phone.goto(f"/worlds/{worlds['empty']}/office/talk")
         clear = phone.get_by_test_id("talk-clear")
@@ -105,4 +114,6 @@ def test_the_office_needs_you_when_clear_is_the_crew_a_sentence_and_a_way_back(
         expect(clear.locator("p")).to_have_count(1)
         expect(clear.get_by_role("link", name="Back to the office")).to_be_visible()
     finally:
-        api.patch(f"/worlds/{worlds['empty']}", json={"skin": {**(w.get("skin") or {}), "view": "plain"}})
+        api.patch(
+            f"/worlds/{worlds['empty']}", json={"skin": {**(w.get("skin") or {}), "view": "plain"}}
+        )

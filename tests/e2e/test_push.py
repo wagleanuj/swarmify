@@ -7,7 +7,12 @@ from playwright.sync_api import Page, expect
 
 FAKE_PUSH = """
 (() => {
-  const keys = { p256dh: "B" + "A".repeat(86), auth: "A".repeat(22) };
+  // A real P-256 point (the generator): the server refuses keys it could never encrypt for.
+  const keys = {
+    p256dh: "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tK" +
+      "fA-eFivOM1drMV7Oy7ZAaDe_UfU",
+    auth: "A".repeat(22),
+  };
   let sub = null;
   const make = () => ({
     endpoint: "https://push.invalid/e2e",

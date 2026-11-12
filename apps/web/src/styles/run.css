@@ -127,18 +127,18 @@ svg.glyph { color: var(--accent); }
 .inline-gate .gate-actions { padding-top: 16px; border-top: 1px solid var(--rule); }
 .stage-error, .warn { font-size: 13px; color: var(--negative); }
 .warn { color: var(--warning); }
-.run-page .panel { display: grid; gap: 14px; }
+.run-page .panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .run-page .panel .agents, .run-page .panel .whiteboard { margin: 0; padding: 0; background: none; border: 0; }
 .run-page .panel-head { justify-content: flex-start; margin: 0; }
 .run-page .panel p { margin: 0; }
-.stage-failure { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--radius-card); background: var(--pill-negative-bg); color: var(--text); }
+.stage-failure { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px 14px; border-radius: var(--radius-card); background: var(--pill-negative-bg); color: var(--text); }
 /* The failed step's block says why; the status line above would only say it again. */
 .run-page:has(.stage-failure) p.status-line.state-failed { display: none; }
 .failure-line { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.45; }
 .failure-line .icon { flex: none; color: var(--negative); margin-top: 1px; }
 .stage-failure .stage-log { margin-top: 8px; white-space: pre; word-break: normal; overflow-wrap: normal; }
 .failure-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.stage-log { max-height: 20rem; overflow-y: auto; color: var(--text); }
+.stage-log { max-height: 20rem; overflow: auto; color: var(--text); }
 .agent-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); align-items: start; }
 .agent-card { display: grid; gap: 2px; padding: 10px 12px; background: var(--well); border-radius: var(--radius-field); }
 .doing { font-size: 14px; overflow-wrap: anywhere; }

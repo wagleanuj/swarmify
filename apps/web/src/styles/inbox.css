@@ -108,7 +108,9 @@ p.ask { margin: 0; font-size: 20px; font-weight: 500; line-height: 1.3; letter-s
   .inbox { grid-template-columns: minmax(0, 1fr); }
   .queue.q-skeleton { display: none; }
   /* The cards side by side, one per screen: a swipe snaps to the next, prev and next do the same. */
-  .deck { display: grid; grid-auto-flow: column; grid-auto-columns: 100%; gap: 16px; align-items: start; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+  /* Relative: an absolute child (a loading card's hidden status) is clipped with the rest of its
+     card instead of widening the page to the last card's edge. */
+  .deck { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 100%; gap: 16px; align-items: start; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
   .deck > .gate { scroll-snap-align: start; scroll-snap-stop: always; }
   .deck > [inert] .action-bar { display: none; }
   .arrive .gate-actions { animation: none; } /* the next decision reuses the bar already up */

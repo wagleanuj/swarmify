@@ -21,9 +21,10 @@ type Score = components["schemas"]["RunScore"];
 const SHOWN = 5;
 
 /** A new world's setup, in order: each step, whether it is done, and where it is done. The world
- * itself counts as step one, so the strip never starts at zero. */
+ * itself counts as step one, so the strip never starts at zero. A finished run counts as the last
+ * step too, so a world whose workflows ask nothing is not held in setup. */
 export function setupSteps(worldId: string, workflows: Workflow[], runs: Run[]) {
-  const answered = runs.some((r) => r.stages.some((s) => s.type === "gate" && s.status === "done"));
+  const answered = runs.some((r) => r.status === "done" || r.stages.some((s) => s.type === "gate" && s.status === "done"));
   return [
     { label: "World created", done: true, link: null },
     { label: "Write a workflow", done: workflows.length > 0, link: { to: "/worlds/$worldId/workflows/new", params: { worldId } } },
@@ -41,22 +42,26 @@ const wasHidden = (worldId: string) => {
   }
 };
 
-/** The setup strip over a new world's overview: its true percentage, each step a check or a
- * link to where it is done, and Hide (kept in this browser). Gone once every step is done. */
-export function Setup({ worldId, workflows, runs }: { worldId: string; workflows: Workflow[]; runs: Run[] }) {
-  const [hidden, setHidden] = useState(() => wasHidden(worldId));
+/** Hides a world's setup strip in this browser. */
+function hideSetup(worldId: string) {
+  try {
+    localStorage.setItem(HIDDEN(worldId), "1");
+  } catch {
+    // the strip still goes for this visit
+  }
+}
+
+/** The setup strip that leads a new world's overview in the figures' place (a new world's figures
+ * are all zeros): its true percentage, each step a check or a link to where it is done, and Hide
+ * (kept in this browser). The overview drops it once every step is done. */
+export function Setup({ worldId, workflows, runs, onHide }: { worldId: string; workflows: Workflow[]; runs: Run[]; onHide: () => void }) {
   const steps = setupSteps(worldId, workflows, runs);
   const done = steps.filter((s) => s.done).length;
-  if (hidden || done === steps.length) return null;
   const next = steps.find((s) => !s.done);
   const pct = Math.round((done / steps.length) * 100);
   function hide() {
-    try {
-      localStorage.setItem(HIDDEN(worldId), "1");
-    } catch {
-      // the strip still goes for this visit
-    }
-    setHidden(true);
+    hideSetup(worldId);
+    onHide();
   }
   return (
     <section className="setup" aria-labelledby="setup-head" data-testid="setup">
@@ -110,6 +115,9 @@ export function WorldOverview() {
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [scores, setScores] = useState<Score[]>([]);
+  // Hide holds for this visit even where storage is blocked.
+  const [hiddenNow, setHiddenNow] = useState<string | null>(null);
+  const setupHidden = hiddenNow === worldId || wasHidden(worldId);
   const open = useOpenGates();
   const all = open.gates;
   const gates = (all ?? []).filter((g) => g.world_id === worldId);
@@ -272,37 +280,41 @@ export function WorldOverview() {
         </button>
       </header>
       {error && <p role="alert">{error}</p>}
-      {world && workflows && runs && <Setup worldId={worldId} workflows={workflows} runs={runs} />}
-      <section className="kpis" aria-label="Figures">
-        <div className="kpi">
-          <div className="kpi-label">Runs today</div>
-          <div className="kpi-value num">{figure(f.today)}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Spent today</div>
-          <div className="kpi-value num">{figure(money(f.spent))}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Run slots in use</div>
-          <div className="kpi-value num">
-            {figure(
-              <>
-                {f.inUse} <small>of {world?.run_cap}</small>
-              </>,
-            )}
+      {/* The strip stands where the figures were, so nothing under it jumps when it arrives. */}
+      {world && workflows && runs && !setupHidden && !setupSteps(worldId, workflows, runs).every((s) => s.done) ? (
+        <Setup worldId={worldId} workflows={workflows} runs={runs} onHide={() => setHiddenNow(worldId)} />
+      ) : (
+        <section className="kpis" aria-label="Figures">
+          <div className="kpi">
+            <div className="kpi-label">Runs today</div>
+            <div className="kpi-value num">{figure(f.today)}</div>
           </div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Accepted first try</div>
-          <div className="kpi-value num">
-            {figure(
-              <>
-                {f.firstTry} <small>of {f.judged} judged</small>
-              </>,
-            )}
+          <div className="kpi">
+            <div className="kpi-label">Spent today</div>
+            <div className="kpi-value num">{figure(money(f.spent))}</div>
           </div>
-        </div>
-      </section>
+          <div className="kpi">
+            <div className="kpi-label">Run slots in use</div>
+            <div className="kpi-value num">
+              {figure(
+                <>
+                  {f.inUse} <small>of {world?.run_cap}</small>
+                </>,
+              )}
+            </div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Accepted first try</div>
+            <div className="kpi-value num">
+              {figure(
+                <>
+                  {f.firstTry} <small>of {f.judged} judged</small>
+                </>,
+              )}
+            </div>
+          </div>
+        </section>
+      )}
       <div className="cols-main">
         <div className="stack">
           <section className="panel" aria-label="Runs">

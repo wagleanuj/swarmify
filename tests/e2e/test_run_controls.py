@@ -36,7 +36,7 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
         page.goto(f"{base_url}/worlds/{world}/runs/{run}")
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(
-            re.compile(r"^Child waits on its child run Brief · step 1 of 2 · "), timeout=20_000
+            "Child waits on its child run Brief · step 1 of 2", timeout=20_000
         )
         page.get_by_test_id("child-run").get_by_role("link", name="Brief").click()
         expect(page.get_by_test_id("child-of")).to_contain_text("child of Parent")

@@ -347,9 +347,9 @@ def test_each_run_state_reads_from_the_first_screen_and_no_markdown_is_raw(
             expect(failure.get_by_role("button", name="Retry from this stage")).to_be_visible()
         if key == "done":
             expect(page.get_by_test_id("done-row")).to_be_in_viewport()
-    research = signed_in(locked_url).get(f"/runs/{every['done']}").json()["stages"][0]["id"]
+    # The waiting run opens on its gate, which shows the ideas.md its research made in place.
     for route in (
-        f"/worlds/{every['world']}/runs/{every['done']}?stage={research}",
+        f"/worlds/{every['world']}/runs/{every['run']}",
         f"/worlds/{every['world']}/read?path={every['doc']}",
     ):
         page.goto(route)

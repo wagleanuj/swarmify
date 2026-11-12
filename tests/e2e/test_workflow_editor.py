@@ -22,7 +22,7 @@ def _run(page: Page, base_url: str) -> None:
     page.get_by_role("button", name="Create world").click()
     expect(page.get_by_test_id("no-workflows")).to_be_visible()
 
-    page.get_by_role("link", name="New workflow").click()
+    page.get_by_test_id("no-workflows").get_by_role("link", name="Write a workflow").click()
     # A new workflow opens on the first starter, with the others a click away.
     starters = page.get_by_role("region", name="Starter workflows").get_by_role("button")
     expect(starters).to_have_count(4)

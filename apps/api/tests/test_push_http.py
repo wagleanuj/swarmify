@@ -16,7 +16,8 @@ from swarmify_notifications.push import Target
 
 QUICK = "name: Quick\nstages:\n  - gate: ok\n    ask: Go?\n    kind: confirm\n"
 BOOM = "name: Boom\nstages:\n  - connector: explode\n    calls: studio\n"
-P256DH = "B" + "A" * 86  # 65 bytes of base64url
+# A P-256 public key (the generator point): the server refuses keys off the curve.
+P256DH = "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"
 AUTH = "A" * 22  # 16 bytes
 
 

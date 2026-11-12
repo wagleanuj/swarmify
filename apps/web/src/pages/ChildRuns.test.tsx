@@ -63,6 +63,6 @@ test("the gates inbox labels a child run's gate with its parent", async () => {
   });
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_mid");
-  await expect.element(card).toMatchTextContent(/Trends\s*Research · stage 2 · pick · waiting since .*child of Weekly short/);
+  await expect.element(card).toMatchTextContent(/Research\s*Trends\s*stage 2, pick\s*waiting .*child of Weekly short/);
   await expect.element(card.getByRole("link", { name: "Weekly short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_top");
 });

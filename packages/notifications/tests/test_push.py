@@ -149,6 +149,8 @@ def test_a_gone_subscription_is_deleted_and_bad_ones_are_refused(storage: PushSt
         push.subscribe("http://push.example/a", a.p256dh, b64(a.auth), "")
     with pytest.raises(ValueError, match="keys"):
         push.subscribe(a.endpoint, "short", b64(a.auth), "")
+    with pytest.raises(ValueError, match="keys"):  # 65 bytes, but not a point on P-256
+        push.subscribe(a.endpoint, "B" + "A" * 86, b64(a.auth), "")
     assert push.unsubscribe("nope") is False
 
 

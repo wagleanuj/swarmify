@@ -102,6 +102,14 @@ def ids(locked_url: str) -> dict[str, str]:
     done = start(make(RENDER), "done")
     parent = f"name: Parent\nstages:\n  - workflow: child\n    runs: {make(CHILD)}\n"
     running = start(make(parent), "running")
+    # Its child run opens a gate of its own a moment later; wait for it, so every count the
+    # tests read from here on holds still.
+    for _ in range(200):
+        if any(g.get("parent_run_id") == running for g in api.get("/gates").json()):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("the child run never opened its gate")
     files = [a["path"] for a in api.get(f"/runs/{done}/artifacts").json()]
     doc = next(p for p in files if p.endswith("/ideas.md"))
     gates = {g["run_id"]: g["stage_id"] for g in api.get("/gates").json()}
@@ -171,13 +179,14 @@ SMALL_CONTROLS = """[...document.querySelectorAll(
 
 def _fits(page: Page) -> None:
     """No sideways scroll, and the layout viewport is still the phone's 390 px."""
-    assert page.evaluate("window.innerWidth") == PHONE["width"]  # the viewport meta holds
-    wide = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     culprits = page.evaluate(
-        """[...document.querySelectorAll('body *')]
-            .filter(e => e.getBoundingClientRect().right > window.innerWidth + 1)
+        f"""[...document.querySelectorAll('body *')]
+            .filter(e => e.getBoundingClientRect().right > {PHONE["width"]} + 1)
             .slice(0, 5).map(e => e.tagName + '.' + e.className)"""
     )
+    # the viewport meta holds
+    assert page.evaluate("window.innerWidth") == PHONE["width"], culprits
+    wide = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     assert wide <= 0, f"{page.url} scrolls sideways by {wide}px: {culprits}"
 
 

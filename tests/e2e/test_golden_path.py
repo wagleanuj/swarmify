@@ -40,7 +40,7 @@ def _run(page: Page, base_url: str, data_dir: Path, world: str, until: Callable[
     store.put_value("youtube", None, "youtube", tokens)
 
     # The planner drafts it from plain words; the stage rail and the check follow the draft.
-    page.get_by_role("link", name="New workflow").click()
+    page.get_by_test_id("no-workflows").get_by_role("link", name="Write a workflow").click()
     page.get_by_role("tab", name="Planner").click()
     page.get_by_label("Message to Planner").fill(
         "A weekly short: research ideas, I pick one, render it, I review it, then post it."

@@ -169,8 +169,11 @@ test("the setup strip counts what is done at its true percentage, goes when all 
   const setup = first.screen.getByTestId("setup");
   await expect.element(setup.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "75");
   await expect.element(setup.getByRole("link", { name: "Answer a gate" })).toHaveAttribute("href", "/gates?world=world_1");
+  // It stands in the figures' place, so nothing under it jumps when it arrives.
+  expect(first.screen.getByRole("region", { name: "Figures" }).query()).toBeNull();
   await first.screen.getByRole("button", { name: "Hide" }).click();
   await expect.element(first.screen.getByTestId("setup")).not.toBeInTheDocument();
+  await expect.element(first.screen.getByRole("region", { name: "Figures" })).toBeVisible();
   expect(localStorage.getItem("swarmify.setup-hidden.world_1")).toBe("1");
   localStorage.removeItem("swarmify.setup-hidden.world_1");
 });
@@ -335,7 +338,7 @@ test("on a phone, while the world loads, the figures and five run rows are skele
       await held;
       return Response.json(Array.from({ length: 7 }, (_, i) => run("done", [], { id: `run_${i}`, name: `Run ${i}` })));
     },
-    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([{ id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: video.created_at }]),
   });
   const { screen } = await mountAt("/worlds/world_1");
   const figures = screen.getByRole("region", { name: "Figures" });

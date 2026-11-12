@@ -50,7 +50,7 @@ test("the run page shows the spend against the budget, and the one-agent compari
   await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/^Waiting for you: The budget of \$5\.00 is spent/);
   await expect.element(screen.getByTestId("budget-line")).toHaveTextContent("Every agent stopped at $5.00. Add money to go on, or abort.");
   // The step it stopped at is selected, so its panel leads with the answer.
-  await expect.element(screen.getByRole("button", { name: "Add money and go on" })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Add $5 and go on" })).toBeVisible();
 });
 
 test("with no baseline yet the comparison says how to get one, and a baseline names itself", async () => {
@@ -86,8 +86,11 @@ test("a budget gate adds money as a new total or aborts the run", async () => {
   const card = screen.getByTestId("gate-run_1");
   await expect.element(card).toMatchTextContent(/The budget of \$5\.00 is spent.*This run has spent \$5\.20 of \$5\.00/);
   expect(card.getByLabelText(/^Note/).query()).toBeNull(); // no note: money is not a decision
-  await card.getByLabelText("Add (US dollars)").fill("2.5");
-  await card.getByRole("button", { name: "Add money and go on" }).click();
+  // A preset is one tap; the button names the amount.
+  await card.getByRole("button", { name: "+$1", exact: true }).click();
+  await expect.element(card.getByRole("button", { name: "Add $1 and go on" })).toBeEnabled();
+  await card.getByLabelText("Or another amount (US dollars)").fill("2.5");
+  await card.getByRole("button", { name: "Add $2.50 and go on" }).click();
   await vi.waitFor(() => expect(bodies).toEqual([{ budget_usd: 7.5 }]));
 
   await card.getByRole("button", { name: "Abort the run" }).click();
@@ -106,8 +109,8 @@ test("a refused budget is shown as an alert", async () => {
   });
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
-  await card.getByLabelText("Add (US dollars)").fill("0.1");
-  await card.getByRole("button", { name: "Add money and go on" }).click();
+  await card.getByLabelText("Or another amount (US dollars)").fill("0.1");
+  await card.getByRole("button", { name: "Add $0.10 and go on" }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("the run has spent $5.20; set a budget above that");
 });
 
@@ -125,7 +128,8 @@ test("a workflow starts a baseline from the world page", async () => {
     "GET /api/runs/run_0": () => Response.json(hooli),
   });
   const { screen, router } = await mountAt("/worlds/world_1");
-  await screen.getByRole("button", { name: "Start a baseline of Weekly short" }).click();
+  await screen.getByRole("button", { name: "Weekly short actions" }).click();
+  await screen.getByRole("menuitem", { name: /^Start a baseline/ }).click();
   await vi.waitFor(() => expect(router.state.location.pathname).toBe("/worlds/world_1/runs/run_0"));
   expect(bodies).toEqual([{ baseline: true }]);
 });
