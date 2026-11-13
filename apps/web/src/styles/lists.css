@@ -1,14 +1,14 @@
 /* Runs: status tabs over a table with a small strip per row, then where the time went and spend */
 .runs-panel { margin-bottom: var(--gap); }
 .runs-table { width: 100%; border-collapse: collapse; }
-.runs-table th { text-align: left; font-size: 12px; font-weight: 400; color: var(--faint); padding: 0 12px 8px 0; }
+.runs-table th { text-align: left; font-size: 0.75rem; font-weight: 400; color: var(--faint); padding: 0 12px 8px 0; }
 .runs-table td { padding: 10px 12px 10px 0; border-top: 1px solid var(--rule); vertical-align: middle; }
 .runs-table th:last-child, .runs-table td:last-child { padding-right: 0; }
 .runs-table .num { text-align: right; white-space: nowrap; font-weight: 400; }
 .runs-table tbody td:first-child { display: grid; gap: 2px; }
 .runs-table tbody td:first-child a { font-weight: 500; text-decoration: none; }
 .runs-table tbody td:first-child a:hover { text-decoration: underline; }
-.runs-table .mono { font-size: 12px; }
+.runs-table .mono { font-size: 0.75rem; }
 .run-strip { width: 22%; min-width: 120px; }
 .runs-table tfoot td { color: var(--muted); }
 /* A run that started while you watched slides in at the top */
@@ -49,9 +49,9 @@ button.icon.play svg { margin-left: 2px; }
 .set-keys { display: grid; gap: 8px; flex-basis: 100%; }
 .setup { max-width: 44rem; gap: 14px; }
 .setup-field { display: grid; gap: 4px; }
-.setup-field details summary { margin: 2px 0 6px; font-size: 12px; }
-.key-check { flex-basis: 100%; font-size: 12px; }
-.health { flex-basis: 100%; list-style: none; padding: 0 0 0 19px; margin: 0; display: grid; gap: 4px; font-size: 12px; }
+.setup-field details summary { margin: 2px 0 6px; font-size: 0.75rem; }
+.key-check { flex-basis: 100%; font-size: 0.75rem; }
+.health { flex-basis: 100%; list-style: none; padding: 0 0 0 19px; margin: 0; display: grid; gap: 4px; font-size: 0.75rem; }
 
 /* Memory: the figures, the query, a ranked list beside communities and surprises */
 .ask-row { display: flex; gap: 8px; }
@@ -67,7 +67,7 @@ button.icon.play svg { margin-left: 2px; }
 .mem-rows .num { margin-left: auto; text-align: right; }
 .mem-main { display: grid; gap: 2px; min-width: 0; }
 .mem-main b { font-weight: 500; }
-.mem-rows .faint .link { font-size: 12px; }
+.mem-rows .faint .link { font-size: 0.75rem; }
 .bar-label { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .bar-label .link { color: var(--text); text-decoration: none; }
 .bar-label .link:hover { text-decoration: underline; }
@@ -77,7 +77,7 @@ button.icon.play svg { margin-left: 2px; }
 /* Library: type tabs, a search row, the list beside the preview of the item in the address */
 .filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 16px; }
 .filters input[type="search"] { flex: 0 1 18rem; }
-.filters label { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12px; color: var(--muted); }
+.filters label { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 0.75rem; color: var(--muted); }
 .filters input[type="date"], .filters select { padding: 5px 8px; min-height: 32px; }
 /* a set width, so the row wraps the same before and after the options load */
 .lib-head .filters select { width: 10rem; }
@@ -112,7 +112,7 @@ button.icon.play svg { margin-left: 2px; }
 /* positioned, so the hidden labels in its cells scroll with it instead of widening the page */
 .cast-scroll { position: relative; }
 .cast-table { width: 100%; border-collapse: collapse; }
-.cast-table th { text-align: left; font-size: 12px; font-weight: 400; color: var(--faint); padding: 0 12px 8px 0; }
+.cast-table th { text-align: left; font-size: 0.75rem; font-weight: 400; color: var(--faint); padding: 0 12px 8px 0; }
 .cast-table td { padding: 10px 12px 10px 0; border-top: 1px solid var(--rule); vertical-align: middle; }
 .cast-table .num { text-align: right; white-space: nowrap; }
 .cast-table td:first-child { display: grid; gap: 2px; white-space: nowrap; }
@@ -141,7 +141,7 @@ button.icon.play svg { margin-left: 2px; }
 
 @media (max-width: 48rem) {
   .tabs.chip-row { flex-wrap: nowrap; gap: 6px; overflow-x: auto; margin: 0 -16px 16px; padding: 0 16px; border-bottom: 0; scrollbar-width: none; }
-  .chip-row .tab { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; border: 1px solid var(--control); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .chip-row .tab { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; border: 1px solid var(--control); border-radius: 999px; background: none; color: var(--muted); font-size: 0.75rem; font-weight: 500; white-space: nowrap; }
   .chip-row .tab[aria-current="page"] { background: var(--text); border-color: var(--text); color: #000; font-weight: 600; }
   .chip-row .tab[aria-current="page"]::after { display: none; }
   .chip-row .tab .num { color: inherit; font-weight: inherit; }
@@ -153,8 +153,8 @@ button.icon.play svg { margin-left: 2px; }
   .mem-cols, .lib-grid { grid-template-columns: minmax(0, 1fr); }
   /* Memory's figures: a 2-column divided list, label left and figure right, not four tiles */
   .mem-kpis .kpi { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 10px 12px; }
-  .mem-kpis .kpi dt { font-size: 13px; }
-  .mem-kpis .kpi dd { margin: 0; font-size: 16px; }
+  .mem-kpis .kpi dt { font-size: 0.8125rem; }
+  .mem-kpis .kpi dd { margin: 0; font-size: 1rem; }
   /* The question takes the full width, Ask under it */
   .ask-row { flex-direction: column; }
   .ask-row button { align-self: stretch; }
@@ -164,11 +164,11 @@ button.icon.play svg { margin-left: 2px; }
   .runs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .runs-table tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 6px; align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
   .runs-table td, .runs-table tbody td:first-child { padding: 0; border: 0; }
-  .runs-table tbody td:first-child { grid-column: 1 / 4; font-size: 15px; }
+  .runs-table tbody td:first-child { grid-column: 1 / 4; font-size: 0.9375rem; }
   .runs-table tbody td:nth-child(2) { grid-column: 4; justify-self: end; }
   .runs-table tbody tr:first-child { border-top: 0; }
   .runs-table td.run-strip { display: none; }
-  .runs-table tbody td:nth-child(n + 4) { grid-row: 2; text-align: left; color: var(--muted); font-size: 13px; }
+  .runs-table tbody td:nth-child(n + 4) { grid-row: 2; text-align: left; color: var(--muted); font-size: 0.8125rem; }
   .runs-table tbody td:nth-child(5):not(:empty)::before, .runs-table tbody td:nth-child(6)::before { content: "· "; color: var(--faint); }
   /* The spend runs on under the status, so a long figure never spills out of the last column */
   .runs-table tbody td:nth-child(6) { grid-column: 3 / 5; }
@@ -185,6 +185,6 @@ button.icon.play svg { margin-left: 2px; }
   .wf-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--rule); }
   .wf-row > a { flex: 1; min-width: 0; display: grid; gap: 2px; padding: 12px 0; text-decoration: none; }
   .wf-row > a:active { background: var(--raised); }
-  .wf-row b { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
-  .wf-row small { color: var(--faint); font-size: 13px; }
+  .wf-row b { font-weight: 600; font-size: 0.9375rem; overflow-wrap: anywhere; }
+  .wf-row small { color: var(--faint); font-size: 0.8125rem; }
 }

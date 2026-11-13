@@ -2,14 +2,14 @@
 .overview .kpis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); margin-bottom: var(--gap); }
 .overview .kpi { padding: 14px 20px; }
 .overview .kpi + .kpi { border-left: 1px solid var(--border); }
-.overview .kpi-label { color: var(--faint); font-size: 12px; }
-.overview .kpi-value { margin-top: 4px; font-size: 20px; font-weight: 500; }
-.overview .kpi-value small { font-size: 12px; color: var(--faint); font-weight: 400; }
+.overview .kpi-label { color: var(--faint); font-size: 0.75rem; }
+.overview .kpi-value { margin-top: 4px; font-size: 1.25rem; font-weight: 500; }
+.overview .kpi-value small { font-size: 0.75rem; color: var(--faint); font-weight: 400; }
 .overview .cols-main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--gap); align-items: start; }
 .overview .stack { display: grid; gap: var(--gap); align-content: start; min-width: 0; }
 .overview .panel { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; min-width: 0; }
 .overview .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.overview .card-link { color: var(--text); font-weight: 500; font-size: 12px; text-decoration: none; }
+.overview .card-link { color: var(--text); font-weight: 500; font-size: 0.75rem; text-decoration: none; }
 .overview .card-link:hover { text-decoration: underline; }
 .overview .panel .scores td:first-child a { text-decoration: none; font-weight: 500; }
 .overview .panel .scores td:first-child a:hover { text-decoration: underline; }
@@ -24,7 +24,7 @@
 .overview .rows .grow > a { font-weight: 500; text-decoration: none; }
 .overview .rows .grow > a:hover { text-decoration: underline; }
 .overview .rows .chip { justify-self: start; }
-.overview .rows a.button { min-height: 30px; padding: 4px 12px; font-size: 12px; }
+.overview .rows a.button { min-height: 30px; padding: 4px 12px; font-size: 0.75rem; }
 .overview .dot.warn { background: var(--warning); }
 .overview .pill.warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
 .overview .workflows .grow { flex: 1 1 auto; }
@@ -40,7 +40,7 @@
 /* A new world's setup strip: its true percentage, then each step a check or the way to do it */
 .overview .setup { width: 100%; max-width: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 14px 20px 16px; margin-bottom: var(--gap); }
 .overview .setup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.overview .setup-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.overview .setup-head h2 { margin: 0; font-size: 0.875rem; font-weight: 600; }
 .overview .setup-head h2 .num { margin-left: 6px; color: var(--muted); font-weight: 500; }
 .overview .setup-bar { height: 4px; margin: 10px 0 12px; border-radius: 2px; background: var(--raised); overflow: hidden; }
 .overview .setup-bar span { display: block; height: 100%; background: var(--accent); transform-origin: left; transition: transform var(--dur-slow) var(--ease-out); }
@@ -51,7 +51,7 @@
 .overview .setup-steps li > a { color: var(--text); }
 .overview .setup-steps li.next > a { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; text-decoration: none; }
 .overview .setup-steps li.next .setup-n { border-color: var(--accent); color: var(--accent); }
-.overview .setup-n { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--control); border-radius: 50%; font-size: 10px; flex: none; }
+.overview .setup-n { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--control); border-radius: 50%; font-size: 0.625rem; flex: none; }
 
 /* While the runs and workflows load: their rows at a row's height */
 .overview .rows-loading { display: grid; gap: 1px; }
@@ -73,7 +73,7 @@
   .overview .goal input:first-child { flex-basis: 100%; }
   .overview .goal input, .overview .goal button { min-height: 44px; }
   .overview .goal input[type="number"], .overview .goal button { flex: 1 1 0; min-width: 0; width: auto; }
-  .overview .rows a.button { min-height: 44px; font-size: 14px; }
+  .overview .rows a.button { min-height: 44px; font-size: 0.875rem; }
   /* a 44px tap that takes no more room than its line */
   .overview a.card-link { display: inline-flex; align-items: center; min-height: 44px; margin-block: -12px; }
   .overview .panel-head { align-items: center; }
@@ -94,7 +94,7 @@
 .world-list a { display: grid; gap: 2px; min-height: 44px; padding: 10px 2px; text-decoration: none; transition: background var(--dur-fast); }
 .world-list a:active { background: var(--raised); }
 .world-list a > span { font-weight: 600; overflow-wrap: anywhere; }
-.world-list small { color: var(--faint); font-size: 12px; }
+.world-list small { color: var(--faint); font-size: 0.75rem; }
 @media (max-width: 48rem) {
   .eval-worlds summary { display: flex; align-items: center; min-height: 44px; margin: 4px 0 0; }
 }

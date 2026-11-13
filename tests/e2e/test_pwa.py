@@ -2,7 +2,7 @@
 worker that controls the page, and a cache that never holds an API response or event stream."""
 
 import httpx
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Browser, Page, expect
 
 
 def test_manifest_and_icons_make_the_app_installable(base_url: str) -> None:
@@ -51,3 +51,39 @@ def test_service_worker_controls_the_app_and_skips_the_api(page: Page, base_url:
     assert "/index.html" in cached
     assert any(url.startswith("/assets/") for url in cached)
     assert not [url for url in cached if url.startswith("/api/") or url == "/mcp"]
+
+
+def test_on_a_phone_it_feels_like_an_app(browser: Browser, base_url: str) -> None:
+    """No pinch or double-tap zoom, no zoom into a field, no grey tap flash, no rubber band."""
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, base_url=base_url
+    )
+    page = context.new_page()
+    page.goto("/")
+    expect(page.get_by_role("heading", name="Your worlds")).to_be_visible()
+    viewport = page.locator('meta[name="viewport"]').get_attribute("content") or ""
+    parts = {p.strip() for p in viewport.split(",")}
+    want = {"user-scalable=no", "maximum-scale=1", "width=device-width", "viewport-fit=cover"}
+    assert want <= parts
+    feel = page.evaluate(
+        """() => {
+          const html = getComputedStyle(document.documentElement);
+          const typed = "input:not([type=checkbox]):not([type=radio]), select, textarea";
+          const fields = [...document.querySelectorAll(typed)];
+          return {
+            tap: html.webkitTapHighlightColor,
+            touch: html.touchAction,
+            overscroll: [
+              html.overscrollBehaviorY, getComputedStyle(document.body).overscrollBehaviorY,
+            ],
+            fields: fields.map((f) => parseFloat(getComputedStyle(f).fontSize)),
+            buttonSelect: getComputedStyle(document.querySelector("button")).userSelect,
+          };
+        }"""
+    )
+    assert feel["tap"] in ("rgba(0, 0, 0, 0)", "transparent")
+    assert feel["touch"] == "manipulation"
+    assert feel["overscroll"] == ["none", "none"]
+    assert feel["fields"] and min(feel["fields"]) >= 16
+    assert feel["buttonSelect"] == "none"
+    context.close()

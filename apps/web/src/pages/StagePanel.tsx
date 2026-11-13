@@ -100,10 +100,10 @@ function firstLines(text: string, blocks = 5): string {
 export function Made({ a, worldId }: { a: ArtifactFile; worldId: string }) {
   const url = rawUrl(worldId, a);
   if (a.type === "video" || VIDEO.test(a.name)) {
-    return <video className="player" controls preload="metadata" src={url} data-testid="player" />;
+    return <video data-pinch className="player" controls preload="metadata" src={url} data-testid="player" />;
   }
   if (AUDIO.test(a.name)) return <audio controls preload="metadata" src={url} data-testid="audio" />;
-  if (IMAGE.test(a.name)) return <img className="player" src={url} alt={a.title} />;
+  if (IMAGE.test(a.name)) return <img data-pinch className="player" src={url} alt={a.title} />;
   if (a.name === "timings.json") return <Takes timings={a} worldId={worldId} />;
   if (/\.(md|txt)$/i.test(a.name)) {
     return (

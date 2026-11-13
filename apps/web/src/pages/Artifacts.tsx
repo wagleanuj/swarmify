@@ -117,9 +117,9 @@ export function ArtifactView({ artifacts, worldId }: { artifacts: ArtifactFile[]
             {a.fields.deleted ? (
               <p className="faint">{a.name} was deleted by retention; its record stays.</p>
             ) : a.type === "video" || VIDEO.test(a.name) ? (
-              <video controls preload="metadata" src={url} data-testid="player" />
+              <video data-pinch controls preload="metadata" src={url} data-testid="player" />
             ) : IMAGE.test(a.name) ? (
-              <img src={url} alt={a.title} />
+              <img data-pinch src={url} alt={a.title} />
             ) : a.name.endsWith(".md") ? (
               <>
                 <TypedText body={a.body} />

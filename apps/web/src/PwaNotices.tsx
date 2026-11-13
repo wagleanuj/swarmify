@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import { PushPrompt } from "./Notifications";
 import { dismissInstall, earnedInstallHint, install, ios, standalone, update, usePwa } from "./pwa";
 import "./styles/pwa.css";
+import { TextSizePicker } from "./textSize";
 import { usePhone } from "./usePhone";
 
 /** The app's own notices, over every view: offline, a new version ready, once on a phone the
@@ -82,6 +83,8 @@ export function InstallRow({ Row }: { Row: (props: { title: string; about: strin
         ) : (
           <p className="sub">This browser has not offered an install. In Chrome or Edge, use Install in the address bar or the browser menu.</p>
         )}
+        <TextSizePicker />
+        <p className="faint">Zoom is off in the app, so set the text size here. It adds to your phone's own text size.</p>
       </div>
     </Row>
   );
