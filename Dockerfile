@@ -36,7 +36,8 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=3.12.15 UV_PYTHON_PREFEREN
 # compose.yaml starts; the GL loaders a browser on a GPU finds the driver through (README, GPU
 # renders); libsm6 (and libice6), the only libraries Blender's linux build needs that the rest
 # do not bring (issue 401); git, to clone a package installed from a git URL (issue 225); the font
-# cache made now, which a sandboxed browser cannot write
+# cache made now, which a sandboxed browser cannot write; zstd, which tools/backup_data.py
+# compresses on every core with
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev \
     libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
@@ -44,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 libgles2 libgl1 \
     libsm6 \
     bubblewrap socat ripgrep \
+    zstd \
     git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && fc-cache -f \

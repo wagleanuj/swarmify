@@ -3,6 +3,7 @@ the space check."""
 
 import os
 import sqlite3
+import subprocess
 import tarfile
 
 from tools import backup_data
@@ -36,20 +37,28 @@ def test_backup_leaves_out_what_can_be_made_again_and_keeps_the_newest(tmp_path,
     live.execute("create table t (x)")
     live.execute("insert into t values (1)")
     live.commit()  # left in the WAL, the connection still open
-    for i, age in enumerate((100, 200, 300)):
-        old = dest / f"{backup_data.PREFIX}old{i}-20260101-0000.tgz"
-        with tarfile.open(old, "w:gz"):
-            pass  # an empty archive that reads back whole
+    # older backups in both formats count toward keep; empty archives that read back whole
+    for i, (age, suffix) in enumerate(((100, ".tgz"), (200, ".tar.zst"), (300, ".tgz"))):
+        old = dest / f"{backup_data.PREFIX}old{i}-20260101-0000{suffix}"
+        with tarfile.open(old.with_suffix(".tar"), "w"):
+            pass
+        pack = ["zstd", "-q"] if suffix == ".tar.zst" else ["gzip"]
+        with old.with_suffix(".tar").open("rb") as f, old.open("wb") as out:
+            subprocess.run(pack, stdin=f, stdout=out, check=True)
+        old.with_suffix(".tar").unlink()
         os.utime(old, (age, age))
+    (dest / f"{backup_data.PREFIX}x-20260101-0000.tar.zst.part").write_bytes(b"")  # not counted
     monkeypatch.setattr(backup_data, "MIN_FREE", 0)
 
     backup_data.inside("t", root, dest, 2, False, f"{os.getuid()}:{os.getgid()}")
     live.close()
 
-    old, new = sorted(dest.iterdir())  # "old2" sorts before "t"
+    old, new = backup_data.backups(dest)[::-1]
     assert old.name == f"{backup_data.PREFIX}old2-20260101-0000.tgz"
-    assert new.name.startswith(f"{backup_data.PREFIX}t-") and new.suffix == ".tgz"
-    with tarfile.open(new) as tar:
+    assert new.name.startswith(f"{backup_data.PREFIX}t-") and new.name.endswith(".tar.zst")
+    tar_bytes = subprocess.run(["zstd", "-dc", new], capture_output=True, check=True).stdout
+    (tmp_path / "new.tar").write_bytes(tar_bytes)
+    with tarfile.open(tmp_path / "new.tar") as tar:
         names = set(tar.getnames())
         tar.extract("swarmify.db", tmp_path / "x", filter="data")
     assert names == {*kept, "swarmify.db"}
@@ -66,7 +75,7 @@ def test_dry_run_counts_what_keep_prunes_anyway_and_prints_the_plan(tmp_path, mo
     dest = tmp_path / "out"
     dest.mkdir()
     for i, (size, age) in enumerate(((17.5, 100), (17.5, 200), (5.9, 300), (5.9, 400))):
-        old = dest / f"{backup_data.PREFIX}b{i}-20260101-0000.tgz"
+        old = dest / f"{backup_data.PREFIX}b{i}-20260101-0000{('.tgz', '.tar.zst')[i % 2]}"
         with old.open("wb") as f:
             f.truncate(int(size * gb))  # sparse, only its size counts
         os.utime(old, (age, age))
@@ -106,3 +115,21 @@ def test_dry_run_counts_what_keep_prunes_anyway_and_prints_the_plan(tmp_path, mo
     # keep 1 still keeps one old backup until the new one is written
     early, stay = backup_data.early_prune(dest, 1)
     assert len(stay) == 1 and len(early) == 3
+
+
+def test_verify_refuses_a_truncated_archive(tmp_path):
+    good = tmp_path / f"{backup_data.PREFIX}a-20260101-0000.tar.zst"
+    src = tmp_path / "f"
+    src.write_bytes(os.urandom(1 << 16))
+    with tarfile.open(tmp_path / "a.tar", "w") as tar:
+        tar.add(src, arcname="f")
+    subprocess.run(["zstd", "-q", tmp_path / "a.tar", "-o", good], check=True)
+    backup_data.verify(good)
+    bad = tmp_path / "bad.tar.zst.part"
+    bad.write_bytes(good.read_bytes()[:-100])
+    try:
+        backup_data.verify(bad)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("a truncated archive passed")

@@ -1565,10 +1565,12 @@ Agent SDK bundles, linked to `/usr/local/bin/claude` for graphify.
 - Backups: back up only when a deploy changes stored data (a migration, a new data layout), not
   on every deploy, with `python3 tools/backup_data.py LABEL [--dest /data] [--keep 3] [--dry-run]`
   on the host, as a user in the docker group. It writes
-  `DEST/swarmify-data-backup-LABEL-YYYYMMDD-HHMM.tgz` from the `swarmify_data` volume in a
+  `DEST/swarmify-data-backup-LABEL-YYYYMMDD-HHMM.tar.zst` from the `swarmify_data` volume in a
   throwaway container of the api image: each SQLite file copied with SQLite's backup API, the
   rest as is, less what can be made again (`node_modules`, `npm-cache`, `sandbox/cache`, a run's
-  `build` and `frames` folders, `assets/motionlib/.store`). The backups that keeping 3 deletes
+  `build` and `frames` folders, `assets/motionlib/.store`). The tar streams through `zstd -T0 -1`
+  on every core (a `.tgz` through `gzip -1` from an api image older than zstd); older `.tgz`
+  backups still count toward keeping 3. The backups that keeping 3 deletes
   anyway (all but the newest 2) go first, once the 2 that stay read back whole. It refuses to
   start if the archive (media and archives counted 1:1, the rest 3:1) would leave under 10 GB
   free after that, reads the new archive back in full, and only then deletes all but the newest

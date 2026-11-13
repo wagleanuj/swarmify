@@ -7,12 +7,14 @@ stored data, keep the newest 3.
 Run on the host as a user in the docker group, no sudo: it starts itself again in a throwaway
 container of the api image with the volume at /data and DEST at /out. There every SQLite file is
 copied with SQLite's backup API, never tarred live, and the rest goes in as is, less what can be
-made again: node_modules, caches, a run's build and frames folders and the motionlib store. The
-archive is read back in full before the oldest beyond --keep are deleted. The backups that keep-N
-would delete anyway (all but the newest keep-1) go first, but only once the keep-1 that stay read
-back whole. It refuses to start if the archive, estimated at 1:1 for media and archives and 3:1 for
-the rest, would leave under 10 GB free in DEST once those are gone. --dry-run prints the whole
-plan, the refusal included.
+made again: node_modules, caches, a run's build and frames folders and the motionlib store. The tar
+streams through zstd on every core at a fast level (most of the bulk is media that barely shrinks),
+or through gzip -1 if the image has no zstd, so the archive is a .tar.zst (or a .tgz, like the
+older ones, which still count toward --keep). The archive is read back in full before the oldest
+beyond --keep are deleted. The backups that keep-N would delete anyway (all but the newest keep-1)
+go first, but only once the keep-1 that stay read back whole. It refuses to start if the archive,
+estimated at 1:1 for media and archives and 3:1 for the rest, would leave under 10 GB free in DEST
+once those are gone. --dry-run prints the whole plan, the refusal included.
 
 It runs on the host's own Python (3.8 on Ubuntu 20.04), stdlib only.
 """
@@ -21,9 +23,9 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import gzip
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -33,6 +35,7 @@ import time
 from pathlib import Path
 
 PREFIX = "swarmify-data-backup-"
+SUFFIXES = (".tar.zst", ".tgz")
 MIN_FREE = 10 * 2**30
 # Paths under the volume's root that can be made again; node_modules anywhere.
 EXCLUDE = (
@@ -46,7 +49,7 @@ SQLITE_EXT = (".db", ".sqlite", ".sqlite3")
 SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
 # Already compressed, so counted at full size; the rest is counted at a third.
 # ponytail: a fixed 3:1 guess, sample real ratios if it misjudges a volume.
-COMPRESSED_EXT = (".png", ".jpg", ".jpeg", ".mp4", ".wav", ".webm", ".zip", ".tgz", ".gz")
+COMPRESSED_EXT = (".png", ".jpg", ".jpeg", ".mp4", ".wav", ".webm", ".zip", ".tgz", ".gz", ".zst")
 
 
 def excluded(rel: str) -> bool:
@@ -88,7 +91,8 @@ def plan(root: Path) -> tuple[list[str], list[str], int, int]:
 
 def backups(dest: Path) -> list[Path]:
     """The backups in dest, newest first."""
-    return sorted(dest.glob(PREFIX + "*.tgz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    found = [p for p in dest.glob(PREFIX + "*") if p.name.endswith(SUFFIXES)]
+    return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def to_prune(dest: Path, keep: int) -> list[Path]:
@@ -96,12 +100,22 @@ def to_prune(dest: Path, keep: int) -> list[Path]:
     return backups(dest)[max(keep, 0) :]
 
 
+def compressor() -> tuple[str, list[str]]:
+    """The archive's suffix and the command that compresses stdin to stdout."""
+    if shutil.which("zstd"):
+        return ".tar.zst", ["zstd", "-T0", "-1", "-q"]
+    return ".tgz", ["gzip", "-1"]  # an api image built before zstd was added
+
+
 def verify(archive: Path) -> None:
-    with gzip.open(archive, "rb") as f:
-        while f.read(1 << 20):  # the gzip CRC is checked at the end
-            pass
-    with tarfile.open(archive, "r:gz") as tar:
-        tar.getmembers()
+    """Decompress the archive in full, which checks its checksum, and list it with tar."""
+    zst = archive.name.endswith((".zst", ".zst.part"))
+    unpack = ["zstd", "-dcq"] if zst else ["gzip", "-dc"]
+    with subprocess.Popen([*unpack, str(archive)], stdout=subprocess.PIPE) as dec:
+        listed = subprocess.run(["tar", "-tf", "-"], stdin=dec.stdout, stdout=subprocess.DEVNULL)
+        dec.stdout.close()  # type: ignore[union-attr]
+    if dec.returncode or listed.returncode:
+        raise RuntimeError(f"{archive} does not read back whole")
 
 
 def early_prune(dest: Path, keep: int) -> tuple[list[Path], list[Path]]:
@@ -115,7 +129,8 @@ def early_prune(dest: Path, keep: int) -> tuple[list[Path], list[Path]]:
 def inside(label: str, root: Path, dest: Path, keep: int, dry: bool, owner: str) -> None:
     files, dbs, size, est = plan(root)
     free = os.statvfs(dest).f_bavail * os.statvfs(dest).f_frsize
-    name = f"{PREFIX}{label}-{time.strftime('%Y%m%d-%H%M')}.tgz"
+    suffix, pack = compressor()
+    name = f"{PREFIX}{label}-{time.strftime('%Y%m%d-%H%M')}{suffix}"
     gb = 2**30
     early, stay = early_prune(dest, keep)
     freed = sum(p.stat().st_size for p in early)
@@ -130,7 +145,8 @@ def inside(label: str, root: Path, dest: Path, keep: int, dry: bool, owner: str)
         print(f"{'would delete' if dry else 'delete'} {old} ({old.stat().st_size / gb:.1f} GB)"
               f" once the {len(stay)} kept read back whole")  # fmt: skip
     if dry:
-        print(f"would write {dest / name} with SQLite copies of: {', '.join(dbs) or 'none'}")
+        print(f"would write {dest / name} with {pack[0]} and SQLite copies of:"
+              f" {', '.join(dbs) or 'none'}")  # fmt: skip
     if after < MIN_FREE:
         sys.exit(f"refusing: under {MIN_FREE // gb} GB would be left free")
     if dry:
@@ -142,19 +158,25 @@ def inside(label: str, root: Path, dest: Path, keep: int, dry: bool, owner: str)
             old.unlink()
             print(f"deleted {old}")
     part = dest / (name + ".part")
-    with tempfile.TemporaryDirectory(dir=dest) as tmp:
-        with tarfile.open(part, "w:gz") as tar:
-            for rel in dbs:
-                copy = Path(tmp) / rel.replace("/", "__")
-                src, out = sqlite3.connect(str(root / rel), timeout=30), sqlite3.connect(str(copy))
-                try:
-                    src.backup(out)
-                finally:
-                    src.close()
-                    out.close()
-                tar.add(copy, arcname=rel)
-            for rel in files:
-                tar.add(root / rel, arcname=rel, recursive=False)
+    with tempfile.TemporaryDirectory(dir=dest) as tmp, part.open("wb") as out:
+        with subprocess.Popen(pack, stdin=subprocess.PIPE, stdout=out) as zp:
+            # ponytail: one Python thread writes the tar, fine up to a few hundred MB/s
+            with tarfile.open(fileobj=zp.stdin, mode="w|", bufsize=1 << 20) as tar:
+                for rel in dbs:
+                    copy = Path(tmp) / rel.replace("/", "__")
+                    src = sqlite3.connect(str(root / rel), timeout=30)
+                    dst = sqlite3.connect(str(copy))
+                    try:
+                        src.backup(dst)
+                    finally:
+                        src.close()
+                        dst.close()
+                    tar.add(copy, arcname=rel)
+                for rel in files:
+                    tar.add(root / rel, arcname=rel, recursive=False)
+    if zp.returncode:
+        part.unlink()
+        sys.exit(f"{pack[0]} failed with {zp.returncode}")
     verify(part)
     final = part.rename(dest / name)
     uid, gid = (int(n) for n in owner.split(":"))
