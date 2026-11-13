@@ -265,23 +265,6 @@ export function Gates() {
           </Link>
         </p>
       ))}
-      {notices
-        // an account is shared by every world, so only a post's notice belongs to one
-        .filter((n) => n.kind !== "visibility" || !n.world_id || inWorld({ world_id: n.world_id }))
-        .map((n) => (
-          <p key={`${n.kind} ${n.text}`} role="alert" className="notice" data-testid="notice">
-            <span>{n.text}</span>
-            {n.world_id && n.run_id ? (
-              <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: n.world_id, runId: n.run_id }}>
-                Open the run
-              </Link>
-            ) : n.world_id ? (
-              <Link to="/worlds/$worldId/connectors" params={{ worldId: n.world_id }}>
-                Open Connectors
-              </Link>
-            ) : null}
-          </p>
-        ))}
       {open.gates === null && !error && (
         <Loading className="inbox">
           <div className="queue q-skeleton">
@@ -460,7 +443,86 @@ export function Gates() {
           </div>
         </div>
       )}
+      <Notices
+        // an account is shared by every world, so only a post's notice belongs to one
+        notices={notices.filter((n) => n.kind !== "visibility" || !n.world_id || inWorld({ world_id: n.world_id }))}
+      />
     </main>
+  );
+}
+
+/** Each kind of notice as one row, "3 posts still not public", that opens to the list. Below the
+ * gate: the gate is the job here. Red only for a failure (a refused sign-in, unread outcomes). */
+const NOTICE_KIND: Record<Notice["kind"], [one: string, many: string, failed: boolean]> = {
+  sign_in: ["connector needs sign-in", "connectors need sign-in", true],
+  outcomes: ["connector could not read outcomes", "connectors could not read outcomes", true],
+  visibility: ["post still not public", "posts still not public", false],
+  network: ["run waiting for the network", "runs waiting for the network", false],
+};
+const DISMISSED = "swarmify.dismissed-notices";
+// Digits stripped, as push does: a notice whose minutes tick up is the same notice. A dismissed
+// one comes back only when its words change.
+const noticeKey = (n: Notice) => `${n.kind}|${n.world_id}|${n.run_id}|${n.text.replace(/[0-9.]+/g, "")}`;
+const readDismissed = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISSED) ?? "[]");
+  } catch {
+    return [];
+  }
+};
+
+// ponytail: dismissals live in this browser; a server-side store if they must follow the operator.
+function Notices({ notices }: { notices: Notice[] }) {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const dismiss = (n: Notice) => {
+    // Forget dismissals of notices that are gone, so the list cannot grow for ever.
+    const live = new Set(notices.map(noticeKey));
+    const next = [...dismissed.filter((k) => live.has(k)), noticeKey(n)];
+    setDismissed(next);
+    try {
+      localStorage.setItem(DISMISSED, JSON.stringify(next));
+    } catch {
+      // private mode: dismissed for this visit only
+    }
+  };
+  const shown = notices.filter((n) => !dismissed.includes(noticeKey(n)));
+  const kinds = (Object.keys(NOTICE_KIND) as Notice["kind"][]).filter((k) => shown.some((n) => n.kind === k));
+  if (!kinds.length) return null;
+  return (
+    <section className="notices" aria-label="Notices">
+      {kinds.map((k) => {
+        const list = shown.filter((n) => n.kind === k);
+        const [one, many, failed] = NOTICE_KIND[k];
+        return (
+          <details key={k} className={failed ? "notice-group failed" : "notice-group"} data-testid={`notices-${k}`}>
+            <summary>
+              {list.length} {list.length === 1 ? one : many}
+            </summary>
+            <ul>
+              {list.map((n) => (
+                <li key={noticeKey(n)} data-testid="notice">
+                  <span>{n.text}</span>
+                  <span className="notice-actions">
+                    {n.world_id && n.run_id ? (
+                      <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: n.world_id, runId: n.run_id }}>
+                        Open the run
+                      </Link>
+                    ) : n.world_id ? (
+                      <Link to="/worlds/$worldId/connectors" params={{ worldId: n.world_id }}>
+                        Open Connectors
+                      </Link>
+                    ) : null}
+                    <button type="button" className="link" onClick={() => dismiss(n)}>
+                      Dismiss
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        );
+      })}
+    </section>
   );
 }
 
