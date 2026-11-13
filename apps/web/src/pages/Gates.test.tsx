@@ -212,14 +212,27 @@ test("a refused sign-in, unread retention and a post still private a day on need
         { kind: "visibility", text: "Music video is still private on youtube a day on.", world_id: "world_2", run_id: "run_2" },
       ]),
   });
+  localStorage.removeItem("swarmify.dismissed-notices");
   const { screen } = await mountAt("/gates?world=world_1");
-  const notices = screen.getByTestId("notice");
-  await expect.element(notices.nth(0)).toMatchTextContent(/YouTube needs sign-in/);
+  // One quiet row a kind, under the gate; red only for a failure.
+  const signIn = screen.getByTestId("notices-sign_in");
+  await expect.element(signIn.getByText("1 connector needs sign-in")).toBeVisible();
+  await expect.element(signIn).toHaveClass("failed");
+  const posts = screen.getByTestId("notices-visibility");
+  await expect.element(posts.getByText("1 post still not public")).toBeVisible();
+  await expect.element(posts).not.toHaveClass("failed");
   // a shared account shows in every world's view, a post only in its own
-  expect(notices.elements()).toHaveLength(3);
-  await expect.element(notices.nth(0).getByRole("link", { name: "Open Connectors" })).toHaveAttribute("href", "/worlds/world_2/connectors");
-  await expect.element(notices.nth(1)).toMatchTextContent(/retention is not read/);
-  await expect.element(notices.nth(2).getByRole("link", { name: "Open the run" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+  expect(screen.getByTestId("notice").elements()).toHaveLength(3);
+  await signIn.getByText("1 connector needs sign-in").click();
+  await expect.element(signIn.getByTestId("notice")).toMatchTextContent(/YouTube needs sign-in/);
+  await expect.element(signIn.getByRole("link", { name: "Open Connectors" })).toHaveAttribute("href", "/worlds/world_2/connectors");
+  await expect.element(screen.getByTestId("notices-outcomes").getByTestId("notice")).toMatchTextContent(/retention is not read/);
+  await posts.getByText("1 post still not public").click();
+  await expect.element(posts.getByRole("link", { name: "Open the run" })).toHaveAttribute("href", "/worlds/world_1/runs/run_1");
+  // Dismissed, it stays gone until its words change.
+  await posts.getByRole("button", { name: "Dismiss" }).click();
+  await expect.element(screen.getByTestId("notices-visibility")).not.toBeInTheDocument();
+  expect(localStorage.getItem("swarmify.dismissed-notices")).toContain("Five hooks");
   expect(screen.getByText(/Music video/).elements()).toHaveLength(0);
 });
 

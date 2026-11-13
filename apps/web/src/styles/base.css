@@ -168,6 +168,8 @@ p[role="alert"] { padding: 8px 12px; border-radius: var(--radius-field); backgro
 label { display: grid; gap: 6px; font-size: 13px; font-weight: 500; }
 label[for] { display: block; margin-bottom: 6px; }
 input, select, textarea { font: inherit; font-weight: 400; color: inherit; background: var(--well); border: 1px solid var(--control); border-radius: var(--radius-field); padding: 7px 10px; min-width: 0; }
+/* A select sizes itself to its longest option; a long workflow or world name must not widen the page. */
+select { max-width: 100%; text-overflow: ellipsis; }
 input::placeholder, textarea::placeholder { color: var(--faint); }
 input:disabled, select:disabled, textarea:disabled { color: var(--muted); }
 textarea { width: 100%; resize: vertical; line-height: 1.5; }
