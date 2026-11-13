@@ -54,7 +54,7 @@
 /* On a wide screen an Add sheet is a centred dialog, not a bottom sheet. */
 @media (min-width: 48.01rem) {
   dialog.sheet.sheet-form { margin: auto; max-width: 34rem; border: 1px solid var(--border); border-radius: 12px; }
-  dialog.sheet.sheet-form .sheet-body::before { display: none; }
+  dialog.sheet.sheet-form .sheet-grip { display: none; }
   .sheet-form .sheet-body { padding: 20px 24px; }
 }
 @media (max-width: 48rem) {

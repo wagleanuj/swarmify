@@ -9,6 +9,8 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --stagger: 30ms; /* per list item, first 8 only */
+  --dur-sheet: 360ms; /* a bottom sheet in and out */
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1); /* fast off the mark, long soft landing, as a native sheet */
 }
 @keyframes pulse { 50% { opacity: 0.35; } }
 @keyframes fade-in { from { opacity: 0; } }
@@ -48,11 +50,13 @@
 .sidebar { view-transition-name: sidebar; }
 
 /* The sheet rises from the bottom and its backdrop fades; closing reverses where the browser
-   can animate a dialog out, and is instant elsewhere. */
-dialog.sheet { transform: translateY(100%); transition: transform var(--dur-slow) var(--ease-out), overlay var(--dur-slow) allow-discrete, display var(--dur-slow) allow-discrete; }
+   can animate a dialog out, and is instant elsewhere. While a finger drags it (useSheet) it
+   follows with no lag and the backdrop fades by --sheet-fade; let go, it eases home or away. */
+dialog.sheet { transform: translateY(100%); transition: transform var(--dur-sheet) var(--ease-sheet), overlay var(--dur-sheet) allow-discrete, display var(--dur-sheet) allow-discrete; }
 dialog.sheet[open] { transform: none; }
-dialog.sheet::backdrop { opacity: 0; transition: opacity var(--dur-base), overlay var(--dur-slow) allow-discrete, display var(--dur-slow) allow-discrete; }
-dialog.sheet[open]::backdrop { opacity: 1; }
+dialog.sheet::backdrop { opacity: 0; transition: opacity var(--dur-sheet) var(--ease-sheet), overlay var(--dur-sheet) allow-discrete, display var(--dur-sheet) allow-discrete; }
+dialog.sheet[open]::backdrop { opacity: var(--sheet-fade, 1); }
+dialog[data-dragging], dialog[data-dragging]::backdrop { transition: none; }
 @starting-style {
   dialog.sheet[open] { transform: translateY(100%); }
   dialog.sheet[open]::backdrop { opacity: 0; }
@@ -64,6 +68,14 @@ dialog.dialog::backdrop { transition: opacity var(--dur-base); }
 @starting-style {
   dialog.dialog[open] { opacity: 0; transform: translateY(8px); }
   dialog.dialog[open]::backdrop { opacity: 0; }
+}
+/* On a phone the confirm is a sheet: it slides up the same way and drags the same way. */
+@media (max-width: 48rem) {
+  dialog.dialog[open] { transition: transform var(--dur-sheet) var(--ease-sheet); }
+  dialog.dialog[open]::backdrop { opacity: var(--sheet-fade, 1); transition: opacity var(--dur-sheet) var(--ease-sheet); }
+  @starting-style {
+    dialog.dialog[open] { opacity: 1; transform: translateY(100%); }
+  }
 }
 
 /* Press: a button or a tappable row gives a little under the thumb, then springs back. */

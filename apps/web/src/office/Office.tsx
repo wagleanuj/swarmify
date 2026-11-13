@@ -9,9 +9,11 @@ import { duration, type Gate, holdsSlot, money, type Run, STATUS_LABEL } from ".
 import type { components } from "../api/schema";
 import { Elapsed } from "../Elapsed";
 import { Icon } from "../Icon";
+import { Sheet } from "../Sheet";
 import { cap, saveSkin } from "../skin";
+import { usePhone } from "../usePhone";
 import { Actor, Bench, type Look, type Pack, still, stillFrame, useCast } from "./cast";
-import { appClass, FullScreen, Tabs, useNight } from "./chrome";
+import { appClass, FullScreen, OFFICE_PHONE, Tabs, useNight } from "./chrome";
 import "./office.css";
 import { PixelRoom, Prop, Table, usePixel } from "./pixel";
 import {
@@ -64,6 +66,7 @@ export function Office() {
   const [night] = useNight();
   // On a phone the quest board and radio are a sheet pulled up over the office.
   const [board, setBoard] = useState(false);
+  const narrow = usePhone(OFFICE_PHONE);
   const hear = (who: string, what: string | null) =>
     what && setRadio((prev) => [{ who, what, at: new Date().toTimeString().slice(0, 5), n: (prev[0]?.n ?? 0) + 1 }, ...prev].slice(0, 8));
 
@@ -260,13 +263,22 @@ export function Office() {
           <Bench worldId={worldId} members={bench} />
           <YourOffice waiting={waiting} count={count} talk={talk} />
         </Room>
-        <div className={`office-side${board ? " office-sheet-open" : ""}`}>
-          <button type="button" className="office-btn office-narrow office-done" onClick={() => setBoard(false)}>
-            Done
-          </button>
-          <QuestBoard runs={runs} connectors={connectors} open={open} />
-          <Radio news={radio} nameOf={nameOf} />
-        </div>
+        {narrow ? (
+          <Sheet open={board} onClose={() => setBoard(false)} label="Quest board" head={false} className="office-sheet">
+            <div className="office-side">
+              <button type="button" className="office-btn office-done" onClick={() => setBoard(false)}>
+                Done
+              </button>
+              <QuestBoard runs={runs} connectors={connectors} open={open} />
+              <Radio news={radio} nameOf={nameOf} />
+            </div>
+          </Sheet>
+        ) : (
+          <div className="office-side">
+            <QuestBoard runs={runs} connectors={connectors} open={open} />
+            <Radio news={radio} nameOf={nameOf} />
+          </div>
+        )}
       </div>
     </div>
   );

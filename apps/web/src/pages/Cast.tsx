@@ -453,7 +453,7 @@ export function Cast() {
         </Link>
         .
       </p>
-      <Sheet open={open !== null} onClose={close} label={sheetMember ? who(sheetMember.name) : "Retro"} className="sheet-form agent-sheet">
+      <Sheet open={open !== null} onClose={close} label={sheetMember ? who(sheetMember.name) : "Retro"} className="sheet-form agent-sheet" head={false}>
         {sheetMember && (
           <div className="agent-sheet-body" data-testid="agent-sheet">
             <div>

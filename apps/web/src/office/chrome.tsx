@@ -75,3 +75,6 @@ export function Tabs({ worldId }: { worldId: string }) {
     </nav>
   );
 }
+
+/** The office's phone breakpoint, where office.css swaps to the bottom tabs and sheets. */
+export const OFFICE_PHONE = "(max-width: 700px)";

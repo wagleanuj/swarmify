@@ -67,6 +67,13 @@ function office(runs: Run[], agents: Agent[], gates: Gate[] = []) {
 
 const crewOf = (screen: Awaited<ReturnType<typeof office>>["screen"], name: string) => screen.getByRole("list", { name: `Crew of ${name}` });
 
+
+/** Motion on, whatever the machine prefers; every other media query as the browser answers it. */
+function motion() {
+  const real = window.matchMedia.bind(window);
+  vi.spyOn(window, "matchMedia").mockImplementation((q) => (q.includes("reduced-motion") ? ({ matches: false } as MediaQueryList) : real(q)));
+}
+
 test("each pod's crew stands in the pose its data says; the rest of the cast waits off the floor", async () => {
   const { screen } = await office(
     [weekly, long, gated, paused, retro, shipped, broke],
@@ -132,7 +139,7 @@ test("one speech bubble per pod, from its crew's latest log line", async () => {
 });
 
 test("an artifact made pops up at its own pod and is called out on the radio", async () => {
-  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
+  motion();
   const { screen } = await office([weekly, long], [agent("worker-1", "worker", "run_15", 2)]);
   const pods = screen.getByRole("list", { name: "Pods" });
   await expect.element(crewOf(screen, "Long haul")).toBeVisible();
@@ -182,14 +189,14 @@ test("with reduced motion every character holds its pose; with motion an arrivin
   await new Promise((done) => setTimeout(done, 400));
   await expect.element(worker).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/work0.png");
 
-  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
+  motion();
   FakeEventSource.emit("agent.updated", { payload: agent("worker-2", "worker", "run_14", 6) });
   await expect.element(pod.getByRole("img", { name: "Worker 2, walking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/bo/walk0.png");
   await expect.element(pod.getByRole("img", { name: "Worker 2, working" }), { timeout: 3000 }).toBeVisible();
 });
 
 test("offline the characters hold the frame on screen, so no frame loads as a broken image", async () => {
-  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
+  motion();
   const { screen } = await office([weekly], [agent("worker-1", "worker", "run_14", 6)]);
   const worker = crewOf(screen, "Weekly explainer #14").getByRole("img", { name: "Worker 1, working" });
   await expect.element(worker, { timeout: 3000 }).toBeVisible();
@@ -204,7 +211,7 @@ test("offline the characters hold the frame on screen, so no frame loads as a br
 });
 
 test("a child run's artifact pops up at its parent's pod; a connector's is called out by its own name", async () => {
-  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
+  motion();
   const parentStages = stages("run_30", 3, 1, "workflow").map((s, i) => (i === 1 ? { ...s, child: { id: "run_31", world_id: "world_1", name: "Research pack" } } : s));
   const parent = run("running", parentStages, { id: "run_30", name: "Big job", created_at: "2026-10-31T08:00:00Z" });
   const child = run("running", stages("run_31", 2, 0), { id: "run_31", name: "Research pack", parent_run_id: "run_30" });
