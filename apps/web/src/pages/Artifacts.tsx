@@ -3,6 +3,7 @@ import { Fragment, type ReactNode } from "react";
 
 import type { ArtifactFile } from "../api/events";
 import { Icon } from "../Icon";
+import { standalone } from "../pwa";
 import { cap, the } from "../skin";
 
 /** A run file, served by the API under its path in the world folder. */
@@ -41,10 +42,11 @@ export const AUDIO = /\.(wav|mp3|m4a|ogg|flac|aac)$/i;
 function Source({ ref, worldId }: { ref: string; worldId: string }) {
   const [path = "", p] = ref.split("#p");
   return (
-    // A new tab keeps a half-made pick on the gate.
-    <a href={`/worlds/${worldId}/read?${new URLSearchParams({ path })}`} target="_blank" rel="noreferrer">
+    // In a browser a new tab keeps a half-made pick on the gate; the installed app has no tabs,
+    // so there it opens in place, as a route, not a second window loading the whole app.
+    <Link to="/worlds/$worldId/read" params={{ worldId }} search={{ path }} target={standalone() ? undefined : "_blank"} rel="noreferrer">
       {path.split("/").pop()}, paragraph {p}
-    </a>
+    </Link>
   );
 }
 

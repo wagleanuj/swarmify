@@ -22,6 +22,17 @@ export function App() {
     return () => window.removeEventListener(SIGNED_OUT, out);
   }, []);
 
+  // A tapped notification routes the open app (sw.js), instead of reloading it at the link.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return;
+    const go = (e: MessageEvent<{ navigate?: string }>) => {
+      if (typeof e.data?.navigate === "string" && e.data.navigate.startsWith("/")) void router.history.push(e.data.navigate);
+    };
+    sw.addEventListener("message", go);
+    return () => sw.removeEventListener("message", go);
+  }, []);
+
   if (state === "checking") return null;
   if (state === "out") return <SignIn onSignedIn={() => setState("in")} />;
   return <RouterProvider router={router} />;

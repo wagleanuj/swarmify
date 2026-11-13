@@ -1,0 +1,24 @@
+/* Pull to refresh (PullToRefresh.tsx): a raised disc that drops from the top edge with the
+   finger, its arc drawing in as the pull nears the threshold, then spinning while the page
+   refetches. Plain tokens; the Office's paper and ink on an Office world. */
+.ptr {
+  --pull: 0px;
+  --pull-share: 0;
+  position: fixed; z-index: 44; top: calc(env(safe-area-inset-top) - 44px); left: 50%;
+  width: 40px; height: 40px; margin-left: -20px; display: grid; place-items: center;
+  background: var(--raised); color: var(--accent); border: 1px solid var(--control); border-radius: 50%;
+  box-shadow: 0 4px 12px #0008; pointer-events: none;
+  transform: translateY(var(--pull)); opacity: min(1, calc(var(--pull-share) * 1.5));
+}
+.ptr.idle { visibility: hidden; }
+.ptr.settling, .ptr.refreshing { transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out); }
+.ptr svg { transform: rotate(calc(var(--pull-share) * 270deg)); }
+.ptr circle { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: calc(var(--pull-share) * 75) 100; }
+.ptr.refreshing { opacity: 1; }
+.ptr.refreshing svg { animation: spin 900ms linear infinite; }
+.ptr.refreshing circle { stroke-dasharray: 60 100; }
+.ptr.on-office { background: #fffdf6; color: #2b2840; border: 3px solid #2b2840; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .ptr, .ptr.settling, .ptr.refreshing { transition: none; }
+  .ptr svg, .ptr.refreshing svg { animation: none; transform: none; }
+}

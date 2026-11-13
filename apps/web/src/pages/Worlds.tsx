@@ -8,6 +8,8 @@ import { CurrentWorld } from "../Shell";
 import { Loading, Skeleton } from "../Skeleton";
 import { worldHome } from "../skin";
 import { usePhone } from "../usePhone";
+import { useRefresh } from "../refresh";
+import { PullToRefresh } from "../PullToRefresh";
 
 type World = components["schemas"]["World"];
 
@@ -22,6 +24,7 @@ export function Worlds() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const fresh = useRefresh();
   useEffect(() => {
     api
       .GET("/api/worlds")
@@ -30,7 +33,7 @@ export function Worlds() {
         setWorlds(data);
       })
       .catch(() => setError("Could not load worlds. Is the API running?"));
-  }, []);
+  }, [fresh]);
 
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -103,6 +106,7 @@ export function Worlds() {
 
   return (
     <main>
+      <PullToRefresh />
       <header className="page">
         <div>
           <h1>Your worlds</h1>
