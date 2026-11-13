@@ -170,6 +170,8 @@ button.icon.play svg { margin-left: 2px; }
   .runs-table td.run-strip { display: none; }
   .runs-table tbody td:nth-child(n + 4) { grid-row: 2; text-align: left; color: var(--muted); font-size: 13px; }
   .runs-table tbody td:nth-child(5):not(:empty)::before, .runs-table tbody td:nth-child(6)::before { content: "· "; color: var(--faint); }
+  /* The spend runs on under the status, so a long figure never spills out of the last column */
+  .runs-table tbody td:nth-child(6) { grid-column: 3 / 5; }
   .runs-table tfoot td:first-child { grid-column: 1 / 4; }
   .runs-table tfoot td:last-child { grid-column: 4; }
   .versions-table tr { grid-template-columns: minmax(0, 1fr) auto auto auto; }
