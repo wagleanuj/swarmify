@@ -1,12 +1,15 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { usePhone } from "./usePhone";
+import { useSheet } from "./useSheet";
+
 /** What a Dialog asks: a title, a line per thing that happens, and the action's name. A danger
  * action (abort, delete) is drawn red. */
 export type Ask = { title: string; lines: string[]; action: string; danger?: boolean };
 
 /** A modal confirm on the native `<dialog>`: focus stays inside, Escape or a tap on the backdrop
  * cancels, the page behind is inert. Focus starts on Cancel, the safe answer. A centred card on a
- * wide screen, a bottom sheet on a phone. It renders where it is used, so the skin around it
+ * wide screen, a bottom sheet on a phone that a drag down or Android's back cancels too. It renders where it is used, so the skin around it
  * (plain or Office) styles it. */
 export function Dialog({ ask, onDone }: { ask: Ask; onDone: (ok: boolean) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -16,6 +19,8 @@ export function Dialog({ ask, onDone }: { ask: Ask; onDone: (ok: boolean) => voi
     if (!ref.current?.open) ref.current?.showModal();
     safe.current?.focus();
   }, []);
+  const phone = usePhone();
+  useSheet(ref, true, () => ref.current?.close(), phone);
   return (
     <dialog
       ref={ref}
@@ -26,6 +31,11 @@ export function Dialog({ ask, onDone }: { ask: Ask; onDone: (ok: boolean) => voi
       // The dialog itself is only hit outside the form, on the backdrop.
       onClick={(e) => e.target === e.currentTarget && e.currentTarget.close()}
     >
+      {phone && (
+        <div className="sheet-grip">
+          <button type="button" className="sheet-handle" aria-label="Close" onClick={() => ref.current?.close()} />
+        </div>
+      )}
       <form method="dialog">
         <h2 id={`${id}-title`}>{ask.title}</h2>
         <div id={`${id}-body`} className="dialog-body">

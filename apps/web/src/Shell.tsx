@@ -212,9 +212,16 @@ export function Shell() {
       ) : null}
     </Link>
   );
-  const row = (label: string, link: LinkProps, note?: string) => (
+  const row = (label: string, link: LinkProps, note?: string, icon?: NavKey) => (
     <Link {...link} className="sheet-row">
-      {label}
+      {icon ? (
+        <span className="sheet-lead">
+          <Icon name={NAV_ICON[icon]} size={20} />
+          {label}
+        </span>
+      ) : (
+        label
+      )}
       {note && <small>{note}</small>}
     </Link>
   );
@@ -316,19 +323,19 @@ export function Shell() {
         </nav>
       </Sheet>
       <Sheet open={sheet === "more"} onClose={() => setSheet(null)} label="More">
-        <nav aria-label="More" onClick={() => setSheet(null)}>
+        <nav aria-label="More" className="stagger" onClick={() => setSheet(null)}>
           {worldId && (
             <>
-              {row("Overview", { to: worldHome(world), params }, summary.overview)}
-              {row("Assets", { to: "/worlds/$worldId/assets", params }, summary.assets ?? "files your builds read")}
-              {row("Memory", { to: "/worlds/$worldId/graph", params }, "graph and notes")}
-              {row("Cast", { to: "/worlds/$worldId/cast", params }, summary.cast)}
-              {row("Connectors", { to: "/worlds/$worldId/connectors", params }, summary.connectors)}
+              {row("Overview", { to: worldHome(world), params }, summary.overview, "overview")}
+              {row("Assets", { to: "/worlds/$worldId/assets", params }, summary.assets ?? "files your builds read", "assets")}
+              {row("Memory", { to: "/worlds/$worldId/graph", params }, "graph and notes", "graph")}
+              {row("Cast", { to: "/worlds/$worldId/cast", params }, summary.cast, "cast")}
+              {row("Connectors", { to: "/worlds/$worldId/connectors", params }, summary.connectors, "connectors")}
             </>
           )}
-          {row("Evals", { to: "/evals" }, "scorecards")}
-          {worldId && row("Settings", { to: "/worlds/$worldId/settings", params }, "this world, keys")}
-          {row("All worlds", { to: "/" }, count(worlds?.length ?? 0, "world"))}
+          {row("Evals", { to: "/evals" }, "scorecards", "evals")}
+          {worldId && row("Settings", { to: "/worlds/$worldId/settings", params }, "this world, keys", "settings")}
+          {row("All worlds", { to: "/" }, count(worlds?.length ?? 0, "world"), "worlds")}
         </nav>
         <Health />
       </Sheet>

@@ -72,6 +72,14 @@ function fits(box: Element) {
   expect(r.right).toBeLessThanOrEqual(innerWidth);
 }
 
+/** A bottom sheet: flush to the foot of the screen and edge to edge, over the tab bar. */
+function flush(name: string) {
+  const r = document.querySelector(`dialog[aria-label="${name}"]`)!.getBoundingClientRect();
+  expect(r.top).toBeGreaterThanOrEqual(0);
+  expect(Math.round(r.bottom)).toBe(innerHeight);
+  expect([r.left, r.right]).toEqual([0, innerWidth]);
+}
+
 /** What the sky is painted with right now. */
 const sky = () => getComputedStyle(document.querySelector(".office-app")!).getPropertyValue("--sky1").trim();
 
@@ -111,7 +119,7 @@ test.each(SIZES)("at %i by %i every office screen fits on screen", async (w, h) 
   fits(screen.getByRole("region", { name: "Stage" }).element());
 });
 
-test("on a phone the office has a bottom tab bar, a banner of who needs you, and the quest board as a sheet", async () => {
+test("on a phone the office has a bottom tab bar, a banner of who needs you, and the quest board as a bottom sheet", async () => {
   await page.viewport(375, 667);
   office();
   const { screen, router } = await mountAt("/worlds/world_1/office");
@@ -134,7 +142,7 @@ test("on a phone the office has a bottom tab bar, a banner of who needs you, and
   fits(opener.element());
   await opener.click();
   await expect.element(board.getByRole("button", { name: /^Weekly explainer/ })).toBeVisible();
-  fits(board.element());
+  flush("Quest board");
   await screen.getByRole("button", { name: "Done" }).click();
   await expect.element(board).not.toBeInTheDocument();
 
@@ -177,7 +185,7 @@ test("on a phone the Crew form is a sheet over the stage", async () => {
   fits(roster.first().element());
   await screen.getByRole("button", { name: "Dress Rex" }).click();
   await expect.element(form).toBeVisible();
-  fits(form.element());
+  flush("Dress Judge");
   await form.getByRole("textbox", { name: /^Name/ }).fill("Judy");
   await form.getByRole("button", { name: "Save Judy" }).click();
   await expect.poll(() => saved).toHaveLength(1);

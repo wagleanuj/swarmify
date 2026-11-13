@@ -376,7 +376,6 @@ test("on a phone the sections stack, nothing scrolls sideways, and Add to Voices
   expect(new Set(cards.map((r) => r.left)).size).toBe(1); // one column
 
   const add = screen.getByRole("button", { name: "Add to Voices" });
-  const tabbar = screen.getByRole("navigation", { name: "Tabs" }).element().getBoundingClientRect();
   expect(add.element().closest(".panel-head")).not.toBeNull();
   expect(add.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   expect(document.querySelector("main .action-bar")).toBeNull();
@@ -391,7 +390,8 @@ test("on a phone the sections stack, nothing scrolls sideways, and Add to Voices
   await add.click();
   const sheet = screen.getByRole("dialog", { name: "Add to Voices" });
   await expect.element(sheet.getByRole("button", { name: "Upload" })).toBeVisible();
-  expect(sheet.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(tabbar.top + 1);
+  // A bottom sheet: flush to the screen's foot, over the tab bar.
+  expect(Math.round(sheet.element().getBoundingClientRect().bottom)).toBe(innerHeight);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
 

@@ -659,7 +659,7 @@ export function WorkflowEditor() {
         </aside>
       </div>
       {phone && (
-        <Sheet open={sheet && !!panel} onClose={() => setSheet(false)} label="Stage settings" className="stage-sheet">
+        <Sheet open={sheet && !!panel} onClose={() => setSheet(false)} label="Stage settings" className="stage-sheet" head={false}>
           {panel}
         </Sheet>
       )}
@@ -1189,7 +1189,6 @@ function CopyTo({
       )}
       {phone && (
         <Sheet open={open} onClose={() => setOpen(false)} label="Copy to another world">
-          <h2 className="sheet-title">Copy to another world</h2>
           <p className="faint">Creates a copy there; you stay here.</p>
           {worlds.map((w) => (
             <button key={w.id} type="button" className="sheet-row" onClick={() => pick(w)}>

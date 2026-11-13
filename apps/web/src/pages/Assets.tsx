@@ -169,7 +169,7 @@ export function Assets() {
 
       <Files worldId={worldId} files={rest} onChanged={reload} onError={setError} />
 
-      <Sheet open={!!adding} onClose={() => setAdding(null)} label={`Add to ${adding?.label ?? ""}`} className="sheet-form">
+      <Sheet open={!!adding} onClose={() => setAdding(null)} label={`Add to ${adding?.label ?? ""}`} className="sheet-form" head={false}>
         {adding?.templates && (
           <AddTemplate
             worldId={worldId}

@@ -4,9 +4,11 @@ import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
+import { Sheet } from "../Sheet";
 import { BUNDLED_PACK, plainRole, saveSkin, type Skin } from "../skin";
+import { usePhone } from "../usePhone";
 import { type Casting, look, type Member, type Pack, packCasting, packOf, poseSrc, useCrew } from "./cast";
-import { appClass, FullScreen, Tabs, useNight } from "./chrome";
+import { appClass, FullScreen, OFFICE_PHONE, Tabs, useNight } from "./chrome";
 import "./office.css";
 
 type World = components["schemas"]["World"];
@@ -167,6 +169,7 @@ type DresserProps = {
 
 /** The selected agent on a pedestal in a chosen pose, and the form that dresses them. */
 function Dresser({ member, cast, pack, packs, skin, saved, save, dressing, setDressing }: DresserProps) {
+  const narrow = usePhone(OFFICE_PHONE);
   const [draft, setDraft] = useState<Casting>(own(skin.cast?.[member.name]));
   const [pose, setPose] = useState("idle");
   const seen = look(pack, member, cast, draft);
@@ -181,6 +184,67 @@ function Dresser({ member, cast, pack, packs, skin, saved, save, dressing, setDr
     e.preventDefault();
     void save({ ...skin, cast: { ...skin.cast, [member.name]: draft } });
   }
+
+  const form = (
+    <form className="office-dress" aria-label={`Dress ${label}`} onSubmit={submit}>
+      <button type="button" className="office-btn office-narrow office-done" onClick={() => setDressing(false)}>
+        Done
+      </button>
+      <h2>Dress {seen.name}</h2>
+      <div role="group" aria-label="Sprite pack">
+        <small>Sprite pack</small>
+        {packs.map((p) => (
+          <button key={p.id} type="button" className="office-btn" aria-pressed={p.id === pack.id} onClick={() => void save({ ...skin, pack: p.id, cast: { ...skin.cast, [member.name]: draft } })}>
+            {p.name}
+          </button>
+        ))}
+      </div>
+      <p className="office-licence">
+        Licence: {pack.licence || "none given"}
+        {pack.author && <> · by {pack.author}</>}
+      </p>
+      {seen.missing && (
+        <p className="office-note" role="status">
+          {pack.name} has no character {seen.missing}, so {seen.name} wears {seen.character.name}. Pick another.
+        </p>
+      )}
+      <div role="group" aria-label="Character" className="office-looks">
+        {Object.entries(pack.characters ?? {})
+          .filter(([, c]) => c.poses.idle?.length)
+          .map(([id, c]) => (
+            <button key={id} type="button" aria-pressed={id === seen.id} onClick={() => set("character", id)}>
+              <img src={poseSrc(pack, id, c, "idle")} alt={c.name} />
+            </button>
+          ))}
+      </div>
+      <label>
+        Name, up to 24 characters
+        <input value={draft.name ?? ""} placeholder={base.name ?? label} maxLength={24} onChange={(e) => set("name", e.target.value)} />
+      </label>
+      <label>
+        Colour
+        <input type="color" value={seen.colour ?? "#ffc93c"} onChange={(e) => set("colour", e.target.value)} />
+      </label>
+      <label>
+        Catchphrase, said when a run ships, up to 80 characters
+        <input
+          value={draft.catchphrase ?? ""}
+          placeholder={base.catchphrase ?? ""}
+          maxLength={80}
+          onChange={(e) => set("catchphrase", e.target.value)}
+        />
+      </label>
+      <div className="office-actions">
+        <button type="submit" className="office-btn">
+          Save {seen.name}
+        </button>
+        <button type="button" className="office-btn" onClick={() => void save({ ...skin, cast: looks })}>
+          Reset to the pack's casting
+        </button>
+      </div>
+      {saved && <p role="status">Saved. The office shows it now.</p>}
+    </form>
+  );
 
   return (
     <>
@@ -204,64 +268,13 @@ function Dresser({ member, cast, pack, packs, skin, saved, save, dressing, setDr
           Dress {seen.name}
         </button>
       </section>
-      <form className={`office-dress${dressing ? " office-sheet-open" : ""}`} aria-label={`Dress ${label}`} onSubmit={submit}>
-        <button type="button" className="office-btn office-narrow office-done" onClick={() => setDressing(false)}>
-          Done
-        </button>
-        <h2>Dress {seen.name}</h2>
-        <div role="group" aria-label="Sprite pack">
-          <small>Sprite pack</small>
-          {packs.map((p) => (
-            <button key={p.id} type="button" className="office-btn" aria-pressed={p.id === pack.id} onClick={() => void save({ ...skin, pack: p.id, cast: { ...skin.cast, [member.name]: draft } })}>
-              {p.name}
-            </button>
-          ))}
-        </div>
-        <p className="office-licence">
-          Licence: {pack.licence || "none given"}
-          {pack.author && <> · by {pack.author}</>}
-        </p>
-        {seen.missing && (
-          <p className="office-note" role="status">
-            {pack.name} has no character {seen.missing}, so {seen.name} wears {seen.character.name}. Pick another.
-          </p>
-        )}
-        <div role="group" aria-label="Character" className="office-looks">
-          {Object.entries(pack.characters ?? {})
-            .filter(([, c]) => c.poses.idle?.length)
-            .map(([id, c]) => (
-              <button key={id} type="button" aria-pressed={id === seen.id} onClick={() => set("character", id)}>
-                <img src={poseSrc(pack, id, c, "idle")} alt={c.name} />
-              </button>
-            ))}
-        </div>
-        <label>
-          Name, up to 24 characters
-          <input value={draft.name ?? ""} placeholder={base.name ?? label} maxLength={24} onChange={(e) => set("name", e.target.value)} />
-        </label>
-        <label>
-          Colour
-          <input type="color" value={seen.colour ?? "#ffc93c"} onChange={(e) => set("colour", e.target.value)} />
-        </label>
-        <label>
-          Catchphrase, said when a run ships, up to 80 characters
-          <input
-            value={draft.catchphrase ?? ""}
-            placeholder={base.catchphrase ?? ""}
-            maxLength={80}
-            onChange={(e) => set("catchphrase", e.target.value)}
-          />
-        </label>
-        <div className="office-actions">
-          <button type="submit" className="office-btn">
-            Save {seen.name}
-          </button>
-          <button type="button" className="office-btn" onClick={() => void save({ ...skin, cast: looks })}>
-            Reset to the pack's casting
-          </button>
-        </div>
-        {saved && <p role="status">Saved. The office shows it now.</p>}
-      </form>
+      {narrow ? (
+        <Sheet open={dressing} onClose={() => setDressing(false)} label={`Dress ${label}`} head={false} className="office-sheet">
+          {form}
+        </Sheet>
+      ) : (
+        form
+      )}
     </>
   );
 }
