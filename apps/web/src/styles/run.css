@@ -1,9 +1,9 @@
 /* Run page: title row with the run menu, the time strip, the step list and spend beside the selected step */
 .run-page header.page { align-items: flex-start; }
 .run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.follow { display: inline-flex; align-items: center; gap: 8px; padding: 3px 3px 3px 12px; border-radius: 999px; background: var(--raised); color: var(--muted); font-size: 12px; }
-.follow button { min-height: 26px; padding: 2px 10px; border-radius: 999px; font-size: 12px; }
-p.status-line { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(--muted); max-width: 52rem; }
+.follow { display: inline-flex; align-items: center; gap: 8px; padding: 3px 3px 3px 12px; border-radius: 999px; background: var(--raised); color: var(--muted); font-size: 0.75rem; }
+.follow button { min-height: 26px; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; }
+p.status-line { margin: 6px 0 0; font-size: 0.875rem; line-height: 1.4; color: var(--muted); max-width: 52rem; }
 p.status-line.state-waiting_gate { color: var(--warning); }
 p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative); }
 .saved { margin: 0 0 16px; color: var(--muted); }
@@ -14,14 +14,14 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .step-button small { display: inline-flex; align-items: center; gap: 4px; }
 .step-button { width: 100%; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px; margin-bottom: var(--gap); padding: 8px 12px; border: 0; border-radius: 10px; background: var(--raised); text-align: left; font-weight: 400; }
 .step-button > span { display: grid; min-width: 0; }
-.step-button b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step-button small { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.step-button b { font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-button small { color: var(--faint); font-size: 0.75rem; white-space: nowrap; }
 /* The run's menu button: a quiet glyph, its 44px tap kept */
 .run-topbar button.icon, .run-actions button.icon { border-color: transparent; border-radius: 999px; }
 
 /* Before the run loads: its parts at their size (RunSkeleton) */
 .run-loading .sk-title { font-size: var(--fs-title); --sk-h: 1.2em; margin-bottom: 6px; }
-.run-loading .sk-status { font-size: 14px; --sk-h: 1.4em; margin-top: 6px; }
+.run-loading .sk-status { font-size: 0.875rem; --sk-h: 1.4em; margin-top: 6px; }
 .run-loading .sk-strip { --sk-h: 40px; margin: 4px 0 6px; }
 .run-loading .sk-step { display: none; --sk-h: 52px; margin-bottom: var(--gap); border-radius: 10px; }
 .run-loading .sk-ask { --sk-h: 34px; border-radius: 999px; }
@@ -31,7 +31,7 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .strip-wrap { margin: 4px 0 6px; min-width: 0; }
 .strip { display: flex; gap: 2px; height: 40px; margin: 4px 0 6px; min-width: 0; }
 .strip-wrap .strip { margin: 0; }
-.strip-seg { position: relative; display: block; flex: 0 1 56px; min-width: 34px; min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--raised); color: var(--muted); font-size: 11px; font-weight: 500; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.strip-seg { position: relative; display: block; flex: 0 1 56px; min-width: 34px; min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--raised); color: var(--muted); font-size: 0.6875rem; font-weight: 500; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .strip-seg span { display: block; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; }
 .strip-seg:first-child { border-radius: 4px 0 0 4px; }
 .strip-seg:last-child { border-radius: 0 4px 4px 0; }
@@ -45,7 +45,7 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .strip-seg.seg-running::before { content: ""; position: absolute; inset: 0; background: rgb(255 255 255 / 0.1); transform-origin: left; transform: translateX(-35%) scaleX(0.35); animation: sheen 2.4s var(--ease-in-out) infinite; pointer-events: none; }
 .strip-seg.seg-waiting { animation: beckon 2.4s ease-in-out infinite; }
 /* The phone's key under the strip: the step that is now by name, the others as dots. */
-.strip-key { display: none; gap: 2px; height: 18px; margin-top: 6px; font-size: 12px; line-height: 18px; }
+.strip-key { display: none; gap: 2px; height: 18px; margin-top: 6px; font-size: 0.75rem; line-height: 18px; }
 .strip-key > span { position: relative; display: flex; justify-content: center; align-items: center; flex: 0 1 56px; min-width: 24px; }
 .strip-key i { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
 .strip-key .key-done i { background: var(--accent); }
@@ -61,17 +61,17 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .strip-seg[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--accent); }
 .strip-bare { height: 8px; margin: 0; gap: 1px; }
 .strip-bare .strip-seg { min-width: 3px; flex-basis: 12px; }
-.strip-axis { display: flex; justify-content: space-between; gap: 12px; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; margin-bottom: var(--gap); }
+.strip-axis { display: flex; justify-content: space-between; gap: 12px; color: var(--faint); font-size: 0.6875rem; font-variant-numeric: tabular-nums; margin-bottom: var(--gap); }
 .elapsed[data-live] { color: var(--text); }
 /* The live step's latest line, under the strip while you watch it */
-.live-line { display: flex; align-items: center; gap: 8px; margin: calc(-1 * var(--gap) + 8px) 0 var(--gap); color: var(--muted); font-size: 13px; min-width: 0; }
+.live-line { display: flex; align-items: center; gap: 8px; margin: calc(-1 * var(--gap) + 8px) 0 var(--gap); color: var(--muted); font-size: 0.8125rem; min-width: 0; }
 .live-line .icon { flex: none; color: var(--accent); }
 .live-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A done run's summary: the check, took, spent, made, and the one file to open */
-.done-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; padding: 10px 12px; border-radius: var(--radius-card); background: var(--pill-positive-bg); font-size: 14px; }
+.done-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; padding: 10px 12px; border-radius: var(--radius-card); background: var(--pill-positive-bg); font-size: 0.875rem; }
 .done-row > .icon { color: var(--accent); flex: none; }
 .done-row p { flex: 1 1 12rem; margin: 0; font-variant-numeric: tabular-nums; }
-.run-id code { font-size: 12px; overflow-wrap: anywhere; }
+.run-id code { font-size: 0.75rem; overflow-wrap: anywhere; }
 
 .run-grid { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: var(--gap); align-items: start; }
 .run-side { display: grid; gap: var(--gap); }
@@ -81,8 +81,8 @@ p.status-line.state-failed, p.status-line.state-aborted { color: var(--negative)
 .step button[aria-pressed="true"] { background: var(--raised); }
 .step button[aria-pressed="true"]::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: var(--accent); }
 .step-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step-name small { display: block; color: var(--faint); font-size: 11px; }
-.step-meta { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.step-name small { display: block; color: var(--faint); font-size: 0.6875rem; }
+.step-meta { color: var(--faint); font-size: 0.75rem; font-variant-numeric: tabular-nums; text-align: right; }
 .step-waiting .step-meta { color: var(--warning); }
 .step-failed .step-meta { color: var(--negative); }
 .glyph { justify-self: center; }
@@ -96,7 +96,7 @@ svg.glyph { color: var(--accent); }
 .spend { display: grid; gap: 8px; }
 .run-page .spend .panel-head { justify-content: space-between; }
 .spend meter { width: 100%; }
-.spend .compare summary { margin: 0; font-size: 13px; }
+.spend .compare summary { margin: 0; font-size: 0.8125rem; }
 .compare p { margin-top: 4px; }
 
 /* A short list of actions under a button (Menu.tsx; its box is in base.css), each with what
@@ -122,10 +122,10 @@ svg.glyph { color: var(--accent); }
 .document { display: grid; gap: 12px; justify-items: start; padding: 16px 20px; background: var(--well); border-radius: var(--radius-card); width: min(100%, 40rem); }
 .inline-gate .gate { padding: 0; border: 0; background: none; }
 .inline-gate .gate:has(> .artifact-view) { grid-template-columns: 240px minmax(0, 1fr); gap: 16px var(--gap); align-items: start; }
-.inline-gate .gate > .ask { grid-column: 1 / -1; font-size: 15px; }
+.inline-gate .gate > .ask { grid-column: 1 / -1; font-size: 0.9375rem; }
 .inline-gate .gate .artifact-view video { width: 100%; }
 .inline-gate .gate-actions { padding-top: 16px; border-top: 1px solid var(--rule); }
-.stage-error, .warn { font-size: 13px; color: var(--negative); }
+.stage-error, .warn { font-size: 0.8125rem; color: var(--negative); }
 .warn { color: var(--warning); }
 .run-page .panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .run-page .panel .agents, .run-page .panel .whiteboard { margin: 0; padding: 0; background: none; border: 0; }
@@ -134,18 +134,18 @@ svg.glyph { color: var(--accent); }
 .stage-failure { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px 14px; border-radius: var(--radius-card); background: var(--pill-negative-bg); color: var(--text); }
 /* The failed step's block says why; the status line above would only say it again. */
 .run-page:has(.stage-failure) p.status-line.state-failed { display: none; }
-.failure-line { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.45; }
+.failure-line { display: flex; gap: 10px; align-items: flex-start; font-size: 0.9375rem; line-height: 1.45; }
 .failure-line .icon { flex: none; color: var(--negative); margin-top: 1px; }
 .stage-failure .stage-log { margin-top: 8px; white-space: pre; word-break: normal; overflow-wrap: normal; }
 .failure-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .stage-log { max-height: 20rem; overflow: auto; color: var(--text); }
 .agent-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); align-items: start; }
 .agent-card { display: grid; gap: 2px; padding: 10px 12px; background: var(--well); border-radius: var(--radius-field); }
-.doing { font-size: 14px; overflow-wrap: anywhere; }
-.agent-skills summary { margin: 2px 0 0; font-size: 13px; }
+.doing { font-size: 0.875rem; overflow-wrap: anywhere; }
+.agent-skills summary { margin: 2px 0 0; font-size: 0.8125rem; }
 .live-log { display: grid; gap: 8px; }
-.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 18rem; overflow-y: auto; font-size: 13px; }
-.payload summary { display: inline; margin: 0 0 0 6px; font-size: 13px; }
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 18rem; overflow-y: auto; font-size: 0.8125rem; }
+.payload summary { display: inline; margin: 0 0 0 6px; font-size: 0.8125rem; }
 .payload pre { margin-top: 4px; }
 .takes { display: grid; gap: 8px; }
 .take-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -163,9 +163,9 @@ svg.glyph { color: var(--accent); }
 .published dt { color: var(--muted); }
 .published dd { margin: 0; }
 .published .publish-field { display: contents; }
-.technical summary { margin: 0; font-size: 13px; }
+.technical summary { margin: 0; font-size: 0.8125rem; }
 .technical .call-json { margin-top: 8px; }
-.call-json h4 { font-size: 13px; font-weight: 500; color: var(--muted); margin: 0 0 4px; }
+.call-json h4 { font-size: 0.8125rem; font-weight: 500; color: var(--muted); margin: 0 0 4px; }
 .call-json { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 16px; }
 .agents { display: grid; gap: 8px; }
 .agents h2, .agents h3 { margin: 0; }
@@ -178,14 +178,14 @@ svg.glyph { color: var(--accent); }
 .add-task { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 20rem; max-width: 100%; }
 .add-task input { flex: 1 1 12rem; min-width: 0; }
 .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
-.col h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.col h3 { margin: 0 0 8px; font-size: 0.8125rem; font-weight: 500; color: var(--muted); }
 .col h3 span { font-variant-numeric: tabular-nums; }
 .col ul { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-.col-empty { margin: 0; font-size: 13px; color: var(--muted); padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-card); }
+.col-empty { margin: 0; font-size: 0.8125rem; color: var(--muted); padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-card); }
 .task { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 2px; padding: 10px 12px; overflow-wrap: anywhere; }
 .task-claimed { border-color: var(--accent); }
 .task-done b { color: var(--muted); }
-.task .notes { margin: 4px 0 0; padding-left: 16px; font-size: 13px; display: grid; gap: 2px; }
+.task .notes { margin: 4px 0 0; padding-left: 16px; font-size: 0.8125rem; display: grid; gap: 2px; }
 
 @media (max-width: 48rem) {
   .run-grid, .result-one, .inline-gate .gate:has(> .artifact-view) { grid-template-columns: minmax(0, 1fr); }
@@ -196,7 +196,7 @@ svg.glyph { color: var(--accent); }
   /* The question is asked once, by the gate's card below; a done run's summary says the rest. */
   .run-page:has(.inline-gate) p.status-line.state-waiting_gate, .run-page p.status-line.state-done { display: none; }
   .strip-key { display: flex; }
-  .strip-axis { font-size: 12px; }
+  .strip-axis { font-size: 0.75rem; }
   .run-pill + p.status-line { display: inline; }
   .axis-spend, .step-button, .run-topbar { display: flex; }
   .axis-spend { gap: 0.3em; }
@@ -208,7 +208,7 @@ svg.glyph { color: var(--accent); }
   .topbar .run-topbar > :not(a) { flex: none; }
   .topbar .run-topbar button.icon { display: inline-flex; }
   .player { max-height: 300px; }
-  .run-loading .sk-title { font-size: 22px; }
+  .run-loading .sk-title { font-size: 1.375rem; }
   .run-loading .sk-step { display: block; }
   .run-loading .sk-ask { --sk-h: 44px; }
   /* Each segment a 24px tap at least; a long run's strip scrolls inside itself */
@@ -240,19 +240,19 @@ svg.glyph { color: var(--accent); }
 .change-card { display: grid; gap: 10px; padding: 12px 16px; border-radius: var(--radius-card); background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
 .change-card h3 { margin: 0; }
 .save-draft { display: grid; gap: 8px; }
-.change-card textarea { width: 100%; font-family: var(--mono); font-size: 13px; }
-.diff { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.change-card textarea { width: 100%; font-family: var(--mono); font-size: 0.8125rem; }
+.diff { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 0.8125rem; }
 .diff del { color: var(--muted); }
 .diff ins { text-decoration: none; background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .edited { color: var(--accent); }
-.changes { margin: 0; padding-left: 20px; font-size: 13px; }
+.changes { margin: 0; padding-left: 20px; font-size: 0.8125rem; }
 .run-grid.asking { grid-template-columns: 264px minmax(0, 1fr) minmax(280px, 340px); }
-.assistant h2 { margin: 0; font-size: 15px; }
-.conversation { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.assistant h2 { margin: 0; font-size: 0.9375rem; }
+.conversation { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 0.875rem; }
 .said { display: grid; gap: 6px; }
 .said-operator > p:first-child { justify-self: end; max-width: 85%; padding: 6px 10px; border-radius: 10px; background: var(--raised); }
-.sources { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+.sources { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 0.75rem; }
 .ask { display: grid; gap: 8px; }
 .ask textarea { width: 100%; }
 .ask button { justify-self: end; }
-.assistant .meta { font-size: 12px; }
+.assistant .meta { font-size: 0.75rem; }

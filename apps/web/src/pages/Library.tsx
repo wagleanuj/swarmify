@@ -406,8 +406,8 @@ function Detail({
 function Preview({ item, worldId }: { item: Item; worldId: string }) {
   const url = rawUrl(worldId, item);
   if (item.fields.deleted) return <p className="faint">{item.name} was deleted by retention; its record stays.</p>;
-  if (item.type === "video" || VIDEO.test(item.name)) return <video controls preload="metadata" src={url} />;
-  if (IMAGE.test(item.name)) return <img src={url} alt={item.title} />;
+  if (item.type === "video" || VIDEO.test(item.name)) return <video data-pinch controls preload="metadata" src={url} />;
+  if (IMAGE.test(item.name)) return <img data-pinch src={url} alt={item.title} />;
   if (item.name.endsWith(".md") && item.body.trim()) {
     return (
       <div className="lib-body">

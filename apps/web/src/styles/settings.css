@@ -15,7 +15,7 @@
 .set-form > .set-row:first-child { border-top: 0; padding-top: 0; }
 fieldset.set-panel { display: grid; min-width: 0; }
 .set-savebar { position: sticky; bottom: 16px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 10px; max-width: 64rem; margin: 4px 0 8px; padding: 10px 12px 10px 16px; background: var(--raised); border: 1px solid var(--control); border-radius: 10px; box-shadow: 0 8px 24px #0009; animation: bar-up var(--dur-base) var(--ease-out) both; }
-.set-savebar .faint { margin-right: auto; font-size: 13px; }
+.set-savebar .faint { margin-right: auto; font-size: 0.8125rem; }
 .set-danger { margin-top: 32px; border-top: 1px solid #4a2a32; }
 .set-danger h2 { color: var(--pill-negative-ink); }
 @media (max-width: 48rem) {
@@ -40,7 +40,7 @@ fieldset.set-panel { display: grid; min-width: 0; }
 /* Sign-in: the mark over one narrow panel, centred in what the safe area leaves. */
 .sign-in { display: grid; place-content: center; justify-items: center; gap: 24px; min-height: 100svh; max-width: none; box-sizing: border-box;
   padding: max(24px, env(safe-area-inset-top)) max(var(--pad), env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(var(--pad), env(safe-area-inset-left)); }
-.sign-in .brand { flex-direction: column; gap: 12px; padding: 0; font-size: 20px; letter-spacing: -0.01em; }
+.sign-in .brand { flex-direction: column; gap: 12px; padding: 0; font-size: 1.25rem; letter-spacing: -0.01em; }
 .sign-in .brand svg { width: 48px; height: 48px; }
 .sign-in form { display: grid; gap: 16px; width: min(22rem, calc(100vw - 2 * var(--pad))); box-sizing: border-box; }
 .sign-in form > label { margin-bottom: -10px; }
@@ -66,10 +66,10 @@ fieldset.set-panel { display: grid; min-width: 0; }
 .cast-list button:hover { background: none; }
 .cast-list button:active { background: var(--raised); }
 .cast-list button > .icon { color: var(--faint); }
-.avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--raised); color: var(--muted); font-size: 13px; font-weight: 600; }
+.avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--raised); color: var(--muted); font-size: 0.8125rem; font-weight: 600; }
 .cast-who, .cast-fig { display: grid; gap: 2px; min-width: 0; }
 .cast-who b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cast-list small { color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cast-list small { color: var(--faint); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cast-fig { justify-items: end; text-align: right; }
 .cast-fig .num { font-weight: 500; }
 .agent-sheet-body { display: grid; gap: 16px; }
@@ -81,7 +81,7 @@ fieldset.set-panel { display: grid; min-width: 0; }
 .agent-record > div:nth-child(odd) { padding-right: 12px; }
 .agent-record > div:nth-child(even) { padding-left: 12px; border-left: 1px solid var(--rule); }
 .agent-record > div:last-child:nth-child(odd) { grid-column: 1 / -1; padding-right: 0; }
-.agent-record dt { color: var(--faint); font-size: 13px; }
+.agent-record dt { color: var(--faint); font-size: 0.8125rem; }
 .agent-record dd { margin: 0; font-weight: 500; }
 .agent-record dd .faint { font-weight: 400; }
 .agent-sheet .cast-edit .actions .faint { flex-basis: 100%; }
@@ -105,7 +105,7 @@ fieldset.set-panel { display: grid; min-width: 0; }
 /* Notifications (Notifications.tsx): what one looks like, then the kinds this device gets. */
 .push-preview { display: flex; gap: 10px; align-items: center; margin: 0; padding: 10px 12px; max-width: 24rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .push-preview img { flex: none; border-radius: 7px; }
-.push-preview figcaption { display: grid; gap: 2px; min-width: 0; font-size: 13px; line-height: 1.35; }
+.push-preview figcaption { display: grid; gap: 2px; min-width: 0; font-size: 0.8125rem; line-height: 1.35; }
 .push-preview span { color: var(--faint); }
 .push-kinds { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .push-panel { display: grid; gap: 14px; }

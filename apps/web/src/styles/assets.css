@@ -12,7 +12,7 @@
 .voice-top button.play svg { width: 18px; height: 18px; fill: currentColor; }
 .play-open { min-height: 40px; }
 .voice-name { display: grid; min-width: 0; }
-.voice-name b { font-size: 14px; }
+.voice-name b { font-size: 0.875rem; }
 .add-voice input:not([type="checkbox"]) { width: 100%; }
 /* A card's or row's menu opens leftwards from its right-hand button, inside the screen. */
 .voice-card .menu, .file-rows .menu { left: auto; right: 0; }

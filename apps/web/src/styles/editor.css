@@ -1,7 +1,7 @@
 /* Workflow editor: starters, then Stages, the planner, YAML and the scorecard, over one text; and the workflows list */
 main.editor-page { max-width: 80rem; }
 .editor-page .tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
-.editor-page .tab { position: relative; min-height: 0; padding: 0 0 10px; border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 13px; }
+.editor-page .tab { position: relative; min-height: 0; padding: 0 0 10px; border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 0.8125rem; }
 .editor-page .tab:hover { background: none; color: var(--text); }
 .editor-page .tab[aria-selected="true"] { color: var(--text); }
 .editor-page .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--accent); }
@@ -18,12 +18,12 @@ button.link.undo { color: var(--accent); font-weight: 600; text-decoration: none
 .fields-title { display: none; }
 .stages-loading { display: grid; gap: 0; }
 .stages-loading .stage-rows { gap: 8px; padding: 0; background: none; border: 0; }
-.checks { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--faint); font-size: 12px; }
+.checks { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--faint); font-size: 0.75rem; }
 .problems { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--negative); }
 .problems code { color: var(--muted); }
 .versions { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
-.versions li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
-.versions button, .stage-panel .row-start button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
+.versions li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.875rem; }
+.versions button, .stage-panel .row-start button { min-height: 28px; padding: 3px 9px; font-size: 0.8125rem; }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 12px; margin-bottom: 12px; }
 .fields label, .stage-panel label { display: grid; gap: 6px; margin: 0; }
 .stage-rows { list-style: none; padding: 6px; margin: 0; display: grid; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
@@ -31,7 +31,7 @@ button.link.undo { color: var(--accent); font-weight: 600; text-decoration: none
 .stage-row[aria-current="true"] { background: var(--raised); border-left-color: var(--accent); }
 .stage-main { display: grid; gap: 4px; min-width: 0; }
 .stage-top { display: flex; align-items: center; gap: 8px; }
-.stage-main .muted { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-main .muted { color: var(--muted); font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stage-contract { display: grid; justify-items: end; text-align: right; flex: none; max-width: 40%; }
 .stage-contract .ink { color: var(--text); }
 .pill.type-swarm { color: var(--pill-positive-ink); background: var(--pill-positive-bg); }
@@ -39,26 +39,26 @@ button.link.undo { color: var(--accent); font-weight: 600; text-decoration: none
 .pill.type-connector, .pill.type-workflow, .pill.type-unknown { color: var(--muted); background: var(--raised); }
 .stage-panel .row { flex-wrap: nowrap; }
 .stage-panel .row-start { display: flex; gap: 8px; flex-wrap: wrap; }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 12px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 0.75rem; }
 .kv dt { color: var(--faint); }
 .kv dd { margin: 0; }
 .add-stage { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .starters { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 8px; margin-bottom: 24px; }
 .starters button { display: grid; justify-items: start; align-content: start; gap: 2px; min-height: 0; padding: 10px 12px; text-align: left; font-weight: 400; }
 .starters button[aria-pressed="true"] { border-color: var(--accent); }
-.starters small { color: var(--faint); font-size: 12px; }
+.starters small { color: var(--faint); font-size: 0.75rem; }
 .chat { display: grid; gap: 12px; }
 .chat-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; max-height: 28rem; overflow: auto; }
 .chat-log li { padding: 8px 12px; max-width: 44rem; white-space: pre-wrap; }
 .chat-log li.you { justify-self: end; background: var(--pill-positive-bg); border-color: transparent; }
-.chat-log li b { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 2px; }
+.chat-log li b { display: block; font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-bottom: 2px; }
 .chat form { display: flex; gap: 8px; align-items: flex-start; }
 .chat form textarea { flex: 1; }
 .rel { position: relative; display: inline-block; }
 .copy .menu { position: absolute; left: 0; top: calc(100% + 6px); min-width: 240px; padding: 6px; background: var(--surface); border: 1px solid var(--control); border-radius: 8px; z-index: 10; display: grid; }
 .copy .menu button { display: grid; justify-items: start; gap: 2px; min-height: 0; padding: 8px 10px; border: 0; border-radius: 6px; background: none; text-align: left; }
 .copy .menu button:hover { background: var(--raised); }
-.copy .menu small { color: var(--faint); font-size: 11px; font-weight: 400; }
+.copy .menu small { color: var(--faint); font-size: 0.6875rem; font-weight: 400; }
 .trend { margin: 0 0 16px; max-width: 62ch; }
 a.button.primary { background: var(--accent); color: var(--primary-ink); border-color: var(--accent); font-weight: 600; text-decoration: none; }
 a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
@@ -78,9 +78,9 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .editor-actions .save-status { flex: 1; }
   .editor-actions [role="status"] { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .editor-actions button.primary { flex: none; padding: 0 18px; }
-  .editor-actions button.undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 6px; font-size: 14px; }
+  .editor-actions button.undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 6px; font-size: 0.875rem; }
   .editor-page .tabs { flex-wrap: nowrap; gap: 22px; margin-bottom: 16px; }
-  .editor-page .tab { flex: none; display: inline-flex; align-items: flex-end; min-height: 44px; font-size: 14px; }
+  .editor-page .tab { flex: none; display: inline-flex; align-items: flex-end; min-height: 44px; font-size: 0.875rem; }
   .starters { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px; scrollbar-width: none; }
   .starters button { flex: none; display: inline-flex; min-height: 44px; padding: 0 16px; border-radius: 999px; color: var(--muted); }
   .starters button b { font-weight: 500; }
@@ -88,7 +88,7 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .starters small { display: none; }
   .fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 14px 12px; margin: 0; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
   .fields .wide, .fields-title { grid-column: 1 / -1; }
-  .fields-title { display: block; font-size: 15px; }
+  .fields-title { display: block; font-size: 0.9375rem; }
   .fields .wide .faint { display: block; margin-top: 6px; }
   .fields input, .stage-sheet input { width: 100%; min-height: 44px; }
   .stage-rows { padding: 0; gap: 0; overflow: hidden; }
@@ -99,7 +99,7 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .stage-row[aria-current="true"] { background: none; border-left-color: transparent; }
   .stage-row[aria-current="true"]:active { background: var(--raised); }
   .stage-row .stage-main, .stage-row .stage-contract { grid-column: 1; }
-  .stage-row .chev { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--faint); font-size: 24px; line-height: 1; }
+  .stage-row .chev { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--faint); font-size: 1.5rem; line-height: 1; }
   .stage-main .muted { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .stage-contract { display: flex; flex-wrap: wrap; gap: 2px 12px; text-align: left; max-width: none; }
   .add-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 10px; }
@@ -110,30 +110,20 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .chat form { flex-direction: column; align-items: stretch; }
   .chat form textarea { field-sizing: content; min-height: calc(3lh + 16px); max-height: 40svh; }
   .chat form button { align-self: flex-end; padding: 0 22px; }
-  .versions button, .stage-panel .row-start button { min-height: 44px; padding: 0 16px; font-size: 14px; }
+  .versions button, .stage-panel .row-start button { min-height: 44px; padding: 0 16px; font-size: 0.875rem; }
   .editor aside > section { padding: 14px; }
   .chat-log li { max-width: 100%; }
   .chat-log { max-height: none; }
   /* The stage sheet: a sticky head with Done, one field per row, a sticky row of moves. */
   .stage-sheet .stage-panel { display: grid; gap: 14px; }
   .stage-sheet .stage-head { position: sticky; top: -8px; z-index: 1; flex-wrap: nowrap; justify-content: flex-start; gap: 10px; margin: -8px -16px 0; padding: 8px 8px 10px 16px; background: var(--surface); border-bottom: 1px solid var(--rule); }
-  .stage-sheet .stage-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
-  .stage-sheet .done { margin-left: auto; padding: 0 12px; border: 0; color: var(--accent); font-weight: 600; font-size: 15px; }
+  .stage-sheet .stage-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.0625rem; }
+  .stage-sheet .done { margin-left: auto; padding: 0 12px; border: 0; color: var(--accent); font-weight: 600; font-size: 0.9375rem; }
   .stage-sheet .done:hover { background: none; }
   .stage-sheet textarea { field-sizing: content; min-height: calc(4lh + 16px); max-height: 40svh; resize: none; }
-  .stage-sheet .kv { font-size: 13px; padding: 10px 12px; background: var(--well); border-radius: var(--radius-field); }
+  .stage-sheet .kv { font-size: 0.8125rem; padding: 10px 12px; background: var(--well); border-radius: var(--radius-field); }
   .stage-sheet .stage-moves { position: sticky; bottom: -14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 -16px -14px; padding: 10px 16px 14px; background: var(--surface); border-top: 1px solid var(--rule); }
   .stage-sheet .stage-moves button { padding: 0 8px; }
-  .segments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
-  .segments legend { padding: 0; margin-bottom: 6px; }
-  .segments label { position: relative; display: block; }
-  .segments input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-  .segments span { display: grid; place-items: center; min-height: 44px; border: 1px solid var(--control); color: var(--muted); font-weight: 500; transition: background-color var(--dur-fast), color var(--dur-fast); }
-  .segments label + label span { border-left: 0; }
-  .segments label:first-of-type span { border-radius: 8px 0 0 8px; }
-  .segments label:last-of-type span { border-radius: 0 8px 8px 0; }
-  .segments input:checked + span { color: var(--text); background: var(--raised); box-shadow: inset 0 -1px 0 var(--accent); }
-  .segments input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
   .sheet-title { margin-bottom: 4px; }
   .copy .sheet .faint { margin-bottom: 8px; }
   button.sheet-row { width: 100%; justify-content: flex-start; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: none; font-weight: 500; }
@@ -149,3 +139,15 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
 @media (max-width: 380px) {
   .fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Segments: a short choice as one row of buttons (the stage sheet's gate kind, Settings' Text size). */
+.segments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
+.segments legend { padding: 0; margin-bottom: 6px; }
+.segments label { position: relative; display: block; }
+.segments input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segments span { display: grid; place-items: center; min-height: 44px; border: 1px solid var(--control); color: var(--muted); font-weight: 500; transition: background-color var(--dur-fast), color var(--dur-fast); }
+.segments label + label span { border-left: 0; }
+.segments label:first-of-type span { border-radius: 8px 0 0 8px; }
+.segments label:last-of-type span { border-radius: 0 8px 8px 0; }
+.segments input:checked + span { color: var(--text); background: var(--raised); box-shadow: inset 0 -1px 0 var(--accent); }
+.segments input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
