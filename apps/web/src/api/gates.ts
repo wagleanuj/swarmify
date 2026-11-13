@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 
+import { onRefresh } from "../refresh";
 import { api } from "./client";
 import { seqOf } from "./events";
 import type { Gate } from "./runs";
@@ -57,14 +58,26 @@ export function dropGate(stageId: string) {
   if (open.gates) publish({ ...open, gates: open.gates.filter((g) => g.stage_id !== stageId) });
 }
 
+// A refresh (refresh.ts) reads the gates again and reopens the stream from that snapshot: on a
+// phone the stream may have died in the background without a word.
+function resync() {
+  source?.close();
+  source = null;
+  generation += 1;
+  reloadGates();
+}
+let stopResync: (() => void) | undefined;
+
 function subscribe(listener: () => void) {
   listeners.add(listener);
   if (listeners.size === 1) {
     reloadGates();
+    stopResync = onRefresh(resync);
   }
   return () => {
     listeners.delete(listener);
     if (listeners.size > 0) return;
+    stopResync?.();
     clearTimeout(timer);
     source?.close();
     source = null;

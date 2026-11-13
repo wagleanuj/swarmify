@@ -38,6 +38,8 @@ import { RunRef } from "./Runs";
 import { PublishValue } from "./Connectors";
 import { GateAsk } from "./GateAsk";
 import { Menu } from "./Menu";
+import { useRefresh } from "../refresh";
+import { PullToRefresh } from "../PullToRefresh";
 
 type World = components["schemas"]["World"];
 type PublishPreview = components["schemas"]["PublishPreview"];
@@ -98,6 +100,7 @@ export function Gates() {
   const swiped = useRef<number | undefined>(undefined);
   const error = refused ?? (open.failed ? "Could not load the gates. Is the API running?" : null);
 
+  const fresh = useRefresh();
   useEffect(() => {
     api
       .GET("/api/worlds")
@@ -111,7 +114,7 @@ export function Gates() {
       .GET("/api/notices")
       .then(({ data }) => setNotices(data ?? []))
       .catch(() => undefined);
-  }, []);
+  }, [fresh]);
 
   const inWorld = (g: { world_id: string }) => !search.world || g.world_id === search.world;
   // A gate opened again after a send back is a new decision, so match the opening too.
@@ -203,6 +206,7 @@ export function Gates() {
 
   return (
     <main className="needs-you">
+      <PullToRefresh />
       <header className="page needs-head">
         <div className="needs-title">
           <h1>Needs you</h1>

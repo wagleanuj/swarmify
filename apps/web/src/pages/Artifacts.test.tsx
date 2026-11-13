@@ -1,3 +1,5 @@
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { expect, test } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -6,6 +8,10 @@ import "../index.css";
 import { choosable, underReview } from "../api/answer";
 import { artifact } from "../test/fakes";
 import { ArtifactCards, ArtifactView, imageSrc, Markdown, mdBlocks } from "./Artifacts";
+
+/** `ui` under a router of its own, for the source links (router Links). */
+const routed = (ui: ReactNode) =>
+  render(<RouterProvider router={createRouter({ routeTree: createRootRoute({ component: () => ui }), history: createMemoryHistory() })} />);
 
 const chase = artifact({
   name: "idea-chase.md",
@@ -41,7 +47,7 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
   expect(choosable([notes, chase, verdict, hooks]).map((a) => a.title)).toEqual(["Hook first", "The chase"]);
   expect(choosable([notes, verdict])).toEqual([]); // a worker's plain file is not a choice
 
-  const screen = await render(<ArtifactCards cards={[hooks, chase]} worldId="world_1" />);
+  const screen = await routed(<ArtifactCards cards={[hooks, chase]} worldId="world_1" />);
   const cards = screen.getByTestId("pick-card");
   await expect.element(screen.getByTestId("pick-cards")).toMatchTextContent(/^Your pick, ranked by the judge/);
   await expect.element(cards.first()).toMatchTextContent(

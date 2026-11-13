@@ -6,9 +6,11 @@ import "./index.css";
 import { PwaNotices } from "./PwaNotices";
 import { stopPinch } from "./pinch";
 import { startPwa } from "./pwa";
+import { startResync } from "./refresh";
 import { applyTextSize } from "./textSize";
 
 startPwa();
+startResync();
 stopPinch();
 applyTextSize();
 

@@ -30,6 +30,7 @@ import { RunRef, version } from "./Runs";
 import { type MenuItem, Menu } from "./Menu";
 import { kindOf, mainArtifact, Result, resultStage, StagePanel, stepMeta } from "./StagePanel";
 import { TimeStrip } from "./TimeStrip";
+import { PullToRefresh } from "../PullToRefresh";
 
 type World = components["schemas"]["World"];
 type Stage = Run["stages"][number];
@@ -460,6 +461,7 @@ export function RunTimeline() {
   );
   return (
     <main className="run-page enter">
+      <PullToRefresh />
       <header className="page">
         <div>
           <h1>

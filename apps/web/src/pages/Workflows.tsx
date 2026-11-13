@@ -9,6 +9,8 @@ import { Icon } from "../Icon";
 import { moment, MOMENTS } from "../moments";
 import { Loading, Skeleton } from "../Skeleton";
 import { usePhone } from "../usePhone";
+import { useRefresh } from "../refresh";
+import { PullToRefresh } from "../PullToRefresh";
 
 type Workflow = components["schemas"]["ListedWorkflow"];
 
@@ -23,6 +25,7 @@ export function Workflows() {
   const [error, setError] = useState<string | null>(null);
   const phone = usePhone();
 
+  const fresh = useRefresh();
   useEffect(() => {
     // The rows show at once; each workflow's check (seconds, it may start connectors) follows.
     const path = { world_id: worldId };
@@ -46,7 +49,7 @@ export function Workflows() {
       .GET("/api/worlds/{world_id}/runs", { params: { path: { world_id: worldId } } })
       .then(({ data }) => data && setRuns(data))
       .catch(() => undefined);
-  }, [worldId]);
+  }, [worldId, fresh]);
 
   async function start(workflowId: string) {
     setStarting(workflowId);
@@ -82,6 +85,7 @@ export function Workflows() {
 
   return (
     <main>
+      <PullToRefresh />
       <header className="page">
         <div>
           <h1>Workflows</h1>

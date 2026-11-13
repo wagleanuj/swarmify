@@ -11,6 +11,7 @@ import { Icon, type IconName } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { piedPiper, the } from "../skin";
 import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
+import { PullToRefresh } from "../PullToRefresh";
 
 /** A library type's grey glyph on a row's second line; anything else is a file. */
 const TYPE_ICON: Record<string, IconName> = { video: "play", image: "assets", verdict: "check", idea: "edit", file: "assets", skill: "library" };
@@ -121,6 +122,7 @@ export function Library() {
 
   return (
     <main>
+      <PullToRefresh />
       <header className="page">
         <div>
           <h1>Library</h1>

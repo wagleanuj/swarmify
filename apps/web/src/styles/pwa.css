@@ -17,3 +17,8 @@ p.pwa-note { padding: 8px 14px; }
 /* The push prompt on the Office is its speech bubble, as the other notes are. */
 .on-office .pwa-hint { background: #fffdf6; color: #2b2840; border: 3px solid #2b2840; box-shadow: none; }
 .on-office .pwa-hint .sub { color: #2b2840; opacity: .75; }
+/* The installed app on a phone draws no line along its top edge while calls are in flight: there
+   it reads as the browser loading a page. Skeletons and the pull spinner say "loading" instead. */
+@media (display-mode: standalone) and (max-width: 48rem) {
+  .route-progress { display: none; }
+}

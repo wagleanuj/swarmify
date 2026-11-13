@@ -11,6 +11,7 @@ import { Loading, Skeleton } from "../Skeleton";
 import { baseline } from "../skin";
 import { stageSeconds } from "./StagePanel";
 import { TimeStrip } from "./TimeStrip";
+import { PullToRefresh } from "../PullToRefresh";
 
 type Workflow = components["schemas"]["Workflow"];
 
@@ -99,6 +100,7 @@ export function Runs() {
 
   return (
     <main>
+      <PullToRefresh />
       <header className="page">
         <div>
           <h1>Runs</h1>

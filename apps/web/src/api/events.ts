@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useRefresh } from "../refresh";
 import type { components } from "./schema";
 
 export type Run = components["schemas"]["Run"];
@@ -73,25 +74,51 @@ export function seqOf(response: Response): number | null {
 /** Follow one world's event stream with a single EventSource (ADR 0002), from the snapshot the
  * page loaded. Pass each snapshot response the handlers patch to the returned `saw`: the stream
  * opens at the oldest of their positions, so an event landing between a GET and the subscribe
- * still arrives and the world's history is never replayed. Reconnects resume by Last-Event-ID. */
+ * still arrives and the world's history is never replayed. Reconnects resume by Last-Event-ID.
+ * On a refresh (refresh.ts) `saw` is a new function, so the page's loading effects run again,
+ * and the stream reopens from the new snapshots' position. */
 export function useWorldEvents(worldId: string, handlers: Handlers): (snapshot: Response) => void {
   const latest = useRef(handlers);
   latest.current = handlers;
-  const [since, setSince] = useState<number | null>(null);
-  const saw = useCallback((snapshot: Response) => {
-    const seq = seqOf(snapshot);
-    if (seq !== null) setSince((prev) => (prev === null ? seq : Math.min(prev, seq)));
-  }, []);
+  const tick = useRefresh();
+  const [since, setSince] = useState<{ tick: number; seq: number } | null>(null);
+  const saw = useCallback(
+    (snapshot: Response) => {
+      const seq = seqOf(snapshot);
+      if (seq !== null)
+        setSince((prev) => (prev === null || prev.tick !== tick ? { tick, seq } : { tick, seq: Math.min(prev.seq, seq) }));
+    },
+    [tick],
+  );
+  // The stream belongs to this refresh's snapshots: a refresh closes it until they answer.
+  const at = since?.tick === tick ? since.seq : null;
   useEffect(() => {
-    if (since === null) return;
-    const source = new EventSource(`/api/worlds/${worldId}/events?since=${since}`);
-    for (const type of TYPES) {
-      source.addEventListener(type, (e) => {
-        const event = JSON.parse((e as MessageEvent<string>).data) as { payload: never };
-        latest.current[type]?.(event.payload);
+    if (at === null) return;
+    let source: EventSource;
+    let retry: number | undefined;
+    let last = at;
+    const open = (from: number) => {
+      source = new EventSource(`/api/worlds/${worldId}/events?since=${from}`);
+      for (const type of TYPES) {
+        source.addEventListener(type, (e) => {
+          const message = e as MessageEvent<string>;
+          if (message.lastEventId) last = Number(message.lastEventId);
+          const event = JSON.parse(message.data) as { payload: never };
+          latest.current[type]?.(event.payload);
+        });
+      }
+      // The browser gives up for good on a non-stream answer (a proxy's 502 while the API
+      // restarts): reopen from the last event seen, so the page does not go quietly stale.
+      source.addEventListener("error", () => {
+        if (source.readyState !== EventSource.CLOSED) return;
+        retry = window.setTimeout(() => open(last), 5000);
       });
-    }
-    return () => source.close();
-  }, [worldId, since]);
+    };
+    open(at);
+    return () => {
+      clearTimeout(retry);
+      source.close();
+    };
+  }, [worldId, at, tick]);
   return saw;
 }

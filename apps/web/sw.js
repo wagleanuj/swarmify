@@ -55,8 +55,9 @@ self.addEventListener("push", (event) => {
   );
 });
 
-// A tap focuses an open Swarmify window and takes it to the link, else opens the link. Only
-// paths on this origin are followed.
+// A tap focuses an open Swarmify window and asks the app to route to the link itself (App.tsx),
+// so the open app is not reloaded; with no window open it opens the link. Only paths on this
+// origin are followed.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = new URL(event.notification.data?.url || "/gates", self.location.origin);
@@ -67,8 +68,8 @@ self.addEventListener("notificationclick", (event) => {
       const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
       if (!open) return self.clients.openWindow(url);
       await open.focus();
-      if (open.navigate) return open.navigate(url).catch(() => self.clients.openWindow(url));
-      return self.clients.openWindow(url);
+      const to = new URL(url);
+      open.postMessage({ navigate: to.pathname + to.search + to.hash });
     })(),
   );
 });
