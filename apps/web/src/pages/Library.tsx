@@ -6,9 +6,14 @@ import { useWorldEvents } from "../api/events";
 import type { components } from "../api/schema";
 import { libraryRoute } from "../router";
 import { Sheet } from "../Sheet";
+import { Empty } from "../Empty";
+import { Icon, type IconName } from "../Icon";
 import { Loading, Skeleton } from "../Skeleton";
 import { piedPiper, the } from "../skin";
 import { FileLink, IMAGE, Markdown, rawUrl, TypedText, VIDEO } from "./Artifacts";
+
+/** A library type's grey glyph on a row's second line; anything else is a file. */
+const TYPE_ICON: Record<string, IconName> = { video: "play", image: "assets", verdict: "check", idea: "edit", file: "assets", skill: "library" };
 
 type Workflow = components["schemas"]["Workflow"];
 type Item = components["schemas"]["LibraryItem"];
@@ -136,12 +141,17 @@ export function Library() {
         </p>
       )}
       {items?.length === 0 && (
-        <div className="empty" data-testid="no-artifacts">
-          <p>Nothing yet. Artifacts land here as runs finish stages, newest first.</p>
-          <Link to="/worlds/$worldId/runs" params={{ worldId }} className="button">
-            See runs
-          </Link>
-        </div>
+        <Empty
+          icon="library"
+          testId="no-artifacts"
+          action={
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button primary">
+              Start a run
+            </Link>
+          }
+        >
+          Everything a run makes lands here as its stages finish, newest first.
+        </Empty>
       )}
       {(items === null ? !error : items.length > 0) && (
         <>
@@ -229,13 +239,17 @@ export function Library() {
                       data-testid="artifact"
                       data-pinned={i.pinned}
                     >
-                      <span className="pill">{i.type.replace(/_/g, " ")}</span>
                       <span className="lib-title">
                         <b>
                           {i.pinned && "Pinned · "}
                           {i.title}
                         </b>
                         <span className="faint">
+                          <span className="lib-type">
+                            <Icon name={TYPE_ICON[i.type] ?? "assets"} />
+                            {i.type.replace(/_/g, " ")}
+                          </span>
+                          {" · "}
                           {i.run_name}
                           {i.stage_index !== null && ` · stage ${i.stage_index + 1} ${i.stage_name}`}
                           {i.workflow_version !== null && ` · v${i.workflow_version}`}

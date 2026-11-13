@@ -7,23 +7,32 @@ import { money } from "../api/runs";
 import type { components } from "../api/schema";
 import { settingsRoute } from "../router";
 import { Loading, Skeleton } from "../Skeleton";
+import { NotificationsRow } from "../Notifications";
+import { InstallRow } from "../PwaNotices";
 import { cap, piedPiper, setPiedPiper, the } from "../skin";
+import { notify } from "../Toast";
 import { ModelSelect, useModels } from "./ModelSelect";
 import { Tokens } from "./Tokens";
 
 type World = components["schemas"]["World"];
 type Spend = components["schemas"]["Spend"];
-type WorldSettings = components["schemas"]["WorldSettings"];
 
-type Panel = "world" | "runs" | "slack" | "danger";
-type Said = { panel: Panel; text: string; bad?: boolean };
+type Busy = "world" | "slack" | "danger";
+type Form = { monthly: string; runCap: string; retention: string; agents: string; model: string };
 
-const stamp = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+/** The form as the world has it: what Save compares against to show itself. */
+const formOf = (w: World): Form => ({
+  monthly: w.monthly_budget_usd == null ? "" : String(w.monthly_budget_usd),
+  runCap: String(w.run_cap ?? 2),
+  retention: String(w.retention_days ?? 90),
+  agents: String(w.agent_count ?? 4),
+  model: w.model ?? "",
+});
 
 /** One settings row: what it covers on the left, its panel on the right. */
-function Row({ title, about, children }: { title: string; about: string; children: ReactNode }) {
+function Row({ title, about, children, className = "" }: { title: string; about: string; children: ReactNode; className?: string }) {
   return (
-    <section className="set-row" aria-label={title}>
+    <section className={`set-row ${className}`.trim()} aria-label={title}>
       <div className="set-label">
         <h2>{title}</h2>
         <p className="sub">{about}</p>
@@ -40,12 +49,11 @@ export function Settings() {
   const path = { params: { path: { world_id: worldId } } };
   const [world, setWorld] = useState<World | null>(null);
   const [spend, setSpend] = useState<Spend | null>(null);
-  const [form, setForm] = useState({ monthly: "", runCap: "2", retention: "90", agents: "4", model: "" });
+  const [form, setForm] = useState<Form>({ monthly: "", runCap: "2", retention: "90", agents: "4", model: "" });
   const models = useModels();
   const [current, setCurrent] = useState<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState<Panel | null>(null);
-  const [said, setSaid] = useState<Said | null>(null);
+  const [busy, setBusy] = useState<Busy | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [skin, setSkin] = useState(piedPiper);
 
@@ -55,13 +63,7 @@ export function Settings() {
       .then(({ data }) => {
         if (!data) return;
         setWorld(data);
-        setForm({
-          monthly: data.monthly_budget_usd == null ? "" : String(data.monthly_budget_usd),
-          runCap: String(data.run_cap ?? 2),
-          retention: String(data.retention_days ?? 90),
-          agents: String(data.agent_count ?? 4),
-          model: data.model ?? "",
-        });
+        setForm(formOf(data));
       })
       .catch(() => undefined);
     api
@@ -82,21 +84,19 @@ export function Settings() {
     return typeof detail === "string" ? `Not saved: ${detail}.` : fallback;
   };
 
+  const bad = (text: string) => notify(text, { tone: "error" });
+
   async function store(url: string, done: string) {
     setBusy("slack");
-    setSaid(null);
     const { data, error } = await api.PUT("/api/worlds/{world_id}/notifications", {
       ...path,
       body: { slack_webhook: url },
     });
     setBusy(null);
-    if (error || !data) {
-      setSaid({ panel: "slack", text: refused(error, "Not saved. Try again."), bad: true });
-      return;
-    }
+    if (error || !data) return bad(refused(error, "Not saved. Try again."));
     setCurrent(data.slack_webhook);
     setDraft("");
-    setSaid({ panel: "slack", text: done });
+    notify(done, { tone: "ok" });
   }
 
   function saveSlack(e: FormEvent) {
@@ -104,34 +104,29 @@ export function Settings() {
     void store(draft, "Saved. Send a test message to check it reaches Slack.");
   }
 
-  // Each panel saves only its own settings; the rest of the form stays as typed. The World and
-  // Runs panels stay disabled until the world loads, so the load cannot overwrite what was typed.
-  async function patch(panel: Panel, body: WorldSettings) {
-    setBusy(panel);
-    setSaid(null);
-    const { data, error } = await api.PATCH("/api/worlds/{world_id}", { ...path, body });
-    setBusy(null);
-    if (error || !data) {
-      setSaid({ panel, text: refused(error, "Not saved. Check the numbers and try again."), bad: true });
-      return;
-    }
-    setWorld(data);
-    setSpend((s) => (s ? { ...s, monthly_budget_usd: data.monthly_budget_usd ?? null } : s));
-    setSaid({ panel, text: `Saved at ${stamp()}. Applies to the next run that starts.` });
-  }
+  // One Save for the World and Runs rows, shown only once something differs from the world. The
+  // rows stay disabled until the world loads, so the load cannot overwrite what was typed.
+  const dirty = world !== null && JSON.stringify(form) !== JSON.stringify(formOf(world));
 
-  function saveWorld(e: FormEvent) {
+  async function save(e: FormEvent) {
     e.preventDefault();
-    void patch("world", {
-      monthly_budget_usd: form.monthly.trim() === "" ? null : Number(form.monthly),
-      retention_days: Number(form.retention),
-      model: form.model || null,
+    setBusy("world");
+    const { data, error } = await api.PATCH("/api/worlds/{world_id}", {
+      ...path,
+      body: {
+        monthly_budget_usd: form.monthly.trim() === "" ? null : Number(form.monthly),
+        retention_days: Number(form.retention),
+        model: form.model || null,
+        run_cap: Number(form.runCap),
+        agent_count: Number(form.agents),
+      },
     });
-  }
-
-  function saveRuns(e: FormEvent) {
-    e.preventDefault();
-    void patch("runs", { run_cap: Number(form.runCap), agent_count: Number(form.agents) });
+    setBusy(null);
+    if (error || !data) return bad(refused(error, "Not saved. Check the numbers and try again."));
+    setWorld(data);
+    setForm(formOf(data));
+    setSpend((s) => (s ? { ...s, monthly_budget_usd: data.monthly_budget_usd ?? null } : s));
+    notify("Saved. Applies to the next run that starts.", { tone: "ok" });
   }
 
   const field = (key: keyof typeof form) => (e: { target: { value: string } }) =>
@@ -139,15 +134,13 @@ export function Settings() {
 
   async function sendTest() {
     setBusy("slack");
-    setSaid(null);
     const { error } = await api.POST("/api/worlds/{world_id}/notifications/test", path);
     setBusy(null);
     if (error) {
       const detail = (error as { detail?: unknown }).detail;
-      setSaid({ panel: "slack", text: typeof detail === "string" ? `${detail}.` : "The test did not go out. Try again.", bad: true });
-      return;
+      return bad(typeof detail === "string" ? `${detail}.` : "The test did not go out. Try again.");
     }
-    setSaid({ panel: "slack", text: "Test sent. It should be in Slack now." });
+    notify("Test sent. It should be in Slack now.", { tone: "ok" });
   }
 
   async function remove() {
@@ -162,23 +155,9 @@ export function Settings() {
     setBusy("danger");
     const { error } = await api.DELETE("/api/worlds/{world_id}", path);
     setBusy(null);
-    if (error) {
-      setSaid({ panel: "danger", text: "Could not delete the world. Try again.", bad: true });
-      return;
-    }
+    if (error) return bad("Could not delete the world. Try again.");
     void router.navigate({ to: "/" });
   }
-
-  // What the panel's last save said, beside its button.
-  const note = (panel: Panel) =>
-    said?.panel === panel &&
-    (said.bad ? (
-      <p role="alert">{said.text}</p>
-    ) : (
-      <p role="status" className="ok">
-        {said.text}
-      </p>
-    ));
 
   const name = world?.name ?? "this world";
   return (
@@ -197,9 +176,9 @@ export function Settings() {
         </div>
       </header>
       {loadError && <p role="alert">{loadError}</p>}
-      <Row title="World" about={`What ${name} may spend, how long it keeps files and the model it runs on.`}>
-        <form className="panel set-panel" onSubmit={saveWorld} aria-label="World">
-          <fieldset className="set-body" disabled={!world}>
+      <form className="set-form" onSubmit={save} aria-label="World settings">
+        <Row title="World" about={`What ${name} may spend, how long it keeps files and the model it runs on.`}>
+          <fieldset className="panel set-panel" disabled={!world}>
             <div className="settings-grid">
               <div className="field">
                 <label>
@@ -235,21 +214,13 @@ export function Settings() {
                 </span>
               </div>
             </div>
-            <div className="set-save">
-              {note("world")}
-              <button type="submit" disabled={busy === "world"}>
-                Save
-              </button>
-            </div>
           </fieldset>
-        </form>
-      </Row>
-      <Row
-        title="Runs at once"
-        about="How many runs can hold a slot. A run waiting at a gate keeps its slot, so runs past the cap wait in the queue until you answer one."
-      >
-        <form className="panel set-panel" onSubmit={saveRuns} aria-label="Runs at once">
-          <fieldset className="set-body" disabled={!world}>
+        </Row>
+        <Row
+          title="Runs at once"
+          about="How many runs can hold a slot. A run waiting at a gate keeps its slot, so runs past the cap wait in the queue until you answer one."
+        >
+          <fieldset className="panel set-panel" disabled={!world}>
             <div className="settings-grid">
               <div className="field">
                 <label>
@@ -273,15 +244,20 @@ export function Settings() {
                 </span>
               </div>
             </div>
-            <div className="set-save">
-              {note("runs")}
-              <button type="submit" disabled={busy === "runs"}>
-                Save
-              </button>
-            </div>
           </fieldset>
-        </form>
-      </Row>
+        </Row>
+        {dirty && (
+          <div className="action-bar set-savebar">
+            <span className="faint">Unsaved changes</span>
+            <button type="button" onClick={() => world && setForm(formOf(world))} disabled={busy === "world"}>
+              Undo
+            </button>
+            <button type="submit" className="primary" disabled={busy === "world"}>
+              {busy === "world" ? "Saving..." : "Save"}
+            </button>
+          </div>
+        )}
+      </form>
       <Row title="Slack" about="Gates can ask you in Slack too, and each message links straight to the run or the gate.">
         <form className="panel set-panel" onSubmit={saveSlack} aria-label="Slack">
           <p data-testid="slack-state">
@@ -308,7 +284,6 @@ export function Settings() {
             />
           </label>
           <div className="set-save">
-            {note("slack")}
             {current && (
               <>
                 <button
@@ -330,6 +305,7 @@ export function Settings() {
           </div>
         </form>
       </Row>
+      <NotificationsRow Row={Row} />
       <Row title="Names" about="What the page calls the agents. Kept in this browser, for every world.">
         <div className="panel set-panel">
           <label className="check">
@@ -350,14 +326,14 @@ export function Settings() {
         </div>
       </Row>
       <Tokens Row={Row} />
-      <Row title="Danger" about="Deleting a world cannot be undone.">
+      <InstallRow Row={Row} />
+      <Row title="Danger zone" about="Deleting a world cannot be undone." className="set-danger">
         <div className="panel set-panel">
           <p>Deleting {name} removes its folder, runs, library and memory, with every file they made.</p>
           <div className="set-save start">
             <button type="button" className="danger" onClick={() => void remove()} disabled={!world || busy === "danger"}>
               Delete {name}
             </button>
-            {note("danger")}
           </div>
         </div>
       </Row>

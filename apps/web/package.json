@@ -9,7 +9,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "gen": "openapi-typescript openapi.json -o src/api/schema.d.ts"
+    "gen": "openapi-typescript openapi.json -o src/api/schema.d.ts",
+    "icons": "node icons/build.mjs"
   },
   "dependencies": {
     "@fontsource/pixelify-sans": "^5.3.0",
@@ -20,6 +21,7 @@
     "yaml": "2.9.1"
   },
   "devDependencies": {
+    "@types/node": "22.20.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",

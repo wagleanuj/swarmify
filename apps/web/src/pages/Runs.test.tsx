@@ -40,6 +40,26 @@ test("lists runs with status and progress, updating and adding them live", async
     payload: run("queued", [stage(0, "pending")], { id: "run_2", name: "Second" }),
   });
   await expect.element(screen.getByTestId("run-list")).toMatchTextContent(/Second.*queued.*Render then pick/);
+  // The new run slides in at the top; the rows that were there hold still.
+  const rows = screen.getByTestId("run-list").element().querySelectorAll("tbody tr");
+  expect([...rows].map((r) => r.classList.contains("arrived"))).toEqual([true, false]);
+});
+
+test("on a phone a row is two lines: the name and its status, then started, time and spent", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/runs": () => Response.json([run("done", [timed(0, "render", "swarm", 0, 2)], { spent_usd: 1.5 })]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  const row = screen.getByTestId("run-list").getByRole("row").nth(1);
+  await expect.element(row).toBeVisible();
+  const cells = [...row.element().querySelectorAll("td")].map((td) => td.getBoundingClientRect());
+  const [name, status, , started, took, spent] = cells as DOMRect[];
+  expect(Math.round(status!.top)).toBeLessThan(Math.round(started!.top));
+  expect(Math.abs(name!.top - status!.top)).toBeLessThan(8);
+  expect(new Set([started, took, spent].map((r) => Math.round(r!.top))).size).toBe(1);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 });
 
 test("streams from the position the run list reflects, not from the start of the log", async () => {
@@ -66,10 +86,10 @@ test("with no runs it says what the page is for and where to start one", async (
     "GET /api/worlds/world_1/runs": () => Response.json([]),
   });
   const { screen } = await mountAt("/worlds/world_1/runs");
-  await expect.element(screen.getByTestId("no-runs")).toMatchTextContent(/follows one workflow/);
-  await expect
-    .element(screen.getByRole("link", { name: "Start one from a workflow" }))
-    .toHaveAttribute("href", "/worlds/world_1");
+  const empty = screen.getByTestId("no-runs");
+  await expect.element(empty).toMatchTextContent(/follows a workflow stage by stage/);
+  expect(empty.element().querySelector("svg.i-runs.i-enter")).not.toBeNull();
+  await expect.element(empty.getByRole("link", { name: "Start a run" })).toHaveAttribute("href", "/worlds/world_1/workflows");
 });
 
 test("a load failure is an alert", async () => {
@@ -123,7 +143,9 @@ test("each row carries its steps strip, started, time and spend, with a total ro
   });
   const { screen } = await mountAt("/worlds/world_1/runs");
   const list = screen.getByTestId("run-list");
-  await expect.element(list).toMatchTextContent(/Render then pick\s*v2\s*run_1\s*done/);
+  // No id on the row: it lives on the run page.
+  await expect.element(list).toMatchTextContent(/Render then pick\s*v2\s*done/);
+  expect(list.element().textContent).not.toContain("run_1");
   await expect.element(list).toMatchTextContent(/2m 0s\s*\$1\.50/);
   await expect.element(list).toMatchTextContent(/2 runs\s*\$1\.75/);
   const first = list.getByRole("row").nth(1);

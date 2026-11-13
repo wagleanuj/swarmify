@@ -1,6 +1,6 @@
 """Notifications context: tell a person that a run needs them or has ended, so gates are never
 missed. A world's Channel is a Slack incoming webhook (v1); every Notification carries a deep
-link into the web skin at `base_url`.
+link into the web skin at `base_url`. Web Push (push.py) reaches the operator's browsers too.
 
 `Notifications` is the Slack adapter of the Runs Notifier port (ADR 0012). It satisfies the
 port by shape, so this package imports nothing of Runs.
@@ -9,11 +9,19 @@ port by shape, so this package imports nothing of Runs.
 from urllib.parse import urlparse
 
 from swarmify_kernel import Event
-from swarmify_notifications import slack
+from swarmify_notifications import push, slack
 from swarmify_notifications.ports import Storage
-from swarmify_notifications.sqlite import MIGRATIONS, SqliteStorage
+from swarmify_notifications.sqlite import MIGRATIONS, PushStorage, SqliteStorage
 
-__all__ = ["MIGRATIONS", "Notifications", "SqliteStorage", "Storage", "slack"]
+__all__ = [
+    "MIGRATIONS",
+    "Notifications",
+    "PushStorage",
+    "SqliteStorage",
+    "Storage",
+    "push",
+    "slack",
+]
 
 
 class Notifications:

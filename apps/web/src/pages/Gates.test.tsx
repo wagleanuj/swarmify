@@ -20,7 +20,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Open a card's one fold: the note and Ask this run. */
+const more = (card: ReturnType<ReturnType<typeof page.elementLocator>["getByTestId"]>) => card.getByText(/^(Add a note or ask|Ask before you answer)$/).click();
+
 test("the queue opens the next decision after each answer and says what was decided", async () => {
+  localStorage.removeItem("swarmify.answered-a-gate");
   const bodies: Record<string, unknown> = {};
   const decision = (id: string) => async (req: Request) => {
     bodies[id] = await req.json();
@@ -37,14 +41,17 @@ test("the queue opens the next decision after each answer and says what was deci
   });
   const { router, screen } = await mountAt("/gates");
   await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Needs you");
-  await expect.element(screen.getByText(/3 decisions waiting, oldest .* ago\. Answering one opens the next\./)).toBeVisible();
+  await expect.element(screen.getByText(/Oldest waiting .* ago\. Answering one opens the next\./)).toBeVisible();
+  await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 3");
+  // The kinds as chips with their counts, never a position.
+  await expect.element(screen.getByTestId("kinds")).toMatchTextContent(/All 3\s*Approve 1\s*Pick 1\s*Confirm 1/);
   // One stream for every world: a stream per world exhausts the browser's six connections. It
   // starts where the gates' snapshot stands, so no run.updated in between is missed.
   expect(FakeEventSource.open.map((s) => s.url)).toEqual(["/api/events?since=9"]);
   const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
   await expect
     .element(queue)
-    .toMatchTextContent(/Video.*ago.*Confirm before it goes out.*Publish it.*Review and approve.*Weekly short.*Pick an idea.*Weekly short/);
+    .toMatchTextContent(/Confirm before it goes out.*Publish it · Video.*Review and approve.*Weekly short.*Pick an idea.*Weekly short/);
   // The open decision is the first, and carries the selection line.
   await expect.element(queue.getByRole("link", { name: /Publish it/ })).toHaveAttribute("aria-current");
   await expect.element(screen.getByTestId("gate-run_2")).not.toBeInTheDocument();
@@ -53,20 +60,27 @@ test("the queue opens the next decision after each answer and says what was deci
   await expect.element(confirm).toMatchTextContent(/Nothing goes out until you confirm\./);
   await confirm.getByRole("button", { name: "Confirm" }).click();
   await vi.waitFor(() => expect(bodies.run_3).toEqual({ note: "" }));
-  // The next one opens, a line says what was just decided, and both live in the address.
+  // The next one opens, a notice says what was just decided and what is next, with Open.
   const approve = screen.getByTestId("gate-run_2");
   await expect.element(approve).toBeVisible();
-  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You confirmed it at .*\./);
-  await expect
-    .element(screen.getByTestId("answered").getByRole("link", { name: "Open that run" }))
-    .toHaveAttribute("href", "/worlds/world_1/runs/run_3?stage=s3");
-  expect(router.state.location.search).toEqual({ gate: "s2", done: "s3" });
+  const said = screen.getByText("You confirmed it. Next: Review and approve");
+  await expect.element(said).toBeVisible();
+  // This browser's first answer is a success moment, told once, its check popping in.
+  const first = screen.getByText(/Your first decision is in\./);
+  await expect.element(first).toBeVisible();
+  expect(first.element().parentElement!.querySelector(".i-pop")).not.toBeNull();
+  // Dismissed here, so the check below does not hang on the notice's 4 s timer.
+  await first.element().parentElement!.querySelector<HTMLButtonElement>("[aria-label=Dismiss]")!.click();
+  await expect.element(first).not.toBeInTheDocument();
+  expect(router.state.location.search).toEqual({ gate: "s2" });
+  await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 2");
   // Answered items sort last, dimmed.
   await expect.element(queue).toMatchTextContent(/Review and approve.*Pick an idea.*Answered.*Publish it/);
   await expect.element(queue.getByRole("link", { name: /Publish it/ })).toHaveClass("done");
   await expect.element(queue.getByRole("link", { name: /Review and approve/ })).toHaveAttribute("aria-current");
 
   await expect.element(approve).toMatchTextContent(/1 of 5 revisions left/);
+  await more(approve);
   await approve.getByLabelText(/^Note/).fill("Too much text.");
   await approve.getByRole("button", { name: "Send back to..." }).click();
   // The nearest earlier step first, each saying what sending back there does.
@@ -75,19 +89,22 @@ test("the queue opens the next decision after each answer and says what was deci
   await vi.waitFor(() =>
     expect(bodies.run_2).toEqual({ note: "Too much text.", send_back_to: "research" }),
   );
-  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You sent it back to research at/);
+  await expect.element(screen.getByText("You sent it back to research. Next: Pick an idea")).toBeVisible();
+  // Told once: the second answer does not tell it again.
+  expect(document.body.textContent).not.toMatch(/Your first decision is in/);
 
   const pick = screen.getByTestId("gate-run_1");
   await expect.element(pick).toMatchTextContent(/Pick one idea\./);
   await pick.getByLabelText("Your pick").fill("idea 2");
+  await more(pick);
   await pick.getByLabelText("Note (optional)").fill("Less text on screen.");
   await pick.getByRole("button", { name: "Continue with this pick" }).click();
   await vi.waitFor(() => expect(bodies.run_1).toEqual({ choice: "idea 2", note: "Less text on screen." }));
-  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You picked "idea 2" at/);
+  await expect.element(screen.getByText('You picked "idea 2". All clear.')).toBeVisible();
 
-  // An empty queue says so and lists the runs still moving.
+  // An empty queue is all clear, counts what was answered, and lists the runs still moving.
   const empty = screen.getByTestId("no-gates");
-  await expect.element(empty).toMatchTextContent(/Nothing is waiting on you/);
+  await expect.element(empty).toMatchTextContent(/All clear.*You answered 3 decisions this visit\. The next gate/);
   await expect.element(empty.getByRole("link", { name: "Nightly short" })).toHaveAttribute("href", "/worlds/world_1/runs/run_7");
   await expect.element(empty.getByRole("link", { name: "Old one" })).not.toBeInTheDocument();
   // Each answer hides its card at once, without refetching before the run moves.
@@ -102,16 +119,18 @@ test("a world filter scopes the queue, and a queue item opens its gate", async (
   });
   const { router, screen } = await mountAt("/gates");
   const queue = screen.getByRole("navigation", { name: "Waiting decisions" });
-  await expect.element(queue).toMatchTextContent(/Publish it.*Music.*Album teaser/);
+  await expect.element(queue).toMatchTextContent(/Publish it.*Album teaser · Music/);
+  // The world filter counts what waits in each world, from the same gates as the badge.
+  await expect.element(screen.getByRole("option", { name: "Music (1)" })).toBeInTheDocument();
   await queue.getByRole("link", { name: /Album teaser/ }).click();
   await expect.element(screen.getByTestId("gate-run_2")).toBeVisible();
   expect(router.state.location.search).toEqual({ gate: "s2" });
 
-  await screen.getByRole("combobox", { name: /^World/ }).selectOptions("Video");
+  await screen.getByRole("combobox", { name: /^World/ }).selectOptions("Video (1)");
   await expect.element(queue).not.toMatchTextContent(/Album teaser/);
   await expect.element(screen.getByTestId("gate-run_3")).toBeVisible();
   expect(router.state.location.search).toEqual({ world: "world_1" });
-  await expect.element(screen.getByText(/^One decision waiting/)).toBeVisible();
+  await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 1");
 });
 
 test("the world overview's Answer opens the gate itself", async () => {
@@ -152,7 +171,7 @@ test("the inbox refetches when a run moves, and says what it is for when empty",
   await expect.element(screen.getByTestId("queue")).toMatchTextContent(/Publish it/);
   open = [];
   FakeEventSource.emit("run.updated", { payload: run("done", []) });
-  await expect.element(screen.getByTestId("no-gates")).toMatchTextContent(/Nothing is waiting on you.*No runs are moving\./);
+  await expect.element(screen.getByTestId("no-gates")).toMatchTextContent(/All clear.*No runs are moving\./);
   expect(calls.filter((c) => c === "GET /api/gates").length).toBeGreaterThanOrEqual(2);
 });
 
@@ -379,8 +398,10 @@ test("a skill gate shows the proposal with its evidence and posts the edited ski
   await expect.element(card.getByTestId("workflow-change")).toMatchTextContent(/Ask for hooks up front.*in 3 runs.*name: Research/);
   await expect.element(card.getByRole("button", { name: "Send back to..." })).not.toBeInTheDocument();
   const edited = hooks.replace("Write the hook first.", "Write the hook in the first second.");
+  await card.getByText("Read or edit SKILL.md before approving").click();
   await card.getByLabelText(/SKILL\.md/).fill(edited);
   await card.getByLabelText(/Save it as the workflow's next version/).click();
+  await more(card);
   await card.getByLabelText(/^Note/).fill("Tightened.");
   await card.getByRole("button", { name: "Approve" }).click();
   await vi.waitFor(() =>
@@ -406,6 +427,7 @@ test("rejecting a skill proposal asks for the reason and records it", async () =
   await card.getByRole("button", { name: "Reject" }).click();
   expect(await answerConfirm(screen, "Cancel")).toContain("Reject without a reason?");
   expect(bodies).toEqual([]);
+  await more(card);
   await card.getByLabelText(/^Note/).fill("Not the gap.");
   await card.getByRole("button", { name: "Reject" }).click();
   await vi.waitFor(() =>
@@ -468,15 +490,20 @@ test("a pick gate offers the earlier stage's cards and an approve gate plays the
 
   const pick = screen.getByTestId("gate-run_1");
   const cards = pick.getByTestId("pick-card");
-  // A ranked list: rank, title and hook, the judge's reasoning folded into a disclosure.
-  await expect.element(cards.first()).toMatchTextContent(/The judge's #1 of 2.*Hook first.*Wait for it.*Why it ranked here/);
+  // A ranked list: rank as data, title and hook, the judge's reasoning behind a Why chevron.
+  await expect.element(pick.getByTestId("pick-cards")).toMatchTextContent(/Your pick, ranked by the judge/);
+  await expect.element(cards.first()).toMatchTextContent(/#1.*Hook first.*Wait for it.*Why/);
   await expect.element(cards.first().getByText("Why: Hooks win.")).not.toBeVisible();
-  await cards.first().getByText("Why it ranked here").click();
+  await cards.first().getByText("Why", { exact: true }).click();
   await expect.element(cards.first().getByText("Why: Hooks win.")).toBeVisible();
-  await expect.element(cards.nth(1)).toMatchTextContent(/#2 of 2.*The chase/);
+  await expect.element(cards.nth(1)).toMatchTextContent(/#2.*The chase/);
   await expect.element(pick.getByLabelText("Your pick")).not.toBeInTheDocument();
   expect(queries).toEqual(["?before=1"]);
   await pick.getByRole("radio", { name: /Hook first/ }).click();
+  // the chosen row is checked, its check shown
+  await expect.element(cards.first().getByRole("radio")).toBeChecked();
+  await vi.waitFor(() => expect(getComputedStyle(cards.first().element().querySelector(".pick-check")!).opacity).toBe("1"));
+  await more(pick);
   await pick.getByLabelText("Note (optional)").fill("Less text on screen.");
   await pick.getByRole("button", { name: "Continue with this pick" }).click();
   await vi.waitFor(() =>
@@ -589,6 +616,7 @@ test("asking at a publish gate answers there, fills the form, and an applied fil
   const card = screen.getByTestId("gate-run_1");
   const confirm = card.getByRole("button", { name: "Confirm and post" });
   await expect.element(confirm).toBeDisabled();
+  await more(card);
   await expect.element(card).toMatchTextContent(/Asking costs about \$0\.19 a question, from the \$41\.20 the world has left this month\./);
 
   await card.getByLabelText("Ask or change before you answer").fill("Cut the hashtags to five");
@@ -650,6 +678,7 @@ test("asking at a gate offers a Rerun, a Skip and a Restructure as Apply cards t
   });
   const { screen } = await mountAt("/gates");
   const card = screen.getByTestId("gate-run_1");
+  await more(card);
   await card.getByLabelText("Ask or change before you answer").fill("Redo the script with a stronger hook");
   await card.getByRole("button", { name: "Send" }).click();
 
@@ -706,34 +735,69 @@ async function answerFirst() {
   return screen;
 }
 
-test("after answering on a phone, the next card takes its place under the line saying what was decided", async () => {
+test("after answering on a phone, the next card takes its place and a notice says what was decided", async () => {
   await page.viewport(390, 844);
   const screen = await answerFirst();
   await expect.element(screen.getByTestId("gate-run_4")).toBeVisible();
-  await expect.element(screen.getByTestId("answered")).toMatchTextContent(/You confirmed it at .*\./);
+  await expect.element(screen.getByText("You confirmed it. Next: Confirm before it goes out")).toBeVisible();
   await expect.element(screen.getByTestId("gate-run_3")).not.toBeInTheDocument();
-  // Reduced motion (as the tests run): an instant swap, no sliding copy of the answered card.
-  expect(screen.container.querySelector(".gate-ghost")!.childElementCount).toBe(0);
+  await expect.element(screen.getByTestId("gate-run_4")).toHaveAttribute("aria-current", "true");
   await page.viewport(1280, 800);
 });
 
-test("with motion on, the answered card slides out as a still copy that is gone once it has", async () => {
+test("on a phone the cards sit side by side: a neighbour is inert, and Next opens it", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([inbox[0]!, gate("confirm", { run_id: "run_4", stage_id: "s4", run_name: "Second one" })]),
+  });
+  const { router, screen } = await mountAt("/gates");
+  const second = screen.getByTestId("gate-run_4");
+  await expect.element(second).toHaveAttribute("inert");
+  // only the open card's answer is pinned
+  expect(getComputedStyle(second.element().querySelector(".action-bar")!).display).toBe("none");
+  await expect.element(screen.getByRole("navigation", { name: "Waiting decisions" })).not.toBeInTheDocument();
+  await screen.getByRole("link", { name: "Next decision" }).click();
+  await expect.element(screen.getByTestId("place")).toHaveTextContent("2 of 2");
+  expect(router.state.location.search).toEqual({ gate: "s4" });
+  await expect.element(second).not.toHaveAttribute("inert");
+  await expect.element(screen.getByTestId("gate-run_3")).toHaveAttribute("inert");
+  await page.viewport(1280, 800);
+});
+
+test("with motion on, the answer pops a check in the bar for a beat, then the next card slides in", async () => {
   const real = window.matchMedia.bind(window);
   vi.spyOn(window, "matchMedia").mockImplementation((q) =>
     q.includes("prefers-reduced-motion") ? ({ ...real(q), matches: false } as MediaQueryList) : real(q),
   );
-  const copies: string[] = [];
-  const watch = new MutationObserver((changes) =>
-    changes
-      .filter((c) => (c.target as HTMLElement).classList.contains("gate-ghost"))
-      .forEach((c) => c.addedNodes.forEach((n) => copies.push(n.textContent ?? ""))),
-  );
-  watch.observe(document.body, { childList: true, subtree: true });
   const screen = await answerFirst();
-  await expect.element(screen.getByTestId("gate-run_4")).toBeVisible();
-  await vi.waitFor(() => expect(copies.join()).toMatch(/Publish it/));
-  // the copy is inert and hidden from screen readers, and leaves when its slide ends
-  await vi.waitFor(() => expect(screen.container.querySelector(".gate-ghost")!.childElementCount).toBe(0));
-  expect(screen.container.querySelector(".gate-ghost")!.getAttribute("aria-hidden")).toBe("true");
-  watch.disconnect();
+  const bar = screen.getByTestId("gate-run_3").getByRole("status");
+  await expect.element(bar).toHaveTextContent("You confirmed it");
+  expect(bar.element().querySelector(".i-pop")).not.toBeNull();
+  const next = screen.getByTestId("gate-run_4");
+  await expect.element(next).toBeVisible();
+  await expect.element(next).toHaveClass("arrive");
+  await expect.element(screen.getByTestId("gate-run_3")).not.toBeInTheDocument();
+});
+
+test("a budget gate offers preset top-ups with the total in the button, and names what Abort keeps", async () => {
+  const bodies: unknown[] = [];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([video]),
+    "GET /api/gates": () => Response.json([gate("budget", { spent_usd: 2, budget_usd: 2 })]),
+    "POST /api/runs/run_1/budget": async (req) => {
+      bodies.push(await req.json());
+      return Response.json(run("running", []));
+    },
+  });
+  const { screen } = await mountAt("/gates");
+  const card = screen.getByTestId("gate-run_1");
+  await expect.element(card.getByTestId("budget-spent")).toMatchTextContent(/spent \$2\.00 of \$2\.00\. Adding \$2 makes it \$4\.00/);
+  await expect.element(card).toMatchTextContent(/finished stages keep their files, and the \$2\.00 spent stays spent/);
+  await card.getByRole("button", { name: "+$5" }).click();
+  await expect.element(card.getByRole("button", { name: "+$5" })).toHaveAttribute("aria-pressed", "true");
+  await expect.element(card.getByTestId("budget-spent")).toMatchTextContent(/Adding \$5 makes it \$7\.00/);
+  await card.getByRole("button", { name: "Add $5 and go on" }).click();
+  await vi.waitFor(() => expect(bodies).toHaveLength(1));
+  await expect.element(screen.getByText("You raised the budget to $7.00.")).toBeVisible();
 });

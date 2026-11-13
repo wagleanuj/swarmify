@@ -5,7 +5,11 @@ import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { connectorsRoute } from "../router";
+import { Icon } from "../Icon";
+import { Intro } from "../Intro";
 import { Loading, Skeleton } from "../Skeleton";
+import { usePhone } from "../usePhone";
+import { Menu } from "./Menu";
 
 type Connector = components["schemas"]["ConnectorView"];
 type HealthCheck = components["schemas"]["HealthCheck"];
@@ -103,6 +107,7 @@ export function Connectors() {
   const [adding, setAdding] = useState(false);
   const [installing, setInstalling] = useState<PackageFrom | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  const phone = usePhone();
   const [installed, setInstalled] = useState<string | null>(null);
   // Where an OAuth sign-in lands: the callback sends the browser back here saying how it went.
   const search = connectorsRoute.useSearch();
@@ -263,28 +268,44 @@ export function Connectors() {
       <header className="page">
         <div>
           <h1>Connectors</h1>
-          <p className="sub">
-            {connectors ? `${connectors.length} connectors, ${waiting} waiting on a key. ` : ""}Any MCP server can be one: Swarmify
-            installs it as a local package with its keys in its Setup. No key ever enters a run or a shared workflow.
-            Web search and the world's graph are not connectors: they are Agent Tools Swarmify gives swarm steps,
-            with nothing to set up.
-          </p>
+          <Intro lead={`${connectors ? `${connectors.length} connectors, ${waiting} waiting on a key. ` : ""}Any MCP server can be one.`} label="About connectors">
+            <p>Swarmify installs it as a local package with its keys in its Setup. No key ever enters a run or a shared workflow.</p>
+            <p>Web search and the world's graph are not connectors: they are Agent Tools Swarmify gives swarm steps, with nothing to set up.</p>
+          </Intro>
         </div>
-        <div className="actions">
-          <button type="button" aria-expanded={browsing} onClick={() => setBrowsing((b) => !b)}>
-            Browse the index
-          </button>
-          <button
-            type="button"
-            aria-expanded={installing !== null}
-            onClick={() => setInstalling((i) => (i ? null : { source: "", ref: "", subfolder: "" }))}
-          >
-            Install a package
-          </button>
-          <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
-            Add a connector
-          </button>
-        </div>
+        {phone ? (
+          <Menu
+            label="Add a connector"
+            className="text-action"
+            button={
+              <>
+                <Icon name="plus" /> Add
+              </>
+            }
+            items={[
+              { label: "Browse the index", note: "pick one the index lists", onSelect: () => setBrowsing(true) },
+              { label: "Install a package", note: "from a git URL or a folder", onSelect: () => setInstalling({ source: "", ref: "", subfolder: "" }) },
+              { label: "Add a connector", note: "an MCP server you run", onSelect: () => setAdding(true) },
+            ]}
+            sheet
+          />
+        ) : (
+          <div className="actions">
+            <button type="button" aria-expanded={browsing} onClick={() => setBrowsing((b) => !b)}>
+              Browse the index
+            </button>
+            <button
+              type="button"
+              aria-expanded={installing !== null}
+              onClick={() => setInstalling((i) => (i ? null : { source: "", ref: "", subfolder: "" }))}
+            >
+              Install a package
+            </button>
+            <button type="button" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
+              Add a connector
+            </button>
+          </div>
+        )}
       </header>
       {error && <p role="alert">{error}</p>}
       {installed && <p role="status">{installed}</p>}
@@ -394,7 +415,7 @@ export function Connectors() {
             </label>
           ))}
         </fieldset>
-        <div className="editor-actions">
+        <div className="editor-actions action-bar">
           <button type="submit" disabled={busy !== null || stageTypes.length === 0}>
             {busy === "test" ? "Starting it..." : "Test and list tools"}
           </button>
@@ -630,7 +651,7 @@ function InstallPackage({ from, onInstalled }: { from: PackageFrom; onInstalled:
           spellCheck={false}
         />
       </label>
-      <div className="editor-actions">
+      <div className="editor-actions action-bar">
         <button type="submit" disabled={busy !== null}>
           {busy === "review" ? "Fetching it..." : "Review permissions"}
         </button>

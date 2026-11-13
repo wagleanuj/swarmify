@@ -36,7 +36,7 @@ def test_pause_resume_the_cap_and_abort_reaching_the_child(
         page.goto(f"{base_url}/worlds/{world}/runs/{run}")
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(
-            re.compile(r"^Child waits on its child run Brief · step 1 of 2 · "), timeout=20_000
+            "Child waits on its child run Brief · step 1 of 2", timeout=20_000
         )
         page.get_by_test_id("child-run").get_by_role("link", name="Brief").click()
         expect(page.get_by_test_id("child-of")).to_contain_text("child of Parent")
@@ -88,7 +88,8 @@ def test_a_baseline_beside_the_swarm_and_an_ad_hoc_run_saved_as_a_workflow(
     try:
         api.post(f"/worlds/{world}/workflows", json={"yaml": RESEARCH}).raise_for_status()
         page.goto(f"{base_url}/worlds/{world}")
-        page.get_by_role("button", name="Start a baseline of Research").click()
+        page.get_by_role("button", name="Research actions").click()
+        page.get_by_role("menuitem", name=re.compile("^Start a baseline")).click()
         status = page.get_by_test_id("status-line")
         expect(status).to_have_text(re.compile(r"^Done in "), timeout=20_000)
         expect(page.get_by_test_id("baseline")).to_contain_text("This is a one-agent baseline")

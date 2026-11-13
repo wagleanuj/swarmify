@@ -137,6 +137,8 @@ test("an answer posts the gate's decision, the asker reacts and the next steps u
   const { screen } = await mountAt("/worlds/world_1/office/talk");
   await expect.element(screen.getByText("Ship it to Publish?")).toBeVisible();
   // Number keys answer: 1 approves, 2 sends back to the step before.
+  // The note and the ask share one fold under the choices.
+  await screen.getByText("Add a note or ask").click();
   await screen.getByLabelText("Note (optional)").fill("Tighter ending.");
   (document.activeElement as HTMLElement).blur();
   await userEvent.keyboard("2");
@@ -150,7 +152,11 @@ test("an answer posts the gate's decision, the asker reacts and the next steps u
   await expect.element(screen.getByRole("heading", { name: "All clear" })).toBeVisible();
   expect(posted[1]).toEqual({ key: "POST /api/runs/run_b/decision", body: { note: "" } });
   await expect.element(screen.getByRole("img", { name: "Mira cheers" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/cheer.png");
-  await expect.element(screen.getByText(/Nobody needs you\. 0 runs are moving/)).toBeVisible();
+  await expect.element(screen.getByText(/Nobody needs you\. No run is moving; the next question lands here\./)).toBeVisible();
+  // The crew stands over All clear, the first one waving; decoration only, hidden from readers.
+  const crew = screen.getByTestId("talk-clear").element().querySelector(".talk-crew")!;
+  expect(crew.getAttribute("aria-hidden")).toBe("true");
+  await vi.waitFor(() => expect(crew.querySelectorAll(".office-actor").length).toBeGreaterThan(0));
 });
 
 test("a publish gate shows what goes out before any choice and posts it as shown or edited", async () => {
@@ -249,6 +255,7 @@ test("a skill gate shows the proposal, approves it as edited, and saving the wor
   const flow = screen.getByRole("region", { name: "Workflow change" });
   await expect.element(flow).toMatchTextContent(/Workflow change: Ask for hooks up front.*name: hooks-first/);
   await expect.element(flow.getByLabelText("Save it as the workflow's next version when approving")).toBeChecked();
+  await screen.getByText("Read or edit SKILL.md before approving").click();
   await screen.getByLabelText(/^SKILL\.md \(edit before approving\)/).fill("# Hooks, first");
   await flow.getByLabelText("Save it as the workflow's next version when approving").click();
   await screen.getByRole("button", { name: "1 Approve" }).click();
@@ -299,6 +306,7 @@ test("asking at a publish gate in Talk answers there, fills the form, and an app
   const confirm = screen.getByRole("button", { name: "1 Confirm and post" });
   await expect.element(confirm).toBeDisabled();
 
+  await screen.getByText("Add a note or ask").click();
   await screen.getByLabelText("Ask or change before you answer").fill("Cut the hashtags to five");
   await screen.getByRole("button", { name: "Send" }).click();
   await expect.element(screen.getByText("Cut to five, here and in metadata.md.")).toBeVisible();

@@ -3,18 +3,97 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useWorldEvents } from "../api/events";
-import { useOpenGates } from "../api/gates";
+import { needsYou, useOpenGates } from "../api/gates";
 import { duration, holdsSlot, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { worldRoute } from "../router";
+import { Empty } from "../Empty";
+import { Icon } from "../Icon";
+import { moment, MOMENTS } from "../moments";
 import { Loading, Skeleton } from "../Skeleton";
 import { baseline, saveSkin } from "../skin";
+import { Menu } from "./Menu";
 
 type World = components["schemas"]["World"];
 type Workflow = components["schemas"]["ListedWorkflow"];
 type Score = components["schemas"]["RunScore"];
 
 const SHOWN = 5;
+
+/** A new world's setup, in order: each step, whether it is done, and where it is done. The world
+ * itself counts as step one, so the strip never starts at zero. A finished run counts as the last
+ * step too, so a world whose workflows ask nothing is not held in setup. */
+export function setupSteps(worldId: string, workflows: Workflow[], runs: Run[]) {
+  const answered = runs.some((r) => r.status === "done" || r.stages.some((s) => s.type === "gate" && s.status === "done"));
+  return [
+    { label: "World created", done: true, link: null },
+    { label: "Write a workflow", done: workflows.length > 0, link: { to: "/worlds/$worldId/workflows/new", params: { worldId } } },
+    { label: "Start a run", done: runs.length > 0, link: { to: "/worlds/$worldId/workflows", params: { worldId } } },
+    { label: "Answer a gate", done: answered, link: { to: "/gates", search: { world: worldId } } },
+  ] as const;
+}
+
+const HIDDEN = (worldId: string) => `swarmify.setup-hidden.${worldId}`;
+const wasHidden = (worldId: string) => {
+  try {
+    return localStorage.getItem(HIDDEN(worldId)) === "1";
+  } catch {
+    return false;
+  }
+};
+
+/** Hides a world's setup strip in this browser. */
+function hideSetup(worldId: string) {
+  try {
+    localStorage.setItem(HIDDEN(worldId), "1");
+  } catch {
+    // the strip still goes for this visit
+  }
+}
+
+/** The setup strip that leads a new world's overview in the figures' place (a new world's figures
+ * are all zeros): its true percentage, each step a check or a link to where it is done, and Hide
+ * (kept in this browser). The overview drops it once every step is done. */
+export function Setup({ worldId, workflows, runs, onHide }: { worldId: string; workflows: Workflow[]; runs: Run[]; onHide: () => void }) {
+  const steps = setupSteps(worldId, workflows, runs);
+  const done = steps.filter((s) => s.done).length;
+  const next = steps.find((s) => !s.done);
+  const pct = Math.round((done / steps.length) * 100);
+  function hide() {
+    hideSetup(worldId);
+    onHide();
+  }
+  return (
+    <section className="setup" aria-labelledby="setup-head" data-testid="setup">
+      <div className="setup-head">
+        <h2 id="setup-head">
+          Set up this world <span className="num">{pct}%</span>
+        </h2>
+        <button type="button" className="text-action" onClick={hide}>
+          Hide
+        </button>
+      </div>
+      <div className="setup-bar" role="progressbar" aria-label="Setup" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <span style={{ transform: `scaleX(${done / steps.length})` }} />
+      </div>
+      <ol className="setup-steps">
+        {steps.map((s, i) => (
+          <li key={s.label} className={s.done ? "done" : s === next ? "next" : undefined}>
+            {s.done ? <Icon name="check" /> : <span className="setup-n num">{i + 1}</span>}
+            {s.done || !s.link ? (
+              <span>{s.label}</span>
+            ) : (
+              <Link {...s.link}>
+                {s.label}
+                {s === next && <Icon name="next" />}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 /** The strip of figures: runs and spend today, slots in use, first-try acceptance. */
 export function figures(runs: Run[], scores: Score[], now = new Date()) {
@@ -36,7 +115,13 @@ export function WorldOverview() {
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [scores, setScores] = useState<Score[]>([]);
-  const gates = (useOpenGates().gates ?? []).filter((g) => g.world_id === worldId);
+  // Hide holds for this visit even where storage is blocked.
+  const [hiddenNow, setHiddenNow] = useState<string | null>(null);
+  const setupHidden = hiddenNow === worldId || wasHidden(worldId);
+  const open = useOpenGates();
+  const all = open.gates;
+  const gates = (all ?? []).filter((g) => g.world_id === worldId);
+  const waiting = needsYou(all, worldId);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
@@ -132,6 +217,7 @@ export function WorldOverview() {
       setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
       return;
     }
+    if (runs?.length === 0) moment(MOMENTS.firstRun);
     void router.navigate({
       to: "/worlds/$worldId/runs/$runId",
       params: { worldId, runId: data.id },
@@ -152,6 +238,7 @@ export function WorldOverview() {
       setError(typeof detail === "string" ? `Not started: ${detail}.` : `Could not start the run (${response.status}).`);
       return;
     }
+    if (runs?.length === 0) moment(MOMENTS.firstRun);
     void router.navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId: data.id } });
   }
 
@@ -193,36 +280,41 @@ export function WorldOverview() {
         </button>
       </header>
       {error && <p role="alert">{error}</p>}
-      <section className="kpis" aria-label="Figures">
-        <div className="kpi">
-          <div className="kpi-label">Runs today</div>
-          <div className="kpi-value num">{figure(f.today)}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Spent today</div>
-          <div className="kpi-value num">{figure(money(f.spent))}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Run slots in use</div>
-          <div className="kpi-value num">
-            {figure(
-              <>
-                {f.inUse} <small>of {world?.run_cap}</small>
-              </>,
-            )}
+      {/* The strip stands where the figures were, so nothing under it jumps when it arrives. */}
+      {world && workflows && runs && !setupHidden && !setupSteps(worldId, workflows, runs).every((s) => s.done) ? (
+        <Setup worldId={worldId} workflows={workflows} runs={runs} onHide={() => setHiddenNow(worldId)} />
+      ) : (
+        <section className="kpis" aria-label="Figures">
+          <div className="kpi">
+            <div className="kpi-label">Runs today</div>
+            <div className="kpi-value num">{figure(f.today)}</div>
           </div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Accepted first try</div>
-          <div className="kpi-value num">
-            {figure(
-              <>
-                {f.firstTry} <small>of {f.judged} judged</small>
-              </>,
-            )}
+          <div className="kpi">
+            <div className="kpi-label">Spent today</div>
+            <div className="kpi-value num">{figure(money(f.spent))}</div>
           </div>
-        </div>
-      </section>
+          <div className="kpi">
+            <div className="kpi-label">Run slots in use</div>
+            <div className="kpi-value num">
+              {figure(
+                <>
+                  {f.inUse} <small>of {world?.run_cap}</small>
+                </>,
+              )}
+            </div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Accepted first try</div>
+            <div className="kpi-value num">
+              {figure(
+                <>
+                  {f.firstTry} <small>of {f.judged} judged</small>
+                </>,
+              )}
+            </div>
+          </div>
+        </section>
+      )}
       <div className="cols-main">
         <div className="stack">
           <section className="panel" aria-label="Runs">
@@ -241,7 +333,17 @@ export function WorldOverview() {
                 ))}
               </Loading>
             ) : runs.length === 0 ? (
-              <p className="faint">None yet. Start one from a workflow or a goal.</p>
+              <Empty
+                icon="runs"
+                testId="no-runs"
+                action={
+                  <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button">
+                    Start a run
+                  </Link>
+                }
+              >
+                Every run of this world lands here, live as it moves.
+              </Empty>
             ) : (
               <table className="scores" data-testid="runs">
                 <thead>
@@ -265,7 +367,7 @@ export function WorldOverview() {
                           {r.workflow_version !== null && <span className="faint"> v{r.workflow_version}</span>}
                         </td>
                         <td>
-                          <span className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
+                          <span key={r.status} className={`status status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
                         </td>
                         <td className="num">
                           {new Date(r.created_at).toLocaleTimeString([], { timeStyle: "short" })}
@@ -290,7 +392,7 @@ export function WorldOverview() {
                 aria-label="Goal"
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="Find five hooks for next week's short."
+                placeholder="Compare three options and recommend one."
               />
               <input
                 type="number"
@@ -312,10 +414,27 @@ export function WorldOverview() {
           <section className="panel" aria-label="Needs you" data-testid="needs-you">
             <div className="panel-head">
               <h2>Needs you</h2>
-              {gates.length > 0 && <span className="pill warning">{gates.length} waiting</span>}
+              {!!waiting && <span className="pill warning" data-testid="needs-you-count">{waiting} waiting</span>}
             </div>
-            {gates.length === 0 ? (
-              <p className="faint">Nothing waits for you in this world.</p>
+            {waiting === null && open.failed ? (
+              <p className="faint">Could not load what waits for you. Is the API running?</p>
+            ) : waiting === null ? (
+              <Loading className="rows">
+                <Skeleton h={42} />
+                <Skeleton h={42} />
+              </Loading>
+            ) : waiting === 0 ? (
+              <Empty
+                icon="inbox"
+                testId="nothing-waits"
+                action={
+                  <Link to="/gates" search={{ world: worldId }} className="button">
+                    Open Needs you
+                  </Link>
+                }
+              >
+                Nothing waits for you here; a run that needs a decision stops here until you answer.
+              </Empty>
             ) : (
               <ul className="rows">
                 {gates.map((g) => (
@@ -344,9 +463,11 @@ export function WorldOverview() {
           <section className="panel workflows" aria-label="Workflows" id="workflows">
             <div className="panel-head">
               <h2>Workflows</h2>
-              <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="card-link">
-                New workflow
-              </Link>
+              {workflows?.length !== 0 && (
+                <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="card-link">
+                  New workflow
+                </Link>
+              )}
             </div>
             {workflows === null ? (
               <Loading className="rows-loading">
@@ -355,10 +476,17 @@ export function WorldOverview() {
                 ))}
               </Loading>
             ) : workflows.length === 0 ? (
-              <p className="faint" data-testid="no-workflows">
-                A workflow is the recipe a run follows: research, pick, script, render, review,
-                publish. Write the first one in YAML and the editor checks every rule as you type.
-              </p>
+              <Empty
+                icon="workflows"
+                testId="no-workflows"
+                action={
+                  <Link to="/worlds/$worldId/workflows/new" params={{ worldId }} className="button primary">
+                    Write a workflow
+                  </Link>
+                }
+              >
+                A workflow is the list of steps a run follows; the editor checks each rule as you type.
+              </Empty>
             ) : (
               <>
                 <ul className="rows stagger" data-testid="workflow-list">
@@ -376,30 +504,35 @@ export function WorldOverview() {
                         ))}
                       </span>
                       <span className="actions">
-                        <Link
-                          to="/worlds/$worldId/workflows/$workflowId/scorecard"
-                          params={{ worldId, workflowId: w.id }}
-                          className="card-link"
-                          aria-label={`Scorecard of ${w.name}`}
-                        >
-                          Scorecard
-                        </Link>
+                        <Menu
+                          label={`${w.name} actions`}
+                          className="icon"
+                          button={<Icon name="more" size={20} />}
+                          items={[
+                            {
+                              label: "Scorecard",
+                              note: "how its runs scored, version by version",
+                              onSelect: () =>
+                                void router.navigate({ to: "/worlds/$worldId/workflows/$workflowId/scorecard", params: { worldId, workflowId: w.id } }),
+                            },
+                            {
+                              label: `Start a ${baseline()}`,
+                              note: "one agent and no graph, for the swarm to beat",
+                              onSelect: () => void start(w.id, true),
+                              disabled: starting !== null,
+                            },
+                          ]}
+                          sheet
+                        />
                         <button
                           type="button"
-                          onClick={() => start(w.id, true)}
-                          disabled={starting !== null}
-                          aria-label={`Start a ${baseline()} of ${w.name}`}
-                          title="One agent and no graph, so the swarm's runs have something to beat"
-                        >
-                          Baseline
-                        </button>
-                        <button
-                          type="button"
+                          className="icon play"
                           onClick={() => start(w.id)}
                           disabled={starting !== null}
                           aria-label={`Start a run of ${w.name}`}
+                          aria-busy={starting === w.id || undefined}
                         >
-                          {starting === w.id ? "Starting..." : "Start run"}
+                          <Icon name="play" size={20} />
                         </button>
                       </span>
                     </li>

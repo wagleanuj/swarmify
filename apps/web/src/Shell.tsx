@@ -1,11 +1,13 @@
 import { Link, type LinkProps, Outlet, useLocation } from "@tanstack/react-router";
-import { createContext, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { api } from "./api/client";
-import { useOpenGates } from "./api/gates";
+import { needsYou, useOpenGates } from "./api/gates";
 import { money } from "./api/runs";
 import type { components } from "./api/schema";
+import { CountTick } from "./CountTick";
 import { Health } from "./Health";
+import { Icon, type IconName } from "./Icon";
 import { status } from "./pages/Connectors";
 import { figures } from "./pages/WorldOverview";
 import { Sheet } from "./Sheet";
@@ -15,41 +17,23 @@ import "./styles/shell.css";
 
 type World = components["schemas"]["World"];
 
-const ICON: Record<string, ReactNode> = {
-  gates: <path d="M3 12h4l2 3h6l2-3h4M5 5h14l2 7v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z" />,
-  overview: <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />,
-  runs: <path d="M5 4l14 8-14 8z" />,
-  workflows: <path d="M4 6h6v4H4zM14 14h6v4h-6zM7 10v4a2 2 0 0 0 2 2h5" />,
-  library: <path d="M4 4h5v16H4zM10 4h4v16h-4zM15 5l4-1 2 15-4 1z" />,
-  assets: <path d="M9 17V5l11-2v12M4 17a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M15 15a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0" />,
-  graph: <path d="M8 7l8 1M7 8l2 8M17 10l-6 7M4 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0" />,
-  cast: <path d="M6 8a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 20c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M18 15c2 1 3 3 3 5" />,
-  connectors: <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" />,
-  settings: <path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />,
-  worlds: <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />,
-  evals: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-  chev: <path d="M8 10l4 4 4-4" />,
-};
-
-const Icon = ({ name }: { name: string }) => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {ICON[name]}
-  </svg>
-);
-
-// The phone's tab bar draws its own 24px icons, filled when current.
-const TAB_ICON: Record<string, string> = {
-  gates: "M4 13l3-8h10l3 8v6H4zM4 13h5l1 2h4l1-2h5",
-  runs: "M7 5l12 7-12 7z",
-  workflows: "M3.5 6a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M15.5 18a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M8.5 6H14a4 4 0 0 1 4 4v5.5",
-  library: "M5 4v16M10 4v16M15 5l4 14",
-  more: "M3.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0M10.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0M17.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0",
-};
-const TabIcon = ({ name }: { name: string }) => (
-  <svg viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={TAB_ICON[name]} />
-  </svg>
-);
+// Each area's glyph, in the sidebar and on the phone's tab bar.
+const NAV_ICON = {
+  gates: "inbox",
+  overview: "home",
+  runs: "runs",
+  workflows: "workflows",
+  library: "library",
+  assets: "assets",
+  graph: "memory",
+  cast: "people",
+  connectors: "plug",
+  settings: "settings",
+  worlds: "world",
+  evals: "evals",
+  more: "more",
+} as const satisfies Record<string, IconName>;
+type NavKey = keyof typeof NAV_ICON;
 // The world's own tabs, between Needs you and More.
 const WORLD_TABS = [
   ["runs", "Runs", "/worlds/$worldId/runs"],
@@ -102,7 +86,12 @@ export function Shell() {
   const current = top === "worlds" ? (area ?? "overview") : top || "worlds";
   const inWorld = top === "worlds" ? routeWorld : undefined;
 
+  // The inbox glyph nudges once each time the count of open gates rises (keyed, so it replays).
   const gates = useOpenGates().gates;
+  const waiting = needsYou(gates) ?? undefined;
+  const [nudge, setNudge] = useState({ was: waiting, n: 0 });
+  if (waiting !== nudge.was) setNudge({ was: waiting, n: waiting !== undefined && nudge.was !== undefined && waiting > nudge.was ? nudge.n + 1 : nudge.n });
+  const inbox = (size?: 24) => <Icon key={nudge.n} name="inbox" size={size} className={nudge.n ? "i-nudge" : undefined} />;
   const [worlds, setWorlds] = useState<World[] | null>(null);
   // Global routes keep the last world the person was in, across visits; before any, the first one.
   const [saved] = useState(stored);
@@ -123,6 +112,21 @@ export function Shell() {
   }, [worldId]);
   useEffect(() => setSheet(null), [pathname, hash]);
 
+  // The compact title: once the page's own title has scrolled under the top bar, its text fades
+  // into the bar, so a long page never loses where it is.
+  const [title, setTitle] = useState<string | null>(null);
+  const topbar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const check = () => {
+      const h1 = document.querySelector(".canvas h1");
+      const bar = topbar.current?.getBoundingClientRect().bottom ?? 0;
+      setTitle(h1 && bar > 0 && h1.getBoundingClientRect().bottom < bar ? (h1.textContent ?? "").trim() || null : null);
+    };
+    check();
+    addEventListener("scroll", check, { passive: true });
+    return () => removeEventListener("scroll", check);
+  }, [pathname]);
+
   // More's one-line summaries, read each time it opens.
   useEffect(() => {
     if (sheet !== "more" || !worldId) return;
@@ -142,7 +146,7 @@ export function Shell() {
     ].map((p) => p.catch(() => ({})))).then((parts) => setSummary(Object.assign({}, ...parts)));
   }, [sheet, worldId]);
 
-  const item = (key: string, label: string, link: LinkProps, count?: number) => (
+  const item = (key: NavKey, label: string, link: LinkProps, count?: number) => (
     <Link
       {...link}
       className="nav-item"
@@ -150,11 +154,11 @@ export function Shell() {
       activeOptions={{ exact: true, includeHash: true }}
       aria-current={current === key ? "page" : undefined}
     >
-      <Icon name={key} />
+      {key === "gates" ? inbox() : <Icon name={NAV_ICON[key]} />}
       <span className="nav-label">{label}</span>
       {count ? (
         <span className="nav-count" aria-label={`${count} waiting`}>
-          {count}
+          <CountTick value={count} />
         </span>
       ) : null}
     </Link>
@@ -180,6 +184,8 @@ export function Shell() {
       const [n, l] = [nav.getBoundingClientRect(), label.getBoundingClientRect()];
       nav.style.setProperty("--line-x", `${l.left - n.left}px`);
       nav.style.setProperty("--line-w", `${l.width}px`);
+      // Attached to the tab: just under its label, as the sidebar underlines its current row.
+      nav.style.setProperty("--line-y", `${l.bottom - n.top + 2}px`);
     };
     place();
     // Slide from the next frame on, so the first placement does not glide in from the left.
@@ -194,14 +200,14 @@ export function Shell() {
     };
   }, [current, moreOn, worldId]);
 
-  const tab = (key: string, label: string, link: LinkProps, badge?: number) => (
+  const tab = (key: NavKey, label: string, link: LinkProps, badge?: number) => (
     // While More's sheet is open it is the one tab marked on.
     <Link {...link} className={current === key && sheet !== "more" ? "tabbar-item on" : "tabbar-item"} aria-current={current === key ? "page" : undefined}>
-      <TabIcon name={key} />
+      {key === "gates" ? inbox(24) : <Icon name={NAV_ICON[key]} size={24} />}
       <span className="tabbar-label">{label}</span>
       {badge ? (
         <span className="tabbar-badge" aria-label={`${badge} waiting`}>
-          {badge}
+          <CountTick value={badge} />
         </span>
       ) : null}
     </Link>
@@ -215,13 +221,16 @@ export function Shell() {
 
   return (
     <div className="app">
-      <header className="topbar">
+      <header className="topbar" ref={topbar} data-titled={title ? "" : undefined}>
         <Mark />
         <button type="button" className="world-chip" aria-label={worldName ? undefined : "Choose a world"} aria-haspopup="dialog" aria-expanded={sheet === "world"} onClick={() => setSheet("world")}>
           {worldName ?? <Skeleton w={96} h={14} />}
-          <Icon name="chev" />
+          <Icon name="chevron" />
         </button>
-        {/* A page's own phone top bar (the run page's "‹ Runs" and menu) renders here. */}
+        <span className="topbar-title" aria-hidden="true">
+          {title}
+        </span>
+        {/* A page's own phone top bar (the run page's back link and menu) renders here. */}
         <div id="topbar-slot" className="topbar-slot" />
       </header>
       <nav className="sidebar" aria-label="Main">
@@ -233,10 +242,10 @@ export function Shell() {
             <small>World</small>
             <b>{worldName ?? <Skeleton w={96} h={13} />}</b>
           </span>
-          <Icon name="chev" />
+          <Icon name="chevron" />
         </Link>
         <div className="nav-group">
-          {item("gates", "Needs you", { to: "/gates" }, gates?.length)}
+          {item("gates", "Needs you", { to: "/gates" }, waiting)}
           {worldId && (
             <>
               {item("overview", "Overview", { to: worldHome(world), params })}
@@ -268,20 +277,20 @@ export function Shell() {
       </div>
       <nav className="tabbar" aria-label="Tabs" ref={bar}>
         <span className="tabbar-line" aria-hidden="true" />
-        {tab("gates", "Needs you", { to: "/gates" }, gates?.length)}
+        {tab("gates", "Needs you", { to: "/gates" }, waiting)}
         {WORLD_TABS.map(([key, label, to]) =>
           worldId ? (
             <Fragment key={key}>{tab(key, label, { to, params })}</Fragment>
           ) : (
             // Five slots from the first frame: the world's tabs wait, labelled, until there is a world.
             <span key={key} className="tabbar-item" aria-disabled="true">
-              <TabIcon name={key} />
+              <Icon name={NAV_ICON[key]} size={24} />
               <span className="tabbar-label">{label}</span>
             </span>
           ),
         )}
         <button type="button" className={moreOn ? "tabbar-item on" : "tabbar-item"} aria-haspopup="dialog" aria-expanded={sheet === "more"} onClick={() => setSheet("more")}>
-          <TabIcon name="more" />
+          <Icon name="more" size={24} />
           <span className="tabbar-label">More</span>
         </button>
       </nav>
@@ -289,7 +298,7 @@ export function Shell() {
       <Sheet open={sheet === "world"} onClose={() => setSheet(null)} label="Worlds">
         <nav aria-label="Worlds" onClick={() => setSheet(null)}>
           {(worlds ?? []).map((w) => {
-            const waiting = gates?.filter((g) => g.world_id === w.id).length ?? 0;
+            const waiting = needsYou(gates, w.id);
             return (
               <Link
                 key={w.id}
@@ -299,7 +308,7 @@ export function Shell() {
                 aria-current={w.id === worldId ? "true" : undefined}
               >
                 {w.name}
-                <small>{waiting ? `${waiting} waiting` : "nothing waiting"}</small>
+                <small>{waiting === null ? "" : waiting ? `${waiting} waiting` : "nothing waiting"}</small>
               </Link>
             );
           })}

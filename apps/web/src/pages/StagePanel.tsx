@@ -5,11 +5,12 @@ import { api } from "../api/client";
 import { type Agent, type ArtifactFile, type LogEntry, outcomeOf, type Verdict } from "../api/events";
 import { type Connector, type Connectors, labelOf } from "../api/connectors";
 import { RECORD, underReview } from "../api/answer";
-import { type Call, clock, decisionLine, type Run } from "../api/runs";
+import { type Call, clock, decisionLine, plainError, type Run } from "../api/runs";
+import { Icon } from "../Icon";
 import type { components } from "../api/schema";
 import type { Task } from "../api/tasks";
 import { AgentCards, describe, LiveLog, usd } from "./AgentLog";
-import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, rawUrl, summary, VIDEO } from "./Artifacts";
+import { ArtifactView, AUDIO, FileLink, fileUrl, IMAGE, Markdown, mdBlocks, rawUrl, summary, VIDEO } from "./Artifacts";
 import { EDITABLE } from "./ChangeCard";
 import { PublishValue } from "./Connectors";
 import { SaveAsTemplate, StageOutput } from "./StageOutput";
@@ -79,12 +80,20 @@ function primary(artifacts: ArtifactFile[]): ArtifactFile[] {
   return [items[0] ?? artifacts.at(-1)!];
 }
 
+/** The one file to open from a finished run: its result when that is a single file, else the
+ * last of its result stage's files. */
+export function mainArtifact(run: Run, artifacts: ArtifactFile[]): ArtifactFile | undefined {
+  const from = resultStage(run, artifacts);
+  return from ? primary(work(artifacts).filter((a) => a.stage === from.id)).at(-1) : undefined;
+}
+
 /** A file's text without the YAML frontmatter on top. */
 const body = (text: string) => text.replace(/^---\n[\s\S]*?\n---\n/, "");
 
-/** The first lines of a document, enough to recognise it. */
-function firstLines(text: string, lines = 8): string {
-  return body(text).split("\n").filter((l) => l.trim()).slice(0, lines).join("\n\n");
+/** The first blocks of a document, enough to recognise it: whole blocks, so a table or a code
+ * block is never cut into raw lines. */
+function firstLines(text: string, blocks = 5): string {
+  return mdBlocks(body(text)).slice(0, blocks).join("\n\n");
 }
 
 /** One artifact, shown in place: a player, the picture, the first lines of a document. */
@@ -595,7 +604,43 @@ export type PanelProps = {
   resultShown?: boolean;
   /** Opens an Artifact Edit of a text file the step made; only once it has finished. */
   onEditFile?: (a: ArtifactFile) => void;
+  /** A failed step's ways on: re-run it (its check card first), or ask the run why. */
+  onRetry?: () => void;
+  onAsk?: () => void;
 };
+
+/** A step that stopped: the warning glyph and one plain sentence, the technical text behind
+ * Details, then the ways on. */
+function Failure({ error, onRetry, onAsk }: { error: string; onRetry?: () => void; onAsk?: () => void }) {
+  return (
+    <div className="stage-failure" role="alert" data-testid="failure">
+      <p className="failure-line">
+        <Icon name="warning" size={20} />
+        <span>{plainError(error)}</span>
+      </p>
+      <details className="technical">
+        <summary>Details</summary>
+        <pre className="stage-log" data-testid="stage-log">
+          {error}
+        </pre>
+      </details>
+      {(onRetry || onAsk) && (
+        <div className="row failure-actions">
+          {onRetry && (
+            <button type="button" className="primary" onClick={onRetry}>
+              <Icon name="retry" /> Retry from this stage
+            </button>
+          )}
+          {onAsk && (
+            <button type="button" onClick={onAsk}>
+              Ask this run
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Part 7: what the selected step did and made, by its type, then its live log (part 8). */
 export function StagePanel(p: PanelProps) {
@@ -682,16 +727,7 @@ export function StagePanel(p: PanelProps) {
           {stage.network}
         </p>
       )}
-      {stage.error && (
-        <div className="stage-failure" role="alert">
-          <p>{stage.error.split("\n")[0]}</p>
-          {stage.error.includes("\n") && (
-            <pre className="stage-log" data-testid="stage-log">
-              {stage.error.split("\n").slice(1).join("\n")}
-            </pre>
-          )}
-        </div>
-      )}
+      {stage.error && <Failure error={stage.error} onRetry={p.onRetry} onAsk={p.onAsk} />}
       {connector && <StepInputs run={run} stage={stage} artifacts={p.artifacts} worldId={worldId} />}
       {inside}
       <AllFiles made={made} worldId={worldId} onEdit={p.onEditFile} />

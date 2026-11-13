@@ -92,13 +92,17 @@ test("every pose previews, a pose the character lacks showing idle", async () =>
   const { screen } = await mountAt("/worlds/world_1/office/crew?agent=planner");
   const stage = screen.getByRole("region", { name: "Stage" });
   await expect.element(stage.getByText("“I have a plan.”")).toBeVisible();
+  // A picker: one radio a pose, each tile the character in that pose, Idle chosen first.
   const poses = stage.getByRole("group", { name: "Poses" });
   for (const pose of ["Idle", "Thinking", "Working", "Walking", "Asking", "Shipped", "Stuck", "Carrying", "At the whiteboard"]) {
-    await expect.element(poses.getByRole("button", { name: pose })).toBeVisible();
+    await expect.element(poses.getByRole("radio", { name: pose })).toBeInTheDocument();
   }
-  await poses.getByRole("button", { name: "Working" }).click();
+  await expect.element(poses.getByRole("radio", { name: "Idle" })).toBeChecked();
+  expect(poses.element().querySelectorAll("label img")).toHaveLength(9);
+  await poses.getByText("Working").click();
+  await expect.element(poses.getByRole("radio", { name: "Working" })).toBeChecked();
   await expect.element(stage.getByRole("img", { name: "Mira, Working" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/work0.png");
-  await poses.getByRole("button", { name: "Asking" }).click();
+  await poses.getByText("Asking").click();
   await expect.element(stage.getByRole("img", { name: "Mira, Asking" })).toHaveAttribute("src", "/api/sprite-packs/kenney-toon/ada/idle.png");
 });
 

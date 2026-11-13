@@ -263,7 +263,7 @@ def test_every_route_and_overlay_fits_a_phone(page: Page, every: dict[str, str])
         found += audit(page, route, confirms, seen)
     page.context.clear_cookies()
     page.goto("/gates")
-    expect(page.get_by_label("Password")).to_be_visible()
+    expect(page.get_by_label("Password", exact=True)).to_be_visible()
     found += audit(page, "sign in", confirms, seen)
     key = lambda f: json.dumps({k: v for k, v in f.items() if k != "where"}, sort_keys=True)  # noqa: E731
     unique = {key(f): f for f in found}
@@ -313,3 +313,46 @@ def test_aborting_from_a_phone_asks_in_a_dialog_that_fits(
     dialog.get_by_role("button", name="Abort run").click()
     expect(page.get_by_test_id("status-line")).to_have_text(re.compile("^Aborted"))
     assert api.get(f"/runs/{run}").json()["status"] == "aborted"
+
+
+def test_each_run_state_reads_from_the_first_screen_and_no_markdown_is_raw(
+    page: Page, every: dict[str, str], locked_url: str
+) -> None:
+    """Each run state names itself in its pill on the first screen; a running run's clock ticks;
+    a failed one opens on its error with the ways on; a done one on its summary; and no run page
+    or reader shows a markdown table as raw pipes."""
+    height = page.viewport_size["height"]  # type: ignore[index]
+    states = {
+        "running": "running",
+        "run": "needs you",
+        "paused": "paused",
+        "failed": "failed",
+        "done": "done",
+    }
+    for key, label in states.items():
+        page.goto(f"/worlds/{every['world']}/runs/{every[key]}")
+        settle(page)
+        pill = page.get_by_test_id("run-pill")
+        expect(pill).to_have_text(re.compile(f"^{label}$", re.I))
+        box = pill.bounding_box()
+        assert box and box["y"] + box["height"] < height, (key, box)
+        assert "| Hook |" not in page.locator("main").inner_text(), key
+        if key == "running":
+            clock = page.get_by_test_id("elapsed").first
+            was = clock.inner_text()
+            expect(clock).not_to_have_text(was, timeout=3000)
+        if key == "failed":
+            failure = page.get_by_test_id("failure")
+            expect(failure).to_be_in_viewport()
+            expect(failure.get_by_role("button", name="Retry from this stage")).to_be_visible()
+        if key == "done":
+            expect(page.get_by_test_id("done-row")).to_be_in_viewport()
+    # The waiting run opens on its gate, which shows the ideas.md its research made in place.
+    for route in (
+        f"/worlds/{every['world']}/runs/{every['run']}",
+        f"/worlds/{every['world']}/read?path={every['doc']}",
+    ):
+        page.goto(route)
+        settle(page)
+        expect(page.locator("main table").first).to_be_visible()
+        assert "| Hook |" not in page.locator("main").inner_text(), route

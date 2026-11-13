@@ -41,6 +41,11 @@
   /* The phone's bottom tab bar, safe area included; 0 wider. A bar pinned above it uses
      `bottom: var(--tabbar)`. */
   --tabbar: 0px;
+  /* The phone's dock: the tab bar and a bar pinned on it share this ground. */
+  --dock: #141416;
+  /* The phone's side gutters, wider in landscape round a notch. */
+  --gutter-l: max(16px, env(safe-area-inset-left));
+  --gutter-r: max(16px, env(safe-area-inset-right));
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--ground); color: var(--text); font: 400 var(--fs-body)/1.5 var(--font); -webkit-font-smoothing: antialiased; }
@@ -77,6 +82,7 @@ b { font-weight: 600; }
 .canvas { min-width: 0; }
 .topbar { display: none; position: sticky; top: 0; z-index: 15; height: 48px; align-items: center; justify-content: space-between; padding: 0 12px 0 16px; background: var(--ground); border-bottom: 1px solid var(--border); }
 .topbar .brand { padding: 0; }
+.topbar-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
 button.icon { min-height: 32px; width: 32px; padding: 0; }
 /* The phone: a world chip on top, five tabs at the bottom; the sidebar and its menu go. */
 .world-chip, .tabbar { display: none; }
@@ -84,21 +90,34 @@ button.icon { min-height: 32px; width: 32px; padding: 0; }
   :root { --tabbar: calc(56px + env(safe-area-inset-bottom)); --fs-body: 14px; }
   .app { grid-template-columns: minmax(0, 1fr); align-content: start; }
   .sidebar, .topbar .brand { display: none; }
-  .topbar { display: flex; padding: 0 16px; border-bottom-color: var(--rule); }
-  .world-chip { display: inline-flex; min-width: 0; min-height: 32px; padding: 6px 12px; border: 0; background: var(--raised); font-weight: 600; }
+  /* A compact sticky header under the status bar or notch: the world (or a back link), then the
+     page's title once its own has scrolled off. */
+  .topbar { display: flex; gap: 10px; height: calc(48px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--gutter-r) 0 var(--gutter-l); border-bottom-color: var(--rule); }
+  .world-chip { display: inline-flex; flex: 0 1 auto; min-width: 0; max-width: 55%; min-height: 32px; padding: 6px 12px; border: 0; background: var(--raised); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .world-chip svg { flex: none; color: var(--faint); }
   .canvas { padding-bottom: var(--tabbar); }
-  .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; height: var(--tabbar); padding: 6px 4px env(safe-area-inset-bottom); background: #141416; border-top: 1px solid var(--rule); }
+  .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; height: var(--tabbar); padding: 6px max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left)); background: var(--dock); border-top: 1px solid var(--rule); }
   /* Every tap a 44px thumb: a disclosure's summary and a checkbox's label too */
   details summary { min-height: 44px; padding-block: 11px; }
   .check { min-height: 44px; }
+  /* One pinned action bar (.action-bar): the answer to a gate, the editor's save, an upload.
+     Flush on the tab bar, the same ground, no rule between them, so the two read as one dock.
+     Scoped to the canvas so it outweighs each area's own row rules for the same element. */
+  .canvas main .action-bar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 14; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; margin: 0; padding: 10px var(--gutter-r) 10px var(--gutter-l); background: var(--dock); border-top: 1px solid var(--rule); box-shadow: 0 -12px 24px -12px #000c; animation: bar-up var(--dur-base) var(--ease-out) both; }
+  .app:has(.action-bar) .tabbar { border-top-color: transparent; }
+  main:has(.action-bar) { padding-bottom: calc(48px + 65px); }
+  /* A row of chips scrolls sideways inside itself: it snaps to a chip and fades at the edge it
+     runs past, so a cut-off chip reads as more to come, not as a clipped word. */
+  .queue, .tabs.chip-row, .starters { scroll-snap-type: x proximity; scroll-padding-inline: 16px; overscroll-behavior-x: contain; -webkit-mask: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 28px), transparent); mask: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 28px), transparent); }
+  .queue > *, .tabs.chip-row > *, .starters > * { scroll-snap-align: start; }
 }
-.tabbar-item { position: relative; display: grid; justify-items: center; align-content: center; gap: 3px; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--faint); font-size: 10.5px; font-weight: 500; line-height: 1.2; text-decoration: none; }
+.tabbar-item { position: relative; display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.2; text-decoration: none; }
+.tabbar-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.tabbar-item:hover { background: none; }
-.tabbar-item svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; }
-.tabbar-item.on { color: var(--text); font-weight: 700; }
-.tabbar-item.on svg { fill: currentColor; fill-opacity: 0.18; }
-.tabbar-badge { position: absolute; top: -3px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; border: 2px solid #141416; background: var(--warning); color: #1a1405; font-size: 10px; font-weight: 800; display: grid; place-items: center; box-sizing: content-box; }
+.tabbar-item svg { stroke-width: 1.7; }
+.tabbar-item.on { color: var(--text); font-weight: 650; }
+.tabbar-item.on svg { fill: currentColor; fill-opacity: 0.25; stroke-width: 2; }
+.tabbar-badge { position: absolute; top: -3px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; border: 2px solid var(--dock); background: var(--warning); color: #1a1405; font-size: 10px; font-weight: 800; display: grid; place-items: center; box-sizing: content-box; }
 /* A bottom sheet (Sheet.tsx): rises above the tab bar, rows of a label and a faint summary. */
 dialog.sheet { margin: auto 0 var(--tabbar); width: 100%; max-width: none; max-height: calc(100svh - var(--tabbar) - 48px); padding: 0; border: 0; border-top: 1px solid var(--border); border-radius: 18px 18px 0 0; background: var(--surface); color: var(--text); box-shadow: 0 -20px 40px #000c; }
 dialog.sheet::backdrop { background: #000a; }
@@ -181,6 +200,12 @@ legend { font-size: 13px; font-weight: 500; margin-bottom: 6px; padding: 0; }
 .empty { display: grid; gap: 12px; justify-items: start; border-style: dashed; background: transparent; padding: 16px; max-width: 100%; }
 .empty p { margin: 0; max-width: 60ch; }
 .empty ul { margin: 0; padding-left: 18px; }
+.empty-state { gap: 10px; padding: 20px 16px; }
+.empty-state > .icon { color: var(--muted); }
+.empty-state h2 { margin: 0; font-size: 16px; }
+.empty-state p { color: var(--muted); }
+/* In a panel the frame is the panel's: the empty state sits on it without a second box. */
+.panel > .empty-state { border: 0; padding: 4px 0 0; }
 .cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); align-items: start; }
 .cards .card { padding: 12px 14px; gap: 4px; }
 
@@ -226,9 +251,16 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
 .md h3, .md h4, .md h5, .md h6 { margin: 4px 0 0; font-size: 14px; }
 .md img { max-width: 100%; height: auto; border-radius: var(--radius-field); }
 .scroll-x { overflow-x: auto; }
-.md table { border-collapse: collapse; font-size: 13px; }
-.md th, .md td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 8ch; }
-.md th { color: var(--muted); font-weight: 600; background: var(--well); }
+.md table { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+/* A table or a code block scrolls in its own frame, never the page; a table's first column stays put. */
+.md .scroll-x { max-width: 100%; border-radius: var(--radius-field); }
+.md th:first-child, .md td:first-child { position: sticky; left: 0; z-index: 1; background: var(--well); }
+.md pre { white-space: pre; word-break: normal; overflow-wrap: normal; }
+.md th, .md td { padding: 6px 10px; border: 0 solid var(--border); border-width: 0 1px 1px 0; text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 8ch; }
+.md th { color: var(--muted); font-weight: 600; }
+.md th, .md td { background: var(--well); }
+.md thead th { border-top-width: 1px; }
+.md th:first-child, .md td:first-child { border-left-width: 1px; }
 .reader { display: grid; gap: 16px; max-width: 48rem; }
 .reader header.page { margin-bottom: 0; }
 .reader .panel { display: grid; gap: 16px; }
@@ -285,4 +317,51 @@ details summary { cursor: pointer; margin: 16px 0 8px; color: var(--muted); }
   input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color]) { min-height: 44px; }
   button.icon { min-width: 44px; }
   .tab { display: inline-flex; align-items: flex-end; min-height: 44px; }
+}
+
+/* Notices (Toast.tsx): one polite stack of at most two, bottom right on a wide screen; on a
+   phone across the screen, above the tab bar, a pinned action bar and the safe area. */
+.toasts { position: fixed; z-index: 30; right: 24px; bottom: calc(24px + env(safe-area-inset-bottom)); display: grid; gap: 8px; width: min(24rem, calc(100vw - 32px)); pointer-events: none; }
+.toasts:empty { display: none; }
+.toast { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 4px 4px 14px; background: var(--raised); border: 1px solid var(--control); border-radius: 10px; box-shadow: 0 8px 24px #0009; color: var(--text); font-size: 14px; pointer-events: auto; }
+.toast > .icon { flex: none; color: var(--accent); }
+.toast-error > .icon { color: var(--negative); }
+.toast-error { border-color: #4a2a32; }
+.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast button { flex: none; min-height: 40px; border: 0; }
+.toast-action { padding: 0 12px; color: var(--accent); font-weight: 600; }
+.toast-close { width: 40px; padding: 0; color: var(--faint); }
+@media (max-width: 48rem) {
+  .toasts { left: var(--gutter-l); right: var(--gutter-r); bottom: calc(var(--tabbar) + 8px); width: auto; }
+  .app:has(.action-bar) ~ .toasts { bottom: calc(var(--tabbar) + 72px); }
+  .toast button { min-height: 44px; }
+  .toast-close { width: 44px; }
+}
+/* A glyph inside a pill: the running play glyph with its live dots, at the pill's text size. */
+.status .icon { width: 12px; height: 12px; margin: 0 4px 0 -2px; flex: none; }
+
+/* A page intro (Intro.tsx): one sentence ending in an info glyph; the rest folds out under it. */
+details.intro > summary { display: block; margin: 0; padding: 0; min-height: 0; color: var(--muted); }
+details.intro > summary::before { display: none; }
+details.intro .sub { display: inline; }
+.intro-i { display: inline-grid; place-items: center; width: 22px; height: 18px; vertical-align: -3px; color: var(--faint); }
+details.intro > summary:hover .intro-i, details.intro[open] .intro-i { color: var(--text); }
+.intro-more { display: grid; gap: 6px; max-width: 62ch; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 1px solid var(--control); color: var(--muted); }
+.intro-more p { margin: 0; }
+@media (max-width: 48rem) {
+  /* The sentence and its glyph are one tap, padded to 44px without pushing the rows down. */
+  details.intro > summary { min-height: 44px; padding-block: 10px; margin-block: -10px; }
+}
+/* A section's own action in its header: an ink text button with its glyph, no fill, no outline. */
+button.text-action, label.button.text-action { gap: 6px; min-height: 32px; padding: 0 10px; margin-right: -10px; border-color: transparent; color: var(--text); font-weight: 600; }
+button.text-action:hover, label.button.text-action:hover { background: var(--raised); }
+button.text-action:disabled:hover { border-color: transparent; }
+@media (max-width: 48rem) {
+  /* A title with one action of its own keeps the action on its row, at the right. */
+  header.page:has(> .menu-wrap, > a.button.primary) { flex-wrap: nowrap; align-items: flex-start; margin-bottom: 16px; }
+  header.page:has(> .menu-wrap, > a.button.primary) > div:first-child { flex: 1; min-width: 0; }
+  header.page > a.button.primary, header.page > .menu-wrap { flex: none; }
+}
+@media (max-width: 48rem), (pointer: coarse) {
+  button.text-action, label.button.text-action { min-height: 44px; margin-block: -6px; }
 }

@@ -247,3 +247,41 @@ test("on a phone the world chip is a 44px tap", async () => {
   await expect.element(chip).toBeVisible();
   expect(chip.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 });
+
+test("on a phone the inbox glyph nudges and the badge ticks when a decision arrives, not on the first load", async () => {
+  await page.viewport(390, 844);
+  let open = [gate("pick", { run_id: "run_1", stage_id: "s1" })];
+  fakeFetch({
+    "GET /api/worlds": () => Response.json(worlds),
+    "GET /api/gates": () => Response.json(open),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  const inbox = screen.getByRole("navigation", { name: "Tabs" }).getByRole("link", { name: /^Needs you/ });
+  await expect.element(inbox).toHaveAccessibleName("Needs you 1 waiting");
+  expect(inbox.element().querySelector(".i-inbox")?.classList.contains("i-nudge")).toBe(false);
+  expect(inbox.element().querySelector(".tick-in")).toBeNull();
+
+  open = [...open, gate("approve", { run_id: "run_2", stage_id: "s2" })];
+  FakeEventSource.emit("run.updated", { payload: run("running", []) });
+  await expect.element(inbox).toHaveAccessibleName("Needs you 2 waiting");
+  expect(inbox.element().querySelector(".i-inbox")?.classList.contains("i-nudge")).toBe(true);
+  // the new number is the one shown (its slide in is over at once under reduced motion)
+  await expect.element(inbox.element().querySelector<HTMLElement>(".tabbar-badge")!).toHaveTextContent("2");
+});
+
+test("on a phone the page's title fades into the top bar once it scrolls under it", async () => {
+  await page.viewport(390, 844);
+  fakeFetch({ "GET /api/worlds": () => Response.json(worlds), "GET /api/gates": () => Response.json([]), "GET /api/worlds/world_1/runs": () => Response.json([]) });
+  const { screen } = await mountAt("/worlds/world_1/runs");
+  await expect.element(screen.getByRole("heading", { name: "Runs", level: 1 })).toBeVisible();
+  const bar = screen.container.querySelector<HTMLElement>(".topbar")!;
+  expect(bar.hasAttribute("data-titled")).toBe(false);
+  screen.container.querySelector<HTMLElement>(".canvas")!.style.minHeight = "3000px";
+  scrollTo(0, 400);
+  await expect.poll(() => bar.hasAttribute("data-titled")).toBe(true);
+  expect(bar.querySelector(".topbar-title")?.textContent).toBe("Runs");
+  expect(bar.getBoundingClientRect().top).toBe(0);
+  scrollTo(0, 0);
+  await expect.poll(() => bar.hasAttribute("data-titled")).toBe(false);
+});

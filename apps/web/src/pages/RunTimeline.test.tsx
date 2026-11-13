@@ -133,7 +133,8 @@ test("running: the status line says which stage works, the step and the time, an
 
   const running = run("running", [research("done"), voice("done"), video("running", timed(3, null))], { updated_at: at(4) });
   FakeEventSource.emit("run.updated", { payload: running });
-  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Video is working · step 3 of 3 · 4 min so far");
+  await expect.element(screen.getByTestId("status-line")).toHaveTextContent("Video is working · step 3 of 3");
+  await expect.element(screen.getByTestId("elapsed")).toHaveTextContent("4m 0s");
   const rail = screen.getByTestId("timeline");
   await expect.element(rail).toMatchTextContent(/research\s*swarm\s*2m 14s\s*voice\s*audio\s*1m 14s\s*video\s*build\s*running/);
   // The run moved on; the step you are on stays, its log is not fetched again, and Go there follows.
@@ -205,6 +206,7 @@ test("answered on the run page: you stay on the step, see what you decided, and 
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1?stage=stage_3");
   const panel = screen.getByTestId("stage-panel");
   const scrolled = window.scrollY;
+  await panel.getByText("Add a note", { exact: true }).click();
   await panel.getByLabelText(/^Note/).fill("Good pace.");
   await panel.getByRole("button", { name: "Approve" }).click();
   const answered = panel.getByTestId("answered");
@@ -359,7 +361,7 @@ test("failed: where it stopped, what was kept, that nothing was posted, the outp
   const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
   await expect
     .element(screen.getByTestId("status-line"))
-    .toHaveTextContent("Stopped at video: ConnectorError: remotion render exited with 1. Finished stages keep their artifacts. Nothing was posted.");
+    .toHaveTextContent("Stopped at video: Remotion render exited with 1. Finished stages keep their artifacts. Nothing was posted.");
   await expect.element(screen.getByRole("button", { name: "Step 3, video, failed after 4m 14s" })).toHaveAttribute("aria-pressed", "true");
   await expect.element(screen.getByTestId("stage-log")).toMatchTextContent(/Bundling 100%\s*Error: No composition with the ID Shortt found\./);
   await (await runMenu(screen)).getByRole("menuitem", { name: /^Fork from video/ }).click();
@@ -620,13 +622,13 @@ test("on a phone the run opens on a status line, the strip with its spend, and t
   fakeFetch({ "GET /api/runs/run_1": () => Response.json(running) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
   await expect.element(screen.getByTestId("run-pill")).toHaveTextContent("running");
-  await expect.element(screen.getByTestId("status-line")).toMatchTextContent("Video is working · step 3 of 3 · 21 min so far");
+  await expect.element(screen.getByTestId("status-line")).toMatchTextContent(/^Video is working · step 3 of 3$/);
   await expect.element(screen.getByTestId("strip-spend")).toHaveTextContent("$5.01 of $10.00");
   // The top bar trades the world chip for the way back and the run menu.
-  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
+  await expect.element(screen.getByRole("banner").getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/worlds/world_1/runs");
   expect(screen.getByRole("button", { name: "Run actions" }).elements().filter((b) => b.checkVisibility())).toHaveLength(1);
   const button = screen.getByRole("button", { name: /^Step 3 of 3/ });
-  await expect.element(button).toMatchTextContent(/^Step 3 of 3 · build\s*video\s*All steps ▾$/);
+  await expect.element(button).toMatchTextContent(/^Step 3 of 3 · build\s*video\s*All steps$/);
   // The step list and spend wait in the sheet; the selected step comes right under the button.
   expect(screen.getByRole("navigation", { name: "Steps" }).query()).toBeNull();
   expect(screen.getByRole("region", { name: "Spend" }).query()).toBeNull();
@@ -758,7 +760,7 @@ test("on a phone a run still loading shows its skeleton under the way back, neve
   const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
   fakeFetch({ "GET /api/runs/run_1": async () => (await loaded, Response.json(waiting)) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toBeVisible();
+  await expect.element(screen.getByRole("banner").getByRole("link", { name: "Runs" })).toBeVisible();
   const busy = document.querySelector("main [aria-busy='true']")!;
   expect(busy).not.toBeNull();
   // The title, the status line, the strip, the step button and the panel each hold their place.
@@ -793,7 +795,7 @@ test("on a phone the run menu's button is a borderless 44px tap", async () => {
   await page.viewport(390, 844);
   fakeFetch({ "GET /api/runs/run_1": () => Response.json(run("running", [research("done"), voice("running", timed(2, null))])) });
   const { screen } = await mountAt("/worlds/world_1/runs/run_1");
-  await expect.element(screen.getByRole("link", { name: "‹ Runs" })).toBeVisible();
+  await expect.element(screen.getByRole("banner").getByRole("link", { name: "Runs" })).toBeVisible();
   const menu = screen.getByRole("button", { name: "Run actions" }).elements().find((b) => b.checkVisibility())!;
   const box = menu.getBoundingClientRect();
   expect([box.width, box.height]).toEqual([44, 44]);
@@ -827,4 +829,97 @@ test("approving: the action bar slides out first, then the answered state takes 
   watch.disconnect();
   expect(seen).toEqual(["leaving", "answered"]);
   expect(panel.getByRole("button", { name: "Approve" }).query()).toBeNull();
+});
+
+test("failed: the run opens on the failed step, not the retro after it, with one plain sentence, the exception behind Details, and the ways on", async () => {
+  const error = "ConnectorError: no earlier stage of this run left a file named 'missing.md'\nTraceback line";
+  const failed = run("failed", [research("done"), { ...video("failed"), index: 1, id: "stage_1", error }, stage(2, "retro", "retro", "done", timed(8, 9))], { revision: 2 });
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(failed),
+    "POST /api/runs/run_1/changes/propose": async (req) =>
+      Response.json({ change: await req.json(), stage_name: "video", before: { video: "failed" }, after: { video: "pending" }, violations: [], revision: 2, in_place: false, fork_from: "video", cost_usd: 0, budget_left_usd: null }),
+  });
+  const { screen, router } = await mountAt("/worlds/world_1/runs/run_1");
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ stage: "stage_1" }));
+  const failure = screen.getByTestId("failure");
+  await expect.element(failure.getByText("No earlier stage of this run left a file named 'missing.md'.")).toBeVisible();
+  // The exception and its output wait behind Details.
+  await expect.element(failure.getByTestId("stage-log")).not.toBeVisible();
+  await failure.getByText("Details").click();
+  await expect.element(failure.getByTestId("stage-log")).toMatchTextContent(/^ConnectorError: no earlier stage.*\s*Traceback line$/);
+  await failure.getByRole("button", { name: "Retry from this stage" }).click();
+  await expect.element(screen.getByTestId("change-card")).toBeVisible();
+  await failure.getByRole("button", { name: "Ask this run" }).click();
+  await expect.element(screen.getByRole("button", { name: "Ask this run", expanded: true })).toBeVisible();
+});
+
+test("live: the clock ticks each second while it runs and holds once it ends; the spend ticks; the step's latest line shows", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  vi.setSystemTime(new Date(at(21)));
+  const stages = [research("done"), voice("done"), video("running", timed(3, null))];
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("running", stages, { spent_usd: 1 })),
+    "GET /api/runs/run_1/stages/stage_2/log": () => Response.json([log(1, { kind: "session", detail: "started on claude-opus-5-5" })]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const clock = screen.getByTestId("elapsed");
+  await expect.element(clock).toHaveTextContent("21m 0s");
+  await expect.element(clock).toHaveAttribute("data-live", "true");
+  vi.advanceTimersByTime(1000);
+  await expect.element(clock).toHaveTextContent("21m 1s");
+  await expect.element(screen.getByTestId("live-line")).toHaveTextContent("Builder: Started on claude-opus-5-5");
+  FakeEventSource.emit("agent.logged", { payload: log(2, { kind: "result", detail: "Rendered the frames." }) });
+  await expect.element(screen.getByTestId("live-line")).toHaveTextContent("Builder: Rendered the frames.");
+
+  FakeEventSource.emit("run.updated", { payload: run("running", stages, { spent_usd: 1.25, updated_at: at(22) }) });
+  // The old figure slides out and the new one in.
+  await vi.waitFor(() => expect(screen.getByTestId("strip-spend").element().querySelector(".tick-in")?.textContent).toBe("$1.25"));
+  expect(screen.getByTestId("strip-spend").element().querySelector(".tick")?.getAttribute("data-dir")).toBe("up");
+
+  const ended = run("done", [research("done"), voice("done"), video("done", timed(3, 21))], { spent_usd: 1.25, updated_at: at(23) });
+  FakeEventSource.emit("run.updated", { payload: ended });
+  await expect.element(screen.getByTestId("live-line")).not.toBeInTheDocument();
+  // A done run's pill pops once, as it lands, and a notice says so.
+  await expect.element(screen.getByTestId("run-pill")).toHaveClass("pop");
+  await expect.element(screen.getByText(`${ended.name} is done.`)).toBeVisible();
+  const took = screen.getByTestId("strip-spend").element().parentElement!.textContent;
+  vi.advanceTimersByTime(3000);
+  expect(screen.getByTestId("strip-spend").element().parentElement!.textContent).toBe(took);
+  vi.useRealTimers();
+});
+
+test("done: a summary row says how long it took, what it spent and made, and opens the main file; arriving at it does not pop", async () => {
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(run("done", [research("done"), voice("done"), video("done")], { spent_usd: 0.42 })),
+    "GET /api/runs/run_1/artifacts": () => Response.json([timings, mp4]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  const row = screen.getByTestId("done-row");
+  await expect.element(row).toMatchTextContent(/^Took 7 min · Spent \$0\.42 · Made video\.mp4\s*Open video\.mp4$/);
+  await expect.element(row.getByRole("link", { name: "Open video.mp4" })).toBeVisible();
+  await expect.element(screen.getByTestId("run-pill")).not.toHaveClass("pop");
+});
+
+test("on a phone the strip names the step that is now and marks it, the others as dots, and the run menu is a sheet", async () => {
+  await page.viewport(390, 844);
+  const waiting = run("waiting_gate", [research("done"), voice("done"), video("done"), review("waiting", timed(7, null))]);
+  fakeFetch({
+    "GET /api/runs/run_1": () => Response.json(waiting),
+    "GET /api/gates": () => Response.json([gate("approve", { stage_index: 3, stage_id: "stage_3" })]),
+  });
+  const { screen } = await mountAt("/worlds/world_1/runs/run_1");
+  await expect.element(screen.getByTestId("strip-key")).toHaveTextContent("review, waiting for you");
+  expect(screen.getByTestId("strip-key").element().querySelectorAll("i")).toHaveLength(3);
+  await expect.element(screen.getByTestId("strip").getByRole("button", { name: /^review/ })).toHaveClass("seg-now");
+  await expect.element(screen.getByTestId("run-pill")).toHaveTextContent("needs you");
+  // The question is asked once, by the gate below, not again in the status line.
+  await expect.element(screen.getByTestId("status-line")).not.toBeVisible();
+
+  const opener = screen.getByRole("button", { name: "Run actions" }).elements().find((b) => b.checkVisibility()) as HTMLElement;
+  opener.click();
+  const sheet = screen.getByRole("dialog", { name: "Run actions" });
+  await expect.element(sheet.getByRole("menuitem", { name: /^Abort run/ })).toBeVisible();
+  expect(sheet.element().getBoundingClientRect().top).toBeGreaterThan(screen.getByRole("heading", { level: 1 }).element().getBoundingClientRect().bottom);
+  await userEvent.keyboard("{Escape}");
+  await expect.element(sheet).not.toBeInTheDocument();
 });

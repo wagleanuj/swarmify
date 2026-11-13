@@ -79,7 +79,7 @@ test("the trend needs more than three swarm runs and the empty state says what l
       Response.json({ workflow_id: "wf_1", world_id: "world_1", name: "Short", runs: [] }),
   });
   const { screen } = await mountAt("/worlds/world_1/workflows/wf_1?tab=scorecard");
-  await expect.element(screen.getByTestId("no-scores")).toMatchTextContent(/No runs yet/);
+  await expect.element(screen.getByTestId("no-scores")).toMatchTextContent(/Each run of this workflow adds a row here/);
   await expect
     .element(screen.getByRole("link", { name: "Start a run" }))
     .toHaveAttribute("href", "/worlds/world_1/workflows");

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { money, took } from "../api/runs";
 import type { components } from "../api/schema";
+import { Empty } from "../Empty";
 import { Loading, Skeleton } from "../Skeleton";
 import { baseline, cap } from "../skin";
 
@@ -20,6 +21,9 @@ const KINDS = ["research briefs", "long-form writing", "typed lists"];
 const verdictPill = (r: Report) => (
   <span className={r.swarm_wins ? "pill positive" : "pill negative"}>{r.swarm_wins ? "Swarm wins" : "Swarm does not win"}</span>
 );
+
+/** How to start an eval: the API cannot, the `swarmify-eval` command on the server does. */
+const EVAL_DOCS = "https://github.com/wagleanuj/swarmify#eval-baseline-against-swarm";
 
 /** The eval reports (baseline against swarm), newest first; the newest verdict leads the page. */
 export function Evals() {
@@ -56,13 +60,17 @@ export function Evals() {
         </Loading>
       )}
       {reports && !latest && (
-        <div className="empty" data-testid="no-evals">
-          <p>
-            No eval yet. With the API running, run <code>uv run swarmify-eval --kind research-briefs</code> (or{" "}
-            <code>long-form-writing</code>, <code>typed-lists</code>); the report lands here and in the Evals world's
-            library.
-          </p>
-        </div>
+        <Empty
+          icon="evals"
+          testId="no-evals"
+          action={
+            <a className="button" href={EVAL_DOCS} target="_blank" rel="noreferrer">
+              How to run one
+            </a>
+          }
+        >
+          An eval runs from the server, not this page; its verdict and report land here when it ends.
+        </Empty>
       )}
       {reports && reports.length > 0 && (
         <>

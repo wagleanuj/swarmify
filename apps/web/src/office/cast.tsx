@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState, useSyncExternalStore } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -121,14 +121,25 @@ export function stillFrame(look: Look, pose: Pose) {
 
 export const still = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** A frame counter for the cosmetic motion; it stands at 0 with reduced motion. */
+const onLine = (change: () => void) => {
+  addEventListener("online", change);
+  addEventListener("offline", change);
+  return () => {
+    removeEventListener("online", change);
+    removeEventListener("offline", change);
+  };
+};
+
+/** A frame counter for the cosmetic motion; it stands at 0 with reduced motion. Offline it holds
+ * the frame on screen: the next frames come from the server and would draw as broken images. */
 function useTick(moving: boolean) {
   const [tick, setTick] = useState(0);
+  const online = useSyncExternalStore(onLine, () => navigator.onLine);
   useEffect(() => {
-    if (!moving) return;
+    if (!moving || !online) return;
     const timer = setInterval(() => setTick((n) => n + 1), 150);
     return () => clearInterval(timer);
-  }, [moving]);
+  }, [moving, online]);
   return tick;
 }
 
@@ -145,7 +156,7 @@ function drawn(pose: Pose, tick: number, roam: boolean): { pose: Pose; away: boo
 /** One character in a pose, with an optional speech bubble. It walks in when it first appears
  * (an agent arriving at a new place) and animates its pose, both only when motion is allowed. */
 export function Actor({ look, pose, say, roam = false, crewOf }: { look: Look; pose: Pose; say?: string | null; roam?: boolean; crewOf?: string }) {
-  const [moving] = useState(() => !still());
+  const [moving] = useState(() => !still() && navigator.onLine);
   const [arriving, setArriving] = useState(moving);
   const tick = useTick(moving);
   useEffect(() => {

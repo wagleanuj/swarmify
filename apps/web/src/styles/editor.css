@@ -11,6 +11,9 @@ main.editor-page { max-width: 80rem; }
 .editor aside > section { padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); display: grid; gap: 10px; }
 .editor-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .save-status { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.save-status > .icon { flex: none; color: var(--faint); }
+.save-status > .st-ok { color: var(--accent); }
+.save-status > .st-warn { color: var(--warning); }
 button.link.undo { color: var(--accent); font-weight: 600; text-decoration: none; }
 .fields-title { display: none; }
 .stages-loading { display: grid; gap: 0; }
@@ -67,12 +70,11 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
 /* The editor on a phone: the same views over the same text. Workflow fields in a panel, stage
    rows that open a sheet, add chips, and the save bar pinned above the tab bar. */
 @media (max-width: 48rem) {
-  main.editor-page { padding-bottom: 104px; }
   .editor-page header.page { margin-bottom: 14px; }
   .editor-page header.page .sub { display: none; }
   .editor { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .editor > section { gap: 14px; }
-  .editor-actions { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 14; flex-wrap: nowrap; justify-content: space-between; gap: 12px; margin: 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--rule); box-shadow: 0 -8px 20px #0b0b0d; animation: bar-up var(--dur-base) var(--ease-out) both; }
+  .editor-actions { justify-content: space-between; gap: 12px; }
   .editor-actions .save-status { flex: 1; }
   .editor-actions [role="status"] { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .editor-actions button.primary { flex: none; padding: 0 18px; }
@@ -142,4 +144,8 @@ a.button.primary:hover { background: #3fd68f; border-color: #3fd68f; }
   .score-rows td, .scores.score-rows td.num { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; }
   .score-rows td::before { content: attr(data-label); color: var(--faint); font-weight: 400; text-align: left; }
   .score-rows td:first-child { display: block; padding-bottom: 6px; text-align: left; }
+}
+/* The narrowest phones: one field a row, so no label wraps beside its neighbour. */
+@media (max-width: 380px) {
+  .fields { grid-template-columns: minmax(0, 1fr); }
 }

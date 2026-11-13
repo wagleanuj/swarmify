@@ -102,6 +102,14 @@ def ids(locked_url: str) -> dict[str, str]:
     done = start(make(RENDER), "done")
     parent = f"name: Parent\nstages:\n  - workflow: child\n    runs: {make(CHILD)}\n"
     running = start(make(parent), "running")
+    # Its child run opens a gate of its own a moment later; wait for it, so every count the
+    # tests read from here on holds still.
+    for _ in range(200):
+        if any(g.get("parent_run_id") == running for g in api.get("/gates").json()):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("the child run never opened its gate")
     files = [a["path"] for a in api.get(f"/runs/{done}/artifacts").json()]
     doc = next(p for p in files if p.endswith("/ideas.md"))
     gates = {g["run_id"]: g["stage_id"] for g in api.get("/gates").json()}
@@ -137,7 +145,7 @@ def test_signing_in_opens_the_app_until_signing_out(
     context = browser.new_context(viewport=PHONE, base_url=locked_url, is_mobile=True)
     page = context.new_page()
     page.goto("/gates")
-    password = page.get_by_label("Password")
+    password = page.get_by_label("Password", exact=True)
     password.fill("hooli")
     page.get_by_role("button", name="Sign in").click()
     expect(page.get_by_role("alert")).to_contain_text("That is not the password")
@@ -149,9 +157,9 @@ def test_signing_in_opens_the_app_until_signing_out(
 
     page.goto(f"/worlds/{ids['world']}/settings")
     page.get_by_role("button", name="Sign out").click()
-    expect(page.get_by_label("Password")).to_be_visible()
+    expect(page.get_by_label("Password", exact=True)).to_be_visible()
     page.reload()
-    expect(page.get_by_label("Password")).to_be_visible()
+    expect(page.get_by_label("Password", exact=True)).to_be_visible()
     context.close()
 
 
@@ -171,13 +179,14 @@ SMALL_CONTROLS = """[...document.querySelectorAll(
 
 def _fits(page: Page) -> None:
     """No sideways scroll, and the layout viewport is still the phone's 390 px."""
-    assert page.evaluate("window.innerWidth") == PHONE["width"]  # the viewport meta holds
-    wide = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     culprits = page.evaluate(
-        """[...document.querySelectorAll('body *')]
-            .filter(e => e.getBoundingClientRect().right > window.innerWidth + 1)
+        f"""[...document.querySelectorAll('body *')]
+            .filter(e => e.getBoundingClientRect().right > {PHONE["width"]} + 1)
             .slice(0, 5).map(e => e.tagName + '.' + e.className)"""
     )
+    # the viewport meta holds
+    assert page.evaluate("window.innerWidth") == PHONE["width"], culprits
+    wide = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     assert wide <= 0, f"{page.url} scrolls sideways by {wide}px: {culprits}"
 
 
@@ -239,8 +248,9 @@ def test_the_answer_is_on_screen_above_the_tab_bar(phone: Page, ids: dict, where
     )
     box, bar = approve.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
-    if where == "gates":  # several wait, so decision chips lead the page
-        expect(phone.get_by_test_id("queue").locator(".q-item")).to_have_count(3)
+    if where == "gates":  # several wait: the kinds as chips with counts, and where this one sits
+        expect(phone.get_by_test_id("kinds")).to_contain_text("All")
+        expect(phone.get_by_test_id("place")).to_contain_text(re.compile(r"\d of \d"))
     else:  # seven steps not started still fit the strip (issue 175)
         expect(phone.get_by_test_id("strip")).to_be_visible()
         assert phone.get_by_test_id("strip").bounding_box()["width"] <= PHONE["width"]  # type: ignore[index]
@@ -272,7 +282,7 @@ def test_a_run_waiting_at_a_gate_loads_without_jumping(phone: Page, ids: dict) -
 def test_a_running_run_and_a_done_run_with_its_video(phone: Page, ids: dict) -> None:
     phone.goto(f"/worlds/{ids['world']}/runs/{ids['running']}")
     expect(phone.get_by_test_id("run-pill")).to_have_text(re.compile("^running$", re.I))
-    expect(phone.get_by_role("link", name="‹ Runs")).to_be_visible()
+    expect(phone.locator(".run-topbar").get_by_role("link", name="Runs")).to_be_visible()
     _fits(phone)
     phone.goto(f"/worlds/{ids['world']}/runs/{ids['done']}")
     expect(phone.get_by_test_id("run-pill")).to_have_text(re.compile("^done$", re.I))
@@ -312,7 +322,7 @@ def test_a_gate_is_answered_from_a_phone_as_the_stream_moves(phone: Page, ids: d
     card = phone.get_by_test_id(f"gate-{ids['run']}")
     expect(card).to_contain_text("Which idea do we shoot?")
     card.get_by_role("button", name="Approve").click()
-    expect(phone.get_by_test_id("answered")).to_contain_text("You approved it", timeout=15_000)
+    expect(phone.locator(".toasts")).to_contain_text("You approved it", timeout=15_000)
     expect(card).to_have_count(0)  # the next decision opens in its place
 
 
@@ -326,11 +336,12 @@ def _clip(seconds: float, rate: int = 8000) -> bytes:
     return buf.getvalue()
 
 
-def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
+def test_assets_plays_a_voice_first_with_add_to_voices_in_its_section_header(
     phone: Page, ids: dict, locked_url: str
 ) -> None:
     """Issues 194 and 220: a clip in the speech package's Owned Folder is a playable card; Add to
-    Voices opens its sheet, with the package's confirm."""
+    Voices sits in the section's header (#456, nothing pinned) and opens its sheet, with the
+    package's confirm."""
     api = signed_in(locked_url)
     added = api.put(f"/worlds/{ids['world']}/assets/narrator.wav?folder=voices", content=_clip(6))
     assert added.status_code == 201, added.text
@@ -344,6 +355,7 @@ def test_assets_plays_a_voice_first_and_pins_add_to_voices_above_the_tab_bar(
     expect(add).to_be_in_viewport(ratio=1)
     box, bar = add.bounding_box(), phone.locator(".tabbar").bounding_box()
     assert box and bar and box["y"] + box["height"] <= bar["y"], (box, bar)
+    expect(phone.locator("main .action-bar")).to_have_count(0)
     _fits(phone)
     add.click()
     sheet = phone.get_by_role("dialog", name="Add to Voices")

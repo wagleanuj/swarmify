@@ -36,11 +36,11 @@ test("saves a webhook, sends a test, then disconnects", async () => {
     .fill("https://hooks.slack.com/services/T0/B0/abcd");
   await screen.getByRole("button", { name: "Save webhook" }).click();
   await expect.element(screen.getByTestId("slack-state")).toHaveTextContent(`Posting to ${shown}`);
-  await expect.element(screen.getByRole("status")).toMatchTextContent(/Saved/);
+  await expect.element(screen.getByText("Saved. Send a test message to check it reaches Slack.")).toBeVisible(); // a toast
   expect(bodies[0]).toEqual({ slack_webhook: "https://hooks.slack.com/services/T0/B0/abcd" });
 
   await screen.getByRole("button", { name: "Send a test message" }).click();
-  await expect.element(screen.getByRole("status")).toMatchTextContent(/Test sent/);
+  await expect.element(screen.getByText("Test sent. It should be in Slack now.")).toBeVisible();
   expect(calls).toContain("POST /api/worlds/world_1/notifications/test");
 
   await screen.getByRole("button", { name: "Disconnect" }).click();
@@ -66,15 +66,13 @@ test("shows why Slack refused the test and why a webhook was rejected", async ()
     .getByRole("textbox", { name: "Replace the incoming webhook URL" })
     .fill("http://x.test/hook");
   await screen.getByRole("button", { name: "Save webhook" }).click();
-  await expect.element(screen.getByRole("alert")).toHaveTextContent(
-    "Not saved: the webhook must be an http or https URL.",
-  );
+  await expect.element(screen.getByText("Not saved: the webhook must be an http or https URL.")).toBeVisible();
   await expect.element(screen.getByTestId("slack-state")).toHaveTextContent(`Posting to ${shown}`);
 });
 
 const models = { default: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] };
 
-test("each panel saves only its own settings, stays on the page and stamps the save", async () => {
+test("one Save shows only once something changed, sends the World and Runs rows together, and a toast confirms it", async () => {
   const bodies: unknown[] = [];
   const world = { ...video, retention_days: 90, monthly_budget_usd: null, run_cap: 2, agent_count: 4, model: null };
   fakeFetch({
@@ -91,23 +89,29 @@ test("each panel saves only its own settings, stays on the page and stamps the s
   });
   const { screen, router } = await mountAt("/worlds/world_1/settings");
   await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate.");
-  const worldPanel = screen.getByRole("form", { name: "World" });
-  await worldPanel.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("25");
-  await worldPanel.getByRole("spinbutton", { name: "Keep videos and images for, days" }).fill("30");
-  const model = worldPanel.getByRole("combobox", { name: "Model" });
+  const form = screen.getByRole("form", { name: "World settings" });
+  const save = screen.getByRole("button", { name: "Save", exact: true });
+  await expect.element(save).not.toBeInTheDocument();
+
+  await form.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("25");
+  await expect.element(save).toBeVisible();
+  // Back to what the world has: nothing to save, so the bar goes again.
+  await form.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("");
+  await expect.element(save).not.toBeInTheDocument();
+
+  await form.getByRole("spinbutton", { name: "Monthly budget, dollars" }).fill("25");
+  await form.getByRole("spinbutton", { name: "Keep videos and images for, days" }).fill("30");
+  const model = form.getByRole("combobox", { name: "Model" });
   await expect.element(model).toHaveDisplayValue("Default: claude-opus-5-5");
   await model.selectOptions("claude-sonnet-5-5");
-  await worldPanel.getByRole("button", { name: "Save" }).click();
-  await expect.element(worldPanel.getByRole("status")).toMatchTextContent(/^Saved at \d/);
-  expect(bodies).toEqual([{ monthly_budget_usd: 25, retention_days: 30, model: "claude-sonnet-5-5" }]);
+  await form.getByRole("spinbutton", { name: "Run cap" }).fill("1");
+  await form.getByRole("spinbutton", { name: "Workers in the cast" }).fill("2");
+  expect(document.querySelectorAll("main button.primary")).toHaveLength(1);
+  await save.click();
+  await expect.element(screen.getByText("Saved. Applies to the next run that starts.")).toBeVisible(); // a toast
+  expect(bodies).toEqual([{ monthly_budget_usd: 25, retention_days: 30, model: "claude-sonnet-5-5", run_cap: 1, agent_count: 2 }]);
   await expect.element(screen.getByTestId("spent")).toHaveTextContent("Spent this month: $1.50, an estimate of $25.00.");
-
-  const runs = screen.getByRole("form", { name: "Runs at once" });
-  await runs.getByRole("spinbutton", { name: "Run cap" }).fill("1");
-  await runs.getByRole("spinbutton", { name: "Workers in the cast" }).fill("2");
-  await runs.getByRole("button", { name: "Save" }).click();
-  await expect.element(runs.getByRole("status")).toMatchTextContent(/^Saved at \d/);
-  expect(bodies[1]).toEqual({ run_cap: 1, agent_count: 2 });
+  await expect.element(save).not.toBeInTheDocument();
   expect(router.state.location.pathname).toBe("/worlds/world_1/settings");
 });
 
@@ -123,7 +127,7 @@ test("the run cap says a run waiting at a gate holds a slot", async () => {
   await expect.element(screen.getByTestId("run-cap-help")).toMatchTextContent(/waiting at a gate hold a slot/);
 });
 
-test("a refused setting is shown as the API's reason in its own panel", async () => {
+test("a refused setting is shown as the API's reason, and the change stays to fix", async () => {
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json(video),
     "GET /api/worlds/world_1/notifications": () => Response.json({ slack_webhook: null }),
@@ -131,10 +135,11 @@ test("a refused setting is shown as the API's reason in its own panel", async ()
       Response.json({ detail: "the run cap is 1 to 8, got 9" }, { status: 422 }),
   });
   const { screen } = await mountAt("/worlds/world_1/settings");
-  const runs = screen.getByRole("form", { name: "Runs at once" });
-  await runs.getByRole("spinbutton", { name: "Run cap" }).fill("8");
-  await runs.getByRole("button", { name: "Save" }).click();
-  await expect.element(runs.getByRole("alert")).toHaveTextContent("Not saved: the run cap is 1 to 8, got 9.");
+  const form = screen.getByRole("form", { name: "World settings" });
+  await form.getByRole("spinbutton", { name: "Run cap" }).fill("8");
+  await screen.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Not saved: the run cap is 1 to 8, got 9.");
+  await expect.element(screen.getByRole("button", { name: "Save", exact: true })).toBeVisible();
 });
 
 test("delete sits last, says what goes and asks by the world's name before deleting", async () => {
@@ -147,7 +152,7 @@ test("delete sits last, says what goes and asks by the world's name before delet
   const { screen, router } = await mountAt("/worlds/world_1/settings");
   const rows = screen.getByRole("main").getByRole("region");
   const danger = rows.last();
-  await expect.element(danger).toHaveAccessibleName("Danger");
+  await expect.element(danger).toHaveAccessibleName("Danger zone");
   await expect.element(danger).toMatchTextContent(/removes its folder, runs, library and memory/);
   const remove = danger.getByRole("button", { name: "Delete Video" });
 

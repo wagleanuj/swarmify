@@ -1,9 +1,11 @@
 import { expect, test } from "vitest";
 import { render } from "vitest-browser-react";
 
+import "../index.css";
+
 import { choosable, underReview } from "../api/answer";
 import { artifact } from "../test/fakes";
-import { ArtifactCards, ArtifactView, imageSrc, Markdown } from "./Artifacts";
+import { ArtifactCards, ArtifactView, imageSrc, Markdown, mdBlocks } from "./Artifacts";
 
 const chase = artifact({
   name: "idea-chase.md",
@@ -41,12 +43,13 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
 
   const screen = await render(<ArtifactCards cards={[hooks, chase]} worldId="world_1" />);
   const cards = screen.getByTestId("pick-card");
+  await expect.element(screen.getByTestId("pick-cards")).toMatchTextContent(/^Your pick, ranked by the judge/);
   await expect.element(cards.first()).toMatchTextContent(
-    /The judge's #1 of 2.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
+    /#1.*Hook first.*Wait for it.*Why: Hooks in the first second win\..*From trends\.md, paragraph 3/,
   );
   // The reason and sources are folded away until asked for.
   await expect.element(cards.first().getByRole("link")).not.toBeInTheDocument();
-  await cards.first().getByText("Why it ranked here").click();
+  await cards.first().getByText("Why", { exact: true }).click();
   await expect.element(cards.first().getByRole("link")).toHaveAttribute(
     "href",
     "/worlds/world_1/read?path=runs%2Frun_1%2Fstage_0%2Fnotes%2Ftrends.md",
@@ -55,7 +58,7 @@ test("a pick chooses among the typed cards, ranked, each with its hook, reason a
   // The judge's reason for the rank, for any type; an idea's own `why` when it gave none.
   await expect
     .element(cards.nth(1))
-    .toMatchTextContent(/#2 of 2.*The chase.*A chase in 30 seconds.*Why: A slower open than the hook\..*No source paragraph cited\./);
+    .toMatchTextContent(/#2.*The chase.*A chase in 30 seconds.*Why: A slower open than the hook\..*No source paragraph cited\./);
   await cards.nth(1).getByRole("radio").click();
   await expect.element(screen.getByRole("radio", { name: /The chase/ })).toBeChecked();
   await expect.element(screen.getByRole("radio", { name: /Hook first/ })).not.toBeChecked();
@@ -113,4 +116,22 @@ test("an image resolves against its document's folder and never leaves the world
     expect(imageSrc(refused, base), refused).toBeNull();
   }
   expect(imageSrc("frame.png"), "no base, no relative image").toBeNull();
+});
+
+test("a fenced block stays whole across blank lines, and a table is a table in a frame that scrolls with its first column fixed", async () => {
+  const text = "Ideas\n\n```\nffmpeg -i take.mp4\n\n-crf 18 short.mp4\n```\n\n| Hook | Seconds | Views | Retention | Likes | Shares | Comments | Saves |\n|---|---|---|---|---|---|---|---|\n| Wait for it | 1.0 | 120000 | 64 percent | 5400 | 820 | 311 | 990 |";
+  expect(mdBlocks(text)).toHaveLength(3);
+  const screen = await render(
+    <div style={{ width: 300 }}>
+      <Markdown text={text} />
+    </div>,
+  );
+  const pre = screen.container.querySelector("pre")!;
+  expect(pre.textContent).toBe("ffmpeg -i take.mp4\n\n-crf 18 short.mp4");
+  // Code never wraps mid-token; it scrolls.
+  expect(getComputedStyle(pre).whiteSpace).toBe("pre");
+  expect(screen.container.textContent).not.toContain("|");
+  const frame = screen.container.querySelector(".scroll-x")!;
+  expect(frame.scrollWidth).toBeGreaterThan(frame.clientWidth);
+  expect(getComputedStyle(screen.container.querySelector("td")!).position).toBe("sticky");
 });

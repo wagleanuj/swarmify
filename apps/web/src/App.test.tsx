@@ -26,7 +26,7 @@ test("signs in with the password, then goes back to sign-in when the session end
     "GET /api/gates": () => Response.json([]),
   });
   const screen = await render(<App />);
-  const password = screen.getByLabelText("Password");
+  const password = screen.getByLabelText("Password", { exact: true });
   await expect.element(password).toBeVisible();
   await expect.element(screen.getByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
 
@@ -43,7 +43,7 @@ test("signs in with the password, then goes back to sign-in when the session end
   // The session expires: the next refused call brings the sign-in page back.
   session = false;
   window.dispatchEvent(new Event("swarmify:signed-out"));
-  await expect.element(screen.getByLabelText("Password")).toBeVisible();
+  await expect.element(screen.getByLabelText("Password", { exact: true })).toBeVisible();
 });
 
 test("says to wait after too many wrong passwords", async () => {
@@ -52,7 +52,7 @@ test("says to wait after too many wrong passwords", async () => {
     "POST /api/session": () => Response.json({ detail: "slow down" }, { status: 429 }),
   });
   const screen = await render(<App />);
-  await screen.getByLabelText("Password").fill("x");
+  await screen.getByLabelText("Password", { exact: true }).fill("x");
   await screen.getByRole("button", { name: "Sign in" }).click();
-  await expect.element(screen.getByRole("alert")).toHaveTextContent("Too many wrong passwords. Try again in a few minutes.");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Too many wrong passwords. Wait a few minutes, then try again.");
 });

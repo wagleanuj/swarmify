@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { Empty } from "../Empty";
 import { graphRoute } from "../router";
 import { Loading, Skeleton } from "../Skeleton";
 import { cap, the } from "../skin";
@@ -212,7 +213,7 @@ export function Graph() {
         </Loading>
       )}
       {view && (
-        <dl className="kpis" data-testid="graph-size">
+        <dl className="kpis mem-kpis" data-testid="graph-size">
           <div className="kpi">
             <dt>Nodes</dt>
             <dd className="num">{view.nodes.toLocaleString()}</dd>
@@ -226,7 +227,7 @@ export function Graph() {
             <dd className="num">{view.spent.rebuilds}</dd>
           </div>
           <div className="kpi" data-testid="spent" title={`${took(view.spent.seconds)} of extraction`}>
-            <dt>Spent on memory</dt>
+            <dt>Spent</dt>
             <dd className="num">{usd(view.spent.cost_usd)}</dd>
           </div>
         </dl>
@@ -238,7 +239,7 @@ export function Graph() {
             aria-label="Ask the graph"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="What keeps viewers past three seconds?"
+            placeholder="Ask what this world has learned"
             maxLength={500}
           />
           <button type="submit" disabled={asking || !question.trim()}>
@@ -255,19 +256,17 @@ export function Graph() {
 
       {!view && !failed && <span className="mem-skeleton mem-cols-skeleton">{columns}</span>}
       {empty && (
-        <div className="empty" data-testid="graph-empty">
-          <p>
-            The graph grows from the notes and artifacts agents write. {cap(the("writer"))} folds them in
-            about 30 seconds after the last one lands.
-          </p>
-          <ul className="faint">
-            <li>Start a run of a workflow; every note it writes becomes memory.</li>
-            <li>Drop a markdown brief into the world folder to seed what it knows.</li>
-          </ul>
-          <Link to="/worlds/$worldId" params={{ worldId }} className="button">
-            Start a run
-          </Link>
-        </div>
+        <Empty
+          icon="memory"
+          testId="graph-empty"
+          action={
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button primary">
+              Start a run
+            </Link>
+          }
+        >
+          {cap(the("writer"))} folds every note a run writes into memory here, about 30 seconds after the last one lands.
+        </Empty>
       )}
       {view && !empty && (
         <div className="mem-cols">

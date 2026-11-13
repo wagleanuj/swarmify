@@ -87,8 +87,11 @@ test("a package's Owned Folder is a group of playable cards before its Add; othe
   // a file the browser cannot play opens instead
   await expect.element(group.getByRole("listitem", { name: "voices.json" }).getByRole("link", { name: "Open" })).toHaveAttribute("href", "/api/worlds/world_1/files/assets/voices/voices.json");
   const play = narrator.getByRole("button", { name: "Play narrator" });
-  const add = screen.getByRole("button", { name: "Add to Voices" });
-  expect(play.element().compareDocumentPosition(add.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // Add sits in the section's own header, before its cards, as a text action, not a filled bar
+  const add = group.getByRole("button", { name: "Add to Voices" });
+  expect(play.element().compareDocumentPosition(add.element()) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  expect(add.element().closest(".panel-head")).not.toBeNull();
+  expect(add.element().classList).not.toContain("primary");
   await play.click();
   await expect.element(narrator.getByRole("button", { name: "Pause narrator" })).toHaveAttribute("aria-pressed", "true");
   expect(document.querySelector<HTMLAudioElement>("audio[hidden]")?.src).toMatch(/\/api\/worlds\/world_1\/files\/assets\/voices\/narrator\.wav$/);
@@ -126,7 +129,6 @@ test("a package's Templates folder is a group of Templates, one row each, not lo
   const { screen } = await mountAt("/worlds/world_1/assets");
   const group = screen.getByRole("region", { name: "Remotion templates" });
   await expect.element(group.getByRole("listitem", { name: "kids" })).toBeVisible();
-  await expect.element(group).toMatchTextContent(/Remotion build/);
   expect(group.getByRole("listitem").elements().map((r) => r.getAttribute("aria-label"))).toEqual(["kids", "office"]);
   const added = (iso: string) => new Date(iso).toLocaleDateString();
   await expect.element(group.getByRole("listitem", { name: "kids" })).toMatchTextContent(`kids1.2 MB · Placed by hand · added ${added(kids.added)}`);
@@ -190,7 +192,7 @@ test("Add a Template uploads a zip under a name from its file, replacing one of 
   await expect.element(save).toBeDisabled();
   await sheet.getByLabelText("Replace kids").click();
   await save.click();
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Replaced kids in Remotion templates.");
+  await expect.element(screen.getByText("Replaced kids in Remotion templates.", { exact: true })).toBeVisible(); // a toast
   expect(new URL(puts[1]?.url ?? "").search).toBe("?replace=true");
   expect(await puts[1]!.text()).toBe("PK");
 });
@@ -202,7 +204,12 @@ test("a world with no Templates says so in its Templates group", async () => {
     "GET /api/worlds/world_1/templates": () => Response.json([]),
   });
   const { screen } = await mountAt("/worlds/world_1/assets");
-  await expect.element(screen.getByRole("region", { name: "HyperFrames templates" })).toMatchTextContent(/No Templates in HyperFrames templates yet\. Projects a build starts from\./);
+  const group = screen.getByRole("region", { name: "HyperFrames templates" });
+  await expect.element(group).toMatchTextContent(/No Templates in HyperFrames templates yet\./);
+  // what the folder is for waits behind the info glyph
+  await expect.element(group.getByText("Projects a build starts from.")).not.toBeVisible();
+  await group.getByText("No Templates in HyperFrames templates yet.").click();
+  await expect.element(group.getByText("Projects a build starts from.")).toBeVisible();
 });
 
 test("a Template downloads as a zip and deletes after a confirm listing the workflows that name it", async () => {
@@ -231,7 +238,7 @@ test("a Template downloads as a zip and deletes after a confirm listing the work
 
   await row.getByRole("button", { name: "Delete kids" }).click();
   await answerConfirm(screen, "Delete");
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted kids.");
+  await expect.element(screen.getByText("Deleted kids.", { exact: true })).toBeVisible(); // a toast
   expect(deletes).toEqual(["asked", "asked", "confirmed"]);
 });
 
@@ -246,7 +253,7 @@ test("a file in an Owned Folder is renamed in place and deleted after a confirm 
   await narrator.getByRole("menuitem", { name: /^Rename/ }).click();
   await narrator.getByLabelText("New name for narrator.wav").fill("calm.wav");
   await narrator.getByRole("button", { name: "Rename" }).click();
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Renamed narrator.wav to calm.wav.");
+  await expect.element(screen.getByText("Renamed narrator.wav to calm.wav.", { exact: true })).toBeVisible(); // a toast
 
   const card = screen.getByRole("listitem", { name: "af_heart.wav" });
   const asked: string[] = [];
@@ -256,7 +263,7 @@ test("a file in an Owned Folder is renamed in place and deleted after a confirm 
     asked.push(await answerConfirm(screen, answer));
   }
   expect(asked[0]).toContain("Delete af_heart.wav?Speech will no longer find it.This cannot be undone.");
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted af_heart.wav.");
+  await expect.element(screen.getByText("Deleted af_heart.wav.", { exact: true })).toBeVisible(); // a toast
   expect(calls.filter((c) => c.startsWith("DELETE"))).toEqual(["DELETE /api/worlds/world_1/assets/assets%2Fvoices%2Faf_heart.wav"]);
 });
 
@@ -284,7 +291,7 @@ test("Add to Voices uploads a file converted to WAV into the folder, after the p
   await expect.element(save).toBeDisabled(); // the confirm first
   await sheet.getByLabelText(voices.confirm).click();
   await save.click();
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Added me.wav to Voices.");
+  await expect.element(screen.getByText("Added me.wav to Voices.", { exact: true })).toBeVisible(); // a toast
   expect(new URL(put?.url ?? "").search).toBe("?folder=voices");
   const body = await put!.blob();
   expect(String.fromCharCode(...new Uint8Array(await body.arrayBuffer()).slice(0, 4))).toBe("RIFF");
@@ -332,19 +339,20 @@ test("files are renamed and deleted with a confirm; an empty folder says what go
   await logo.getByRole("menuitem", { name: /^Rename/ }).click();
   await logo.getByLabelText("New name for logo.png").fill("brand.png");
   await logo.getByRole("button", { name: "Rename" }).click();
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Renamed logo.png to brand.png.");
+  await expect.element(screen.getByText("Renamed logo.png to brand.png.", { exact: true })).toBeVisible(); // a toast
   const bed = screen.getByRole("listitem", { name: "bed-calm.mp3" });
   await bed.getByRole("button", { name: "bed-calm.mp3 actions" }).click();
   await bed.getByRole("menuitem", { name: /^Delete/ }).click();
   expect(await answerConfirm(screen, "Delete")).toContain("Delete bed-calm.mp3?Builds that read it will not find it.This cannot be undone.");
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Deleted bed-calm.mp3.");
+  await expect.element(screen.getByText("Deleted bed-calm.mp3.", { exact: true })).toBeVisible(); // a toast
   expect(calls).toContain("DELETE /api/worlds/world_1/assets/assets%2Fbed-calm.mp3");
 });
 
 test("an empty Owned Folder and empty files say what goes there", async () => {
   routes({ "GET /api/worlds/world_1/assets": () => Response.json([]) });
   const { screen } = await mountAt("/worlds/world_1/assets");
-  await expect.element(screen.getByText(`Nothing in Voices yet. ${voices.about}`)).toBeVisible();
+  await expect.element(screen.getByText("Nothing in Voices yet.")).toBeVisible();
+  await expect.element(screen.getByText(voices.about)).not.toBeVisible();
   await expect.element(screen.getByText("Put images, music or fonts here for your builds to use.")).toBeVisible();
   await expect.element(screen.getByLabelText("Upload files")).toBeInTheDocument();
 });
@@ -356,7 +364,7 @@ test("a world with no Owned Folders shows only its files", async () => {
   expect(screen.getByRole("button", { name: /^Add to/ }).elements()).toHaveLength(0);
 });
 
-test("on a phone the sections stack, nothing scrolls sideways, and Add to Voices is pinned above the tab bar", async () => {
+test("on a phone the sections stack, nothing scrolls sideways, and Add to Voices sits in its section's header, nothing pinned", async () => {
   await page.viewport(390, 844);
   routes();
   const { screen } = await mountAt("/worlds/world_1/assets");
@@ -369,8 +377,10 @@ test("on a phone the sections stack, nothing scrolls sideways, and Add to Voices
 
   const add = screen.getByRole("button", { name: "Add to Voices" });
   const tabbar = screen.getByRole("navigation", { name: "Tabs" }).element().getBoundingClientRect();
-  const bar = add.element().parentElement?.getBoundingClientRect();
-  expect(Math.round(bar?.bottom ?? 0)).toBe(Math.round(tabbar.top));
+  expect(add.element().closest(".panel-head")).not.toBeNull();
+  expect(add.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  expect(document.querySelector("main .action-bar")).toBeNull();
+  expect(document.querySelectorAll("main .primary")).toHaveLength(0);
 
   // A card's menu opens inside the screen
   await screen.getByRole("listitem", { name: "af_heart.wav" }).getByRole("button", { name: "af_heart.wav actions" }).click();

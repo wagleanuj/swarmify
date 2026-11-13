@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { outcomeLine } from "../api/events";
 import { money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
+import { Empty } from "../Empty";
 import { baseline, the } from "../skin";
 import { Loading, Skeleton } from "../Skeleton";
 
@@ -81,12 +82,17 @@ export function Scorecard({ worldId, workflowId }: { worldId: string; workflowId
         </Loading>
       )}
       {card && runs.length === 0 && (
-        <div className="empty" data-testid="no-scores">
-          <p>No runs yet. The first row lands here when a run of this workflow starts.</p>
-          <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button">
-            Start a run
-          </Link>
-        </div>
+        <Empty
+          icon="runs"
+          testId="no-scores"
+          action={
+            <Link to="/worlds/$worldId/workflows" params={{ worldId }} className="button primary">
+              Start a run
+            </Link>
+          }
+        >
+          Each run of this workflow adds a row here: how it scored, what it cost and how long it took.
+        </Empty>
       )}
       {runs.length > 0 && (
         <>

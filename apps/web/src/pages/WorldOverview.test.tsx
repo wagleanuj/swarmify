@@ -3,7 +3,7 @@ import { page } from "vitest/browser";
 
 import "../index.css";
 
-import { FakeEventSource, fakeFetch, gate, run } from "../test/fakes";
+import { FakeEventSource, fakeFetch, gate, run, stage } from "../test/fakes";
 import { mountAt } from "../test/mount";
 
 const video = {
@@ -27,22 +27,36 @@ test("shows the world, its figures, runs, gates and workflows, following the liv
     "GET /api/worlds/world_1": () => Response.json(video, { headers: { "X-Event-Seq": "12" } }),
     "GET /api/worlds/world_1/workflows": () => Response.json([], { headers: { "X-Event-Seq": "11" } }),
     "GET /api/worlds/world_1/runs": () => Response.json([], { headers: { "X-Event-Seq": "12" } }),
+    "GET /api/gates": () => Response.json([], { headers: { "X-Event-Seq": "10" } }),
   });
   const { screen } = await mountAt("/worlds/world_1");
   await expect.element(screen.getByRole("heading", { name: "Video", level: 1 })).toBeVisible();
   await expect.element(screen.getByText("Weekly shorts.")).toBeVisible();
   await expect.element(screen.getByTestId("needs-you")).toMatchTextContent(/Nothing waits for you/);
-  await expect.element(screen.getByText(/None yet. Start one/)).toBeVisible();
-  await expect.element(screen.getByTestId("no-workflows")).toMatchTextContent(/recipe a run follows/);
-  await expect
-    .element(screen.getByRole("link", { name: "New workflow" }))
-    .toHaveAttribute("href", "/worlds/world_1/workflows/new");
+  // Each empty panel: its glyph, one sentence, one action.
+  for (const [id, action, href] of [
+    ["no-runs", "Start a run", "/worlds/world_1/workflows"],
+    ["nothing-waits", "Open Needs you", "/gates?world=world_1"],
+    ["no-workflows", "Write a workflow", "/worlds/world_1/workflows/new"],
+  ]) {
+    const empty = screen.getByTestId(id!);
+    await expect.element(empty).toBeVisible();
+    expect(empty.element().querySelectorAll("svg.icon")).toHaveLength(1);
+    expect(empty.element().querySelectorAll("p")).toHaveLength(1);
+    await expect.element(empty.getByRole("link", { name: action })).toHaveAttribute("href", href!);
+  }
+  // A new world's setup: the world counts as done, so it starts at 25%, and the next step leads.
+  const setup = screen.getByTestId("setup");
+  await expect.element(setup.getByRole("progressbar", { name: "Setup" })).toHaveAttribute("aria-valuenow", "25");
+  await expect.element(setup).toMatchTextContent(/Set up this world 25%/);
+  await expect.element(setup.getByRole("listitem").nth(1)).toHaveClass("next");
+  await expect.element(setup.getByRole("link", { name: "Write a workflow" })).toHaveAttribute("href", "/worlds/world_1/workflows/new");
   // The sidebar carries navigation now; the delete control lives in Settings.
   expect(screen.getByRole("button", { name: "Delete world" }).elements()).toHaveLength(0);
 
   // Live from the oldest snapshot, beside the shell's one all-worlds stream.
   await vi.waitFor(() =>
-    expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=now", "/api/worlds/world_1/events?since=11"]),
+    expect(FakeEventSource.open.map((s) => s.url).sort()).toEqual(["/api/events?since=10", "/api/worlds/world_1/events?since=11"]),
   );
   FakeEventSource.emit("run.updated", { seq: 1, type: "run.updated", ts: video.created_at, payload: run("running", []) });
   await expect.element(screen.getByTestId("runs")).toMatchTextContent(/Render then pick.*running/);
@@ -140,6 +154,44 @@ test("lists the world's workflows and refreshes the list when one is saved", asy
   await expect.element(screen.getByTestId("workflow-list")).toMatchTextContent(/Daily short.*v2/);
 });
 
+test("the setup strip counts what is done at its true percentage, goes when all is done, and Hide keeps it gone", async () => {
+  const wf = { id: "wf_1", name: "Brief", current_version: 1, violations: [] };
+  const runs = [run("running", [])];
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([wf]),
+    "GET /api/worlds/world_1/runs": () => Response.json(runs),
+    "GET /api/workflows/wf_1/scorecard": () => Response.json({ runs: [] }),
+    "GET /api/gates": () => Response.json([]),
+  });
+  localStorage.removeItem("swarmify.setup-hidden.world_1");
+  const first = await mountAt("/worlds/world_1");
+  const setup = first.screen.getByTestId("setup");
+  await expect.element(setup.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "75");
+  await expect.element(setup.getByRole("link", { name: "Answer a gate" })).toHaveAttribute("href", "/gates?world=world_1");
+  // It stands in the figures' place, so nothing under it jumps when it arrives.
+  expect(first.screen.getByRole("region", { name: "Figures" }).query()).toBeNull();
+  await first.screen.getByRole("button", { name: "Hide" }).click();
+  await expect.element(first.screen.getByTestId("setup")).not.toBeInTheDocument();
+  await expect.element(first.screen.getByRole("region", { name: "Figures" })).toBeVisible();
+  expect(localStorage.getItem("swarmify.setup-hidden.world_1")).toBe("1");
+  localStorage.removeItem("swarmify.setup-hidden.world_1");
+});
+
+test("the setup strip is gone once a gate has been answered", async () => {
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([{ id: "wf_1", name: "Brief", current_version: 1, violations: [] }]),
+    "GET /api/worlds/world_1/runs": () =>
+      Response.json([run("waiting_gate", [stage(0, "Pick", "gate", "done"), stage(1, "Approve", "gate", "waiting")])]),
+    "GET /api/workflows/wf_1/scorecard": () => Response.json({ runs: [] }),
+    "GET /api/gates": () => Response.json([]),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  await expect.element(screen.getByTestId("runs")).toBeVisible();
+  expect(screen.getByTestId("setup").query()).toBeNull();
+});
+
 test("an unknown world explains itself and links back", async () => {
   fakeFetch({});
   const { screen } = await mountAt("/worlds/world_nope");
@@ -192,7 +244,9 @@ test("a workflow run starts with the budget and worker count typed over the work
   await screen.getByRole("spinbutton", { name: "Run budget in USD" }).fill("3");
   await screen.getByRole("spinbutton", { name: "Workers per swarm stage" }).fill("2");
   await screen.getByRole("button", { name: "Start a run of Weekly short" }).click();
-  await screen.getByRole("button", { name: "Start a baseline of Weekly short" }).click();
+  // Scorecard and Baseline wait in the row's kebab; Start is the one button on the row
+  await screen.getByRole("button", { name: "Weekly short actions" }).click();
+  await screen.getByRole("menuitem", { name: /^Start a baseline/ }).click();
   await expect.poll(() => bodies.length).toBe(3);
   expect(bodies).toEqual([
     { baseline: false },
@@ -284,7 +338,7 @@ test("on a phone, while the world loads, the figures and five run rows are skele
       await held;
       return Response.json(Array.from({ length: 7 }, (_, i) => run("done", [], { id: `run_${i}`, name: `Run ${i}` })));
     },
-    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/workflows": () => Response.json([{ id: "wf_1", world_id: "world_1", name: "Weekly short", current_version: 1, created_at: video.created_at }]),
   });
   const { screen } = await mountAt("/worlds/world_1");
   const figures = screen.getByRole("region", { name: "Figures" });
@@ -324,4 +378,20 @@ test("on a phone the goal composer is the goal full width, then Budget on a numb
   expect(b.width + s.width).toBeGreaterThan(g.width * 0.9); // the two share the row
   for (const r of [g, b, s]) expect(r.height).toBeGreaterThanOrEqual(44);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+});
+
+test("Needs you holds its place until the gates load, never saying nothing waits before it knows", async () => {
+  let release: (r: Response) => void = () => undefined;
+  fakeFetch({
+    "GET /api/worlds/world_1": () => Response.json(video),
+    "GET /api/worlds/world_1/workflows": () => Response.json([]),
+    "GET /api/worlds/world_1/runs": () => Response.json([]),
+    "GET /api/gates": () => new Promise<Response>((r) => (release = r)),
+  });
+  const { screen } = await mountAt("/worlds/world_1");
+  const panel = screen.getByTestId("needs-you");
+  await expect.element(panel.getByRole("status")).toHaveTextContent("Loading");
+  await expect.element(panel).not.toMatchTextContent(/Nothing waits/);
+  release(Response.json([gate("pick")]));
+  await expect.element(panel.getByTestId("needs-you-count")).toHaveTextContent("1 waiting");
 });

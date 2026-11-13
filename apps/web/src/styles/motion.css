@@ -1,5 +1,7 @@
 /* Motion: every movement explains a state change. Tokens, page enter, list stagger, skeletons,
-   the route progress line and the sheet's slide; reduced motion turns all of it off at the end. */
+   the route progress line, the sheet's slide, and the shared primitives (press, count tick,
+   status fade, success pop, attention ring, animated icons, notices); reduced motion turns all
+   of it off at the end and leaves each one's static end state. */
 :root {
   --dur-fast: 120ms; /* press, hover, tap feedback */
   --dur-base: 200ms; /* fades, tab line, bars in and out */
@@ -11,6 +13,8 @@
 @keyframes pulse { 50% { opacity: 0.35; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(4px); } }
+@keyframes beckon { 50% { opacity: 0.62; } } /* a waiting step asks to be looked at */
+@keyframes sheen { to { transform: translateX(100%) scaleX(0.35); } } /* a running step's light passes */
 @keyframes bar-up { from { transform: translateY(100%); } } /* a pinned bar rises on first show */
 
 /* Data that replaces a skeleton fades in where it stands, nothing moves. */
@@ -62,6 +66,69 @@ dialog.dialog::backdrop { transition: opacity var(--dur-base); }
   dialog.dialog[open]::backdrop { opacity: 0; }
 }
 
+/* Press: a button or a tappable row gives a little under the thumb, then springs back. */
+button:not(:disabled), a.button, label.button, .tabbar-item, .sheet-row, .q-item, .chip-row .tab { transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast), border-color var(--dur-fast); }
+button:not(:disabled):active, a.button:active, label.button:active, .tabbar-item:active, .q-item:active, .chip-row .tab:active { transform: scale(0.97); }
+.sheet-row:active, .run-list li a:active { transform: scale(0.99); }
+
+/* A count changed (CountTick.tsx): the old number slides out, the new one in, up when it rose. */
+@keyframes tick-in { from { opacity: 0; transform: translateY(var(--tick-from, 60%)); } }
+@keyframes tick-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(var(--tick-to, -60%)); } }
+.tick { position: relative; display: inline-grid; overflow: hidden; vertical-align: top; }
+.tick > * { grid-area: 1 / 1; }
+.tick[data-dir="down"] { --tick-from: -60%; --tick-to: 60%; }
+.tick-in { animation: tick-in var(--dur-base) var(--ease-out) both; }
+.tick-out { opacity: 0; animation: tick-out var(--dur-base) var(--ease-out) both; }
+
+/* A status changed: the pill is keyed by its status, so the new state fades in where it stands. */
+.status, .status-fade { animation: fade-in var(--dur-base) var(--ease-out) both; }
+
+/* Success: a check that just landed pops in (scale and opacity, never a stroke draw). */
+@keyframes pop { 0% { opacity: 0; transform: scale(0.6); } 60% { opacity: 1; transform: scale(1.12); } 100% { transform: none; } }
+.i-pop, .pop { animation: pop var(--dur-slow) var(--ease-out) both; transform-origin: center; }
+
+/* An empty place's glyph rises in once when the place first shows empty. */
+@keyframes glyph-in { from { opacity: 0; transform: translateY(6px) scale(0.8); } }
+.i-enter { animation: glyph-in var(--dur-slow) var(--ease-out) 60ms both; transform-origin: center; }
+
+/* The sign-in mark arrives; a refused password shakes the form once, sideways only. */
+@keyframes mark-in { from { opacity: 0; transform: scale(0.7); } }
+.mark-in svg { animation: mark-in var(--dur-slow) var(--ease-out) both; transform-origin: center; }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+.shake { animation: shake 360ms var(--ease-in-out) 1; }
+
+/* Attention: one element at a time asks to be looked at; a ring around it fades out twice.
+   Opacity only on the ring, never an animated box-shadow. */
+@keyframes ring { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.25); } }
+.attention { position: relative; }
+.attention::after { content: ""; position: absolute; inset: -3px; border: 2px solid var(--accent); border-radius: inherit; pointer-events: none; opacity: 0; animation: ring 900ms var(--ease-out) 2; }
+
+/* Animated icons (Icon.tsx), each driven by state. The inbox nudges once when its count rose;
+   a running play glyph ticks three dots; retry turns once; a chevron turns while its
+   disclosure is open. */
+@keyframes nudge { 0%, 100% { transform: none; } 25% { transform: rotate(-12deg); } 50% { transform: rotate(10deg); } 75% { transform: rotate(-4deg); } }
+.i-nudge { animation: nudge 600ms var(--ease-in-out) 1; transform-origin: 50% 20%; }
+@keyframes dot { 0%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+.i-live .i-dots circle { animation: dot 1.2s ease-in-out infinite; }
+.i-live .i-dots circle:nth-child(2) { animation-delay: 0.2s; }
+.i-live .i-dots circle:nth-child(3) { animation-delay: 0.4s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.i-spin { animation: spin 500ms var(--ease-out) 1; transform-origin: center; }
+/* A check in progress turns until it answers; reduced motion shows the glyph still. */
+.i-spinning { animation: spin 900ms linear infinite; transform-origin: center; }
+.i-turn, .i-chevron { transition: transform var(--dur-base) var(--ease-out); }
+[aria-expanded="true"] > .i-chevron, [aria-expanded="true"] .i-turn, details[open] > summary .i-chevron { transform: rotate(180deg); }
+/* A native disclosure's marker is the same chevron, pointing on, turned down while open. */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; background: currentColor; -webkit-mask: var(--chev-next) center / contain no-repeat; mask: var(--chev-next) center / contain no-repeat; transition: transform var(--dur-base) var(--ease-out); }
+details[open] > summary::before { transform: rotate(90deg); }
+:root { --chev-next: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 5l7 7-7 7'/%3E%3C/svg%3E"); }
+
+/* A notice (Toast.tsx) rises into place; a swipe moves it under the finger. */
+@keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
+.toast { animation: toast-in var(--dur-base) var(--ease-out) both; touch-action: pan-y; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, ::backdrop,
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
@@ -74,4 +141,13 @@ dialog.dialog::backdrop { transition: opacity var(--dur-base); }
      computed styles, like a tab label's bold, a frame behind whatever measures them. */
   *, *::before, *::after, ::backdrop { transition: none !important; }
   .sk { animation: none; }
+  /* The static end states: no press give, the live dots shown, a turned chevron already turned. */
+  button:active, a.button:active, label.button:active, .tabbar-item:active, .sheet-row:active, .q-item:active, .chip-row .tab:active, .run-list li a:active { transform: none; }
+  .i-live .i-dots circle { animation: none; opacity: 1; }
+  .i-spinning { animation: none; }
+  /* An empty place's glyph, the sign-in mark and a refused password: already in place, still. */
+  .i-enter, .mark-in svg, .shake { animation: none; }
+  /* The time strip holds still: no sheen on a running step, a waiting one at full colour. */
+  .strip-seg.seg-running::before { animation: none; opacity: 0; }
+  .strip-seg.seg-waiting { animation: none; }
 }

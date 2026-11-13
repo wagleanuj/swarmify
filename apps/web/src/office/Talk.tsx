@@ -27,7 +27,7 @@ import { abortAsk, type Gate, money, type Run, useRunUpdates } from "../api/runs
 import { type Ask as AskFor, useConfirm } from "../Dialog";
 import type { components } from "../api/schema";
 import type { Skin } from "../skin";
-import { type Look, stillFrame, useCast } from "./cast";
+import { Actor, type Look, stillFrame, useCast } from "./cast";
 import { appClass, FullScreen, Tabs, useNight } from "./chrome";
 import "./office.css";
 import { asker, line } from "./scene";
@@ -113,6 +113,7 @@ export function Talk() {
   }
 
   const [night] = useNight();
+  const crew = cast.flatMap((m) => look(m.name) ?? []).slice(0, 3);
   const moving = runs.filter((r) => !r.parent_run_id && r.status === "running").length;
   return (
     <div className={appClass(night, "talk-app")}>
@@ -154,11 +155,18 @@ export function Talk() {
         ) : open.gates === null ? (
           !open.failed && <p role="status">Loading...</p>
         ) : (
-          <section className="talk-clear">
+          <section className="talk-clear" data-testid="talk-clear">
+            {/* The crew stands about with nothing to ask; the first waves. Decoration: the words say it. */}
+            <ul className="office-cast talk-crew" aria-hidden="true">
+              {crew.map((l, i) => (
+                <Actor key={l.agent} look={l} pose={i === 0 ? "cheer" : "idle"} />
+              ))}
+            </ul>
             <h2>All clear</h2>
             <p>
-              Nobody needs you. {moving === 1 ? "One run is" : `${moving} runs are`} moving on their own; the next question
-              lands here.
+              Nobody needs you.{" "}
+              {moving === 0 ? "No run is moving" : moving === 1 ? "One run is moving on its own" : `${moving} runs are moving on their own`}; the
+              next question lands here.
             </p>
             <Link className="office-btn" to="/worlds/$worldId/office" params={{ worldId }}>
               Back to the office
@@ -185,6 +193,7 @@ function Ask({
 }) {
   const [busy, setBusy] = useState(false);
   const [confirm, dialog] = useConfirm();
+  const formId = useId();
   // The gate's form, and whether an editable field of the post differs from what the gate shows.
   const { form, changed, edited, fill } = useGateForm(gate);
   // What the earlier stages made (a pick's cards, what an approve reviews), and a skill gate's proposal.
@@ -263,6 +272,7 @@ function Ask({
           <li>Spent {money(spent)}{budget == null ? ", no budget" : ` of ${money(budget)}`}</li>
         </ul>
         <form
+          id={formId}
           ref={form}
           className="talk-form"
           aria-label={`Answer ${gate.stage_name}`}
@@ -278,10 +288,13 @@ function Ask({
               </p>
               {(proposal.skill.evidence ?? []).length > 0 && <p>Evidence: {(proposal.skill.evidence ?? []).join("; ")}</p>}
               {proposal.skill.action !== "retired" && (
-                <label>
-                  SKILL.md (edit before approving)
-                  <textarea name="skill" rows={4} defaultValue={proposal.skill.content ?? ""} />
-                </label>
+                <details className="talk-more">
+                  <summary>Read or edit SKILL.md before approving</summary>
+                  <label>
+                    <span className="visually-hidden">SKILL.md (edit before approving)</span>
+                    <textarea name="skill" rows={4} defaultValue={proposal.skill.content ?? ""} />
+                  </label>
+                </details>
               )}
             </section>
           )}
@@ -307,12 +320,7 @@ function Ask({
               Add (US dollars)
               <input name="add" type="number" inputMode="decimal" min="0.01" step="0.01" defaultValue={topUpSuggestion(gate).toFixed(2)} />
             </label>
-          ) : (
-            <label>
-              Note (optional)
-              <textarea name="note" rows={1} />
-            </label>
-          )}
+          ) : null}
           <ol className="talk-choices" aria-label="Choices">
             {options.map((o, i) => (
               <li key={o.label}>
@@ -323,7 +331,17 @@ function Ask({
             ))}
           </ol>
         </form>
-        <AskRun gate={gate} revision={run?.revision} onFill={fill} />
+        {/* The note and Ask this run, folded under the choices as on the Needs you page. */}
+        <details className="talk-more">
+          <summary>{gate.kind === "budget" ? "Ask before you answer" : "Add a note or ask"}</summary>
+          {gate.kind !== "budget" && (
+            <label>
+              Note (optional)
+              <textarea name="note" rows={1} form={formId} />
+            </label>
+          )}
+          <AskRun gate={gate} revision={run?.revision} onFill={fill} />
+        </details>
       </section>
     </div>
   );

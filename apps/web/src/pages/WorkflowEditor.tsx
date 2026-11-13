@@ -6,7 +6,9 @@ import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import { useConnectors } from "../api/connectors";
 import type { components } from "../api/schema";
+import { Icon } from "../Icon";
 import { Sheet } from "../Sheet";
+import { moment, MOMENTS } from "../moments";
 import { Loading, Skeleton } from "../Skeleton";
 import { role } from "../skin";
 import { usePhone } from "../usePhone";
@@ -387,6 +389,7 @@ export function WorkflowEditor() {
     setSavedText(yaml);
     unsaved.current = false;
     setNotice(`Saved as version ${version.number}; runs already started keep their version.`);
+    moment(MOMENTS.workflowSaved(version.number));
     if (!workflowId) {
       firstSave.current = version.workflow_id;
       void router.navigate({
@@ -456,6 +459,16 @@ export function WorkflowEditor() {
               : clean
                 ? "Unsaved changes. Checks pass."
                 : "Unsaved changes.");
+  // The status line's glyph: a spinner while checking, a warning on problems, a check when clean.
+  const glyph = removed || loading || notice
+    ? null
+    : checking
+      ? <Icon name="retry" className="i-spinning" />
+      : problems > 0
+        ? <Icon name="warning" className="st-warn" />
+        : !dirty || clean
+          ? <Icon name="check" className="st-ok" />
+          : null;
   const panel = view === "stages" && parsed && stage && (
     <StagePanel
       stages={steps}
@@ -503,8 +516,9 @@ export function WorkflowEditor() {
           )}
         </div>
         {/* On a phone this is the save bar pinned above the tab bar. */}
-        <div className="editor-actions" data-testid="save-bar">
+        <div className="editor-actions action-bar" data-testid="save-bar">
           <span className="save-status">
+            {glyph}
             <span className="faint" role="status" data-testid="check-status">
               {status}
             </span>
@@ -804,9 +818,7 @@ function StageList({
             <button type="button" className="stage-row" aria-current={i === selected || undefined} onClick={() => onSelect(i)}>
               <StageSummary stages={stages} index={i} />
               {phone && (
-                <span className="chev" aria-hidden="true">
-                  ›
-                </span>
+                <Icon name="next" className="chev" />
               )}
             </button>
           </li>

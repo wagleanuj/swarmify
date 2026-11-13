@@ -4,9 +4,11 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { api } from "../api/client";
 import { type Connectors, useConnectors } from "../api/connectors";
 import { type Agent, useWorldEvents } from "../api/events";
-import { useOpenGates } from "../api/gates";
-import { type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
+import { needsYou, useOpenGates } from "../api/gates";
+import { duration, type Gate, holdsSlot, money, type Run, STATUS_LABEL } from "../api/runs";
 import type { components } from "../api/schema";
+import { Elapsed } from "../Elapsed";
+import { Icon } from "../Icon";
 import { cap, saveSkin } from "../skin";
 import { Actor, Bench, type Look, type Pack, still, stillFrame, useCast } from "./cast";
 import { appClass, FullScreen, Tabs, useNight } from "./chrome";
@@ -206,6 +208,8 @@ export function Office() {
   const open = (runId: string) => void navigate({ to: "/worlds/$worldId/runs/$runId", params: { worldId, runId } });
   const talk = (gate?: string) => void navigate({ to: "/worlds/$worldId/office/talk", params: { worldId }, search: gate ? { gate } : {} });
   const first = waiting[0];
+  // The same count as the plain badge; "..." until the gates load, never an early 0.
+  const count = needsYou(gates, worldId);
   return (
     <div className={appClass(night)}>
       <header className="office-bar" aria-label="Office">
@@ -229,7 +233,7 @@ export function Office() {
           <span>of {scores.reduce((n, s) => n + s.judged, 0)} kept first try</span>
         </div>
         <button type="button" className="office-chip office-needs office-wide" data-testid="office-waiting" onClick={() => talk()}>
-          {waiting.length} <span>{waiting.length === 1 ? "decision" : "decisions"} waiting on you</span>
+          {count ?? "..."} <span>{count === 1 ? "decision" : "decisions"} waiting on you</span>
         </button>
         <Link className="office-btn office-wide" to="/worlds/$worldId/office/crew" params={{ worldId }}>
           Crew
@@ -254,7 +258,7 @@ export function Office() {
       <div className="office-main">
         <Room name={world?.name ?? ""} pack={world === undefined ? undefined : pack} more={() => setBoard(true)} runs={runs} slots={world?.run_cap ?? 0} connectors={connectors} open={open} seats={seats} lines={lines} made={made}>
           <Bench worldId={worldId} members={bench} />
-          <YourOffice waiting={waiting} talk={talk} />
+          <YourOffice waiting={waiting} count={count} talk={talk} />
         </Room>
         <div className={`office-side${board ? " office-sheet-open" : ""}`}>
           <button type="button" className="office-btn office-narrow office-done" onClick={() => setBoard(false)}>
@@ -280,13 +284,13 @@ type Asker = { gate: Gate; name: string; look: Look | null };
 
 /** Your office, with the askers of the open gates lined up at its door, oldest first. The office
  * and each asker open Talk. */
-function YourOffice({ waiting, talk }: { waiting: Asker[]; talk: (gate?: string) => void }) {
+function YourOffice({ waiting, count, talk }: { waiting: Asker[]; count: number | null; talk: (gate?: string) => void }) {
   return (
     <div className="office-mine">
-      <button type="button" className="office-glass" aria-label={`Your office, ${waiting.length} waiting`} onClick={() => talk()}>
+      <button type="button" className="office-glass" aria-label={`Your office, ${count ?? "..."} waiting`} onClick={() => talk()}>
         {usePixel() && <Prop name="office" />}
         <b>Your office</b>
-        <small>{waiting.length} waiting</small>
+        <small>{count ?? "..."} waiting</small>
       </button>
       <ol className="office-line" aria-label="Line at Your office">
         {waiting.map(({ gate, name, look }) => (
@@ -330,7 +334,10 @@ function QuestBoard({ runs, connectors, open }: Floor) {
     <li key={run.id}>
       <button type="button" className={`office-note-card office-${kind}`} aria-label={label} onClick={() => open(run.id)}>
         <b>{run.name}</b>
-        <small>{meta}</small>
+        {/* Keyed by status, so a change fades in where it stands, as the plain view's pills do. */}
+        <small key={run.status} className="status-fade">
+          {meta}
+        </small>
       </button>
     </li>
   );
@@ -527,7 +534,16 @@ function Pod({ run, runs, connectors, open, seats, lines, made }: Floor & Pods &
     <>
       <button type="button" className="office-board" aria-label={podName(run, runs, connectors)} onClick={() => open(run.id)}>
         <b>{run.name}</b>
-        <small>{cap(stageLine(run))}</small>
+        <small>
+          {run.status === "running" && <Icon name="play" live />}
+          {cap(stageLine(run))}
+          {(run.status === "running" || run.status === "waiting_gate") && duration(run) !== null && (
+            <>
+              {" · "}
+              <Elapsed run={run} />
+            </>
+          )}
+        </small>
         <span className="office-progress" aria-hidden="true">
           <i style={{ width: `${(done / Math.max(1, run.stages.length)) * 100}%` }} />
         </span>

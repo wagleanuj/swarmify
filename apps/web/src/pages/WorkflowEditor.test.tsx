@@ -202,6 +202,8 @@ test("an existing workflow loads its latest version, saves a new one and can ope
   await screen.getByRole("button", { name: "Open v1" }).click();
   await expect.element(editor).toHaveValue(STARTER);
   await expect.element(screen.getByTestId("check-status")).toHaveTextContent("Unsaved changes. Checks pass.");
+  // the status carries its glyph: a check once the checks pass
+  expect(screen.getByTestId("save-bar").element().querySelector(".save-status > .i-check")).not.toBeNull();
   await expect.element(screen.getByTestId("versions")).toMatchTextContent(/v2.*Open v2.*v1.*open/);
   await editor.fill(`${STARTER}# v3\n`);
   await screen.getByRole("button", { name: "Save as version 3" }).click();

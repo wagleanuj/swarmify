@@ -30,6 +30,7 @@ async function office(pack: string, { crew = [worker], packs = async () => Respo
   fakeFetch({
     "GET /api/worlds/world_1": () => Response.json({ ...world(pack), run_cap: cap }),
     "GET /api/worlds/world_1/runs": () => Response.json(runs),
+    "GET /api/gates": () => Response.json([]),
     "GET /api/runs/run_14/agents": () => Response.json(crew),
     "GET /api/worlds/world_1/cast": () =>
       Response.json(crew.map((a) => ({ name: a.name, role: "worker", version: 1, prompt: "", tools: null, updated_at: null }))),

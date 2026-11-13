@@ -4,8 +4,11 @@ import { useConfirm } from "../Dialog";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { assetsRoute } from "../router";
+import { Icon } from "../Icon";
+import { Intro } from "../Intro";
 import { Sheet } from "../Sheet";
 import { Loading, Skeleton } from "../Skeleton";
+import { notify } from "../Toast";
 import { AUDIO, FileLink, fileUrl, IMAGE, VIDEO } from "./Artifacts";
 import { Menu } from "./Menu";
 
@@ -64,7 +67,6 @@ export function Assets() {
   const [files, setFiles] = useState<Asset[] | null>(null);
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
   const [adding, setAdding] = useState<Folder | null>(null);
   const [seen, setSeen] = useState(0);
   const [polled, setPolled] = useState(0);
@@ -101,7 +103,7 @@ export function Assets() {
   }, [templates]);
 
   const reload = (message: string | null) => {
-    setSaid(message);
+    if (message) notify(message, { tone: "ok" });
     setError(null);
     setSeen((n) => n + 1);
   };
@@ -131,7 +133,6 @@ export function Assets() {
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
-      {said && <p role="status">{said}</p>}
       <audio ref={player} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} hidden />
 
       {folders === null && !error && (
@@ -245,18 +246,19 @@ function TemplatesGroup({
       {dialog}
       <div className="panel-head">
         <h2 id={head}>{f.label}</h2>
-        <span className="faint">{f.package}</span>
-        <button type="button" onClick={onAdd}>
-          Add a Template
+        <button type="button" className="text-action" onClick={onAdd} aria-label="Add a Template">
+          <Icon name="plus" /> Add
         </button>
       </div>
       {templates === null ? (
         <Rows />
       ) : templates.length === 0 ? (
-        <div className="empty">
-          <p>
-            No Templates in {f.label} yet. {f.about}
-          </p>
+        <div className="empty empty-state">
+          <Icon name="upload" size={24} className="i-enter" />
+          <Intro lead={`No Templates in ${f.label} yet.`} label={`About ${f.label}`}>
+            <p>{f.about}</p>
+            <p className="faint">From {f.package}.</p>
+          </Intro>
         </div>
       ) : (
         <ul className="file-rows template-rows">
@@ -296,7 +298,7 @@ function Rows() {
 }
 
 /** One Owned Folder: a card per file, audio playable first, renamed and deleted from its menu,
- * with its Add button below. What the files mean is the package's business. */
+ * its Add in the section's header. What the files mean is the package's business. */
 function OwnedGroup({
   worldId,
   folder: f,
@@ -343,15 +345,19 @@ function OwnedGroup({
       {dialog}
       <div className="panel-head">
         <h2 id={head}>{f.label}</h2>
-        {files && files.length > 0 && <span className="faint">{count(files.length)}</span>}
+        {files && files.length > 0 && <span className="faint grow">{count(files.length)}</span>}
+        <button type="button" className="text-action" onClick={onAdd} aria-label={`Add to ${f.label}`}>
+          <Icon name="plus" /> Add
+        </button>
       </div>
       {files === null ? (
         <Rows />
       ) : files.length === 0 ? (
-        <div className="empty">
-          <p>
-            Nothing in {f.label} yet. {f.about}
-          </p>
+        <div className="empty empty-state">
+          <Icon name="upload" size={24} className="i-enter" />
+          <Intro lead={`Nothing in ${f.label} yet.`} label={`About ${f.label}`}>
+            <p>{f.about}</p>
+          </Intro>
         </div>
       ) : (
         <ul className="cards voice-cards">
@@ -360,9 +366,7 @@ function OwnedGroup({
               <div className="voice-top">
                 {AUDIO.test(a.name) ? (
                   <button type="button" className="play" onClick={() => onPlay(a)} aria-label={`${playing === a.path ? "Pause" : "Play"} ${stem(a.name)}`} aria-pressed={playing === a.path}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d={playing === a.path ? "M7 5h3v14H7zM14 5h3v14h-3z" : "M8 5l11 7-11 7z"} />
-                    </svg>
+                    <Icon name={playing === a.path ? "pause" : "play"} size={20} />
                   </button>
                 ) : (
                   <FileLink a={a} worldId={worldId} className="button play-open">
@@ -408,11 +412,6 @@ function OwnedGroup({
           ))}
         </ul>
       )}
-      <div className="assets-bar">
-        <button type="button" className="primary" onClick={onAdd}>
-          Add to {f.label}
-        </button>
-      </div>
     </section>
   );
 }
@@ -697,8 +696,8 @@ function Files({ worldId, files, onChanged, onError }: { worldId: string; files:
   }
 
   const button = (
-    <label className="button">
-      {busy ? "Uploading..." : "Upload files"}
+    <label className="button text-action">
+      <Icon name="upload" /> {busy ? "Uploading..." : "Upload"}
       <input type="file" multiple className="visually-hidden" disabled={busy} onChange={upload} aria-label="Upload files" />
     </label>
   );
@@ -708,14 +707,14 @@ function Files({ worldId, files, onChanged, onError }: { worldId: string; files:
       {dialog}
       <div className="panel-head">
         <h2 id="files-head">Files</h2>
-        {files && files.length > 0 && button}
+        {button}
       </div>
       {files === null ? (
         <Rows />
       ) : files.length === 0 ? (
-        <div className="empty">
+        <div className="empty empty-state">
+          <Icon name="upload" size={24} className="i-enter" />
           <p>Put images, music or fonts here for your builds to use.</p>
-          {button}
         </div>
       ) : (
         <ul className="file-rows">

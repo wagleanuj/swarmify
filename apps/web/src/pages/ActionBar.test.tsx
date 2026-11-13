@@ -64,11 +64,17 @@ test("on a phone Needs you shows the queue as chips and the pick's answer in rea
     },
   });
   const { screen } = await mountAt("/gates");
-  const chips = screen.getByRole("navigation", { name: "Waiting decisions" });
-  // What shows: the place in the queue and the kind; the world and run stay in the card below.
+  // The place in the queue sits in the header; the chips are kinds with counts, never a position.
+  await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 2");
+  const chips = screen.getByRole("navigation", { name: "Kinds" });
   await vi.waitFor(() =>
-    expect([...chips.element().querySelectorAll("a")].map((a) => a.innerText)).toEqual(["1 of 2 · Pick an idea", "Review and approve"]),
+    expect([...chips.element().querySelectorAll("a")].map((a) => a.innerText.replace(/\s+/g, " "))).toEqual([
+      "All 2",
+      "Approve 1",
+      "Pick 1",
+    ]),
   );
+  expect(screen.getByRole("navigation", { name: "Waiting decisions" }).query()).toBeNull();
 
   const card = screen.getByTestId("gate-run_1");
   const primary = card.getByRole("button", { name: "Continue", exact: true });
@@ -83,6 +89,20 @@ test("on a phone Needs you shows the queue as chips and the pick's answer in rea
   );
 });
 
+test("on a phone the deck of loading cards never widens the page", async () => {
+  // Each card's evidence held, so every card shows its loading region, hidden status and all.
+  const never = new Promise<Response>(() => {});
+  fakeFetch({
+    "GET /api/worlds": () => Response.json([world]),
+    "GET /api/gates": () => Response.json(Array.from({ length: 6 }, (_, i) => gate("pick", { run_id: `run_${i}`, stage_id: `s${i}` }))),
+    ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`GET /api/runs/run_${i}/artifacts`, () => never])),
+  });
+  const { screen } = await mountAt("/gates");
+  await expect.element(screen.getByTestId("place")).toHaveTextContent("1 of 6");
+  expect(document.querySelectorAll(".deck [aria-busy='true']").length).toBeGreaterThan(1);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+});
+
 test("on a phone one waiting decision shows no chips", async () => {
   fakeFetch({
     "GET /api/worlds": () => Response.json([world]),
@@ -91,6 +111,7 @@ test("on a phone one waiting decision shows no chips", async () => {
   const { screen } = await mountAt("/gates");
   await expect.element(screen.getByTestId("gate-run_1").getByRole("button", { name: "Confirm" })).toBeEnabled();
   expect(screen.getByRole("navigation", { name: "Waiting decisions" }).query()).toBeNull();
+  expect(screen.getByTestId("place")).toHaveTextContent("1 of 1");
 });
 
 test("on a phone a run waiting at an approve gate keeps Send back and Approve in reach under the video", async () => {

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { type FormEvent, type ReactNode, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   blocked,
@@ -20,14 +20,19 @@ import {
 } from "../api/answer";
 import { api } from "../api/client";
 import { labelOf, useConnectors } from "../api/connectors";
-import { dropGate, reloadGates, useOpenGates } from "../api/gates";
+import { dropGate, needsYou, reloadGates, useOpenGates } from "../api/gates";
 import type { ArtifactFile } from "../api/events";
 import { abortAsk, type Gate, money, type Run, STATUS_LABEL, took } from "../api/runs";
 import type { components } from "../api/schema";
 import { useConfirm } from "../Dialog";
+import { Empty } from "../Empty";
+import { Icon } from "../Icon";
+import { firstGate, moment, MOMENTS } from "../moments";
 import { gatesRoute } from "../router";
+import { CurrentWorld } from "../Shell";
 import { piedPiper } from "../skin";
 import { Loading, Skeleton } from "../Skeleton";
+import { notify } from "../Toast";
 import { ArtifactCards, ArtifactView } from "./Artifacts";
 import { RunRef } from "./Runs";
 import { PublishValue } from "./Connectors";
@@ -59,11 +64,24 @@ const ago = (at: number) => `${took(Math.max(0, (Date.now() - at) / 1000))} ago`
 
 type Answered = { gate: Gate; said: string; at: string };
 
+/** The kinds as filter chips, short enough to fit a phone's row with their counts. */
+const KIND_CHIP: [Gate["kind"], string][] = [
+  ["approve", "Approve"],
+  ["pick", "Pick"],
+  ["confirm", "Confirm"],
+  ["budget", "Budget"],
+  ["skill", "Skill"],
+];
+
+/** Whole dollars without cents, for the budget's preset chips and its button. */
+const usd = (n: number) => (Number.isInteger(n) ? `$${n}` : money(n));
+
 export function Gates() {
   const search = gatesRoute.useSearch();
   const navigate = useNavigate();
   const phone = usePhone();
   const open = useOpenGates();
+  const current = useContext(CurrentWorld);
   const [worlds, setWorlds] = useState<World[]>([]);
   // Worlds whose memory stopped rebuilding: agents may then repeat what was already made.
   const [stalled, setStalled] = useState<StalledMemory[]>([]);
@@ -72,10 +90,12 @@ export function Gates() {
   const [refused, setRefused] = useState<string | null>(null);
   // Answered this visit, newest first: they sort last in the queue, dimmed.
   const [answered, setAnswered] = useState<Answered[]>([]);
+  // The card whose answer just landed shows its check for a beat; the next one then slides in.
+  const [popping, setPopping] = useState<{ id: string; said: string } | null>(null);
+  const [arrived, setArrived] = useState<string | null>(null);
   const [moving, setMoving] = useState<Run[] | null>(null);
-  // The answered card slides out as a static copy while the next one slides in (spec 5).
-  const card = useRef<HTMLDivElement>(null);
-  const ghost = useRef<HTMLDivElement>(null);
+  const deck = useRef<HTMLUListElement>(null);
+  const swiped = useRef<number | undefined>(undefined);
   const error = refused ?? (open.failed ? "Could not load the gates. Is the API running?" : null);
 
   useEffect(() => {
@@ -96,11 +116,22 @@ export function Gates() {
   const inWorld = (g: { world_id: string }) => !search.world || g.world_id === search.world;
   // A gate opened again after a send back is a new decision, so match the opening too.
   const isAnswered = (g: Gate) => answered.some((a) => a.gate.stage_id === g.stage_id && a.gate.opened_at === g.opened_at);
-  const waiting = (open.gates ?? []).filter((g) => inWorld(g) && !isAnswered(g));
+  const live = (open.gates ?? []).filter((g) => !isAnswered(g));
+  const waiting = live.filter(inWorld);
+  const elsewhere = live.length - waiting.length;
+  const kinds = KIND_CHIP.flatMap(([k, label]) => {
+    const n = waiting.filter((g) => g.kind === k).length;
+    return n ? [{ kind: k, label, n }] : [];
+  });
+  const kind = kinds.some((k) => k.kind === search.kind) ? search.kind : undefined;
+  const shown = kind ? waiting.filter((g) => g.kind === kind) : waiting;
+  const at = Math.max(0, shown.findIndex((g) => g.stage_id === search.gate));
+  const selected = shown[at];
   const done = answered.filter((a) => inWorld(a.gate));
-  const selected = waiting.find((g) => g.stage_id === search.gate) ?? waiting[0];
-  const last = search.done ? answered.find((a) => a.gate.stage_id === search.done) : undefined;
   const clear = open.gates !== null && waiting.length === 0;
+
+  const go = (gate: string | undefined, replace = false, k = kind) =>
+    void navigate({ to: "/gates", search: { world: search.world, kind: k, gate }, replace });
 
   // An empty queue still leads somewhere: the runs moving in the worlds it covers.
   useEffect(() => {
@@ -113,49 +144,109 @@ export function Gates() {
       .catch(() => setMoving([]));
   }, [clear, worlds, search.world]);
 
+  // On a phone the cards sit side by side; keep the open one in view when it changes elsewhere.
+  useEffect(() => {
+    const d = deck.current;
+    const card = d?.children[at] as HTMLElement | undefined;
+    if (!d || !card || !phone) return;
+    const x = card.offsetLeft - (d.children[0] as HTMLElement).offsetLeft;
+    if (Math.abs(d.scrollLeft - x) > 2) d.scrollTo({ left: x, behavior: "instant" });
+  }, [at, phone, shown.length]);
+
   const answer: Answer = async (gate, send, said = "You answered it") => {
     setRefused(null);
     const why = await send();
-    if (why || staysOpen(gate)) {
-      if (why) setRefused(why);
+    if (why) {
+      setRefused(why);
       reloadGates();
       return;
     }
-    const old = card.current?.querySelector(".gate-list")?.cloneNode(true) as HTMLElement | undefined;
-    if (old && ghost.current && !calm()) {
-      old.className = "gate-list";
-      ghost.current.replaceChildren(old);
+    if (staysOpen(gate)) {
+      notify(`${said}.`, { tone: "ok" });
+      reloadGates();
+      return;
     }
+    const rest = shown.filter((g) => g.stage_id !== gate.stage_id);
+    const next = rest[Math.min(at, rest.length - 1)] ?? waiting.find((g) => g.stage_id !== gate.stage_id);
+    setPopping({ id: gate.stage_id, said });
+    if (!calm()) await new Promise((r) => setTimeout(r, 320));
+    setPopping(null);
     dropGate(gate.stage_id);
     setAnswered((a) => [{ gate, said, at: new Date().toISOString() }, ...a]);
-    const next = waiting.find((g) => g.stage_id !== gate.stage_id);
-    void navigate({ to: "/gates", search: { world: search.world, gate: next?.stage_id, done: gate.stage_id } });
+    setArrived(next?.stage_id ?? null);
+    // The API cannot take an answer back, so the notice opens the run instead of undoing.
+    notify(next ? `${said}. Next: ${GATE_KIND[next.kind]}` : `${said}. All clear.`, {
+      tone: "ok",
+      action: {
+        label: "Open",
+        run: () =>
+          void navigate({
+            to: "/worlds/$worldId/runs/$runId",
+            params: { worldId: gate.world_id, runId: gate.run_id },
+            search: { stage: gate.stage_id },
+          }),
+      },
+    });
+    // This browser's first answer is a success moment of its own.
+    if (firstGate()) moment(MOMENTS.firstGate);
+    go(next?.stage_id, false, next && rest.includes(next) ? kind : undefined);
   };
 
+  // Where "Start a run" goes from an empty inbox: the world it is filtered to, else the open one.
+  const home = search.world ?? current;
   const worldName = (id: string) => worlds.find((w) => w.id === id)?.name ?? id;
   const sub = waiting.length
-    ? `${waiting.length === 1 ? "One decision" : `${waiting.length} decisions`} waiting, oldest ${ago(
-        Math.min(...waiting.map((g) => Date.parse(g.opened_at))),
-      )}. Answering one opens the next.`
+    ? `Oldest waiting ${ago(Math.min(...waiting.map((g) => Date.parse(g.opened_at))))}. Answering one opens the next.`
     : "Every open gate from every world lands here.";
+  const step = (by: number) => shown[at + by];
+  const cards = phone ? shown : selected ? [selected] : [];
 
   return (
     <main className="needs-you">
-      <header className="page">
-        <div>
+      <header className="page needs-head">
+        <div className="needs-title">
           <h1>Needs you</h1>
+          {selected && (
+            <span className="place" data-testid="place">
+              <Link
+                className="button icon"
+                to="/gates"
+                search={{ world: search.world, kind, gate: step(-1)?.stage_id }}
+                aria-label="Previous decision"
+                aria-disabled={!step(-1) || undefined}
+                onClick={(e) => !step(-1) && e.preventDefault()}
+              >
+                <Icon name="back" />
+              </Link>
+              <span>
+                {at + 1} of {shown.length}
+              </span>
+              <Link
+                className="button icon"
+                to="/gates"
+                search={{ world: search.world, kind, gate: step(1)?.stage_id }}
+                aria-label="Next decision"
+                aria-disabled={!step(1) || undefined}
+                onClick={(e) => !step(1) && e.preventDefault()}
+              >
+                <Icon name="next" />
+              </Link>
+            </span>
+          )}
           <p className="sub">{sub}</p>
         </div>
-        <label>
-          World
+        <label className="world-pick" data-on={search.world ? "" : undefined} title={search.world ? worldName(search.world) : "All worlds"}>
+          <Icon name="world" />
+          <span className="visually-hidden">World</span>
           <select
             value={search.world ?? ""}
             onChange={(e) => void navigate({ to: "/gates", search: e.target.value ? { world: e.target.value } : {} })}
           >
-            <option value="">All worlds</option>
+            <option value="">All worlds{open.gates ? ` (${live.length})` : ""}</option>
             {worlds.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
+                {open.gates ? ` (${needsYou(live, w.id)})` : ""}
               </option>
             ))}
           </select>
@@ -204,76 +295,143 @@ export function Gates() {
           </div>
         </Loading>
       )}
+      {open.gates !== null && kinds.length > 0 && (
+        <nav className="tabs chip-row kinds" aria-label="Kinds" data-testid="kinds">
+          <Link className="tab" to="/gates" search={{ world: search.world }} aria-current={!kind ? "page" : undefined}>
+            All <span className="num">{waiting.length}</span>
+          </Link>
+          {kinds.map((k) => (
+            <Link
+              key={k.kind}
+              className="tab"
+              to="/gates"
+              search={{ world: search.world, kind: k.kind }}
+              aria-current={kind === k.kind ? "page" : undefined}
+            >
+              {k.label} <span className="num">{k.n}</span>
+            </Link>
+          ))}
+        </nav>
+      )}
       {open.gates !== null && (
         <div className="inbox">
-          {/* On a phone the queue is a row of chips, and only when there is a choice to make. */}
-          {!(phone && waiting.length < 2) && (
-          <nav className="queue" aria-label="Waiting decisions" data-testid="queue">
-            {waiting.map((g, i) => (
-              <Link
-                key={g.stage_id}
-                className="q-item"
-                to="/gates"
-                search={{ world: search.world, gate: g.stage_id }}
-                aria-current={g === selected ? "true" : undefined}
-              >
-                <span className="meta">
-                  <span>{worldName(g.world_id)}</span>
-                  <span>{ago(Date.parse(g.opened_at))}</span>
-                </span>
-                <b>
-                  {phone && g === selected && `${i + 1} of ${waiting.length} · `}
-                  {GATE_KIND[g.kind]}
-                </b>
-                <span className="muted">{g.run_name}</span>
-              </Link>
-            ))}
-            {done.map((a) => (
-              <Link
-                key={`${a.gate.stage_id}-${a.at}`}
-                className="q-item done"
-                to="/worlds/$worldId/runs/$runId"
-                params={{ worldId: a.gate.world_id, runId: a.gate.run_id }}
-              >
-                <span className="meta">
-                  <span>{worldName(a.gate.world_id)}</span>
-                  <span>Answered</span>
-                </span>
-                <b>{GATE_KIND[a.gate.kind]}</b>
-                <span className="muted">{a.gate.run_name}</span>
-              </Link>
-            ))}
-            {waiting.length === 0 && done.length === 0 && <p className="faint">No decisions here.</p>}
-          </nav>
+          {!phone && (
+            <nav className="queue" aria-label="Waiting decisions" data-testid="queue">
+              {shown.map((g) => (
+                <Link
+                  key={g.stage_id}
+                  className="q-item"
+                  to="/gates"
+                  search={{ world: search.world, kind, gate: g.stage_id }}
+                  aria-current={g === selected ? "true" : undefined}
+                >
+                  <span className="q-line">
+                    <b>{GATE_KIND[g.kind]}</b>
+                    <span className="age">{took(Math.max(0, (Date.now() - Date.parse(g.opened_at)) / 1000))}</span>
+                  </span>
+                  <span className="muted">
+                    {g.run_name} · {worldName(g.world_id)}
+                  </span>
+                </Link>
+              ))}
+              {done.map((a) => (
+                <Link
+                  key={`${a.gate.stage_id}-${a.at}`}
+                  className="q-item done"
+                  to="/worlds/$worldId/runs/$runId"
+                  params={{ worldId: a.gate.world_id, runId: a.gate.run_id }}
+                >
+                  <span className="q-line">
+                    <b>{GATE_KIND[a.gate.kind]}</b>
+                    <span className="age">
+                      <Icon name="check" /> Answered
+                    </span>
+                  </span>
+                  <span className="muted">
+                    {a.gate.run_name} · {worldName(a.gate.world_id)}
+                  </span>
+                </Link>
+              ))}
+              {waiting.length === 0 && done.length === 0 && <p className="faint">No decisions here.</p>}
+            </nav>
           )}
           <div className="inbox-main">
-            {last && (
-              <p key={last.at} className="notice enter" role="status" data-testid="answered">
-                <span>
-                  {last.said} at {new Date(last.at).toLocaleTimeString([], { timeStyle: "short" })}.
-                </span>
-                <Link
-                  to="/worlds/$worldId/runs/$runId"
-                  params={{ worldId: last.gate.world_id, runId: last.gate.run_id }}
-                  search={{ stage: last.gate.stage_id }}
-                >
-                  Open that run
-                </Link>
-              </p>
-            )}
-            <div className="swap" ref={card}>
-              <div className="gate-ghost" ref={ghost} aria-hidden="true" inert onAnimationEnd={(e) => e.animationName === "gate-out" && e.currentTarget.replaceChildren()} />
-              {selected ? (
-                <ul className={last ? "gate-list arrive" : "gate-list"} key={selected.stage_id}>
-                  <GateCard gate={selected} world={worldName(selected.world_id)} onAnswer={answer} />
-                </ul>
-              ) : (
-              <section className={last ? "empty arrive" : "empty"} data-testid="no-gates">
-                <h2>Nothing is waiting on you</h2>
-                <p className="faint">
-                  When a run reaches a gate it lands here, pausing until you pick, approve or confirm, and so does a
-                  run whose budget ran out.
-                </p>
+            {cards.length > 0 ? (
+              <ul
+                ref={deck}
+                className="gate-list deck"
+                aria-label="Decisions"
+                onScroll={(e) => {
+                  // A swipe that came to rest on another card opens it; prev and next do the same.
+                  if (!phone) return;
+                  const d = e.currentTarget;
+                  clearTimeout(swiped.current);
+                  swiped.current = window.setTimeout(() => {
+                    const first = (d.children[0] as HTMLElement).offsetLeft;
+                    const near = [...d.children].reduce(
+                      (best, c, i) =>
+                        Math.abs((c as HTMLElement).offsetLeft - first - d.scrollLeft) <
+                        Math.abs((d.children[best] as HTMLElement).offsetLeft - first - d.scrollLeft)
+                          ? i
+                          : best,
+                      0,
+                    );
+                    const g = shown[near];
+                    if (g && g !== selected) {
+                      setArrived(null);
+                      go(g.stage_id, true);
+                    }
+                  }, 120);
+                }}
+              >
+                {cards.map((g) => (
+                  <GateCard
+                    key={`${g.stage_id}/${g.opened_at}`}
+                    gate={g}
+                    world={worldName(g.world_id)}
+                    onAnswer={answer}
+                    inactive={g !== selected}
+                    arriving={g.stage_id === arrived}
+                    done={popping?.id === g.stage_id ? popping.said : undefined}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <section className="all-clear" data-testid="no-gates">
+                {search.world && elsewhere > 0 ? (
+                  <Empty
+                    icon="inbox"
+                    title={`Nothing waiting in ${worldName(search.world)}`}
+                    action={
+                      <Link to="/gates" className="button primary">
+                        Show every world
+                      </Link>
+                    }
+                  >
+                    {elsewhere} {elsewhere === 1 ? "decision waits" : "decisions wait"} in other worlds.
+                  </Empty>
+                ) : (
+                  <Empty
+                    icon="check"
+                    popped={done.length > 0}
+                    title="All clear"
+                    action={
+                      home ? (
+                        <Link to="/worlds/$worldId/workflows" params={{ worldId: home }} className="button">
+                          Start a run
+                        </Link>
+                      ) : (
+                        <Link to="/" className="button">
+                          Open a world
+                        </Link>
+                      )
+                    }
+                  >
+                    {done.length > 0
+                      ? `You answered ${done.length === 1 ? "one decision" : `${done.length} decisions`} this visit. The next gate a run reaches lands here.`
+                      : "When a run reaches a gate or runs out of budget, it waits here for you."}
+                  </Empty>
+                )}
                 <h3>Runs still moving</h3>
                 {moving === null ? (
                   <Loading className="moving">
@@ -298,8 +456,7 @@ export function Gates() {
                   </ul>
                 )}
               </section>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -312,18 +469,32 @@ export function GateCard({
   world,
   onAnswer,
   bare = false,
+  inactive = false,
+  arriving = false,
+  done,
 }: {
   gate: Gate;
   world: string;
   /** On the run page, which already names the run and the step. */
   bare?: boolean;
   onAnswer: Answer;
+  /** A phone's neighbouring card in the swipe deck: shown, not answerable until it is open. */
+  inactive?: boolean;
+  /** The next card after an answer: it slides in from the right. */
+  arriving?: boolean;
+  /** The answer just taken, in words: the bar shows it with a check for a beat. */
+  done?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirm, dialog] = useConfirm();
   const phone = usePhone();
+  const formId = useId();
   // The pick so far (a card's path, or the typed name), so a phone's primary can name it.
   const [chosen, setChosen] = useState("");
+  // The budget's top-up, from a preset chip or typed.
+  const [add, setAdd] = useState(() => topUpSuggestion(gate));
+  // Ask this run mounts the first time its disclosure opens, then stays with its turns.
+  const [asking, setAsking] = useState(false);
   // The earlier step a Send back menu item chose; the form then submits with it.
   const sendBack = useRef<string | null>(null);
   // The gate's form, and whether an editable field of the post differs from what the gate shows.
@@ -350,6 +521,9 @@ export function GateCard({
       : chosen
         ? "Continue with this pick"
         : "Continue";
+  const spent = gate.spent_usd ?? 0;
+  const budget = gate.budget_usd ?? 0;
+  const presets = [...new Set([topUpSuggestion(gate), 1, 5, 10])].sort((a, b) => a - b);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -384,23 +558,53 @@ export function GateCard({
     setBusy(false);
   }
 
-  const since = new Date(gate.opened_at).toLocaleTimeString([], { timeStyle: "short" });
+  // The note and Ask this run, folded under the work so the decision stays in the first screen.
+  // The note belongs to the gate's form through its `form` attribute.
+  const more = (gate.kind !== "budget" || !bare) && (
+    <details className="gate-more" onToggle={(e) => e.currentTarget.open && setAsking(true)}>
+      <summary>{gate.kind === "budget" ? "Ask before you answer" : bare ? "Add a note" : "Add a note or ask"}</summary>
+      {gate.kind !== "budget" && (
+        <label>
+          {gate.kind === "approve"
+            ? "Note (sent back with it, or kept with the approval)"
+            : gate.kind === "skill"
+              ? "Note (kept with the decision; on a rejection, say why)"
+              : "Note (optional)"}
+          <textarea name="note" rows={2} form={formId} />
+        </label>
+      )}
+      {/* The run page has its own Ask this run. */}
+      {!bare && asking && <GateAsk gate={gate} onFill={fill} />}
+    </details>
+  );
+  const answeredBar = done && (
+    <div className="row gate-actions action-bar gate-done" role="status">
+      <Icon name="check" size={20} className="i-pop" />
+      <span>{done}</span>
+    </div>
+  );
+
   return (
-    <li className="gate" data-kind={gate.kind} data-testid={`gate-${gate.run_id}`}>
+    <li
+      className={arriving ? "gate arrive" : "gate"}
+      data-kind={gate.kind}
+      data-testid={`gate-${gate.run_id}`}
+      aria-current={inactive ? undefined : "true"}
+      inert={inactive || undefined}
+    >
       {dialog}
       {!bare && (
-      <div className="gate-head">
-        <Link
-          to="/worlds/$worldId/runs/$runId"
-          params={{ worldId: gate.world_id, runId: gate.run_id }}
-        >
-          {gate.run_name}
-        </Link>
-        <span className="faint">
-          {world} · stage {gate.stage_index + 1} · {gate.stage_name} · waiting since {since}
-        </span>
-        {gate.parent && <RunRef label="child of" run={gate.parent} testId="child-of" />}
-      </div>
+        <p className="gate-ctx">
+          <span>{world}</span>
+          <Link to="/worlds/$worldId/runs/$runId" params={{ worldId: gate.world_id, runId: gate.run_id }}>
+            {gate.run_name}
+          </Link>
+          <span>
+            stage {gate.stage_index + 1}, {gate.stage_name}
+          </span>
+          <span>waiting {took(Math.max(0, (Date.now() - Date.parse(gate.opened_at)) / 1000))}</span>
+          {gate.parent && <RunRef label="child of" run={gate.parent} testId="child-of" />}
+        </p>
       )}
       <p className="ask">{gate.ask}</p>
       {/* Holds the evidence's place while it loads, so the form below does not jump down. */}
@@ -414,126 +618,141 @@ export function GateCard({
         <p className="faint">The earlier stages left nothing to show here; their notes are on the run's timeline.</p>
       )}
       {gate.kind === "skill" ? (
-        <SkillGate gate={gate} onAnswer={onAnswer} />
+        <SkillGate gate={gate} formId={formId} more={more} done={answeredBar} onAnswer={onAnswer} />
       ) : (
-      <form
-        ref={form}
-        onSubmit={submit}
-        onChange={(e) => {
-          const f = e.target as unknown as HTMLInputElement;
-          if (f.name === "artifact" || f.name === "choice") setChosen(f.value.trim());
-          if (f.name.startsWith("edit:")) edited();
-        }}
-        className="gate-form"
-        aria-label={`Answer ${gate.stage_name}`}
-      >
-        {gate.publish && <WhatGoesOut key={JSON.stringify(gate.publish)} preview={gate.publish} worldId={gate.world_id} />}
-        {gate.kind === "budget" && (
-          <>
-            <label>
-              Add (US dollars)
-              <input
-                name="add"
-                type="number"
-                inputMode="decimal"
-                min="0.01"
-                step="0.01"
-                required
-                defaultValue={topUpSuggestion(gate).toFixed(2)}
-              />
-            </label>
-            <span className="faint">
-              {piedPiper() ? "Russ has" : "This run has"} spent {money(gate.spent_usd ?? 0)} of {money(gate.budget_usd ?? 0)}. The
-              stopped agents resume where they stopped.
-            </span>
-            <div className="row gate-actions">
-              <button type="submit" className="primary" disabled={busy}>
-                Add money and go on
-              </button>
-              <button type="button" className="danger" onClick={abort} disabled={busy}>
-                Abort the run
-              </button>
-            </div>
-          </>
-        )}
-        {gate.kind === "pick" && cards.length > 0 && <ArtifactCards cards={cards} worldId={gate.world_id} />}
-        {gate.kind === "pick" && artifacts && cards.length === 0 && (
-          <>
-            <label>
-              Your pick
-              <input name="choice" required autoComplete="off" placeholder="idea 1" />
-            </label>
-            <span className="faint">
-              No cards reached this gate, so name your pick; it is kept word for word.
-            </span>
-          </>
-        )}
-        {gate.kind !== "budget" && (
-        <label>
-          {gate.kind === "approve" ? "Note (sent back with it, or kept with the approval)" : "Note (optional)"}
-          <textarea name="note" rows={2} />
-        </label>
-        )}
-        <div className="row gate-actions">
-          {gate.kind === "pick" && (
-            <>
-              <button type="submit" className="primary" disabled={busy || artifacts === null || (phone && !chosen)}>
-                {pickLabel}
-              </button>
-              {cards.length > 0 && (
-                <span className="faint">The ones you pass on stay in the library.</span>
-              )}
-            </>
-          )}
-          {gate.kind === "confirm" && (
-            <>
-              <button type="submit" className="primary" disabled={busy || blocked(gate, changed)}>
-                {gate.publish ? "Confirm and post" : "Confirm"}
-              </button>
-              <span className="faint">
-                {gate.publish
-                  ? "Posts exactly what is above. Nothing goes out until you confirm."
-                  : "Nothing goes out until you confirm."}
-              </span>
-            </>
-          )}
-          {gate.kind === "approve" && (
-            <>
-              {/* Waits for what it reviews, so an approval of one piece names it in the record. */}
-              <button type="submit" className="primary" disabled={busy || artifacts === null || blocked(gate, changed)}>
-                Approve
-              </button>
-              {sendBackTargets(gate).length > 0 ? (
-                <>
-                  <Menu
-                    label="Send back to..."
-                    button={phone ? "Send back…" : "Send back to..."}
-                    items={sendBackTargets(gate).map((name) => ({
-                      label: name,
-                      note: `Redo ${name} with your notes`,
-                      disabled: busy,
-                      onSelect: () => {
-                        sendBack.current = name;
-                        form.current?.requestSubmit();
-                      },
-                    }))}
+        <>
+          <form
+            id={formId}
+            ref={form}
+            onSubmit={submit}
+            onChange={(e) => {
+              const f = e.target as unknown as HTMLInputElement;
+              if (f.name === "artifact" || f.name === "choice") setChosen(f.value.trim());
+              if (f.name.startsWith("edit:")) edited();
+            }}
+            className="gate-form"
+            aria-label={`Answer ${gate.stage_name}`}
+          >
+            {gate.publish && <WhatGoesOut key={JSON.stringify(gate.publish)} preview={gate.publish} worldId={gate.world_id} />}
+            {gate.kind === "budget" && (
+              <div className="top-up">
+                <p className="spent" data-testid="budget-spent">
+                  {piedPiper() ? "Russ has" : "This run has"} spent <b>{money(spent)}</b> of {money(budget)}. Adding{" "}
+                  {usd(add || 0)} makes it {money(Math.round((budget + (add || 0)) * 100) / 100)}; the stopped agents resume where they
+                  stopped.
+                </p>
+                <div className="presets" role="group" aria-label="Add">
+                  {presets.map((p) => (
+                    <button key={p} type="button" className="chip-button" aria-pressed={add === p} onClick={() => setAdd(p)}>
+                      +{usd(p)}
+                    </button>
+                  ))}
+                </div>
+                <label>
+                  Or another amount (US dollars)
+                  <input
+                    name="add"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    required
+                    value={add || ""}
+                    onChange={(e) => setAdd(Number(e.target.value))}
                   />
+                </label>
+                <p className="faint">
+                  Abort ends it instead: finished stages keep their files, and the {money(spent)} spent stays spent.
+                </p>
+              </div>
+            )}
+            {gate.kind === "pick" && cards.length > 0 && <ArtifactCards cards={cards} worldId={gate.world_id} />}
+            {gate.kind === "pick" && artifacts && cards.length === 0 && (
+              <>
+                <label>
+                  Your pick
+                  <input name="choice" required autoComplete="off" placeholder="idea 1" />
+                </label>
+                <span className="faint">
+                  No cards reached this gate, so name your pick; it is kept word for word.
+                </span>
+              </>
+            )}
+          </form>
+          {more}
+          {answeredBar || (
+            <div className="row gate-actions action-bar">
+              {gate.kind === "budget" && (
+                <>
+                  <button type="submit" form={formId} className="primary" disabled={busy || !(add > 0)}>
+                    Add {usd(add || 0)} and go on
+                  </button>
+                  <button type="button" className="danger" onClick={abort} disabled={busy}>
+                    Abort the run
+                  </button>
+                </>
+              )}
+              {gate.kind === "pick" && (
+                <>
+                  <button type="submit" form={formId} className="primary" disabled={busy || artifacts === null || (phone && !chosen)}>
+                    {pickLabel}
+                  </button>
+                  {cards.length > 0 && <span className="faint">The ones you pass on stay in the library.</span>}
+                </>
+              )}
+              {gate.kind === "confirm" && (
+                <>
+                  <button type="submit" form={formId} className="primary" disabled={busy || blocked(gate, changed)}>
+                    {gate.publish ? "Confirm and post" : "Confirm"}
+                  </button>
                   <span className="faint">
-                    {gate.send_backs_left} of {gate.max_send_backs} revisions left
+                    {gate.publish
+                      ? "Posts exactly what is above. Nothing goes out until you confirm."
+                      : "Nothing goes out until you confirm."}
                   </span>
                 </>
-              ) : (
-                <span className="faint">
-                  No revisions left at this gate. Approve, or abort the run from its timeline.
-                </span>
               )}
-            </>
+              {gate.kind === "approve" && (
+                <>
+                  {/* Waits for what it reviews, so an approval of one piece names it in the record. */}
+                  <button
+                    type="submit"
+                    form={formId}
+                    className="primary"
+                    disabled={busy || artifacts === null || blocked(gate, changed)}
+                  >
+                    Approve
+                  </button>
+                  {sendBackTargets(gate).length > 0 ? (
+                    <>
+                      <Menu
+                        label="Send back to..."
+                        button={phone ? "Send back…" : "Send back to..."}
+                        items={sendBackTargets(gate).map((name) => ({
+                          label: name,
+                          note: `Redo ${name} with your notes`,
+                          disabled: busy,
+                          onSelect: () => {
+                            sendBack.current = name;
+                            form.current?.requestSubmit();
+                          },
+                        }))}
+                      />
+                      <span className="faint">
+                        {gate.send_backs_left} of {gate.max_send_backs} revisions left
+                      </span>
+                    </>
+                  ) : (
+                    <span className="faint">
+                      No revisions left at this gate. Approve, or abort the run from its timeline.
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           )}
-        </div>
-      </form>
+        </>
       )}
-      {/* The run page has its own Ask this run. */}
-      {!bare && <GateAsk gate={gate} onFill={fill} />}
     </li>
   );
 }
@@ -542,9 +761,18 @@ export function GateCard({
  * workflow change it drew from a recurring intervention (ADR 0008). */
 function SkillGate({
   gate,
+  formId,
+  more,
+  done,
   onAnswer,
 }: {
   gate: Gate;
+  /** The form the card's note belongs to, and the buttons below it submit. */
+  formId: string;
+  /** The card's note and ask disclosure, between the change and the decision. */
+  more: ReactNode;
+  /** The answered bar, in place of the decision for a beat. */
+  done: ReactNode;
   onAnswer: Answer;
 }) {
   const [proposal, setProposal] = useState<Proposal | null | undefined>(undefined);
@@ -589,7 +817,7 @@ function SkillGate({
   return (
     <>
     {dialog}
-    <form className="gate-form proposal" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => void answer(e, true)}>
+    <form id={formId} className="gate-form proposal" aria-label={`Answer ${gate.stage_name}`} onSubmit={(e) => void answer(e, true)}>
       {skill && (
         <section data-testid="skill-change">
           <b>
@@ -598,17 +826,16 @@ function SkillGate({
             {skill.action === "retired" && `Retire skill ${skill.name}`}
           </b>
           <p>{skill.summary}</p>
-          <span className="faint">Evidence</span>
-          <ul>
+          <ul aria-label="Evidence">
             {(skill.evidence ?? []).map((e) => (
               <li key={e}>{e}</li>
             ))}
           </ul>
           {skill.action !== "retired" && (
-            <label>
-              SKILL.md (edit before approving)
-              <textarea value={content} rows={8} onChange={(e) => setContent(e.target.value)} />
-            </label>
+            <details>
+              <summary>Read or edit SKILL.md before approving</summary>
+              <textarea aria-label="SKILL.md (edit before approving)" value={content} rows={8} onChange={(e) => setContent(e.target.value)} />
+            </details>
           )}
         </section>
       )}
@@ -620,36 +847,39 @@ function SkillGate({
               <li key={e}>{e}</li>
             ))}
           </ul>
-          <pre>{proposal.workflow.yaml}</pre>
+          <details>
+            <summary>Read the new workflow</summary>
+            <pre>{proposal.workflow.yaml}</pre>
+          </details>
           <label className="check">
             <input type="checkbox" checked={applyWorkflow} onChange={(e) => setApplyWorkflow(e.target.checked)} />
             Save it as the workflow's next version when approving
           </label>
         </section>
       )}
-      <label>
-        Note (kept with the decision; on a rejection, say why)
-        <textarea name="note" rows={2} />
-      </label>
-      <div className="row gate-actions">
-        <button type="submit" className="primary" disabled={busy}>
+    </form>
+    {more}
+    {done || (
+      <div className="row gate-actions action-bar">
+        <button type="submit" form={formId} className="primary" disabled={busy}>
           Approve
         </button>
-        <RejectButton busy={busy} onReject={(e) => void answer(e, false)} />
+        <RejectButton formId={formId} busy={busy} onReject={(e) => void answer(e, false)} />
         <span className="faint">
           {skill ? "Approving writes the skill as a new version every later stage loads." : "Nothing changes until you approve."}
         </span>
       </div>
-    </form>
+    )}
     </>
   );
 }
 
 /** A reject button that submits the surrounding form with the rejection intent. */
-function RejectButton({ busy, onReject }: { busy: boolean; onReject: (e: FormEvent<HTMLFormElement>) => void }) {
+function RejectButton({ formId, busy, onReject }: { formId: string; busy: boolean; onReject: (e: FormEvent<HTMLFormElement>) => void }) {
   return (
     <button
       type="button"
+      form={formId}
       className="danger"
       disabled={busy}
       onClick={(e) => {

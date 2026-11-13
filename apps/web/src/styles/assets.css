@@ -1,21 +1,26 @@
 /* Assets (#194, #220): each Owned Folder of a package, as a folder of voices, as cards
    you can play first, then the files its builds read, as rows with a preview. On a phone the
-   sections stack and a folder's Add button sits in a bar pinned above the tab bar. */
+   sections stack; each section's Add sits in its own header. */
 .assets-page { display: grid; gap: var(--gap); max-width: 64rem; }
 .assets-page header.page { margin-bottom: 0; }
 .assets-page .panel > .empty { margin-bottom: 0; }
 .voice-card { min-width: 0; }
 .voice-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
-button.play { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; background: var(--accent); border-color: var(--accent); color: var(--primary-ink); }
-button.play:hover { background: #3fd68f; border-color: #3fd68f; }
-button.play svg { width: 18px; height: 18px; fill: currentColor; }
+/* Play is an outlined ink circle: green stays for data and the one primary, not every card. */
+.voice-top button.play { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; color: var(--text); }
+.voice-top button.play[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.voice-top button.play svg { width: 18px; height: 18px; fill: currentColor; }
 .play-open { min-height: 40px; }
 .voice-name { display: grid; min-width: 0; }
 .voice-name b { font-size: 14px; }
 .add-voice input:not([type="checkbox"]) { width: 100%; }
 /* A card's or row's menu opens leftwards from its right-hand button, inside the screen. */
 .voice-card .menu, .file-rows .menu { left: auto; right: 0; }
-.assets-bar { display: flex; margin-top: 16px; }
+/* A section head: its name, a count, and its own Add at the right edge */
+.assets-page .panel-head { align-items: center; }
+.assets-page .panel-head .grow { margin-right: auto; }
+.assets-page .panel-head h2 { margin-right: auto; }
+.assets-page .panel-head h2:has(+ .grow) { margin-right: 0; }
 
 .file-rows { list-style: none; margin: 0; padding: 0; }
 .file-rows li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--rule); }
@@ -56,9 +61,8 @@ button.play svg { width: 18px; height: 18px; fill: currentColor; }
   .assets-page { gap: 16px; }
   .assets-page .panel { padding: 14px; }
   .voice-cards { grid-template-columns: minmax(0, 1fr); }
-  main.assets-page { padding-bottom: calc(48px + 65px); }
-  .assets-bar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 14; margin: 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--rule); box-shadow: 0 -8px 20px #0b0b0d; }
-  .assets-bar button { flex: 1; min-height: 44px; font-size: 14px; font-weight: 650; }
+  .assets-page .panel-head { margin-block: -6px 6px; }
+  .voice-top button.play { width: 44px; height: 44px; min-height: 44px; }
   .file-rows li { grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 4px 10px; }
   .file-preview { width: 44px; height: 44px; }
   /* The name gets the whole line, broken anywhere only if it must; the actions share the next. */

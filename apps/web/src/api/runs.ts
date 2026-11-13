@@ -1,4 +1,5 @@
 import type { Ask } from "../Dialog";
+import { markAnswered } from "../pwa";
 import { api } from "./client";
 import type { Connectors } from "./connectors";
 import { type Call, type Run, useWorldEvents } from "./events";
@@ -68,7 +69,8 @@ function sentence(run: Run, ask: string | null | undefined, connectors: Connecto
       return "Queued. It starts as soon as one of this world's two run slots is free.";
     case "running": {
       if (!at) return "Running.";
-      const step = ` · step ${at.index + 1} of ${total}${seconds === null ? "" : ` · ${took(seconds)} so far`}`;
+      // The time so far ticks under the strip (Elapsed), so the sentence leaves it out.
+      const step = ` · step ${at.index + 1} of ${total}`;
       if (at.child) return `${at.name} waits on its child run ${at.child.name}${step}`;
       return `${at.name} is working${step}`;
     }
@@ -80,12 +82,20 @@ function sentence(run: Run, ask: string | null | undefined, connectors: Connecto
       return seconds === null ? "Done." : `Done in ${took(seconds)}.`;
     case "failed": {
       const failed = run.stages.find((s) => s.status === "failed");
-      const why = (failed?.error?.split("\n")[0] ?? "no error recorded").replace(/([^.!?])$/, "$1.");
+      const why = plainError(failed?.error ?? "");
       return `${failed ? `Stopped at ${failed.name}: ${why}` : "Stopped."}${kept}${nothing}`;
     }
     case "aborted":
       return `${at ? `Aborted at ${at.name}.` : "Aborted."}${kept}${nothing}`;
   }
+}
+
+/** A step's error as one plain sentence: its first line without the exception's class name,
+ * capitalised and closed with a full stop. The whole text stays behind Details. */
+export function plainError(error: string): string {
+  const first = error.split("\n")[0]?.trim() ?? "";
+  const line = first.replace(/^[A-Za-z_.]*(Error|Exception)\s*:\s*/, "") || "No error was recorded.";
+  return (line.charAt(0).toUpperCase() + line.slice(1)).replace(/([^.!?])$/, "$1.");
 }
 
 /** A step's duration: "14s", "2m 14s", "1h 5m". */
@@ -167,6 +177,7 @@ export async function decide(runId: string, body: Decide): Promise<string | null
     params: { path: { run_id: runId } },
     body,
   });
+  if (!error) markAnswered();
   return refusal(error, response, "The decision was refused");
 }
 

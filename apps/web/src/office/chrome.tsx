@@ -1,8 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { useOpenGates } from "../api/gates";
-import { line } from "./scene";
+import { needsYou, useOpenGates } from "../api/gates";
 
 // Day and night are this browser's choice, never the world's.
 const NIGHT = "swarmify.office.night";
@@ -56,7 +55,7 @@ export function FullScreen() {
 /** The office's tabs: a bar along the bottom of a phone; on a wide screen only day and night
  * show, the top bars carry the rest. */
 export function Tabs({ worldId }: { worldId: string }) {
-  const waiting = line(useOpenGates().gates, worldId).length;
+  const waiting = needsYou(useOpenGates().gates, worldId) ?? "...";
   const [night, toggle] = useNight();
   const params = { worldId };
   return (

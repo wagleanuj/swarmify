@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "Swarmify",
+  "short_name": "Swarmify",
+  "description": "Agents running your gated workflows, and the decisions they need from you.",
+  "start_url": "/gates",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171719",
+  "theme_color": "#171719",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/badge-96.png", "sizes": "96x96", "type": "image/png", "purpose": "monochrome" }
+  ],
+  "shortcuts": [
+    { "name": "Needs you", "url": "/gates", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Worlds", "url": "/", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

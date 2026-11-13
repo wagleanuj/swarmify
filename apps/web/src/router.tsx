@@ -15,6 +15,7 @@ import { Connectors } from "./pages/Connectors";
 import { Evals } from "./pages/Evals";
 import { Graph } from "./pages/Graph";
 import { Gates } from "./pages/Gates";
+import type { Gate } from "./api/runs";
 import { Library } from "./pages/Library";
 import { Reader } from "./pages/Reader";
 import { Runs } from "./pages/Runs";
@@ -25,16 +26,23 @@ import { Workflows } from "./pages/Workflows";
 import { WorldOverview } from "./pages/WorldOverview";
 import { Worlds } from "./pages/Worlds";
 import { Progress, ProgressLine } from "./Progress";
+import { useThemeColour } from "./pwa";
 import { Shell } from "./Shell";
+import { Toasts } from "./Toast";
 
 // The office draws its own full-screen shell; every other screen sits in the sidebar shell.
-// The progress line rides on top of both while API calls are slow.
-const Root = () => (
-  <>
-    <Progress />
-    {useLocation().pathname.split("/")[3] === "office" ? <Outlet /> : <Shell />}
-  </>
-);
+// The progress line rides on top of both while API calls are slow; notices sit at the foot of both.
+const Root = () => {
+  const office = useLocation().pathname.split("/")[3] === "office";
+  useThemeColour(office);
+  return (
+    <>
+      <Progress />
+      {office ? <Outlet /> : <Shell />}
+      <Toasts />
+    </>
+  );
+};
 const rootRoute = createRootRoute({ component: Root });
 
 export const worldsRoute = createRoute({
@@ -47,10 +55,10 @@ export const gatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/gates",
   component: Gates,
-  // The open gate, the one just answered and the world filter live in the address.
-  validateSearch: (search: Record<string, unknown>): { gate?: string; done?: string; world?: string } =>
+  // The open gate, the world filter and the kind filter live in the address.
+  validateSearch: (search: Record<string, unknown>): { gate?: string; world?: string; kind?: Gate["kind"] } =>
     Object.fromEntries(
-      (["gate", "done", "world"] as const).flatMap((k) => (typeof search[k] === "string" ? [[k, search[k]]] : [])),
+      (["gate", "world", "kind"] as const).flatMap((k) => (typeof search[k] === "string" ? [[k, search[k]]] : [])),
     ),
 });
 

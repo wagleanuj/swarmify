@@ -183,3 +183,16 @@ test("the sofa holds two queued notes, or one and a chip for the rest that opens
   await sofa.getByRole("button", { name: "+3 queued" }).click();
   await expect.element(screen.getByRole("complementary", { name: "Quest board" }).getByRole("button", { name: "Changelog #4, queued" })).toBeVisible();
 });
+
+test("a live pod's screen ticks: the play glyph's dots and the run's clock, each second", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  vi.setSystemTime(new Date("2026-10-31T08:10:00Z"));
+  const started = run("running", stages(3, 1, "swarm", "running", { started_at: "2026-10-31T08:05:00Z" }), { id: "run_14", name: "Weekly explainer #14" });
+  const { screen } = await office([started]);
+  const pod = screen.getByRole("list", { name: "Pods" }).getByRole("button", { name: /^Weekly explainer #14/ });
+  await expect.element(pod.getByTestId("elapsed")).toHaveTextContent("5m 0s");
+  expect(pod.element().querySelector(".i-live")).not.toBeNull();
+  vi.advanceTimersByTime(2000);
+  await expect.element(pod.getByTestId("elapsed")).toHaveTextContent("5m 2s");
+  vi.useRealTimers();
+});
