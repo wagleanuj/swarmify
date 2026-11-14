@@ -224,7 +224,9 @@ def _manifest_problems(
 ) -> list[str]:
     """A stage's input, output and params against what its connector's manifest declares."""
     name, out = manifest["name"], []
-    if manifest.get("inputs") and not (config.get("input") or config.get("inputs")):
+    # a build stage rendering an earlier stage's build (`from`) reads no input of its own
+    taken = "build_session" in manifest and params.get(build_session.FROM)
+    if manifest.get("inputs") and not (config.get("input") or config.get("inputs") or taken):
         out.append(f"{name} needs an input, {manifest['inputs'][0]['description']}")
     if manifest.get("outputs") and not config.get("output"):
         out.append(f"{name} needs an output, {manifest['outputs'][0]['description']}")

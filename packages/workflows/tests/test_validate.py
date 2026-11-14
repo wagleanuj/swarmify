@@ -275,3 +275,31 @@ def test_a_publish_stage_that_never_says_its_visibility_is_warned() -> None:
     # a connector with nothing that keeps a post private has no visibility to say
     stage = ConnectorStage("render", "remotion_render", params={})
     assert warnings(WorkflowModel("w", [stage]), CONNECTORS) == []
+
+
+BUILDS = {
+    **CONNECTORS,
+    "blender_build": ConnectorRef("blender_build", "stage", frozenset({"connector"}), builds=True),
+}
+
+
+def test_a_build_from_an_earlier_build_needs_that_build_and_a_gate_between() -> None:
+    """A preview build, a gate to approve it, then a stage rendering the same build folder."""
+
+    def found(*stages: object) -> list:
+        model = WorkflowModel("w", list(stages))  # type: ignore[arg-type]
+        hits = validate(model, workflow_id=None, connectors=BUILDS, references={})
+        return sorted((v.rule, v.stage) for v in hits)
+
+    preview = ConnectorStage("preview", "blender_build", output="preview.mp4")
+    final = ConnectorStage("final", "blender_build", output="video.mp4", params={"from": "preview"})
+    assert found(preview, GATE, final) == []
+    assert found(preview, final) == [("from_without_gate", "final")]
+    assert found(final, GATE, preview) == [("from_unknown", "final")]  # not an earlier stage
+    other = ConnectorStage("preview", "remotion_render", output="preview.mp4")
+    assert found(other, GATE, final) == [("from_unknown", "final")]  # not the same package
+    nameless = ConnectorStage("final", "blender_build", params={"from": "nope"})
+    assert found(preview, GATE, nameless) == [("from_unknown", "final")]
+    # a package that requests no Build Session takes `from` as a param of its own
+    mail = ConnectorStage("mail", "remotion_render", params={"from": "me@example.com"})
+    assert found(mail) == []

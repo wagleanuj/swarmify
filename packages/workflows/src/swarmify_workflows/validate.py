@@ -140,6 +140,31 @@ def validate(
                             stage.name,
                         )
                     )
+            source = stage.params.get("from") if ref is not None and ref.builds else None
+            if source is not None:
+                earlier = [
+                    i
+                    for i, s in enumerate(model.stages[:index])
+                    if isinstance(s, ConnectorStage) and s.name == source and s.calls == stage.calls
+                ]
+                if not earlier:
+                    out.append(
+                        Violation(
+                            "from_unknown",
+                            f"from: '{source}' must name an earlier stage calling {stage.calls},"
+                            " whose build this stage renders",
+                            stage.name,
+                        )
+                    )
+                elif not any(isinstance(s, GateStage) for s in model.stages[earlier[0] : index]):
+                    out.append(
+                        Violation(
+                            "from_without_gate",
+                            f"a gate must stand between '{source}' and this stage, which renders"
+                            " its build: approve it there, or send it back with notes",
+                            stage.name,
+                        )
+                    )
             if ref is not None:
                 config = {
                     "calls": stage.calls,

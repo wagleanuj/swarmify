@@ -23,6 +23,9 @@ BASE = "base"
 """The param naming one of the world's Templates of the package to seed from, not its starter."""
 PROJECT = "project"
 """The param of a direct render naming the world's Template it renders in place."""
+FROM = "from"
+"""The param of a build stage naming an earlier stage of the same package whose build folder it
+renders, with no session of its own: a preview approved at a gate, then rendered for real."""
 RECORD = ".template.json"
 """A Template's own record, in its folder: where it came from and when it was added."""
 

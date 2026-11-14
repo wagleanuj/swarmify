@@ -48,6 +48,32 @@ packages must be enabled for the world, or the stage fails before the session.
       tools: [motion_search]           # optional: packages of the world the session may also call
 ```
 
+### Approving the motion before the render
+
+A full render is the slow part. To see and approve the motion first, split the build in two
+around a gate:
+
+```yaml
+  - connector: build preview
+    calls: blender_build
+    inputs: [script.md, timings.json]
+    output: preview.mp4
+    params: {base: kit, quality: preview}  # a cheap preset of the Template's render.json
+  - gate: approve motion
+    ask: Approve the motion, or send it back with notes.
+  - connector: render video
+    calls: blender_build
+    output: video.mp4
+    params: {from: build preview, quality: draft}
+```
+
+The first stage builds and renders its preset as usual; the gate's send-back reruns it with the
+notes, revising the same build. `from` names an earlier stage of this package: that stage runs
+no session and reads no input, and its call renders the named stage's `build/` folder as it
+stands, at its own `quality`, into its own stage folder (frames, shots, video). The workflow
+check refuses a `from` that is not an earlier `blender_build` stage, and one with no gate
+between the two. A later send-back that needs a change to the build goes to the preview stage.
+
 `base` copies a Template by name from the world's `assets/blender_templates/` folder (ADR 0028,
 on the world's Assets page), the Owned Folder this package shares with `blender_render`, instead
 of the starter. The workflow check reports one the world does not have. The stage's call records

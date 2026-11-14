@@ -44,7 +44,7 @@ def test_it_requests_a_build_session_and_renders_through_blender_render() -> Non
     assert {k: MANIFEST["templates"][k] for k in render["templates"]} == render["templates"]
     assert MANIFEST["templates"]["guide"] == "TEMPLATE.md"
     params = MANIFEST["params"]["properties"]
-    assert set(params) == {"base", "brief", "model", "max_turns", "minutes", "quality", "tools"}
+    assert set(params) == {"base", "brief", "from", "model", "max_turns", "minutes", "quality", "tools"}
     assert params["quality"]["default"] == render["params"]["properties"]["quality"]["default"]
 
 

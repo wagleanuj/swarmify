@@ -122,7 +122,7 @@ def test_add_installs_a_local_package_whose_keys_are_credentials_never_returned(
     )
     assert body["missing"] == [] and "s3cret" not in added.text
     assert [(p["name"], p["version"], p["source"]) for p in client.get("/api/packages").json()] == [
-        ("blender_build", "1.0.0", "connectors/blender_build"),
+        ("blender_build", "1.1.0", "connectors/blender_build"),
         ("blender_render", "1.0.4", "connectors/blender_render"),
         ("fal_video", "0.0.1", "local"),
         ("hyperframes_build", "1.0.1", "connectors/hyperframes_build"),
