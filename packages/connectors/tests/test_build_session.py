@@ -192,6 +192,8 @@ def test_a_saved_build_stage_names_its_input_and_a_template_of_its_world(
     assert sketched.stage_problems(W, {**stage, "params": {"base": "shorts"}}) == missing
     (tmp_path / f"worlds/{W}/assets/sketches/shorts").mkdir(parents=True)
     assert sketched.stage_problems(W, {**stage, "params": {"base": "shorts"}}) == []
+    # a stage rendering an earlier stage's build (`from`) reads no input of its own
+    assert sketched.stage_problems(W, {"calls": "sketch", "params": {"from": "draft"}}) == []
 
 
 def test_secret_names_cover_the_file_and_every_declared_key(

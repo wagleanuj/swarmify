@@ -108,6 +108,9 @@ class ConnectorRef:
     private_when: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
     """For a publish connector, the params that keep a post private (a draft only the operator
     sees). A stage that sets every one of them needs no gate before it (ADR 0007 amended)."""
+    builds: bool = False
+    """It requests a Build Session, so a stage of it may name in `params.from` an earlier stage
+    of it whose build folder it renders instead of building one."""
 
 
 @dataclass(frozen=True)

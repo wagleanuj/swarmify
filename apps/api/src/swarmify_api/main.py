@@ -210,6 +210,7 @@ def workflow_service(
                 tuple(c.input_types),
                 c.version,
                 (c.manifest or {}).get("private_when", {}),
+                "build_session" in (c.manifest or {}).get("capabilities", []),
             )
             for c in registry.list_all(world_id, pins)
         }
@@ -596,7 +597,8 @@ def create_app(
         session, so a restart resumes the call. A visit whose build started and stopped part way
         (a pause, a restart) keeps its folder as the builder left it, `build.visit` beside it
         saying so, and the builder continues its session. The folder stays, without its node_modules
-        once the call is done, for a person to open."""
+        once the call is done, for a person to open. A stage whose `from` names an earlier stage
+        of the package runs no session: its call renders that stage's build folder as it is."""
         session = package.manifest["build_session"]
         source = Path(package.folder or "")
         folder = world_svc.folder(run.world_id)
@@ -607,22 +609,35 @@ def create_app(
         params = {**defaults, **config["params"]}
         # the first input is `input` or the first of `inputs`; the rest are the builder's to read
         first, *others = params.get("input_paths") or [params.get("input_path") or ""]
-        if not first and package.manifest.get("inputs"):
+        taken = params.get(build_session.FROM)
+        if not first and package.manifest.get("inputs") and not taken:
             said = package.manifest["inputs"][0]["description"]
             raise ConnectorError(f"{package.name} needs an input, {said}")
         if first:
             params["input_path"] = first
         project = folder / "runs" / run.id / stage_id / "build"
-        values = {**params, "input": first, "folder": project}
-        made = Path(params["output_path"]) if output else None
         call = registry.call_for(stage_id)
         template = call.template if call is not None else None
+        if taken:
+            # `from` names an earlier stage of the package (a preview approved at a gate): its
+            # build folder is rendered as it stands, at this stage's quality, with no session.
+            index = next(s.index for s in run.stages if s.id == stage_id)
+            origin = next((s for s in run.stages if s.name == taken and s.index < index), None)
+            if origin is None:
+                raise ConnectorError(f"from: no earlier stage named {taken}")
+            project = folder / "runs" / run.id / origin.id / "build"
+            if not project.is_dir():
+                raise ConnectorError(f"the stage {taken} left no build to render")
+            built = registry.call_for(origin.id)
+            template = built.template if built is not None else None
+        values = {**params, "input": first, "folder": project}
+        made = Path(params["output_path"]) if output else None
         # What the visit's build started from, written when it starts: a re-entry of the visit
         # (a pause, a restart) finds it and goes on with the folder and session as they are.
         mark = project.with_name("build.visit")
         started = json.loads(mark.read_text()) if mark.is_file() else {}
         started = started if started.get("visit") == run.send_backs else {}
-        if call is None or call.visit != run.send_backs or call.status == "failed":
+        if not taken and (call is None or call.visit != run.send_backs or call.status == "failed"):
             try:
                 if started:
                     template, kept = started["template"], started["previous"]

@@ -3,7 +3,7 @@
 # Blender. It has no server of its own: it asks the core for a Build Session, then renders through
 # blender_render, whose stills the session uses to see its work.
 name = "blender_build"
-version = "1.0.0"
+version = "1.1.0"
 label = "Blender build"
 about = "Writes a Blender project from the script in a sandboxed coding session, checking shots with stills, then renders it on the GPU."
 kind = "stage"
@@ -11,7 +11,7 @@ stage_types = ["connector"]
 enable_by_default = false
 runtime = "uv"
 
-planner_notes = "Makes a video in Blender: one sandboxed coding session writes a Blender project for the script (shot scripts against a world Template's kit, checked with stills), reading the run's gate decisions, then swarmify renders it on the GPU through blender_render. Use it only where the world enabled both; params.base names the world's Blender Template to start from. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read (as speech's timings.json)."
+planner_notes = "Makes a video in Blender: one sandboxed coding session writes a Blender project for the script (shot scripts against a world Template's kit, checked with stills), reading the run's gate decisions, then swarmify renders it on the GPU through blender_render. Use it only where the world enabled both; params.base names the world's Blender Template to start from. It costs a coding session from the run's budget. Give it the script as input, or inputs: the script first, then files the builder should also read (as speech's timings.json). To approve the motion before the full render: a first blender_build stage at a cheap quality (as preview, when the Template has that preset), a gate, then a second blender_build stage with params.from naming the first, which renders that build at its own quality with no session."
 
 capabilities = ["build_session", "templates"]
 
@@ -62,6 +62,9 @@ description = "a time limit for the session, in minutes; none by default"
 type = "string"
 default = "draft"
 description = "a quality preset of the project's render.json, for the render after the session"
+[params.properties.from]
+type = "string"
+description = "an earlier blender_build stage whose build this stage renders, with no session of its own (a gate between them)"
 [params.properties.tools]
 type = "array"
 items = { type = "string" }

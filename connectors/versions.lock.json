@@ -1,7 +1,7 @@
 {
   "blender_build": {
-    "version": "1.0.0",
-    "files": "157d9546864a1050bf231c37304bd753e311fd1d71382b06131a9f2bd6b0743f"
+    "version": "1.1.0",
+    "files": "7a2f359aa73f7f0c95bcf5f8325b3203c525a168b78a2ad14363266e2b46a032"
   },
   "blender_render": {
     "version": "1.0.4",

@@ -32,7 +32,7 @@ FAKE_HYPERFRAMES = HERE.parents[2] / "connectors/hyperframes_render/fake_hyperfr
 BLENDER_RENDER = HERE.parents[2] / "connectors/blender_render"
 OFF_BY_DEFAULT = {
     "hyperframes_build": {"hyperframes_build": "1.0.1", "hyperframes_render": "1.0.1"},
-    "blender_build": {"blender_build": "1.0.0", "blender_render": "1.0.4"},
+    "blender_build": {"blender_build": "1.1.0", "blender_render": "1.0.4"},
 }
 """Installed with Swarmify but not defaults: a world enables the pair to build with it."""
 SANDBOX = shutil.which("sandbox-exec") or shutil.which("bwrap")
@@ -729,3 +729,78 @@ def test_a_revision_paused_part_way_keeps_its_edits_and_its_kept_version(
     stage = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"] / video_id
     assert (stage / "build/shots/s02.py").read_text() == "# half done"
     assert not (stage / "build.v1/shots/s02.py").exists() and (stage / "build.v1.mp4").is_file()
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_preview_build_is_approved_at_a_gate_then_a_later_stage_renders_the_same_build(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    """A preview build (a cheap quality), a gate that sends it back with notes or approves it,
+    then a stage with `from` that renders that stage's build folder at its own quality, with no
+    session of its own."""
+
+    def writes(name: str) -> Answer:  # the scripted CLI runs no tools, so the step writes
+        return Answer(lambda options: (Path(options.cwd) / "shots" / name).write_text("# 1"))
+
+    script = Script([writes("s02.py"), Say("v1")], [writes("s03.py"), Say("v2")])
+    after = (
+        "  - gate: approve motion\n    ask: Approve the motion?\n"
+        "  - connector: render\n    calls: blender_build\n    output: video.mp4\n"
+        "    params: {from: video, quality: final}\n"
+    )
+    client, run = build_run(
+        tmp_path,
+        SdkRuntime(transport=script.transport),
+        "{quality: draft}",
+        opened,
+        inputs="input: script.md\n    output: preview.mp4",
+        after=after,
+        calls="blender_build",
+    )
+    assert run["status"] == "waiting_gate", run
+    preview_id, render_id = run["stages"][1]["id"], run["stages"][3]["id"]
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    assert (folder / preview_id / "artifacts/preview.mp4").is_file()
+    assert client.get(f"/api/stages/{preview_id}/call").json()["request"]["quality"] == "draft"
+
+    sent = client.post(
+        f"/api/runs/{run['id']}/decision", json={"note": "Slower.", "send_back_to": "video"}
+    )
+    assert sent.status_code == 200, sent.text
+    run = settled(client, run["id"], send_backs=1)
+    assert run["status"] == "waiting_gate", run
+    assert "Slower." in script.prompts[1]
+
+    assert client.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
+    run = until(client, run["id"], lambda r: r["status"] in ("done", "failed"))
+    assert run["status"] == "done", run
+    assert len(script.sessions) == 2  # the render stage ran no session
+    project = folder / preview_id / "build"
+    assert (project / "shots/s03.py").is_file() and not (folder / render_id / "build").exists()
+    call = client.get(f"/api/stages/{render_id}/call").json()
+    assert call["connector"] == "blender_render"
+    assert (call["request"]["project"], call["request"]["quality"]) == (str(project), "final")
+    assert (folder / render_id / "artifacts/video.mp4").is_file()
+    assert (folder / render_id / "shots/s01.mp4").is_file()  # its own frames, not the preview's
+
+
+@pytest.mark.skipif(not SANDBOX, reason="no OS sandbox here")
+def test_a_build_from_a_stage_that_left_no_build_fails_saying_so(
+    tmp_path: Path, fake_blender: None, opened: list[TestClient]
+) -> None:
+    after = (
+        "  - gate: approve\n    ask: Go?\n"
+        "  - connector: render\n    calls: blender_build\n    output: video.mp4\n"
+        "    params: {from: video}\n"
+    )
+    script = Script([Say("v1")])
+    client, run = build_run(
+        tmp_path, SdkRuntime(transport=script.transport), "{}", opened,
+        after=after, calls="blender_build",
+    )  # fmt: skip
+    folder = tmp_path / "data/worlds" / run["world_id"] / "runs" / run["id"]
+    shutil.rmtree(folder / run["stages"][1]["id"] / "build")
+    assert client.post(f"/api/runs/{run['id']}/decision", json={}).status_code == 200
+    run = until(client, run["id"], lambda r: r["status"] in ("done", "failed"))
+    assert run["status"] == "failed", run
+    assert "video left no build" in json.dumps(run)
